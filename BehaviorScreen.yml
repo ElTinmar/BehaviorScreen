@@ -1,0 +1,14 @@
+name: BehaviorScreen
+channels:
+- conda-forge
+dependencies:
+- python == 3.11
+- ipython
+- tqdm
+- pip:
+  - pytorch
+  - torchvision
+  - torchaudio
+  - megabouts
+  - git+https://github.com/ElTinmar/video_tools.git@main#egg=video_tools[gpu]
+  
