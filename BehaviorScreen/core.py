@@ -1,5 +1,6 @@
 from enum import IntEnum
 from typing import TypedDict
+from pathlib import Path
 
 class Stim(IntEnum):
 
@@ -39,3 +40,6 @@ GROUPING_PARAMETER = {
 }
 
 COLORS = ("#F1500A", "#0A6EF1")
+
+BASE_DIR = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/output')
+#BASE_DIR = Path('/media/martin/DATA/Behavioral_screen/output')

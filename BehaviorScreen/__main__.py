@@ -2,7 +2,7 @@ from pathlib import Path
 from multiprocessing import Pool
 from functools import partial
 
-from .core import GROUPING_PARAMETER
+from .core import GROUPING_PARAMETER, BASE_DIR
 from .load import (
     Directories, 
     BehaviorFiles,
@@ -48,9 +48,9 @@ def run(behavior_file: BehaviorFiles):
     
 if __name__ == '__main__':
 
-    base_dir = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/output')
-    #base_dir = Path('/media/martin/DATA/Behavioral_screen/output')
-    directories = Directories(base_dir)
+    
+    
+    directories = Directories(BASE_DIR)
     behavior_files = find_files(directories)
 
     _extract_videos = partial(extract_videos, directories = directories)
