@@ -1,8 +1,7 @@
-from pathlib import Path
 from multiprocessing import Pool
 from functools import partial
 
-from .core import GROUPING_PARAMETER, BASE_DIR
+from .core import GROUPING_PARAMETER, BASE_DIR, NUM_PROCESSES
 from .load import (
     Directories, 
     BehaviorFiles,
@@ -48,14 +47,12 @@ def run(behavior_file: BehaviorFiles):
     
 if __name__ == '__main__':
 
-    
-    
     directories = Directories(BASE_DIR)
     behavior_files = find_files(directories)
 
     _extract_videos = partial(extract_videos, directories = directories)
     # NOTE all behavior data loaded in RAM can be heavy
-    with Pool(processes=16) as pool:
+    with Pool(processes=NUM_PROCESSES) as pool:
         pool.map(_extract_videos, behavior_files)
 
     for behavior_file in behavior_files:

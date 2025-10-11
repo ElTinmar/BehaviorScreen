@@ -5,9 +5,7 @@ from typing import List, Dict, NamedTuple, Optional
 import re
 from re import Pattern
 import pickle
-
 from video_tools import OpenCV_VideoReader
-
 
 class BehaviorData(NamedTuple):
     metadata: Dict

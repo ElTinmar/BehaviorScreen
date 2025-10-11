@@ -11,7 +11,7 @@ import numpy as np
 from tqdm import tqdm
 import cv2
 
-from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader
+from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader, CPU_VideoProcessor
 from .load import BehaviorData, BehaviorFiles, Directories
 from .core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS
 
@@ -281,6 +281,12 @@ def analyse_helper(
         sem.append(np.std(trials[group_idx], axis=1, ddof=1))
 
     return trials, avg, sem
+
+## VIDEO ---------------------------------------------------------------------------- 
+
+def export_single_animal_videos(behavior_file: BehaviorFiles) -> None:
+    processor = CPU_VideoProcessor(str(behavior_file.video))
+    
 
 def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int:
     distance = behavior_data.video_timestamps['timestamp'] - timestamp
