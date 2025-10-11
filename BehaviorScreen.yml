@@ -6,10 +6,11 @@ dependencies:
 - ipython
 - tqdm
 - pip
+- pytables==3.8.0
 - pip:
-  - pytorch
+  - torch
   - torchvision
-  - torchaudio
   - megabouts
-  - git+https://github.com/ElTinmar/video_tools.git@main#egg=video_tools[gpu]
+  - git+https://github.com/ElTinmar/video_tools.git@main
+  - deeplabcut[gui,modelzoo,wandb]==3.0.0rc9
   
