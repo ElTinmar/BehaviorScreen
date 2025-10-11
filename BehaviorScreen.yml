@@ -12,5 +12,7 @@ dependencies:
   - torchvision
   - megabouts
   - git+https://github.com/ElTinmar/video_tools.git@main
+  - git+https://github.com/ElTinmar/camera_tools.git@main
+  - git+https://github.com/ElTinmar/ThorPy.git@main
   - deeplabcut[gui,modelzoo,wandb]==3.0.0rc9
   
