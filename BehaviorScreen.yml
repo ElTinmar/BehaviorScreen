@@ -12,5 +12,5 @@ dependencies:
   - torchvision
   - megabouts
   - git+https://github.com/ElTinmar/video_tools.git@main
-  - deeplabcut[gui]
+  - deeplabcut[gui]==3.0.0rc9
   
