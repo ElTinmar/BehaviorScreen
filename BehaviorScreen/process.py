@@ -313,8 +313,8 @@ def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int
 
 def superimpose_video_trials(
         directories: Directories,
-        behavior_data: BehaviorData,
         behavior_file: BehaviorFiles,
+        behavior_data: BehaviorData,
         trial_duration_sec: float,
         grouping_parameter: Dict[Stim, str]
     ) -> None:

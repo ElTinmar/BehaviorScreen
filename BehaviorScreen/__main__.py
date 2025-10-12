@@ -40,7 +40,7 @@ from BehaviorScreen.plot import (
 
 def extract_videos(directories: Directories, behavior_file: BehaviorFiles):
     behavior_data = load_data(behavior_file)
-    superimpose_video_trials(directories, behavior_data, behavior_file, 30, GROUPING_PARAMETER)
+    superimpose_video_trials(directories, behavior_file, behavior_data, 30, GROUPING_PARAMETER)
 
 def run(directories: Directories, behavior_file: BehaviorFiles):
     behavior_data = load_data(behavior_file)
