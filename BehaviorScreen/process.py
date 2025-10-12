@@ -291,9 +291,19 @@ def analyse_helper(
 
 ## VIDEO ---------------------------------------------------------------------------- 
 
-def export_single_animal_videos(behavior_file: BehaviorFiles) -> None:
+def export_single_animal_videos(
+        directories: Directories, 
+        behavior_file: BehaviorFiles,
+        behavior_data: BehaviorData
+    ) -> None:
+
     processor = CPU_VideoProcessor(str(behavior_file.video))
-    
+    for i, (x,y,w,h) in  enumerate(behavior_data.metadata['identity']['ROIs']):
+        processor.crop(
+            x,y,w,h,
+            suffix=f"fish_{i}",
+            dest_folder=str(directories.results)
+        )
 
 def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int:
     distance = behavior_data.video_timestamps['timestamp'] - timestamp
