@@ -4,7 +4,6 @@ from pathlib import Path
 from typing import List, Dict, NamedTuple, Optional
 import re
 from re import Pattern
-import pickle
 from video_tools import OpenCV_VideoReader
 
 class BehaviorData(NamedTuple):
@@ -91,8 +90,8 @@ def parse_filename(path: Path, regexp: Pattern) -> FileNameInfo:
     )
 
 def load_metadata(metadata_file: Path) -> Dict:
-    with open(metadata_file, 'rb') as f:
-        metadata = pickle.load(f)
+    with open(metadata_file, 'r') as f:
+        metadata = json.load(f)
     return metadata
 
 def load_stimuli(stim_file: Path) -> List[Dict]:

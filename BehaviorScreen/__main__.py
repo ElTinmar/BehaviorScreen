@@ -32,6 +32,8 @@ from .plot import (
 
 # TODO filter dark/bright events to remove transition/rest periods
 
+# TODO overlay reconstructed stimulus on top of video 
+
 def extract_videos(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
     superimpose_video_trials(directories, behavior_data, behavior_file, 30, GROUPING_PARAMETER)
