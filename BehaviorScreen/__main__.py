@@ -1,19 +1,19 @@
 from multiprocessing import Pool
 from functools import partial
 
-from .core import GROUPING_PARAMETER, BASE_DIR, NUM_PROCESSES
-from .load import (
+from BehaviorScreen.core import GROUPING_PARAMETER, BASE_DIR, NUM_PROCESSES
+from BehaviorScreen.load import (
     Directories, 
     BehaviorFiles,
     find_files, 
     load_data
 )
-from .process import (
+from BehaviorScreen.process import (
     extract_metrics, 
     get_well_coords_mm,
     superimpose_video_trials
 )
-from .plot import (
+from BehaviorScreen.plot import (
     plot_tracking_metrics, 
     plot_trajectories
 )
@@ -34,13 +34,13 @@ from .plot import (
 
 # TODO overlay reconstructed stimulus on top of video 
 
-def extract_videos(behavior_file: BehaviorFiles, directories: Directories):
+def extract_videos(directories: Directories, behavior_file: BehaviorFiles):
     behavior_data = load_data(behavior_file)
     superimpose_video_trials(directories, behavior_data, behavior_file, 30, GROUPING_PARAMETER)
 
-def run(behavior_file: BehaviorFiles):
+def run(directories: Directories, behavior_file: BehaviorFiles):
     behavior_data = load_data(behavior_file)
-    well_coords_mm = get_well_coords_mm(behavior_data)
+    well_coords_mm = get_well_coords_mm(directories, behavior_file, behavior_data)
     metrics = extract_metrics(behavior_data, well_coords_mm)
 
     for identity, data in metrics.items():
@@ -58,4 +58,4 @@ if __name__ == '__main__':
         pool.map(_extract_videos, behavior_files)
 
     for behavior_file in behavior_files:
-        run(behavior_file)
+        run(directories, behavior_file)

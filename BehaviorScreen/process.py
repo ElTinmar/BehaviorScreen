@@ -12,8 +12,8 @@ from tqdm import tqdm
 import cv2
 
 from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader, CPU_VideoProcessor
-from .load import BehaviorData, BehaviorFiles, Directories
-from .core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS
+from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
+from BehaviorScreen.core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS
 
 def get_background_image(
         behavior_data: BehaviorData, 
@@ -63,7 +63,12 @@ def get_circles(
 
     return circles
 
-def show_detected_circles(image: np.ndarray, circles: np.ndarray) -> None:
+def save_detected_circles(
+        directories: Directories,
+        behavior_file: BehaviorFiles,
+        image: np.ndarray, 
+        circles: np.ndarray
+    ) -> None:
 
     if len(image.shape) == 2:  # grayscale
         img_color = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
@@ -76,9 +81,9 @@ def show_detected_circles(image: np.ndarray, circles: np.ndarray) -> None:
         cv2.circle(img_color, center, radius, (0, 255, 0), 2)
         cv2.circle(img_color, center, 2, (0, 0, 255), 3)
 
-    cv2.imshow('detected wells', img_color)
-    cv2.waitKey(0)
-
+    result = directories.results / f"{behavior_file.video.stem}_WELLS.png"
+    cv2.imwrite(str(result), img_color)
+    
 def circle_roi_index(circles: np.ndarray, rois: List[Tuple[int,int,int,int]]):
     indices = []
     for x, y, _ in circles:
@@ -94,6 +99,8 @@ def circle_roi_index(circles: np.ndarray, rois: List[Tuple[int,int,int,int]]):
     return indices
 
 def get_well_coords_mm(
+        directories: Directories,
+        behavior_file: BehaviorFiles,
         behavior_data: BehaviorData, 
         num_samples: int = 100,
         tolerance_mm = 2,
@@ -107,7 +114,7 @@ def get_well_coords_mm(
         tolerance_mm, 
         AGAROSE_WELL_DIMENSIONS
     )
-    show_detected_circles(background_image, circles)
+    save_detected_circles(directories, behavior_file, background_image, circles)
     ind = circle_roi_index(circles, behavior_data.metadata['identity']['ROIs'])
     circles_mm = 1/pix_per_mm * circles[ind,:]
 

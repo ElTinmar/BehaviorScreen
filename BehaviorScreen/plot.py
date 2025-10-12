@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 
-from .process import common_time, interpolate_ts
-from .core import Stim, COLORS
+from BehaviorScreen.process import common_time, interpolate_ts
+from BehaviorScreen.core import Stim, COLORS
 
 def plot_helper(
         ax: Axes,
