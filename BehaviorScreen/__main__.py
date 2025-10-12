@@ -11,7 +11,8 @@ from BehaviorScreen.load import (
 from BehaviorScreen.process import (
     extract_metrics, 
     get_well_coords_mm,
-    superimpose_video_trials
+    superimpose_video_trials,
+    export_single_animal_videos
 )
 from BehaviorScreen.plot import (
     plot_tracking_metrics, 
@@ -41,6 +42,10 @@ from BehaviorScreen.plot import (
 def extract_videos(directories: Directories, behavior_file: BehaviorFiles):
     behavior_data = load_data(behavior_file)
     superimpose_video_trials(directories, behavior_file, behavior_data, 30, GROUPING_PARAMETER)
+
+def extract_videos(directories: Directories, behavior_file: BehaviorFiles):
+    behavior_data = load_data(behavior_file)
+    export_single_animal_videos(directories, behavior_file, behavior_data)
 
 def run(directories: Directories, behavior_file: BehaviorFiles):
     behavior_data = load_data(behavior_file)
