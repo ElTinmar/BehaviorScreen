@@ -43,7 +43,9 @@ COLORS = ("#F1500A", "#0A6EF1")
 
 ROOT_FOLDER = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen')
 BASE_DIR = ROOT_FOLDER / 'output'
-DLC_MODELS = ROOT_FOLDER / 'DLC'
+
+DLC_MODELS_URL = "https://figshare.unimelb.edu.au/ndownloader/articles/29275838/versions/2?folder_path=DLC_exported-models"
+DLC_MODELS_FOLDER = ROOT_FOLDER / 'DLC'
 
 NUM_PROCESSES = 16
 
