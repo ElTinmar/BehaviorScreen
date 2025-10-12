@@ -18,8 +18,12 @@ from BehaviorScreen.plot import (
     plot_trajectories
 )
 
+
+# DLC
 # TODO eye tracking OKR
 # TODO eye tracking + tail tracking and classification J-turn PREY_CAPTURE
+
+# megabouts
 # TODO bout segmentation and distribution of heading change per bout
 # TODO bout classification for every behavior + ethogram? 
 
