@@ -39,15 +39,15 @@ from BehaviorScreen.plot import (
 
 # TODO overlay reconstructed stimulus on top of video 
 
-def extract_videos(directories: Directories, behavior_file: BehaviorFiles):
+def _run_superimpose(directories: Directories, behavior_file: BehaviorFiles):
     behavior_data = load_data(behavior_file)
     superimpose_video_trials(directories, behavior_file, behavior_data, 30, GROUPING_PARAMETER)
 
-def extract_videos(directories: Directories, behavior_file: BehaviorFiles):
+def _run_single_animal(directories: Directories, behavior_file: BehaviorFiles):
     behavior_data = load_data(behavior_file)
     export_single_animal_videos(directories, behavior_file, behavior_data)
 
-def run(directories: Directories, behavior_file: BehaviorFiles):
+def _run_metrics(directories: Directories, behavior_file: BehaviorFiles):
     behavior_data = load_data(behavior_file)
     well_coords_mm = get_well_coords_mm(directories, behavior_file, behavior_data)
     metrics = extract_metrics(behavior_data, well_coords_mm)
@@ -61,10 +61,14 @@ if __name__ == '__main__':
     directories = Directories(BASE_DIR)
     behavior_files = find_files(directories)
 
-    _extract_videos = partial(extract_videos, directories = directories)
-    # NOTE all behavior data loaded in RAM can be heavy
+    run_superimpose = partial(_run_superimpose, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:
-        pool.map(_extract_videos, behavior_files)
+        pool.map(run_superimpose, behavior_files)
 
-    for behavior_file in behavior_files:
-        run(directories, behavior_file)
+    run_single_animal = partial(_run_single_animal, directories = directories)
+    with Pool(processes=NUM_PROCESSES) as pool:
+        pool.map(run_single_animal, behavior_files)
+
+    run_metrics = partial(_run_metrics, directories = directories)
+    with Pool(processes=NUM_PROCESSES) as pool:
+        pool.map(run_metrics, behavior_files)
