@@ -297,6 +297,8 @@ def export_single_animal_videos(
         behavior_data: BehaviorData
     ) -> None:
 
+    directories.results.mkdir(parents=True, exist_ok=True)
+
     processor = CPU_VideoProcessor(str(behavior_file.video))
     for i, (x,y,w,h) in  enumerate(behavior_data.metadata['identity']['ROIs']):
         processor.crop(
