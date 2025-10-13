@@ -16,7 +16,7 @@ from sleap_nn.predict import run_inference
 
 from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader, CPU_VideoProcessor
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
-from BehaviorScreen.core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS
+from BehaviorScreen.core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS, ROOT_FOLDER
 
 import matplotlib.pyplot as plt # this for debugging, remove in the future
 
@@ -324,27 +324,16 @@ def export_single_animal_videos(
 # TODO play with this and clean up
 def track_with_SLEAP(directories: Directories, behavior_file: BehaviorFiles, config_path: Path):
 
-    # labels = run_inference(
-    #     data_path = '/media/martin/DATA/Behavioral_screen/output/results/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.mp4', 
-    #     model_paths = [
-    #         "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241003_153226.single_instance.n=1641"
-    #     ], 
-    #     output_path = 'pred.slp', 
-    #     device = 'cpu',
-    #     frames = list(range(100)),
-    #     return_confmaps = True
-    # )
-
-    # this seems to be working kinda
     labels = run_inference(
-        data_path = '/media/martin/DATA/Behavioral_screen/output/results/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.mp4', 
+        data_path = str(directories.results / 'single_fish/02_07dpf_wt_Thu_09_Oct_2025_17h26min06sec_fish_3.mp4'), 
         model_paths = [
-            "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241008_212103.centroid.n=1641", 
-            "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241009_204336.centered_instance.n=1641",
+            str(ROOT_FOLDER / "SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241008_212103.centroid.n=1641"), 
+            str(ROOT_FOLDER / "SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241009_204336.centered_instance.n=1641"),
         ], 
-        output_path = 'pred.slp', 
-        frames = list(range(5)),
-        device = 'cpu', 
+        output_path = str(directories.results / '02_07dpf_wt_Thu_09_Oct_2025_17h26min06sec_fish_3.slp'), 
+        frames = list(range(1000)),
+        device = 'cuda', 
+        batch_size = 32,
         return_confmaps = True
     )
 
