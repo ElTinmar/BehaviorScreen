@@ -18,6 +18,8 @@ from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader, CPU_VideoProcess
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
 from BehaviorScreen.core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS
 
+import matplotlib.pyplot as plt # this for debugging, remove in the future
+
 def get_background_image(
         behavior_data: BehaviorData, 
         num_samples: int = 100
@@ -319,35 +321,54 @@ def export_single_animal_videos(
 #         destfolder = directories.results
 #     )
 
+# TODO play with this and clean up
 def track_with_SLEAP(directories: Directories, behavior_file: BehaviorFiles, config_path: Path):
-    # deeplabcut.analyze_videos(
-    #     config_path, 
-    #     [behavior_file.video],
-    #     videotype = "mp4",
-    #     save_as_csv = True,
-    #     destfolder = directories.results
+
+    # labels = run_inference(
+    #     data_path = '/media/martin/DATA/Behavioral_screen/output/results/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.mp4', 
+    #     model_paths = [
+    #         "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241003_153226.single_instance.n=1641"
+    #     ], 
+    #     output_path = 'pred.slp', 
+    #     device = 'cpu',
+    #     frames = list(range(100)),
+    #     return_confmaps = True
     # )
 
-    run_inference(
-        data_path = '/media/martin/DATA/Behavioral_screen/output/results/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.mp4', 
-        model_paths = [
-            "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241003_153226.single_instance.n=1641"
-        ], 
-        output_path = 'pred.slp', 
-        device = 'cpu',
-        frames = list(range(100)),
-        return_confmaps = True
-    )
-
-    run_inference(
+    # this seems to be working kinda
+    labels = run_inference(
         data_path = '/media/martin/DATA/Behavioral_screen/output/results/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.mp4', 
         model_paths = [
             "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241008_212103.centroid.n=1641", 
-            "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241009_204336.centered_instance.n=1641"
+            "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241009_204336.centered_instance.n=1641",
         ], 
         output_path = 'pred.slp', 
+        frames = list(range(5)),
+        device = 'cpu', 
         return_confmaps = True
     )
+
+    def plot_preds(pred_labels, lf_index):
+        _fig, _ax = plt.subplots(1, 1, figsize=(5 * 1, 5 * 1))
+        pred_lf = pred_labels[lf_index]
+        _ax.imshow(pred_lf.image, cmap="gray")
+    
+        # Plot predicted instances
+        for idx, instance in enumerate(pred_lf.instances):
+            if not instance.is_empty:
+                pred_pts = instance.numpy()
+                _ax.plot(
+                    pred_pts[:, 0],
+                    pred_pts[:, 1],
+                    "rx",
+                    markersize=6,
+                    alpha=0.8,
+                    label="Pred" if idx == 0 else "",
+                )
+        plt.show()
+        return
+    
+    plot_preds(labels, 0)
 
 def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int:
     distance = behavior_data.video_timestamps['timestamp'] - timestamp
