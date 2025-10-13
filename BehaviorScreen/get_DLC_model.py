@@ -6,7 +6,7 @@ from pathlib import Path
 from urllib.request import urlretrieve
 from zipfile import ZipFile
 
-def download_and_extract(url: str, dest_folder: Path):
+def download_and_extract_DLC_models(url: str, dest_folder: Path):
     dest_folder.mkdir(parents=True, exist_ok=True)
     zip_file = dest_folder / "dlc_models.zip"
 
@@ -21,4 +21,4 @@ def download_and_extract(url: str, dest_folder: Path):
 
 if __name__ == '__main__':
 
-    download_and_extract(DLC_MODELS_URL, DLC_MODELS_FOLDER)
+    download_and_extract_DLC_models(DLC_MODELS_URL, DLC_MODELS_FOLDER)

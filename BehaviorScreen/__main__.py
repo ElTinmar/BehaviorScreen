@@ -1,7 +1,13 @@
 from multiprocessing import Pool
 from functools import partial
 
-from BehaviorScreen.core import GROUPING_PARAMETER, BASE_DIR, NUM_PROCESSES
+from BehaviorScreen.core import (
+    GROUPING_PARAMETER, 
+    BASE_DIR, 
+    NUM_PROCESSES, 
+    DLC_MODELS_FOLDER, 
+    DLC_MODELS_URL
+)
 from BehaviorScreen.load import (
     Directories, 
     BehaviorFiles,
@@ -18,6 +24,7 @@ from BehaviorScreen.plot import (
     plot_tracking_metrics, 
     plot_trajectories
 )
+from BehaviorScreen.get_DLC_model import download_and_extract_DLC_models
 
 
 # DLC
@@ -60,6 +67,8 @@ if __name__ == '__main__':
 
     directories = Directories(BASE_DIR)
     behavior_files = find_files(directories)
+
+    download_and_extract_DLC_models(DLC_MODELS_URL, DLC_MODELS_FOLDER)
 
     run_superimpose = partial(_run_superimpose, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:
