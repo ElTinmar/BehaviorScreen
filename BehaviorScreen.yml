@@ -13,4 +13,5 @@ dependencies:
   - megabouts
   - git+https://github.com/ElTinmar/video_tools.git@main
   - deeplabcut[gui]==3.0.0rc9
+  - sleap[nn]==1.5.1
   

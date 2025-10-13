@@ -12,6 +12,7 @@ from tqdm import tqdm
 from pathlib import Path
 import cv2
 # import deeplabcut
+from sleap_nn.predict import run_inference
 
 from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader, CPU_VideoProcessor
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
@@ -326,7 +327,27 @@ def track_with_SLEAP(directories: Directories, behavior_file: BehaviorFiles, con
     #     save_as_csv = True,
     #     destfolder = directories.results
     # )
-    ...
+
+    run_inference(
+        data_path = '/media/martin/DATA/Behavioral_screen/output/results/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.mp4', 
+        model_paths = [
+            "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241003_153226.single_instance.n=1641"
+        ], 
+        output_path = 'pred.slp', 
+        device = 'cpu',
+        frames = list(range(100)),
+        return_confmaps = True
+    )
+
+    run_inference(
+        data_path = '/media/martin/DATA/Behavioral_screen/output/results/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.mp4', 
+        model_paths = [
+            "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241008_212103.centroid.n=1641", 
+            "/media/martin/DATA/Behavioral_screen/SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241009_204336.centered_instance.n=1641"
+        ], 
+        output_path = 'pred.slp', 
+        return_confmaps = True
+    )
 
 def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int:
     distance = behavior_data.video_timestamps['timestamp'] - timestamp
