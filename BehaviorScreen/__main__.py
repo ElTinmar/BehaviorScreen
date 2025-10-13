@@ -39,15 +39,15 @@ from BehaviorScreen.plot import (
 
 # TODO overlay reconstructed stimulus on top of video 
 
-def _run_superimpose(directories: Directories, behavior_file: BehaviorFiles):
+def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
     superimpose_video_trials(directories, behavior_file, behavior_data, 30, GROUPING_PARAMETER)
 
-def _run_single_animal(directories: Directories, behavior_file: BehaviorFiles):
+def _run_single_animal(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
     export_single_animal_videos(directories, behavior_file, behavior_data)
 
-def _run_metrics(directories: Directories, behavior_file: BehaviorFiles):
+def _run_metrics(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
     well_coords_mm = get_well_coords_mm(directories, behavior_file, behavior_data)
     metrics = extract_metrics(behavior_data, well_coords_mm)
