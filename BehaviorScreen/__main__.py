@@ -18,7 +18,8 @@ from BehaviorScreen.process import (
     extract_metrics, 
     get_well_coords_mm,
     superimpose_video_trials,
-    export_single_animal_videos
+    export_single_animal_videos,
+    track_with_deeplabcut
 )
 from BehaviorScreen.plot import (
     plot_tracking_metrics, 
@@ -69,6 +70,7 @@ if __name__ == '__main__':
     behavior_files = find_files(directories)
 
     download_and_extract_DLC_models(DLC_MODELS_URL, DLC_MODELS_FOLDER)
+    track_with_deeplabcut(directories, behavior_files[0], '/media/martin/DATA/Behavioral_screen/DLC/DLC_exported-models/DLC_ZF-Rosco_resnet_152_iteration-4_shuffle-1/55246895_pose_cfg.yaml')
 
     run_superimpose = partial(_run_superimpose, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:
