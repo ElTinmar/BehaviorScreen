@@ -11,7 +11,7 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 import cv2
-import deeplabcut
+# import deeplabcut
 
 from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader, CPU_VideoProcessor
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
@@ -309,14 +309,24 @@ def export_single_animal_videos(
             dest_folder=str(directories.results)
         )
 
-def track_with_deeplabcut(directories: Directories, behavior_file: BehaviorFiles, config_path: Path):
-    deeplabcut.analyze_videos(
-        config_path, 
-        [behavior_file.video],
-        videotype = "mp4",
-        save_as_csv = True,
-        destfolder = directories.results
-    )
+# def track_with_deeplabcut(directories: Directories, behavior_file: BehaviorFiles, config_path: Path):
+#     deeplabcut.analyze_videos(
+#         config_path, 
+#         [behavior_file.video],
+#         videotype = "mp4",
+#         save_as_csv = True,
+#         destfolder = directories.results
+#     )
+
+def track_with_SLEAP(directories: Directories, behavior_file: BehaviorFiles, config_path: Path):
+    # deeplabcut.analyze_videos(
+    #     config_path, 
+    #     [behavior_file.video],
+    #     videotype = "mp4",
+    #     save_as_csv = True,
+    #     destfolder = directories.results
+    # )
+    ...
 
 def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int:
     distance = behavior_data.video_timestamps['timestamp'] - timestamp

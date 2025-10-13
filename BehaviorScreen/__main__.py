@@ -5,8 +5,8 @@ from BehaviorScreen.core import (
     GROUPING_PARAMETER, 
     BASE_DIR, 
     NUM_PROCESSES, 
-    DLC_MODELS_FOLDER, 
-    DLC_MODELS_URL
+    MODELS_FOLDER, 
+    MODELS_URL
 )
 from BehaviorScreen.load import (
     Directories, 
@@ -19,13 +19,13 @@ from BehaviorScreen.process import (
     get_well_coords_mm,
     superimpose_video_trials,
     export_single_animal_videos,
-    track_with_deeplabcut
+    track_with_SLEAP
 )
 from BehaviorScreen.plot import (
     plot_tracking_metrics, 
     plot_trajectories
 )
-from BehaviorScreen.get_DLC_model import download_and_extract_DLC_models
+from BehaviorScreen.get_models import download_and_extract_models
 
 
 # DLC
@@ -69,8 +69,7 @@ if __name__ == '__main__':
     directories = Directories(BASE_DIR)
     behavior_files = find_files(directories)
 
-    download_and_extract_DLC_models(DLC_MODELS_URL, DLC_MODELS_FOLDER)
-    track_with_deeplabcut(directories, behavior_files[0], '/media/martin/DATA/Behavioral_screen/DLC/DLC_exported-models/DLC_ZF-Rosco_resnet_152_iteration-4_shuffle-1/55246895_pose_cfg.yaml')
+    download_and_extract_models(MODELS_URL, MODELS_FOLDER)
 
     run_superimpose = partial(_run_superimpose, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:
