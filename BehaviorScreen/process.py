@@ -299,12 +299,13 @@ def analyse_helper(
 def export_single_animal_videos(
         directories: Directories, 
         behavior_file: BehaviorFiles,
-        behavior_data: BehaviorData
+        behavior_data: BehaviorData,
+        quality: int = 18
     ) -> None:
 
     directories.results.mkdir(parents=True, exist_ok=True)
 
-    processor = CPU_VideoProcessor(str(behavior_file.video))
+    processor = CPU_VideoProcessor(str(behavior_file.video), quality = quality)
     for i, (x,y,w,h) in  enumerate(behavior_data.metadata['identity']['ROIs']):
         processor.crop(
             x,y,w,h,

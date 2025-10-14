@@ -53,7 +53,7 @@ def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
 
 def _run_single_animal(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
-    export_single_animal_videos(directories, behavior_file, behavior_data)
+    export_single_animal_videos(directories, behavior_file, behavior_data, quality=18)
 
 def _run_metrics(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
