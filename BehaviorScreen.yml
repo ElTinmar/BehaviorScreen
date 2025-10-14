@@ -7,6 +7,7 @@ dependencies:
 - tqdm
 - pip
 - pytables==3.8.0
+- ffmpeg
 - pip:
   - torch
   - torchvision
