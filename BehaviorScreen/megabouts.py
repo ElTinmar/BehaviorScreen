@@ -33,7 +33,8 @@ def megabout_head_pipeline(behavior_data: BehaviorData):
 
     mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
     fps = behavior_data.metadata['camera']['framerate_value']
-    
+    num_categories = len(bouts_category_name)
+
     metrics = {}
     stim_trials = get_trials(behavior_data)
     for identity, data in behavior_data.tracking.groupby('identity'):
@@ -44,6 +45,7 @@ def megabout_head_pipeline(behavior_data: BehaviorData):
             metrics[identity][stim_select]['bouts'] = []
             metrics[identity][stim_select]['segments'] = []
             metrics[identity][stim_select]['traj'] = []
+            metrics[identity][stim_select]['transition'] = np.zeros((num_categories, num_categories))
             for trial_idx, row in stim_data.iterrows():
                 df = get_tracking_between(data, row['start_timestamp'], row['stop_timestamp'])
                 swimbladder_x = df["centroid_x"].values * mm_per_pix
@@ -68,6 +70,12 @@ def megabout_head_pipeline(behavior_data: BehaviorData):
                 metrics[identity][stim_select]['bouts'].append(bouts)
                 metrics[identity][stim_select]['segments'].append(segments)
                 metrics[identity][stim_select]['traj'].append(traj)
+                for b0, b1 in zip(bouts.df.label.category[:-1], bouts.df.label.category[1:]):
+                    metrics[identity][stim_select]['transition'][int(b0), int(b1)] += 1
+                    
+            row_sums = metrics[identity][stim_select]['transition'].sum(axis=1, keepdims=True)
+            row_sums[row_sums == 0] = 1
+            metrics[identity][stim_select]['transition'] /= row_sums
 
     return metrics
 
