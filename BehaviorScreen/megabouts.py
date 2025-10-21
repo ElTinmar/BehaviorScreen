@@ -5,7 +5,7 @@ import matplotlib.gridspec as gridspec
 from cycler import cycler
 from typing import Tuple 
 import networkx as nx
-from copy import copy
+import copy
 
 from megabouts.tracking_data import TrackingConfig, FullTrackingData, HeadTrackingData
 from megabouts.config import TrajSegmentationConfig
@@ -25,43 +25,56 @@ from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 
 from .core import ROOT_FOLDER
 from .load import BehaviorData
+from .process import get_trials, get_tracking_between
 
 df_recording = pd.read_csv(ROOT_FOLDER / 'sleap/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.predictions.000_00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.analysis.csv')
 
-# Head tracking from my own data
-def megabout_head_pipeline(behavior_data: BehaviorData, identity: int) -> Tuple[EthogramHeadTracking, TailBouts, SegmentationResult, TrajPreprocessingResult]:
+def megabout_head_pipeline(behavior_data: BehaviorData):
 
     mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
     fps = behavior_data.metadata['camera']['framerate_value']
-
-    df = behavior_data.tracking[behavior_data.tracking['identity']==identity]
-    df = df.sort_values(by='index')
     
-    swimbladder_x = df["centroid_x"].values * mm_per_pix
-    swimbladder_y = df["centroid_y"].values * mm_per_pix
-    head_x = swimbladder_x + df['pc1_x'].values * mm_per_pix
-    head_y = swimbladder_y + df['pc1_y'].values * mm_per_pix
+    metrics = {}
+    stim_trials = get_trials(behavior_data)
+    for identity, data in behavior_data.tracking.groupby('identity'):
+        metrics[identity] = {}
+        for stim_select, stim_data in stim_trials.groupby('stim_select'):
+            metrics[identity][stim_select] = {}
+            metrics[identity][stim_select]['ethogram'] = []
+            metrics[identity][stim_select]['bouts'] = []
+            metrics[identity][stim_select]['segments'] = []
+            metrics[identity][stim_select]['traj'] = []
+            for trial_idx, row in stim_data.iterrows():
+                df = get_tracking_between(data, row['start_timestamp'], row['stop_timestamp'])
+                swimbladder_x = df["centroid_x"].values * mm_per_pix
+                swimbladder_y = df["centroid_y"].values * mm_per_pix
+                head_x = swimbladder_x + df['pc1_x'].values * mm_per_pix
+                head_y = swimbladder_y + df['pc1_y'].values * mm_per_pix
 
-    tracking_data = HeadTrackingData.from_keypoints(
-        head_x=head_x,
-        head_y=head_y,
-        swimbladder_x=swimbladder_x,
-        swimbladder_y=swimbladder_y,
-    )
+                tracking_data = HeadTrackingData.from_keypoints(
+                    head_x=head_x,
+                    head_y=head_y,
+                    swimbladder_x=swimbladder_x,
+                    swimbladder_y=swimbladder_y,
+                )
 
-    tracking_cfg = TrackingConfig(fps=fps, tracking="head_tracking")
-    pipeline = HeadTrackingPipeline(tracking_cfg, exclude_CS=False)
-    pipeline.traj_segmentation_cfg = TrajSegmentationConfig(
-        fps=tracking_cfg.fps, peak_prominence=0.15, peak_percentage=0.2
-    )
-    ethogram, bouts, segments, traj = pipeline.run(tracking_data)
+                tracking_cfg = TrackingConfig(fps=fps, tracking="head_tracking")
+                pipeline = HeadTrackingPipeline(tracking_cfg, exclude_CS=False)
+                pipeline.traj_segmentation_cfg = TrajSegmentationConfig(
+                    fps=tracking_cfg.fps, peak_prominence=0.15, peak_percentage=0.2
+                )
+                ethogram, bouts, segments, traj = pipeline.run(tracking_data)
+                metrics[identity][stim_select]['ethogram'].append(ethogram)
+                metrics[identity][stim_select]['bouts'].append(bouts)
+                metrics[identity][stim_select]['segments'].append(segments)
+                metrics[identity][stim_select]['traj'].append(traj)
 
-    return ethogram, bouts, segments, traj
+    return metrics
 
 def filter_bouts(bouts, start: int, stop: int) -> TailBouts:
-    
+
     mask = (bouts.df.location['onset'] > start) & (bouts.df.location['offset'] < stop)
-    res = copy(bouts)
+    res = copy.deepcopy(bouts)
     res.onset = res.onset[mask]
     res.offset = res.offset[mask]
     res.HB1 = res.HB1[mask]
@@ -74,6 +87,31 @@ def filter_bouts(bouts, start: int, stop: int) -> TailBouts:
         res.tail = res.tail[mask]
     if res.traj is not None:
         res.traj = res.traj[mask]
+    return res
+
+def append_bouts(bouts0, bouts1) -> 'TailBouts':
+    res = copy.deepcopy(bouts0)  
+
+    np_attrs = ['onset', 'offset', 'HB1', 'category', 'subcategory', 'sign', 'proba']
+    for attr in np_attrs:
+        arr0 = getattr(bouts0, attr)
+        arr1 = getattr(bouts1, attr)
+        setattr(res, attr, np.concatenate([arr0, arr1]))
+
+    res.df = pd.concat([bouts0.df, bouts1.df], ignore_index=True)
+
+    if hasattr(res, 'tail') and bouts0.tail is not None and bouts1.tail is not None:
+        res.tail = np.concatenate([bouts0.tail, bouts1.tail])
+    if hasattr(res, 'traj') and bouts0.traj is not None and bouts1.traj is not None:
+        res.traj = np.concatenate([bouts0.traj, bouts1.traj])
+
+    sort_idx = np.argsort(res.onset)
+    for attr in np_attrs + ['tail', 'traj']:
+        if hasattr(res, attr) and getattr(res, attr) is not None:
+            setattr(res, attr, getattr(res, attr)[sort_idx])
+    
+    res.df = res.df.iloc[sort_idx].reset_index(drop=True)
+
     return res
 
 def transitions(bouts):
