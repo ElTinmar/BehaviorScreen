@@ -3,10 +3,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from cycler import cycler
+from typing import Tuple 
 
-from megabouts.tracking_data import TrackingConfig, FullTrackingData
+from megabouts.tracking_data import TrackingConfig, FullTrackingData, HeadTrackingData
 from megabouts.config import TrajSegmentationConfig
-from megabouts.pipeline import FullTrackingPipeline
+from megabouts.pipeline import FullTrackingPipeline, HeadTrackingPipeline
 from megabouts.utils import (
     bouts_category_name,
     bouts_category_name_short,
@@ -15,10 +16,77 @@ from megabouts.utils import (
 )
 from megabouts.segmentation import Segmentation
 
+from megabouts.pipeline.freely_swimming_pipeline import EthogramHeadTracking
+from megabouts.classification.classification import TailBouts
+from megabouts.segmentation.segmentation import SegmentationResult
+from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 
-df_recording = pd.read_csv('00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.predictions.000_00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.analysis.csv')
+from .core import ROOT_FOLDER
+from .load import BehaviorData
+
+df_recording = pd.read_csv(ROOT_FOLDER / 'sleap/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.predictions.000_00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.analysis.csv')
 fps = 100
 mm_per_unit = 1/42
+
+# Head tracking from my own data
+def megabout_head_pipeline(behavior_data: BehaviorData, identity: int) -> Tuple[EthogramHeadTracking, TailBouts, SegmentationResult, TrajPreprocessingResult]:
+
+
+    mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
+    fps = behavior_data.metadata['camera']['framerate_value']
+
+    df = behavior_data.tracking[behavior_data.tracking['identity']==identity]
+    df = df.sort_values(by='index')
+    
+    swimbladder_x = df["centroid_x"].values * mm_per_pix
+    swimbladder_y = df["centroid_y"].values * mm_per_pix
+    head_x = swimbladder_x + df['pc1_x'].values * mm_per_pix
+    head_y = swimbladder_y + df['pc1_y'].values * mm_per_pix
+
+    tracking_data = HeadTrackingData.from_keypoints(
+        head_x=head_x,
+        head_y=head_y,
+        swimbladder_x=swimbladder_x,
+        swimbladder_y=swimbladder_y,
+    )
+
+    tracking_cfg = TrackingConfig(fps=fps, tracking="head_tracking")
+    pipeline = HeadTrackingPipeline(tracking_cfg, exclude_CS=True)
+    pipeline.traj_segmentation_cfg = TrajSegmentationConfig(
+        fps=tracking_cfg.fps, peak_prominence=0.15, peak_percentage=0.2
+    )
+    ethogram, bouts, segments, traj = pipeline.run(tracking_data)
+
+    return ethogram, bouts, segments, traj
+
+# Head tracking from sleap
+thresh_score = 0.75
+for kps in ["Head", "Swim_Bladder"]:
+    df_recording.loc[df_recording["instance.score"] < thresh_score, kps + ".x"] = np.nan
+    df_recording.loc[df_recording["instance.score"] < thresh_score, kps + ".y"] = np.nan
+    df_recording.loc[df_recording[kps + ".score"] < thresh_score, kps + ".x"] = np.nan
+    df_recording.loc[df_recording[kps + ".score"] < thresh_score, kps + ".y"] = np.nan
+
+head_x = df_recording["Head.x"].values * mm_per_unit
+head_y = df_recording["Head.y"].values * mm_per_unit
+swimbladder_x = df_recording["Swim_Bladder.x"].values * mm_per_unit
+swimbladder_y = df_recording["Swim_Bladder.y"].values * mm_per_unit
+
+tracking_data = HeadTrackingData.from_keypoints(
+    head_x=head_x,
+    head_y=head_y,
+    swimbladder_x=swimbladder_x,
+    swimbladder_y=swimbladder_y,
+)
+
+tracking_cfg = TrackingConfig(fps=fps, tracking="head_tracking")
+pipeline = HeadTrackingPipeline(tracking_cfg, exclude_CS=True)
+pipeline.traj_segmentation_cfg = TrajSegmentationConfig(
+    fps=tracking_cfg.fps, peak_prominence=0.15, peak_percentage=0.2
+)
+ethogram, bouts, segments, traj = pipeline.run(tracking_data)
+
+# Full tracking
 
 thresh_score = 0.75
 for kps in [
@@ -42,6 +110,7 @@ head_x = head_x * mm_per_unit
 head_y = head_y * mm_per_unit
 tail_x = tail_x * mm_per_unit
 tail_y = tail_y * mm_per_unit
+
 
 tracking_cfg = TrackingConfig(fps=fps, tracking="full_tracking")
 tracking_data = FullTrackingData.from_keypoints(

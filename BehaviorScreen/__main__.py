@@ -19,7 +19,6 @@ from BehaviorScreen.process import (
     get_well_coords_mm,
     superimpose_video_trials,
     export_single_animal_videos,
-    track_with_SLEAP
 )
 from BehaviorScreen.plot import (
     plot_tracking_metrics, 
@@ -69,7 +68,7 @@ if __name__ == '__main__':
     directories = Directories(BASE_DIR)
     behavior_files = find_files(directories)
 
-    download_and_extract_models(MODELS_URL, MODELS_FOLDER)
+    #download_and_extract_models(MODELS_URL, MODELS_FOLDER)
 
     run_superimpose = partial(_run_superimpose, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:

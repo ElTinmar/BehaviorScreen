@@ -11,8 +11,6 @@ import numpy as np
 from tqdm import tqdm
 from pathlib import Path
 import cv2
-# import deeplabcut
-from sleap_nn.predict import run_inference
 
 from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader, CPU_VideoProcessor
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
@@ -312,53 +310,6 @@ def export_single_animal_videos(
             suffix=f"fish_{i}",
             dest_folder=str(directories.results)
         )
-
-# def track_with_deeplabcut(directories: Directories, behavior_file: BehaviorFiles, config_path: Path):
-#     deeplabcut.analyze_videos(
-#         config_path, 
-#         [behavior_file.video],
-#         videotype = "mp4",
-#         save_as_csv = True,
-#         destfolder = directories.results
-#     )
-
-# TODO play with this and clean up
-def track_with_SLEAP(directories: Directories, behavior_file: BehaviorFiles, config_path: Path):
-
-    labels = run_inference(
-        data_path = str(directories.results / 'single_fish/02_07dpf_wt_Thu_09_Oct_2025_17h26min06sec_fish_3.mp4'), 
-        model_paths = [
-            str(ROOT_FOLDER / "SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241008_212103.centroid.n=1641"), 
-            str(ROOT_FOLDER / "SLEAP_DLC/SLEAP_project_folder/models/LAS-TM-SJS-CL241009_204336.centered_instance.n=1641"),
-        ], 
-        output_path = str(directories.results / '02_07dpf_wt_Thu_09_Oct_2025_17h26min06sec_fish_3.slp'), 
-        frames = list(range(1000)),
-        device = 'cuda', 
-        batch_size = 32,
-        return_confmaps = True
-    )
-
-    def plot_preds(pred_labels, lf_index):
-        _fig, _ax = plt.subplots(1, 1, figsize=(5 * 1, 5 * 1))
-        pred_lf = pred_labels[lf_index]
-        _ax.imshow(pred_lf.image, cmap="gray")
-    
-        # Plot predicted instances
-        for idx, instance in enumerate(pred_lf.instances):
-            if not instance.is_empty:
-                pred_pts = instance.numpy()
-                _ax.plot(
-                    pred_pts[:, 0],
-                    pred_pts[:, 1],
-                    "rx",
-                    markersize=6,
-                    alpha=0.8,
-                    label="Pred" if idx == 0 else "",
-                )
-        plt.show()
-        return
-    
-    plot_preds(labels, 0)
 
 def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int:
     distance = behavior_data.video_timestamps['timestamp'] - timestamp

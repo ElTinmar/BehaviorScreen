@@ -4,15 +4,13 @@ channels:
 dependencies:
 - python == 3.11
 - ipython
+- pyqt 
 - tqdm
 - pip
-- pytables==3.8.0
 - ffmpeg
 - pip:
-  - torch
-  - torchvision
   - megabouts
+  - filetype
   - git+https://github.com/ElTinmar/video_tools.git@main
-  - deeplabcut[gui]==3.0.0rc9
-  - sleap[nn]==1.5.1
+
   
