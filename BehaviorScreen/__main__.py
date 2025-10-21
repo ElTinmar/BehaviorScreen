@@ -1,5 +1,7 @@
 from multiprocessing import Pool
 from functools import partial
+import matplotlib.pyplot as plt
+
 
 from BehaviorScreen.core import (
     GROUPING_PARAMETER, 

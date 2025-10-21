@@ -25,12 +25,9 @@ from .core import ROOT_FOLDER
 from .load import BehaviorData
 
 df_recording = pd.read_csv(ROOT_FOLDER / 'sleap/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.predictions.000_00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.analysis.csv')
-fps = 100
-mm_per_unit = 1/42
 
 # Head tracking from my own data
 def megabout_head_pipeline(behavior_data: BehaviorData, identity: int) -> Tuple[EthogramHeadTracking, TailBouts, SegmentationResult, TrajPreprocessingResult]:
-
 
     mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
     fps = behavior_data.metadata['camera']['framerate_value']
@@ -58,6 +55,130 @@ def megabout_head_pipeline(behavior_data: BehaviorData, identity: int) -> Tuple[
     ethogram, bouts, segments, traj = pipeline.run(tracking_data)
 
     return ethogram, bouts, segments, traj
+
+def plot_categories(bouts, segments, traj):
+    
+    traj_array = segments.extract_traj_array(
+        head_x=traj.df.x_smooth,
+        head_y=traj.df.y_smooth,
+        head_angle=traj.df.yaw_smooth,
+        align_to_onset=True,
+    )
+
+    id_b = np.unique(bouts.df.label.category[bouts.df.label.proba > 0.7]).astype("int")
+
+    fig, ax = plt.subplots(facecolor="white", figsize=(25, 4))
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["bottom"].set_visible(False)
+    ax.spines["left"].set_visible(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+    G = gridspec.GridSpec(1, len(id_b))
+    ax0 = {}
+    for i, b in enumerate(id_b):
+        ax0 = plt.subplot(G[i])
+        ax0.set_title(bouts_category_name_short[b], fontsize=15)
+        id = bouts.df[(bouts.df.label.category == b) & (bouts.df.label.proba > 0.7)].index
+        if len(id) > 0:
+            for i in id:
+                ax0.plot(traj_array[i, 0, :], traj_array[i, 1, :], color="k", alpha=0.3)
+                ax0.arrow(
+                    traj_array[i, 0, -1],
+                    traj_array[i, 1, -1],
+                    0.01 * np.cos(traj_array[i, 2, -1]),
+                    0.01 * np.sin(traj_array[i, 2, -1]),
+                    width=0.005,
+                    head_width=0.2,
+                    color="k",
+                    alpha=0.3,
+                )
+        ax0.set_aspect(1)
+        ax0.set(xlim=(-4, 4), ylim=(-4, 4))
+        ax0.set_xticks([])
+        ax0.set_yticks([])
+        for sp in ["top", "bottom", "left", "right"]:
+            ax0.spines[sp].set_color(bouts_category_color[b])
+            ax0.spines[sp].set_linewidth(5)
+
+    plt.show()
+
+def plot_ethogram(ethogram, bouts, IdSt, T):
+    
+    Duration = T * tracking_cfg.fps
+    IdEd = IdSt + Duration - 1
+    t = np.arange(Duration) / tracking_cfg.fps
+
+    data = ethogram.df.loc[IdSt:IdEd]
+    x_data = data[("trajectory", "x")].values
+    y_data = data[("trajectory", "y")].values
+    angle_data = data[("trajectory", "angle")].values
+    bout_cat_data = data[("bout", "cat")].values
+    bout_id_data = data[("bout", "id")].values
+
+    valid_data = ~np.isnan(angle_data)
+    unwrapped = np.copy(angle_data)
+    unwrapped[valid_data] = np.unwrap(angle_data[valid_data])
+    angle_data = 180 / np.pi * unwrapped
+
+    fig, (ax1, ax) = plt.subplots(
+        2,
+        1,
+        figsize=(15, 5),
+        gridspec_kw={"height_ratios": [1, 0.4], "hspace": 0.1},
+        facecolor="white",
+        constrained_layout=True,
+    )
+    ax2 = ax1.twinx()
+
+    ax1.plot(t, x_data, lw=2, color="k", label="x")
+    ax1.plot(t, y_data, lw=2, color="tab:gray", label="y")
+    ax1.set_ylabel("(mm)")
+    ax2.plot(t, angle_data, lw=2, color="tab:blue", label="angle")
+    ax2.set_ylabel("(°)")
+
+    for spine in ["top", "bottom"]:
+        ax1.spines[spine].set_visible(False)
+        ax2.spines[spine].set_visible(False)
+    ax1.set_xlim(0, T)
+    ax1.get_xaxis().set_ticks([])
+    ax2.get_xaxis().set_ticks([])
+    ax1.set_xlim(0, T)
+    # Add both legends
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax1.legend(lines1 + lines2, labels1 + labels2, loc="upper left")
+
+
+    ax.imshow(
+        bout_cat_data.reshape(1, -1),
+        cmap=cmp_bouts,
+        aspect="auto",
+        vmin=0,
+        vmax=12,
+        interpolation="nearest",
+        extent=(0, T, 0, 1),
+    )
+    for spine in ["top", "right", "bottom"]:
+        ax.spines[spine].set_visible(False)
+    ax.set_xlim(0, T)
+    ax.set_ylim(0, 1.1)
+    ax.get_xaxis().set_ticks([])
+    ax.get_yaxis().set_ticks([])
+
+    for i in np.unique(bout_id_data[bout_id_data > -1]).astype("int"):
+        on_, b = (
+            bouts.df.iloc[i][("location", "onset")],
+            bouts.df.iloc[i][("label", "category")],
+        )
+        ax.text(
+            (on_ - IdSt) / tracking_cfg.fps, 1.1, bouts_category_name[int(b)], rotation=45
+        )
+
+    ax.set_ylabel("bout category", rotation=0, labelpad=100)
+    plt.show()
+
 
 # Head tracking from sleap
 thresh_score = 0.75
