@@ -61,7 +61,7 @@ def megabout_head_pipeline(behavior_data: BehaviorData):
                 )
 
                 tracking_cfg = TrackingConfig(fps=fps, tracking="head_tracking")
-                pipeline = HeadTrackingPipeline(tracking_cfg, exclude_CS=False)
+                pipeline = HeadTrackingPipeline(tracking_cfg, exclude_CS=True)
                 pipeline.traj_segmentation_cfg = TrajSegmentationConfig(
                     fps=tracking_cfg.fps, peak_prominence=0.15, peak_percentage=0.2
                 )
@@ -72,7 +72,7 @@ def megabout_head_pipeline(behavior_data: BehaviorData):
                 metrics[identity][stim_select]['traj'].append(traj)
                 for b0, b1 in zip(bouts.df.label.category[:-1], bouts.df.label.category[1:]):
                     metrics[identity][stim_select]['transition'][int(b0), int(b1)] += 1
-                    
+
             row_sums = metrics[identity][stim_select]['transition'].sum(axis=1, keepdims=True)
             row_sums[row_sums == 0] = 1
             metrics[identity][stim_select]['transition'] /= row_sums
