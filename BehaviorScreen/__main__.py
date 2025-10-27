@@ -131,7 +131,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.xlabel('bout heading change (deg)')
-    plt.show()
+    plt.show(block=False)
 
     fig = plt.figure(figsize=(12,6))
     num_cat = len(bouts_category_name_short)
@@ -173,7 +173,7 @@ if __name__ == '__main__':
     plt.title(f'phototaxis, first {n} bouts')
     first_bouts = bouts[bouts['stim']==Stim.PHOTOTAXIS].groupby(['file', 'identity', 'stim_variable_value', 'trial_num'], group_keys=False).head(n)
     num_bouts = first_bouts.shape[0]//2
-    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=120, alpha=0.1, density=True, label='dark')
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=80, alpha=0.1, density=True, label='dark')
     first_bouts[first_bouts['stim_variable_value']==1]['heading_change'].plot.kde(color=COLORS[0], label='Bright | Dark')
     first_bouts[first_bouts['stim_variable_value']==-1]['heading_change'].plot.kde(color=COLORS[1], label='Dark | Bright')
     plt.xlim(-np.pi, np.pi)
@@ -195,7 +195,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.xlabel('bout heading change (rad)')
-    plt.show()
+    plt.show(block=False)
 
     # TODO select only subset
     fig = plt.figure(figsize=(6,6))
@@ -228,7 +228,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.xlabel('bout heading change (rad)')
-    plt.show()
+    plt.show(block=False)
 
     fig = plt.figure(figsize=(12,6))
     num_cat = len(bouts_category_name_short)
@@ -262,7 +262,8 @@ if __name__ == '__main__':
         va='top',     
         transform=plt.gca().get_xaxis_transform() 
     )
-    plt.show()
+    plt.xlabel('bout heading change (rad)')
+    plt.show(block=False)
 
     fig = plt.figure(figsize=(12,6))
     num_cat = len(bouts_category_name_short)
@@ -281,9 +282,10 @@ if __name__ == '__main__':
 
 
     fig = plt.figure(figsize=(6,6))
-    bouts[(bouts['stim']==Stim.BRIGHT)]['distance'].sample(num_bouts).plot.hist(bins=180, alpha=0.5, density=True)
-    bouts[(bouts['stim']==Stim.LOOMING)]['distance'].plot.hist(color='k', bins=180, alpha=0.5, density=True)
-    plt.show()
+    plt.title('Looming')
+    bouts[(bouts['stim']==Stim.LOOMING)]['distance'].plot.hist(color='k', bins=180, alpha=0.2, density=True)
+    bouts[(bouts['stim']==Stim.BRIGHT)]['distance'].sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True)
+    plt.show(block=False)
 
     fig = plt.figure(figsize=(6,6))
     bouts[(bouts['stim']==Stim.BRIGHT)]['peak_yaw_speed'].sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True)
@@ -298,7 +300,6 @@ if __name__ == '__main__':
     plt.xticks(range(num_cat), bouts_category_name_short)
     plt.xlim(-0.5, num_cat-0.5)
     plt.show()
-
 
     run_superimpose = partial(_run_superimpose, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:
