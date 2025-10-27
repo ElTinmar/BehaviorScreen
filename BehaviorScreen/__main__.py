@@ -99,27 +99,43 @@ if __name__ == '__main__':
     for behavior_file in behavior_files:
         print(behavior_file)
         rows.extend(_run_megabouts(behavior_file))
-    df = pd.DataFrame(rows)
-    df.to_csv('bouts.csv')
+    bouts = pd.DataFrame(rows)
+    bouts.to_csv('bouts.csv')
 
     # filtering outliers
-    df.loc[df['distance']> 20, 'distance'] = np.nan
-    df.loc[df['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
+    bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
+    bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
 
     fig = plt.figure(figsize=(6,6))
     plt.title('prey capture')
-    num_bouts = df[df['stim']==Stim.PREY_CAPTURE].shape[0]//2
-    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    df[(df['stim']==Stim.PREY_CAPTURE) & (df['stim_variable_value']==20)]['heading_change'].plot.kde(color=COLORS[0], label='prey 20°')
-    df[(df['stim']==Stim.PREY_CAPTURE) & (df['stim_variable_value']==-20)]['heading_change'].plot.kde(color=COLORS[1], label='prey -20°')
+    num_bouts = bouts[bouts['stim']==Stim.PREY_CAPTURE].shape[0]//2
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==20)]['heading_change'].plot.kde(color=COLORS[0], label='prey Right')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==-20)]['heading_change'].plot.kde(color=COLORS[1], label='prey Left')
     plt.xlim(-np.pi, np.pi)
-    plt.xlabel('bout heading change (deg)')
     plt.legend()
+    plt.text(
+        x=-np.pi,
+        y=-0.075,       
+        s="Right",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
+    plt.text(
+        x=np.pi,
+        y=-0.075,       
+        s="Left",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
+    plt.xlabel('bout heading change (deg)')
     plt.show()
 
     fig = plt.figure(figsize=(12,6))
     num_cat = len(bouts_category_name_short)
-    counts = df[(df['stim'] == Stim.PREY_CAPTURE) & (df['proba']>0.8)]['category'].value_counts().sort_index()
+    counts = bouts[(bouts['stim'] == Stim.PREY_CAPTURE) & (bouts['proba']>0.8)]['category'].value_counts().sort_index()
     plt.bar(counts.index, counts.values, width=0.8)
     plt.xticks(range(num_cat), bouts_category_name_short)
     plt.xlim(-0.5, num_cat-0.5)
@@ -127,88 +143,157 @@ if __name__ == '__main__':
 
     fig = plt.figure(figsize=(6,6))
     plt.title('phototaxis')
-    num_bouts = df[df['stim']==Stim.PHOTOTAXIS].shape[0]//2
-    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True,label='dark')
-    df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==1)]['heading_change'].plot.kde(color=COLORS[0], label='')
-    df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==-1)]['heading_change'].plot.kde(color=COLORS[1], label='')
+    num_bouts = bouts[bouts['stim']==Stim.PHOTOTAXIS].shape[0]//2
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True,label='dark')
+    bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']==1)]['heading_change'].plot.kde(color=COLORS[0], label='Bright | Dark')
+    bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']==-1)]['heading_change'].plot.kde(color=COLORS[1], label='Dark | Bright')
     plt.xlim(-np.pi, np.pi)
+    plt.legend()
+    plt.text(
+        x=-np.pi,
+        y=-0.075,       
+        s="Right",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
+    plt.text(
+        x=np.pi,
+        y=-0.075,       
+        s="Left",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
     plt.xlabel('bout heading change (rad)')
     plt.show()
 
     fig = plt.figure(figsize=(6,6))
     n = 4
     plt.title(f'phototaxis, first {n} bouts')
-    first_bouts = df[df['stim']==Stim.PHOTOTAXIS].groupby(['file', 'identity', 'stim_variable_value', 'trial_num'], group_keys=False).head(n)
+    first_bouts = bouts[bouts['stim']==Stim.PHOTOTAXIS].groupby(['file', 'identity', 'stim_variable_value', 'trial_num'], group_keys=False).head(n)
     num_bouts = first_bouts.shape[0]//2
-    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    first_bouts[first_bouts['stim_variable_value']==1]['heading_change'].plot.kde(color=COLORS[0])
-    first_bouts[first_bouts['stim_variable_value']==-1]['heading_change'].plot.kde(color=COLORS[1])
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=120, alpha=0.1, density=True, label='dark')
+    first_bouts[first_bouts['stim_variable_value']==1]['heading_change'].plot.kde(color=COLORS[0], label='Bright | Dark')
+    first_bouts[first_bouts['stim_variable_value']==-1]['heading_change'].plot.kde(color=COLORS[1], label='Dark | Bright')
     plt.xlim(-np.pi, np.pi)
+    plt.legend()
+    plt.text(
+        x=-np.pi,
+        y=-0.075,       
+        s="Right",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
+    plt.text(
+        x=np.pi,
+        y=-0.075,       
+        s="Left",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
     plt.xlabel('bout heading change (rad)')
     plt.show()
 
     # TODO select only subset
     fig = plt.figure(figsize=(6,6))
-    df[(df['stim']==Stim.DARK)]['distance'].plot.hist(bins=180, alpha=0.5, density=True)
-    df[(df['stim']==Stim.BRIGHT)]['distance'].plot.hist(bins=180, alpha=0.5, density=True)
+    bouts[(bouts['stim']==Stim.DARK)]['distance'].plot.hist(bins=180, alpha=0.5, density=True)
+    bouts[(bouts['stim']==Stim.BRIGHT)]['distance'].plot.hist(bins=180, alpha=0.5, density=True)
     plt.show()
 
     fig = plt.figure(figsize=(6,6))
-    num_bouts = df[df['stim']==Stim.OMR].shape[0]//2
-    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    df[(df['stim']==Stim.OMR) & (df['stim_variable_value']==90)]['heading_change'].plot.kde(color=COLORS[0])
-    df[(df['stim']==Stim.OMR) & (df['stim_variable_value']==-90)]['heading_change'].plot.kde(color=COLORS[1])
+    plt.title('OMR directional')
+    num_bouts = bouts[bouts['stim']==Stim.OMR].shape[0]//2
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
+    bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']==90)]['heading_change'].plot.kde(color=COLORS[0], label='-->')
+    bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']==-90)]['heading_change'].plot.kde(color=COLORS[1], label='<--')
     plt.xlim(-np.pi, np.pi)
+    plt.legend()
+    plt.text(
+        x=-np.pi,
+        y=-0.075,       
+        s="Right",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
+    plt.text(
+        x=np.pi,
+        y=-0.075,       
+        s="Left",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
     plt.xlabel('bout heading change (rad)')
     plt.show()
 
     fig = plt.figure(figsize=(12,6))
     num_cat = len(bouts_category_name_short)
-    counts = df[(df['stim'] == Stim.OMR) & (df['proba']>0.8)]['category'].value_counts().sort_index()
+    counts = bouts[(bouts['stim'] == Stim.OMR) & (bouts['proba']>0.8)]['category'].value_counts().sort_index()
     plt.bar(counts.index, counts.values, width=0.8)
     plt.xticks(range(num_cat), bouts_category_name_short)
     plt.xlim(-0.5, num_cat-0.5)
     plt.show()
 
     fig = plt.figure(figsize=(6,6))
-    num_bouts = df[df['stim']==Stim.OKR].shape[0]//2
-    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    df[(df['stim']==Stim.OKR) & (df['stim_variable_value']==36)]['heading_change'].plot.kde(color=COLORS[0])
-    df[(df['stim']==Stim.OKR) & (df['stim_variable_value']==-36)]['heading_change'].plot.kde(color=COLORS[1])
+    plt.title('OKR')
+    num_bouts = bouts[bouts['stim']==Stim.OKR].shape[0]//2
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
+    bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']==36)]['heading_change'].plot.kde(color=COLORS[0], label='CW')
+    bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']==-36)]['heading_change'].plot.kde(color=COLORS[1], label='CCW')
     plt.xlim(-np.pi, np.pi)
+    plt.legend()
+    plt.text(
+        x=-np.pi,
+        y=-0.075,       
+        s="Right",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
+    plt.text(
+        x=np.pi,
+        y=-0.075,       
+        s="Left",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
     plt.show()
 
     fig = plt.figure(figsize=(12,6))
     num_cat = len(bouts_category_name_short)
-    counts = df[(df['stim'] == Stim.OKR) & (df['proba']>0.8)]['category'].value_counts().sort_index()
+    counts = bouts[(bouts['stim'] == Stim.OKR) & (bouts['proba']>0.8)]['category'].value_counts().sort_index()
     plt.bar(counts.index, counts.values, width=0.8)
     plt.xticks(range(num_cat), bouts_category_name_short)
     plt.xlim(-0.5, num_cat-0.5)
     plt.show()
-
 
     # sample as many bouts in bright
     fig = plt.figure(figsize=(6,6))
-    num_bouts = df[df['stim']==Stim.LOOMING].shape[0]
-    df[(df['stim']==Stim.BRIGHT)]['peak_axial_speed'].abs().sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True, label='bright')
-    df[(df['stim']==Stim.LOOMING)]['peak_axial_speed'].abs().plot.hist(bins=180, alpha=0.5, density=True)
+    num_bouts = bouts[bouts['stim']==Stim.LOOMING].shape[0]
+    bouts[(bouts['stim']==Stim.BRIGHT)]['peak_axial_speed'].abs().sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True, label='bright')
+    bouts[(bouts['stim']==Stim.LOOMING)]['peak_axial_speed'].abs().plot.hist(bins=180, alpha=0.5, density=True)
     plt.show()
 
 
     fig = plt.figure(figsize=(6,6))
-    df[(df['stim']==Stim.BRIGHT)]['distance'].sample(num_bouts).plot.hist(bins=180, alpha=0.5, density=True)
-    df[(df['stim']==Stim.LOOMING)]['distance'].plot.hist(color='k', bins=180, alpha=0.5, density=True)
+    bouts[(bouts['stim']==Stim.BRIGHT)]['distance'].sample(num_bouts).plot.hist(bins=180, alpha=0.5, density=True)
+    bouts[(bouts['stim']==Stim.LOOMING)]['distance'].plot.hist(color='k', bins=180, alpha=0.5, density=True)
     plt.show()
 
     fig = plt.figure(figsize=(6,6))
-    df[(df['stim']==Stim.BRIGHT)]['peak_yaw_speed'].sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True)
-    df[(df['stim']==Stim.LOOMING) & (df['stim_variable_value']==2)]['peak_yaw_speed'].plot.kde(color=COLORS[0])
-    df[(df['stim']==Stim.LOOMING) & (df['stim_variable_value']==-2)]['peak_yaw_speed'].plot.kde(color=COLORS[1])
+    bouts[(bouts['stim']==Stim.BRIGHT)]['peak_yaw_speed'].sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True)
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']==2)]['peak_yaw_speed'].plot.kde(color=COLORS[0])
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']==-2)]['peak_yaw_speed'].plot.kde(color=COLORS[1])
     plt.show()
 
     fig = plt.figure(figsize=(12,6))
     num_cat = len(bouts_category_name_short)
-    counts = df[(df['stim'] == Stim.LOOMING) & (df['proba']>0.8)]['category'].value_counts().sort_index()
+    counts = bouts[(bouts['stim'] == Stim.LOOMING) & (bouts['proba']>0.8)]['category'].value_counts().sort_index()
     plt.bar(counts.index, counts.values, width=0.8)
     plt.xticks(range(num_cat), bouts_category_name_short)
     plt.xlim(-0.5, num_cat-0.5)
