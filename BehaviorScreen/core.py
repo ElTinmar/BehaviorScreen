@@ -41,8 +41,8 @@ GROUPING_PARAMETER = {
 
 COLORS = ("#F1500A", "#0A6EF1")
 
-ROOT_FOLDER = Path('/media/martin/DATA/Behavioral_screen')
-#ROOT_FOLDER = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen')
+#ROOT_FOLDER = Path('/media/martin/DATA/Behavioral_screen')
+ROOT_FOLDER = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen')
 #ROOT_FOLDER = Path('/home/martin/Downloads/')
 BASE_DIR = ROOT_FOLDER / 'output'
 
