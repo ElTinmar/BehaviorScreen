@@ -29,6 +29,9 @@ from .process import get_trials, get_tracking_between
 
 df_recording = pd.read_csv(ROOT_FOLDER / 'sleap/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.predictions.000_00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.analysis.csv')
 
+# Force running on CPU if GPU is not compatible
+# torch.cuda.is_available = lambda: False
+
 def megabout_head_pipeline(behavior_data: BehaviorData):
 
     mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
