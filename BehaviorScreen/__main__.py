@@ -27,7 +27,7 @@ from BehaviorScreen.plot import (
     plot_trajectories
 )
 from BehaviorScreen.get_models import download_and_extract_models
-
+from BehaviorScreen.megabouts import megabout_head_pipeline
 
 # DLC
 # TODO eye tracking OKR
@@ -64,12 +64,16 @@ def _run_metrics(behavior_file: BehaviorFiles, directories: Directories):
     for identity, data in metrics.items():
         plot_tracking_metrics(data)
         plot_trajectories(data)
+
+def _run_megabouts(behavior_file: BehaviorFiles, directories: Directories):
+    behavior_data = load_data(behavior_file)
+    meg = megabout_head_pipeline(behavior_data)
     
 if __name__ == '__main__':
 
     directories = Directories(BASE_DIR)
     behavior_files = find_files(directories)
-
+    
     #download_and_extract_models(MODELS_URL, MODELS_FOLDER)
 
     run_superimpose = partial(_run_superimpose, directories = directories)
