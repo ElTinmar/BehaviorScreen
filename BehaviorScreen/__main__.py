@@ -8,6 +8,8 @@ import pandas as pd
 import numpy as np
 from typing import List, Dict
 
+DARK_YELLOW = '#dbc300'
+
 from BehaviorScreen.core import (
     GROUPING_PARAMETER, 
     BASE_DIR, 
@@ -106,7 +108,7 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(6,6))
     plt.title('prey capture')
     num_bouts = df[df['stim']==Stim.PREY_CAPTURE].shape[0]//2
-    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True,  label='dark')
+    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
     df[(df['stim']==Stim.PREY_CAPTURE) & (df['stim_variable_value']==20)]['heading_change'].plot.kde(color=COLORS[0], label='prey 20°')
     df[(df['stim']==Stim.PREY_CAPTURE) & (df['stim_variable_value']==-20)]['heading_change'].plot.kde(color=COLORS[1], label='prey -20°')
     plt.xlim(-np.pi, np.pi)
@@ -124,9 +126,21 @@ if __name__ == '__main__':
 
     fig = plt.figure(figsize=(6,6))
     num_bouts = df[df['stim']==Stim.PHOTOTAXIS].shape[0]//2
-    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True)
+    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True,label='dark')
     df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==1)]['heading_change'].plot.kde(color=COLORS[0])
     df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==-1)]['heading_change'].plot.kde(color=COLORS[1])
+    plt.xlim(-np.pi, np.pi)
+    plt.xlabel('bout heading change (rad)')
+    plt.show()
+
+    fig = plt.figure(figsize=(6,6))
+    n = 4
+    plt.title(f'phototaxis, first {n} bouts')
+    first_bouts = df[df['stim']==Stim.PHOTOTAXIS].groupby(['file', 'identity', 'stim_variable_value', 'trial_num'], group_keys=False).head(n)
+    num_bouts = first_bouts.shape[0]//2
+    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
+    first_bouts[first_bouts['stim_variable_value']==1]['heading_change'].plot.kde(color=COLORS[0])
+    first_bouts[first_bouts['stim_variable_value']==-1]['heading_change'].plot.kde(color=COLORS[1])
     plt.xlim(-np.pi, np.pi)
     plt.xlabel('bout heading change (rad)')
     plt.show()
@@ -139,7 +153,7 @@ if __name__ == '__main__':
 
     fig = plt.figure(figsize=(6,6))
     num_bouts = df[df['stim']==Stim.OMR].shape[0]//2
-    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True)
+    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
     df[(df['stim']==Stim.OMR) & (df['stim_variable_value']==90)]['heading_change'].plot.kde(color=COLORS[0])
     df[(df['stim']==Stim.OMR) & (df['stim_variable_value']==-90)]['heading_change'].plot.kde(color=COLORS[1])
     plt.xlim(-np.pi, np.pi)
@@ -156,7 +170,7 @@ if __name__ == '__main__':
 
     fig = plt.figure(figsize=(6,6))
     num_bouts = df[df['stim']==Stim.OKR].shape[0]//2
-    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True)
+    df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
     df[(df['stim']==Stim.OKR) & (df['stim_variable_value']==36)]['heading_change'].plot.kde(color=COLORS[0])
     df[(df['stim']==Stim.OKR) & (df['stim_variable_value']==-36)]['heading_change'].plot.kde(color=COLORS[1])
     plt.xlim(-np.pi, np.pi)
@@ -174,18 +188,18 @@ if __name__ == '__main__':
     # sample as many bouts in bright
     fig = plt.figure(figsize=(6,6))
     num_bouts = df[df['stim']==Stim.LOOMING].shape[0]
-    df[(df['stim']==Stim.BRIGHT)]['peak_axial_speed'].abs().sample(num_bouts).plot.hist(bins=180, alpha=0.5, density=True)
+    df[(df['stim']==Stim.BRIGHT)]['peak_axial_speed'].abs().sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True, label='bright')
     df[(df['stim']==Stim.LOOMING)]['peak_axial_speed'].abs().plot.hist(bins=180, alpha=0.5, density=True)
     plt.show()
 
 
     fig = plt.figure(figsize=(6,6))
     df[(df['stim']==Stim.BRIGHT)]['distance'].sample(num_bouts).plot.hist(bins=180, alpha=0.5, density=True)
-    df[(df['stim']==Stim.LOOMING)]['distance'].plot.hist(bins=180, alpha=0.5, density=True)
+    df[(df['stim']==Stim.LOOMING)]['distance'].plot.hist(color='k', bins=180, alpha=0.5, density=True)
     plt.show()
 
     fig = plt.figure(figsize=(6,6))
-    df[(df['stim']==Stim.BRIGHT)]['peak_yaw_speed'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.5, density=True)
+    df[(df['stim']==Stim.BRIGHT)]['peak_yaw_speed'].sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True)
     df[(df['stim']==Stim.LOOMING) & (df['stim_variable_value']==2)]['peak_yaw_speed'].plot.kde(color=COLORS[0])
     df[(df['stim']==Stim.LOOMING) & (df['stim_variable_value']==-2)]['peak_yaw_speed'].plot.kde(color=COLORS[1])
     plt.show()
