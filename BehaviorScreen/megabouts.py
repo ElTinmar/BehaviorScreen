@@ -5,7 +5,7 @@ import matplotlib.gridspec as gridspec
 from cycler import cycler
 import networkx as nx
 import copy
-from typing import NamedTuple, Dict
+from typing import NamedTuple, Dict, List
 
 from megabouts.tracking_data import TrackingConfig, FullTrackingData, HeadTrackingData
 from megabouts.config import TrajSegmentationConfig
@@ -40,7 +40,7 @@ class MegaboutData(NamedTuple):
     segments: SegmentationResult
     traj: TrajPreprocessingResult
 
-def megabout_head_pipeline(behavior_data: BehaviorData):
+def megabout_headtracking_pipeline(behavior_data: BehaviorData):
 
     mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
     fps = behavior_data.metadata['camera']['framerate_value']
@@ -77,11 +77,11 @@ def megabout_head_pipeline(behavior_data: BehaviorData):
 
     return megabout_results
 
-def bout_metrics(
+def get_bout_metrics(
         behavior_data: BehaviorData, 
         behavior_files: BehaviorFiles,
         megabout: Dict[int, MegaboutData]
-    ) -> pd.DataFrame:
+    ) -> List[Dict]:
 
     fps = behavior_data.metadata['camera']['framerate_value']
     stim_trials = get_trials(behavior_data)
@@ -139,7 +139,8 @@ def bout_metrics(
                             'file': behavior_files.metadata.stem,
                             'identity': identity,
                             'stim': stim_select,
-                            'stim_variable': condition,
+                            'stim_variable_name': GROUPING_PARAMETER[stim],
+                            'stim_variable_value': condition,
                             'trial_num': trial_idx,
                             'heading_change': heading_change,
                             'distance': distance,
@@ -152,104 +153,15 @@ def bout_metrics(
                             'proba': proba
                         })
 
-    return pd.DataFrame(rows)
+    return rows
 
+plt.hist(df[(df['stim']==Stim.PREY_CAPTURE) & (df['stim_variable_value']==20)]['heading_change'], bins=100, alpha=0.5)
+plt.hist(df[(df['stim']==Stim.PREY_CAPTURE) & (df['stim_variable_value']==-20)]['heading_change'], bins=100, alpha=0.5)
+plt.show()
 
-
-
-
-def megabout_head_pipeline2(behavior_data: BehaviorData):
-
-    mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
-    fps = behavior_data.metadata['camera']['framerate_value']
-    num_categories = len(bouts_category_name)
-
-    metrics = {}
-    stim_trials = get_trials(behavior_data)
-    for identity, data in behavior_data.tracking.groupby('identity'):
-        metrics[identity] = {}
-        for stim_select, stim_data in stim_trials.groupby('stim_select'):
-            metrics[identity][stim_select] = {}
-            metrics[identity][stim_select]['ethogram'] = {}
-            metrics[identity][stim_select]['bouts'] = {}
-            metrics[identity][stim_select]['segments'] = {}
-            metrics[identity][stim_select]['traj'] = {}
-            metrics[identity][stim_select]['transition'] = np.zeros((num_categories, num_categories))
-            for trial_idx, row in stim_data.iterrows():
-                df = get_tracking_between(data, row['start_timestamp'], row['stop_timestamp'])
-                swimbladder_x = df["centroid_x"].values * mm_per_pix
-                swimbladder_y = df["centroid_y"].values * mm_per_pix
-                head_x = swimbladder_x + df['pc1_x'].values * mm_per_pix
-                head_y = swimbladder_y + df['pc1_y'].values * mm_per_pix
-
-                tracking_data = HeadTrackingData.from_keypoints(
-                    head_x=head_x,
-                    head_y=head_y,
-                    swimbladder_x=swimbladder_x,
-                    swimbladder_y=swimbladder_y,
-                )
-
-                tracking_cfg = TrackingConfig(fps=fps, tracking="head_tracking")
-                pipeline = HeadTrackingPipeline(tracking_cfg, exclude_CS=True)
-                pipeline.traj_segmentation_cfg = TrajSegmentationConfig(
-                    fps=tracking_cfg.fps, peak_prominence=0.15, peak_percentage=0.2
-                )
-                ethogram, bouts, segments, traj = pipeline.run(tracking_data)
-                metrics[identity][stim_select]['ethogram'].append(ethogram)
-                metrics[identity][stim_select]['bouts'].append(bouts)
-                metrics[identity][stim_select]['segments'].append(segments)
-                metrics[identity][stim_select]['traj'].append(traj)
-                for b0, b1 in zip(bouts.df.label.category[:-1], bouts.df.label.category[1:]):
-                    metrics[identity][stim_select]['transition'][int(b0), int(b1)] += 1
-
-            row_sums = metrics[identity][stim_select]['transition'].sum(axis=1, keepdims=True)
-            row_sums[row_sums == 0] = 1
-            metrics[identity][stim_select]['transition'] /= row_sums
-
-    return metrics
-
-def filter_bouts(bouts, start: int, stop: int) -> TailBouts:
-
-    mask = (bouts.df.location['onset'] > start) & (bouts.df.location['offset'] < stop)
-    res = copy.deepcopy(bouts)
-    res.onset = res.onset[mask]
-    res.offset = res.offset[mask]
-    res.HB1 = res.HB1[mask]
-    res.category = res.category[mask]
-    res.subcategory = res.subcategory[mask]
-    res.sign = res.sign[mask]
-    res.proba = res.proba[mask]
-    res.df = res.df[mask]
-    if res.tail is not None:
-        res.tail = res.tail[mask]
-    if res.traj is not None:
-        res.traj = res.traj[mask]
-    return res
-
-def append_bouts(bouts0, bouts1) -> 'TailBouts':
-    res = copy.deepcopy(bouts0)  
-
-    np_attrs = ['onset', 'offset', 'HB1', 'category', 'subcategory', 'sign', 'proba']
-    for attr in np_attrs:
-        arr0 = getattr(bouts0, attr)
-        arr1 = getattr(bouts1, attr)
-        setattr(res, attr, np.concatenate([arr0, arr1]))
-
-    res.df = pd.concat([bouts0.df, bouts1.df], ignore_index=True)
-
-    if hasattr(res, 'tail') and bouts0.tail is not None and bouts1.tail is not None:
-        res.tail = np.concatenate([bouts0.tail, bouts1.tail])
-    if hasattr(res, 'traj') and bouts0.traj is not None and bouts1.traj is not None:
-        res.traj = np.concatenate([bouts0.traj, bouts1.traj])
-
-    sort_idx = np.argsort(res.onset)
-    for attr in np_attrs + ['tail', 'traj']:
-        if hasattr(res, attr) and getattr(res, attr) is not None:
-            setattr(res, attr, getattr(res, attr)[sort_idx])
-    
-    res.df = res.df.iloc[sort_idx].reset_index(drop=True)
-
-    return res
+plt.hist(df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==1)]['heading_change'], bins=100, alpha=0.5)
+plt.hist(df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==-1)]['heading_change'], bins=100, alpha=0.5)
+plt.show()
 
 def transitions(bouts):
     num_categories = len(bouts_category_name)

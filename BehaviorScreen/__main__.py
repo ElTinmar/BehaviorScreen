@@ -1,7 +1,8 @@
 from multiprocessing import Pool
 from functools import partial
 import matplotlib.pyplot as plt
-
+import pandas as pd
+from typing import List, Dict
 
 from BehaviorScreen.core import (
     GROUPING_PARAMETER, 
@@ -27,7 +28,7 @@ from BehaviorScreen.plot import (
     plot_trajectories
 )
 from BehaviorScreen.get_models import download_and_extract_models
-from BehaviorScreen.megabouts import megabout_head_pipeline
+from BehaviorScreen.megabouts import megabout_headtracking_pipeline, get_bout_metrics
 
 # DLC
 # TODO eye tracking OKR
@@ -65,9 +66,12 @@ def _run_metrics(behavior_file: BehaviorFiles, directories: Directories):
         plot_tracking_metrics(data)
         plot_trajectories(data)
 
-def _run_megabouts(behavior_file: BehaviorFiles, directories: Directories):
+def _run_megabouts(behavior_file: BehaviorFiles) -> List[Dict]:
     behavior_data = load_data(behavior_file)
-    meg = megabout_head_pipeline(behavior_data)
+    meg = megabout_headtracking_pipeline(behavior_data)
+    metrics = get_bout_metrics(behavior_data, behavior_file, meg)
+    return metrics
+    
     
 if __name__ == '__main__':
 
@@ -75,6 +79,12 @@ if __name__ == '__main__':
     behavior_files = find_files(directories)
     
     #download_and_extract_models(MODELS_URL, MODELS_FOLDER)
+    rows = []
+    for behavior_file in behavior_files:
+        print(behavior_file)
+        rows.extend(_run_megabouts(behavior_file))
+    df = pd.DataFrame(rows)
+        
 
     run_superimpose = partial(_run_superimpose, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:
