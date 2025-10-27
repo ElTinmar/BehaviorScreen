@@ -102,6 +102,7 @@ if __name__ == '__main__':
     df = pd.DataFrame(rows)
     df.to_csv('bouts.csv')
 
+    # filtering outliers
     df.loc[df['distance']> 20, 'distance'] = np.nan
     df.loc[df['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
 
@@ -125,10 +126,11 @@ if __name__ == '__main__':
     plt.show()
 
     fig = plt.figure(figsize=(6,6))
+    plt.title('phototaxis')
     num_bouts = df[df['stim']==Stim.PHOTOTAXIS].shape[0]//2
     df[(df['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True,label='dark')
-    df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==1)]['heading_change'].plot.kde(color=COLORS[0])
-    df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==-1)]['heading_change'].plot.kde(color=COLORS[1])
+    df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==1)]['heading_change'].plot.kde(color=COLORS[0], label='')
+    df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==-1)]['heading_change'].plot.kde(color=COLORS[1], label='')
     plt.xlim(-np.pi, np.pi)
     plt.xlabel('bout heading change (rad)')
     plt.show()
