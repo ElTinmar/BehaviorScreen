@@ -5,6 +5,7 @@ import matplotlib.gridspec as gridspec
 from cycler import cycler
 import networkx as nx
 import copy
+from typing import NamedTuple, Dict
 
 from megabouts.tracking_data import TrackingConfig, FullTrackingData, HeadTrackingData
 from megabouts.config import TrajSegmentationConfig
@@ -22,8 +23,8 @@ from megabouts.classification.classification import TailBouts
 from megabouts.segmentation.segmentation import SegmentationResult
 from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 
-from .core import ROOT_FOLDER, GROUPING_PARAMETER
-from .load import BehaviorData
+from .core import ROOT_FOLDER, GROUPING_PARAMETER, Stim
+from .load import BehaviorData, BehaviorFiles
 from .process import get_trials, get_tracking_between
 
 # Force running on CPU if GPU is not compatible
@@ -31,6 +32,13 @@ CPU = True
 if CPU:
     import torch
     torch.cuda.is_available = lambda: False
+
+class MegaboutData(NamedTuple):
+    timestamp: np.ndarray
+    ethogram: EthogramHeadTracking
+    bouts: TailBouts
+    segments: SegmentationResult
+    traj: TrajPreprocessingResult
 
 def megabout_head_pipeline(behavior_data: BehaviorData):
 
@@ -40,6 +48,8 @@ def megabout_head_pipeline(behavior_data: BehaviorData):
     megabout_results = {}
     for identity, data in behavior_data.tracking.groupby('identity'):
         df = data.sort_values('timestamp').reset_index(drop=True)
+        
+        timestamps = df["timestamp"].values
         swimbladder_x = df["centroid_x"].values * mm_per_pix
         swimbladder_y = df["centroid_y"].values * mm_per_pix
         head_x = swimbladder_x + df['pc1_x'].values * mm_per_pix
@@ -56,18 +66,96 @@ def megabout_head_pipeline(behavior_data: BehaviorData):
         pipeline.traj_segmentation_cfg = TrajSegmentationConfig(
             fps=tracking_cfg.fps, peak_prominence=0.15, peak_percentage=0.2
         )
-        megabout_results[identity] = pipeline.run(tracking_data)
+        ethogram, bouts, segments, traj = pipeline.run(tracking_data)
+        megabout_results[identity] = MegaboutData(
+            timestamps, 
+            ethogram, 
+            bouts, 
+            segments, 
+            traj
+        ) 
 
     return megabout_results
 
-def draft(behavior_data):
+def bout_metrics(
+        behavior_data: BehaviorData, 
+        behavior_files: BehaviorFiles,
+        megabout: Dict[int, MegaboutData]
+    ) -> pd.DataFrame:
+
+    fps = behavior_data.metadata['camera']['framerate_value']
     stim_trials = get_trials(behavior_data)
-    for stim_select, stim_data in stim_trials.groupby('stim_select'):
-        if not stim_select in GROUPING_PARAMETER:
-            break
-        for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim_select]):
-            print(stim_select, condition)
-        
+    
+    rows = []
+    for identity, meg_data in megabout.items():
+
+        for stim_select, stim_data in stim_trials.groupby('stim_select'):
+            
+            stim = Stim(stim_select)
+            if not stim in GROUPING_PARAMETER:
+                break
+
+            for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
+
+                for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
+
+                    bout_start = meg_data.timestamp[meg_data.bouts.onset]
+                    bout_stop = meg_data.timestamp[meg_data.bouts.offset]
+                    mask = (bout_start > row.start_timestamp) & (bout_stop < row.stop_timestamp) 
+
+                    off_previous = np.nan
+                    for on, off, category, sign, proba in zip(
+                        meg_data.bouts.onset[mask], 
+                        meg_data.bouts.offset[mask],
+                        meg_data.bouts.category[mask],
+                        meg_data.bouts.sign[mask],
+                        meg_data.bouts.proba[mask],
+                    ):
+
+                        # heading change
+                        heading_change = meg_data.traj.yaw_smooth[off] - meg_data.traj.yaw_smooth[on]
+
+                        # distance 
+                        delta_x = meg_data.traj.x_smooth[on+1:off] - meg_data.traj.x_smooth[on:off-1]
+                        delta_y = meg_data.traj.y_smooth[on+1:off] - meg_data.traj.y_smooth[on:off-1]
+                        distance = np.sum(np.sqrt(delta_x**2 + delta_y**2))
+
+                        # bout duration
+                        bout_duration = (off-on)/fps
+
+                        # interbout duration
+                        interbout_duration = (on-off_previous)/fps
+                        off_previous = off
+
+                        # peak axial speed
+                        axial_speed = meg_data.traj.axial_speed[on:off]
+                        peak_axial_speed = axial_speed[np.argmax(np.abs(axial_speed))]
+
+                        # peak yaw speed
+                        yaw_speed = meg_data.traj.yaw_speed[on:off]
+                        peak_yaw_speed = yaw_speed[np.argmax(np.abs(yaw_speed))]
+
+                        rows.append({
+                            'file': behavior_files.metadata.stem,
+                            'identity': identity,
+                            'stim': stim_select,
+                            'stim_variable': condition,
+                            'trial_num': trial_idx,
+                            'heading_change': heading_change,
+                            'distance': distance,
+                            'bout_duration': bout_duration,
+                            'interbout_duration': interbout_duration,
+                            'peak_axial_speed': peak_axial_speed,
+                            'peak_yaw_speed': peak_yaw_speed,
+                            'category': category,
+                            'sign': sign,
+                            'proba': proba
+                        })
+
+    return pd.DataFrame(rows)
+
+
+
 
 
 def megabout_head_pipeline2(behavior_data: BehaviorData):
