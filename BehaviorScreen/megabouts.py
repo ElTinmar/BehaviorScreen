@@ -152,16 +152,10 @@ def get_bout_metrics(
                             'sign': sign,
                             'proba': proba
                         })
+                        # TODO add on_edge boolean
 
     return rows
 
-plt.hist(df[(df['stim']==Stim.PREY_CAPTURE) & (df['stim_variable_value']==20)]['heading_change'], bins=100, alpha=0.5)
-plt.hist(df[(df['stim']==Stim.PREY_CAPTURE) & (df['stim_variable_value']==-20)]['heading_change'], bins=100, alpha=0.5)
-plt.show()
-
-plt.hist(df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==1)]['heading_change'], bins=100, alpha=0.5)
-plt.hist(df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==-1)]['heading_change'], bins=100, alpha=0.5)
-plt.show()
 
 def transitions(bouts):
     num_categories = len(bouts_category_name)

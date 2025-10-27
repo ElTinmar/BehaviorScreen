@@ -84,7 +84,44 @@ if __name__ == '__main__':
         print(behavior_file)
         rows.extend(_run_megabouts(behavior_file))
     df = pd.DataFrame(rows)
-        
+
+    from .core import Stim
+    
+    plt.hist(df[(df['stim']==Stim.PREY_CAPTURE) & (df['stim_variable_value']==20)]['heading_change'], bins=180, alpha=0.5, density=True)
+    plt.hist(df[(df['stim']==Stim.PREY_CAPTURE) & (df['stim_variable_value']==-20)]['heading_change'], bins=180, alpha=0.5, density=True)
+    plt.show()
+
+    plt.hist(df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==1)]['heading_change'], bins=180, alpha=0.5, density=True)
+    plt.hist(df[(df['stim']==Stim.PHOTOTAXIS) & (df['stim_variable_value']==-1)]['heading_change'], bins=180, alpha=0.5, density=True)
+    plt.show()
+
+    # TODO select only subset
+    plt.hist(df[(df['stim']==Stim.DARK)]['distance'], bins=180, alpha=0.5, density=True)
+    plt.hist(df[(df['stim']==Stim.BRIGHT)]['distance'], bins=180, alpha=0.5, density=True)
+    plt.show()
+
+    plt.hist(df[(df['stim']==Stim.OMR) & (df['stim_variable_value']==90)]['heading_change'], bins=180, alpha=0.5, density=True)
+    plt.hist(df[(df['stim']==Stim.OMR) & (df['stim_variable_value']==-90)]['heading_change'], bins=180, alpha=0.5, density=True)
+    plt.show()
+
+    plt.hist(df[(df['stim']==Stim.OKR) & (df['stim_variable_value']==36)]['heading_change'], bins=180, alpha=0.5, density=True)
+    plt.hist(df[(df['stim']==Stim.OKR) & (df['stim_variable_value']==-36)]['heading_change'], bins=180, alpha=0.5, density=True)
+    plt.show()
+
+    # sample as many bouts in bright
+    num_bouts = df[df['stim']==Stim.LOOMING].shape[0]
+    plt.hist(df[(df['stim']==Stim.BRIGHT)]['peak_axial_speed'].abs().sample(num_bouts), bins=180, alpha=0.5, density=True)
+    plt.hist(df[(df['stim']==Stim.LOOMING)]['peak_axial_speed'].abs(), bins=180, alpha=0.5, density=True)
+    plt.show()
+
+    plt.hist(df[(df['stim']==Stim.BRIGHT)]['distance'].sample(num_bouts), bins=180, alpha=0.5, density=True)
+    plt.hist(df[(df['stim']==Stim.LOOMING)]['distance'], bins=180, alpha=0.5, density=True)
+    plt.show()
+
+    plt.hist(df[(df['stim']==Stim.LOOMING) & (df['stim_variable_value']==2)]['peak_yaw_speed'], bins=180, alpha=0.5, density=True)
+    plt.hist(df[(df['stim']==Stim.LOOMING) & (df['stim_variable_value']==-2)]['peak_yaw_speed'], bins=180, alpha=0.5, density=True)
+    plt.show()
+
 
     run_superimpose = partial(_run_superimpose, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:

@@ -292,10 +292,6 @@ def analyse_helper(
 
     return trials, avg, sem
 
-
-#
-
-
 def analyse_preycapture(
         directories: Directories, 
         behavior_data: BehaviorData
