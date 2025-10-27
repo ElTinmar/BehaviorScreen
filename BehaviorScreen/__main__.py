@@ -273,29 +273,37 @@ if __name__ == '__main__':
     plt.xlim(-0.5, num_cat-0.5)
     plt.show()
 
-    # sample as many bouts in bright
-    fig = plt.figure(figsize=(6,6))
-    num_bouts = bouts[bouts['stim']==Stim.LOOMING].shape[0]
-    bouts[(bouts['stim']==Stim.BRIGHT)]['peak_axial_speed'].abs().sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True, label='bright')
-    bouts[(bouts['stim']==Stim.LOOMING)]['peak_axial_speed'].abs().plot.hist(bins=180, alpha=0.5, density=True)
-    plt.show()
-
-
+    # TODO pick fastest bouts
     fig = plt.figure(figsize=(6,6))
     plt.title('Looming')
-    bouts[(bouts['stim']==Stim.LOOMING)]['distance'].plot.hist(color='k', bins=180, alpha=0.2, density=True)
-    bouts[(bouts['stim']==Stim.BRIGHT)]['distance'].sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True)
-    plt.show(block=False)
-
-    fig = plt.figure(figsize=(6,6))
-    bouts[(bouts['stim']==Stim.BRIGHT)]['peak_yaw_speed'].sample(num_bouts).plot.hist(color=DARK_YELLOW, bins=180, alpha=0.5, density=True)
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']==2)]['peak_yaw_speed'].plot.kde(color=COLORS[0])
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']==-2)]['peak_yaw_speed'].plot.kde(color=COLORS[1])
+    bouts[(bouts['stim']==Stim.BRIGHT)]['peak_yaw_speed'].sample(num_bouts).plot.hist(color='k', bins=80, alpha=0.5, density=True, label='bright')
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']==2)]['peak_yaw_speed'].plot.kde(color=COLORS[0], label='o | ')
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']==-2)]['peak_yaw_speed'].plot.kde(color=COLORS[1], label=' | o')
+    plt.xlabel('yaw speed (rad/sec)')
+    plt.legend()
+    plt.text(
+        x=-200,
+        y=-0.075,       
+        s="Right",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
+    plt.text(
+        x=200,
+        y=-0.075,       
+        s="Left",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
+    plt.xlim(-200, 200)
     plt.show()
 
+    fast_bouts = bouts[(bouts['stim']==Stim.LOOMING) & (abs(bouts['peak_yaw_speed'])>=60)]
     fig = plt.figure(figsize=(12,6))
     num_cat = len(bouts_category_name_short)
-    counts = bouts[(bouts['stim'] == Stim.LOOMING) & (bouts['proba']>0.8)]['category'].value_counts().sort_index()
+    counts = fast_bouts[fast_bouts['proba']>0.8]['category'].value_counts().sort_index()
     plt.bar(counts.index, counts.values, width=0.8)
     plt.xticks(range(num_cat), bouts_category_name_short)
     plt.xlim(-0.5, num_cat-0.5)
