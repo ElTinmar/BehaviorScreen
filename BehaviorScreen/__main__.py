@@ -113,19 +113,33 @@ if __name__ == '__main__':
     timeseries = pd.DataFrame(timeseries_data)
     timeseries.to_csv('timeseries.csv')
 
-    timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==20)].groupby('time')['theta'].mean().plot()
-    timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==-20)].groupby('time')['theta'].mean().plot()
+    def plot_mean_and_sem(x, col='k', label=''):
+        m = x.mean()
+        s = x.sem()
+        plt.plot(m.index, m.values, color = col, label=label)
+        plt.fill_between(
+            m.index,
+            m.values - s.values,
+            m.values + s.values,
+            color = col,
+            alpha = 0.3,
+            edgecolor='none'
+        )
+
+
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==20)].groupby('time')['theta'], COLORS[0])
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==-20)].groupby('time')['theta'], COLORS[1])
     plt.show()
 
-    timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==90)].groupby('time')['theta'].mean().plot()
-    timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==-90)].groupby('time')['theta'].mean().plot()
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==90)].groupby('time')['theta'], COLORS[0])
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==-90)].groupby('time')['theta'], COLORS[1])
     plt.show()
 
-    timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==36)].groupby('time')['theta'].mean().plot()
-    timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==-36)].groupby('time')['theta'].mean().plot()
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==36)].groupby('time')['theta'], COLORS[0])
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==-36)].groupby('time')['theta'], COLORS[1])
     plt.show()
 
-    timeseries[(timeseries['stim']==Stim.LOOMING)].groupby('time')['speed'].mean().plot()
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.LOOMING)].groupby('time')['speed'])
     plt.show()
 
     # filtering outliers
