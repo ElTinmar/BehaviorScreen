@@ -107,11 +107,18 @@ if __name__ == '__main__':
     bouts = pd.DataFrame(bouts_data)
     bouts.to_csv('bouts.csv')
 
+    # filtering outliers
+    bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
+    bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
+
     timeseries_data = []
     for behavior_file in tqdm(behavior_files):
         timeseries_data.extend(_run_timeseries(behavior_file))
     timeseries = pd.DataFrame(timeseries_data)
     timeseries.to_csv('timeseries.csv')
+    
+    # filtering outliers
+    timeseries.loc[timeseries['speed']> 400, 'speed'] = np.nan
 
     def plot_mean_and_sem(x, col='k', label=''):
         m = x.mean()
@@ -127,31 +134,138 @@ if __name__ == '__main__':
         )
 
 
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==20)].groupby('time')['theta'], COLORS[0])
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==-20)].groupby('time')['theta'], COLORS[1])
+    plt.figure(figsize=(6,6))
+    plt.title('Prey capture')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==20)].groupby('time')['theta'], COLORS[0], label='| o')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==-20)].groupby('time')['theta'], COLORS[1], label='o |')
+    plt.ylabel('<cumulative angle (rad)>')
+    plt.xlabel('time [s]')
+    plt.legend()
+    plt.ylim(-2, 2)
+    plt.text(
+        x=-0.1,
+        y=-2,       
+        s="Right",
+        ha='right',   
+        va='center',     
+        transform=plt.gca().get_yaxis_transform(),
+        rotation=90
+    )
+    plt.text(
+        x=-0.1,
+        y=2,       
+        s="Left",
+        ha='right',   
+        va='center',     
+        transform=plt.gca().get_yaxis_transform(),
+        rotation=90
+    )
+    plt.hlines(0, 0, 30, linestyles='dotted', color='k')
     plt.show()
 
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==90)].groupby('time')['theta'], COLORS[0])
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==-90)].groupby('time')['theta'], COLORS[1])
+
+    plt.figure(figsize=(6,6))
+    plt.title('Phototaxis')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']==1)].groupby('time')['theta'], COLORS[0], label='Bright | Dark')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']==-1)].groupby('time')['theta'], COLORS[1], label='Dark | Bright')
+    plt.ylabel('<cumulative angle (rad)>')
+    plt.xlabel('time [s]')
+    plt.ylim(-4, 4)
+    plt.text(
+        x=-0.1,
+        y=-4,       
+        s="Right",
+        ha='right',   
+        va='center',     
+        transform=plt.gca().get_yaxis_transform(),
+        rotation=90
+    )
+    plt.text(
+        x=-0.1,
+        y=4,       
+        s="Left",
+        ha='right',   
+        va='center',     
+        transform=plt.gca().get_yaxis_transform(),
+        rotation=90
+    )
+    plt.hlines(0, 0, 30, linestyles='dotted', color='k')
+    plt.legend()
     plt.show()
 
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==36)].groupby('time')['theta'], COLORS[0])
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==-36)].groupby('time')['theta'], COLORS[1])
+    plt.figure(figsize=(6,6))
+    plt.title('OMR')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==90)].groupby('time')['theta'], COLORS[0], label='-->')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==-90)].groupby('time')['theta'], COLORS[1], label='<--')
+    plt.ylabel('<cumulative angle (rad)>')
+    plt.xlabel('time [s]')
+    plt.ylim(-15, 15)
+    plt.text(
+        x=-0.1,
+        y=-15,       
+        s="Right",
+        ha='right',   
+        va='center',     
+        transform=plt.gca().get_yaxis_transform(),
+        rotation=90
+    )
+    plt.text(
+        x=-0.1,
+        y=15,       
+        s="Left",
+        ha='right',   
+        va='center',     
+        transform=plt.gca().get_yaxis_transform(),
+        rotation=90
+    )
+    plt.hlines(0, 0, 30, linestyles='dotted', color='k')
+    plt.legend()
     plt.show()
 
+    plt.figure(figsize=(6,6))
+    plt.title('OKR')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==36)].groupby('time')['theta'], COLORS[0], label='CW')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==-36)].groupby('time')['theta'], COLORS[1], label='CCW')
+    plt.ylabel('<cumulative angle (rad)>')
+    plt.xlabel('time [s]')
+    plt.ylim(-8, 8)
+    plt.text(
+        x=-0.1,
+        y=-8,       
+        s="Right",
+        ha='right',   
+        va='center',     
+        transform=plt.gca().get_yaxis_transform(),
+        rotation=90
+    )
+    plt.text(
+        x=-0.1,
+        y=8,       
+        s="Left",
+        ha='right',   
+        va='center',     
+        transform=plt.gca().get_yaxis_transform(),
+        rotation=90
+    )
+    plt.hlines(0, 0, 30, linestyles='dotted', color='k')
+    plt.legend()
+    plt.show()
+
+    plt.figure(figsize=(6,6))
+    plt.title('Loomings')
     plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.LOOMING)].groupby('time')['speed'])
+    plt.ylabel('<speed [mm/s]>')
+    plt.xlabel('time [s]')
+    plt.xlim(0,10)
     plt.show()
 
-    # filtering outliers
-    bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
-    bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
 
     fig = plt.figure(figsize=(6,6))
     plt.title('prey capture')
     num_bouts = bouts[bouts['stim']==Stim.PREY_CAPTURE].shape[0]//2
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==20)]['heading_change'].plot.kde(color=COLORS[0], label='prey Right')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==-20)]['heading_change'].plot.kde(color=COLORS[1], label='prey Left')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==20)]['heading_change'].plot.kde(color=COLORS[0], label='| o')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==-20)]['heading_change'].plot.kde(color=COLORS[1], label='o |')
     plt.xlim(-np.pi, np.pi)
     plt.legend()
     plt.text(
