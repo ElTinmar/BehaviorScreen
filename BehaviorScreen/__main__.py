@@ -265,7 +265,8 @@ if __name__ == '__main__':
 
     plt.figure(figsize=(6,6))
     plt.title('Loomings')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.LOOMING)].groupby('time')['speed'])
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2,0.2,0.0,1]')].groupby('time')['speed'], col=COLORS[0], label='Bright')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.LOOMING)].groupby('time')['speed'], col=COLORS[1], label='Looming')
     plt.ylabel('<speed [mm/s]>')
     plt.xlabel('time [s]')
     plt.xlim(0,10)
