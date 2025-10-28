@@ -338,79 +338,20 @@ def analyse_helper(
 
     return trials, avg, sem
 
-def analyse_preycapture(
-        directories: Directories, 
-        behavior_data: BehaviorData
-):
-    # cumulative angle change over time / n bouts for the 2 sides
-    # cumulative angle: compare last values to spontaneous
-    # heading change distribution for the 2 sides
-    # bout type classification + directions => J-turns
-    ...
-
 def plot_preycapture():
-    ...
-
-def analyse_omr(
-        directories: Directories, 
-        behavior_data: BehaviorData
-):
-    # cumulative angle change over time / n bouts for the 2 directions
-    # cumulative angle: compare last values to spontaneous
-    # heading change distribution for the 2 directions
-    # classify bouts turns
     ...
 
 def plot_omr():
     ...
 
-def analyse_okr(
-        directories: Directories, 
-        behavior_data: BehaviorData
-):
-    # cumulative angle change over time / n bouts for the 2 directions
-    # cumulative angle: compare last values to spontaneous
-    # heading change distribution for the 2 directions
-    # saccade classifier
-    # classify bouts turns
-    ...
 
 def plot_okr():
-    ...
-
-def analyse_looming(
-        directories: Directories, 
-        behavior_data: BehaviorData
-):
-    # raw speed / above threshold vs time to onset
-    # speed compare to spontaneous
-    # total distance traveled 
-    # distance compare to spontaneous same duration 
-    # distribution bout speed / bout distance 
-    # classify bouts escapes
     ...
 
 def plot_looming():
     ...
 
-def analyse_phototaxis(
-        directories: Directories, 
-        behavior_data: BehaviorData
-):
-    # cumulative angle over time / n bouts for the 2 sides
-    # cumulative angle: compare last values to spontaneous
-    # heading change distribution for the 2 sides
-    ...
-
 def plot_phototaxis():
-    ...
-
-def analyse_photokinesis(
-        directories: Directories, 
-        behavior_data: BehaviorData
-):
-    # cumulative distance over time / n bouts for the 2 sides
-    # cumulative distance compare last values
     ...
 
 def plot_photokinesis():

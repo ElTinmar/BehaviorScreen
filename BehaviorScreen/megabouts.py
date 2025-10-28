@@ -113,7 +113,7 @@ def get_bout_metrics(
                     ):
 
                         # heading change
-                        heading_change = np.rad2deg(meg_data.traj.yaw_smooth[off] - meg_data.traj.yaw_smooth[on])
+                        heading_change = meg_data.traj.yaw_smooth[off] - meg_data.traj.yaw_smooth[on]
 
                         # distance 
                         delta_x = meg_data.traj.x_smooth[on+1:off] - meg_data.traj.x_smooth[on:off-1]

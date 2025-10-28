@@ -101,8 +101,7 @@ if __name__ == '__main__':
     #download_and_extract_models(MODELS_URL, MODELS_FOLDER)
 
     bouts_data = []
-    for behavior_file in behavior_files:
-        print(behavior_file)
+    for behavior_file in tqdm(behavior_files):
         bouts_data.extend(_run_megabouts(behavior_file))
     bouts = pd.DataFrame(bouts_data)
     bouts.to_csv('bouts.csv')
@@ -132,7 +131,6 @@ if __name__ == '__main__':
             alpha = 0.3,
             edgecolor='none'
         )
-
 
     plt.figure(figsize=(6,6))
     plt.title('Prey capture')
@@ -193,6 +191,16 @@ if __name__ == '__main__':
     plt.hlines(0, 0, 30, linestyles='dotted', color='k')
     plt.legend()
     plt.savefig('phototaxis_timeseries.png')
+    plt.show()
+
+    plt.figure(figsize=(6,6))
+    plt.title('Photokinesis')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.DARK)].groupby('time')['distance'], COLORS[0], label='Dark')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2,0.2,0.0,1]')].groupby('time')['distance'], COLORS[1], label='Bright')
+    plt.ylabel('<cumulative distance (mm)>')
+    plt.xlabel('time [s]')
+    plt.legend()
+    plt.savefig('photokinesis_timeseries.png')
     plt.show()
 
     plt.figure(figsize=(6,6))
@@ -271,10 +279,10 @@ if __name__ == '__main__':
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
     bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==20)]['heading_change'].plot.kde(color=COLORS[0], label='| o')
     bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==-20)]['heading_change'].plot.kde(color=COLORS[1], label='o |')
-    plt.xlim(-np.pi, np.pi)
+    plt.xlim(-180, 180)
     plt.legend()
     plt.text(
-        x=-np.pi,
+        x=-180,
         y=-0.075,       
         s="Right",
         ha='center',   
@@ -282,7 +290,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.text(
-        x=np.pi,
+        x=180,
         y=-0.075,       
         s="Left",
         ha='center',   
@@ -307,10 +315,10 @@ if __name__ == '__main__':
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True,label='dark')
     bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']==1)]['heading_change'].plot.kde(color=COLORS[0], label='Bright | Dark')
     bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']==-1)]['heading_change'].plot.kde(color=COLORS[1], label='Dark | Bright')
-    plt.xlim(-np.pi, np.pi)
+    plt.xlim(-180, 180)
     plt.legend()
     plt.text(
-        x=-np.pi,
+        x=-180,
         y=-0.075,       
         s="Right",
         ha='center',   
@@ -318,14 +326,14 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.text(
-        x=np.pi,
+        x=180,
         y=-0.075,       
         s="Left",
         ha='center',   
         va='top',     
         transform=plt.gca().get_xaxis_transform() 
     )
-    plt.xlabel('bout heading change (rad)')
+    plt.xlabel('bout heading change (deg)')
     plt.savefig('phototaxis_bouts.png')
     plt.show()
 
@@ -337,10 +345,10 @@ if __name__ == '__main__':
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=80, alpha=0.1, density=True, label='dark')
     first_bouts[first_bouts['stim_variable_value']==1]['heading_change'].plot.kde(color=COLORS[0], label='Bright | Dark')
     first_bouts[first_bouts['stim_variable_value']==-1]['heading_change'].plot.kde(color=COLORS[1], label='Dark | Bright')
-    plt.xlim(-np.pi, np.pi)
+    plt.xlim(-180, 180)
     plt.legend()
     plt.text(
-        x=-np.pi,
+        x=-180,
         y=-0.075,       
         s="Right",
         ha='center',   
@@ -348,14 +356,14 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.text(
-        x=np.pi,
+        x=180,
         y=-0.075,       
         s="Left",
         ha='center',   
         va='top',     
         transform=plt.gca().get_xaxis_transform() 
     )
-    plt.xlabel('bout heading change (rad)')
+    plt.xlabel('bout heading change (deg)')
     plt.show(block=False)
 
     # TODO select only subset
@@ -370,10 +378,10 @@ if __name__ == '__main__':
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
     bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']==90)]['heading_change'].plot.kde(color=COLORS[0], label='-->')
     bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']==-90)]['heading_change'].plot.kde(color=COLORS[1], label='<--')
-    plt.xlim(-np.pi, np.pi)
+    plt.xlim(-180, 180)
     plt.legend()
     plt.text(
-        x=-np.pi,
+        x=-180,
         y=-0.075,       
         s="Right",
         ha='center',   
@@ -381,14 +389,14 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.text(
-        x=np.pi,
+        x=180,
         y=-0.075,       
         s="Left",
         ha='center',   
         va='top',     
         transform=plt.gca().get_xaxis_transform() 
     )
-    plt.xlabel('bout heading change (rad)')
+    plt.xlabel('bout heading change (deg)')
     plt.savefig('OMR_bouts.png')
     plt.show(block=False)
 
@@ -406,10 +414,10 @@ if __name__ == '__main__':
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
     bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']==36)]['heading_change'].plot.kde(color=COLORS[0], label='CW')
     bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']==-36)]['heading_change'].plot.kde(color=COLORS[1], label='CCW')
-    plt.xlim(-np.pi, np.pi)
+    plt.xlim(-180, 180)
     plt.legend()
     plt.text(
-        x=-np.pi,
+        x=-180,
         y=-0.075,       
         s="Right",
         ha='center',   
@@ -417,7 +425,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.text(
-        x=np.pi,
+        x=180,
         y=-0.075,       
         s="Left",
         ha='center',   
