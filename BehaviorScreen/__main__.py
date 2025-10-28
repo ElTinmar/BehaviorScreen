@@ -113,6 +113,21 @@ if __name__ == '__main__':
     timeseries = pd.DataFrame(timeseries_data)
     timeseries.to_csv('timeseries.csv')
 
+    timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==20)].groupby('time')['theta'].mean().plot()
+    timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==-20)].groupby('time')['theta'].mean().plot()
+    plt.show()
+
+    timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==90)].groupby('time')['theta'].mean().plot()
+    timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==-90)].groupby('time')['theta'].mean().plot()
+    plt.show()
+
+    timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==36)].groupby('time')['theta'].mean().plot()
+    timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==-36)].groupby('time')['theta'].mean().plot()
+    plt.show()
+
+    timeseries[(timeseries['stim']==Stim.LOOMING)].groupby('time')['speed'].mean().plot()
+    plt.show()
+
     # filtering outliers
     bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
     bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
