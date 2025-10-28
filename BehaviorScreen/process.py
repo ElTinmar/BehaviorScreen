@@ -231,7 +231,12 @@ def extract_time_series(
     mm_per_pix = 1/float(behavior_data.metadata['calibration']['pix_per_mm'])
     fps = behavior_data.metadata['camera']['framerate_value']
 
-    rows = []
+    stim_info = []
+    distance_ts = []
+    speed_ts = []
+    angle_ts = []
+    time_interp = common_time(30, fps)
+
     for identity, data in behavior_data.tracking.groupby('identity'):
         for stim_select, stim_data in stim_trials.groupby('stim_select'):
             stim = Stim(stim_select)
@@ -240,32 +245,32 @@ def extract_time_series(
             for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
                 for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
                     segment = get_tracking_between(data, row.start_timestamp, row.stop_timestamp)
-                    relative_time = get_relative_time_sec(segment)
-                    time_interp = common_time(30, fps)
                     
+                    relative_time = get_relative_time_sec(segment)
                     distance = np.cumsum(get_distance_mm(segment, mm_per_pix))
                     speed = get_speed_mm_per_sec(segment, mm_per_pix)
                     _, theta_unwrapped = get_theta(segment)
 
-                    distance_interp = interpolate_ts(time_interp, relative_time, distance)
-                    speed_interp = interpolate_ts(time_interp, relative_time, speed)
-                    angle_interp = interpolate_ts(time_interp, relative_time, theta_unwrapped)
+                    distance_ts.append(interpolate_ts(time_interp, relative_time, distance))
+                    speed_ts.append(interpolate_ts(time_interp, relative_time, speed))
+                    angle_ts.append(interpolate_ts(time_interp, relative_time, theta_unwrapped))
+                    stim_info.append({
+                        'file': behavior_files.metadata.stem,
+                        'identity': identity,
+                        'stim': stim_select,
+                        'stim_variable_name': GROUPING_PARAMETER[stim],
+                        'stim_variable_value': condition,
+                        'trial_num': trial_idx
+                    })
 
-                    for t, d, s, a in zip(time_interp, distance_interp, speed_interp, angle_interp):
-                        rows.append({
-                            'file': behavior_files.metadata.stem,
-                            'identity': identity,
-                            'stim': stim_select,
-                            'stim_variable_name': GROUPING_PARAMETER[stim],
-                            'stim_variable_value': condition,
-                            'trial_num': trial_idx,
-                            'time': t,
-                            'distance': d,
-                            'speed': s,
-                            'angle': a
-                        })
-                        
-    return rows
+    out = (
+        stim_info, 
+        time_interp, 
+        distance_ts, 
+        speed_ts, 
+        angle_ts
+    )
+    return out 
 
 
 def extract_metrics(
