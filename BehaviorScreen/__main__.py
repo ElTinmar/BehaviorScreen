@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 plt.plot()
 plt.show()
 
+from tqdm import tqdm
 import pandas as pd
 import numpy as np
 from typing import List, Dict
@@ -98,6 +99,7 @@ if __name__ == '__main__':
     behavior_files = find_files(directories)
     
     #download_and_extract_models(MODELS_URL, MODELS_FOLDER)
+
     bouts_data = []
     for behavior_file in behavior_files:
         print(behavior_file)
@@ -106,9 +108,10 @@ if __name__ == '__main__':
     bouts.to_csv('bouts.csv')
 
     timeseries_data = []
-    for behavior_file in behavior_files:
-        print(behavior_file)
+    for behavior_file in tqdm(behavior_files):
         timeseries_data.extend(_run_timeseries(behavior_file))
+    timeseries = pd.DataFrame(timeseries_data)
+    timeseries.to_csv('timeseries.csv')
 
     # filtering outliers
     bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
