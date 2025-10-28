@@ -196,7 +196,7 @@ if __name__ == '__main__':
     plt.figure(figsize=(6,6))
     plt.title('Photokinesis')
     plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.DARK)].groupby('time')['distance'], COLORS[0], label='Dark')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2,0.2,0.0,1]')].groupby('time')['distance'], COLORS[1], label='Bright')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]')].groupby('time')['distance'], COLORS[1], label='Bright')
     plt.ylabel('<cumulative distance (mm)>')
     plt.xlabel('time [s]')
     plt.legend()
@@ -265,7 +265,7 @@ if __name__ == '__main__':
 
     plt.figure(figsize=(6,6))
     plt.title('Loomings')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2,0.2,0.0,1]')].groupby('time')['speed'], col=COLORS[0], label='Bright')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]')].groupby('time')['speed'], col=COLORS[0], label='Bright')
     plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.LOOMING)].groupby('time')['speed'], col=COLORS[1], label='Looming')
     plt.ylabel('<speed [mm/s]>')
     plt.xlabel('time [s]')
@@ -277,9 +277,9 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(6,6))
     plt.title('prey capture')
     num_bouts = bouts[bouts['stim']==Stim.PREY_CAPTURE].shape[0]//2
-    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==20)]['heading_change'].plot.kde(color=COLORS[0], label='| o')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==-20)]['heading_change'].plot.kde(color=COLORS[1], label='o |')
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].apply(np.rad2deg).sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==20)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='| o')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==-20)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='o |')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -313,9 +313,9 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(6,6))
     plt.title('phototaxis')
     num_bouts = bouts[bouts['stim']==Stim.PHOTOTAXIS].shape[0]//2
-    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True,label='dark')
-    bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']==1)]['heading_change'].plot.kde(color=COLORS[0], label='Bright | Dark')
-    bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']==-1)]['heading_change'].plot.kde(color=COLORS[1], label='Dark | Bright')
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).apply(np.rad2deg).plot.hist(color='k', bins=180, alpha=0.1, density=True,label='dark')
+    bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']==1)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='Bright | Dark')
+    bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']==-1)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='Dark | Bright')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -343,9 +343,9 @@ if __name__ == '__main__':
     plt.title(f'phototaxis, first {n} bouts')
     first_bouts = bouts[bouts['stim']==Stim.PHOTOTAXIS].groupby(['file', 'identity', 'stim_variable_value', 'trial_num'], group_keys=False).head(n)
     num_bouts = first_bouts.shape[0]//2
-    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=80, alpha=0.1, density=True, label='dark')
-    first_bouts[first_bouts['stim_variable_value']==1]['heading_change'].plot.kde(color=COLORS[0], label='Bright | Dark')
-    first_bouts[first_bouts['stim_variable_value']==-1]['heading_change'].plot.kde(color=COLORS[1], label='Dark | Bright')
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).apply(np.rad2deg).plot.hist(color='k', bins=80, alpha=0.1, density=True, label='dark')
+    first_bouts[first_bouts['stim_variable_value']==1]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='Bright | Dark')
+    first_bouts[first_bouts['stim_variable_value']==-1]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='Dark | Bright')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -376,9 +376,9 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(6,6))
     plt.title('OMR directional')
     num_bouts = bouts[bouts['stim']==Stim.OMR].shape[0]//2
-    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']==90)]['heading_change'].plot.kde(color=COLORS[0], label='-->')
-    bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']==-90)]['heading_change'].plot.kde(color=COLORS[1], label='<--')
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).apply(np.rad2deg).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
+    bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']==90)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='-->')
+    bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']==-90)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='<--')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -412,9 +412,9 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(6,6))
     plt.title('OKR')
     num_bouts = bouts[bouts['stim']==Stim.OKR].shape[0]//2
-    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']==36)]['heading_change'].plot.kde(color=COLORS[0], label='CW')
-    bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']==-36)]['heading_change'].plot.kde(color=COLORS[1], label='CCW')
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).apply(np.rad2deg).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
+    bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']==36)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='CW')
+    bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']==-36)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='CCW')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(

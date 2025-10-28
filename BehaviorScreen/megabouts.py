@@ -132,7 +132,7 @@ def get_bout_metrics(
                         peak_axial_speed = axial_speed[np.argmax(np.abs(axial_speed))]
 
                         # peak yaw speed
-                        yaw_speed = np.rad2deg(meg_data.traj.yaw_speed[on:off])
+                        yaw_speed = meg_data.traj.yaw_speed[on:off]
                         peak_yaw_speed = yaw_speed[np.argmax(np.abs(yaw_speed))]
 
                         rows.append({
