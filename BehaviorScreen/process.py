@@ -231,10 +231,7 @@ def extract_time_series(
     mm_per_pix = 1/float(behavior_data.metadata['calibration']['pix_per_mm'])
     fps = behavior_data.metadata['camera']['framerate_value']
 
-    stim_info = []
-    distance_ts = []
-    speed_ts = []
-    angle_ts = []
+    rows = []
     time_interp = common_time(30, fps)
 
     for identity, data in behavior_data.tracking.groupby('identity'):
@@ -251,26 +248,24 @@ def extract_time_series(
                     speed = get_speed_mm_per_sec(segment, mm_per_pix)
                     _, theta_unwrapped = get_theta(segment)
 
-                    distance_ts.append(interpolate_ts(time_interp, relative_time, distance))
-                    speed_ts.append(interpolate_ts(time_interp, relative_time, speed))
-                    angle_ts.append(interpolate_ts(time_interp, relative_time, theta_unwrapped))
-                    stim_info.append({
-                        'file': behavior_files.metadata.stem,
-                        'identity': identity,
-                        'stim': stim_select,
-                        'stim_variable_name': GROUPING_PARAMETER[stim],
-                        'stim_variable_value': condition,
-                        'trial_num': trial_idx
-                    })
+                    distance_interp = interpolate_ts(time_interp, relative_time, distance)
+                    speed_interp = interpolate_ts(time_interp, relative_time, speed)
+                    angle_interp = interpolate_ts(time_interp, relative_time, theta_unwrapped)
+                    for t, d, s, th in zip(time_interp, distance_interp, speed_interp, angle_interp):
+                        rows.append({
+                            'file': behavior_files.metadata.stem,
+                            'identity': identity,
+                            'stim': stim_select,
+                            'stim_variable_name': GROUPING_PARAMETER[stim],
+                            'stim_variable_value': condition,
+                            'trial_num': trial_idx,
+                            'time': t,
+                            'distance': d,
+                            'speed': s,
+                            'theta': th
+                        })
 
-    out = (
-        stim_info, 
-        time_interp, 
-        distance_ts, 
-        speed_ts, 
-        angle_ts
-    )
-    return out 
+    return rows
 
 
 def extract_metrics(

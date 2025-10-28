@@ -86,8 +86,7 @@ def _run_metrics(behavior_file: BehaviorFiles, directories: Directories):
 def _run_megabouts(behavior_file: BehaviorFiles) -> List[Dict]:
     behavior_data = load_data(behavior_file)
     meg = megabout_headtracking_pipeline(behavior_data)
-    metrics = get_bout_metrics(behavior_data, behavior_file, meg)
-    return metrics
+    return get_bout_metrics(behavior_data, behavior_file, meg)
 
 def _run_timeseries(behavior_file: BehaviorFiles):
     behavior_data = load_data(behavior_file)
@@ -99,26 +98,17 @@ if __name__ == '__main__':
     behavior_files = find_files(directories)
     
     #download_and_extract_models(MODELS_URL, MODELS_FOLDER)
-    rows = []
+    bouts_data = []
     for behavior_file in behavior_files:
         print(behavior_file)
-        rows.extend(_run_megabouts(behavior_file))
-        
-    bouts = pd.DataFrame(rows)
+        bouts_data.extend(_run_megabouts(behavior_file))
+    bouts = pd.DataFrame(bouts_data)
     bouts.to_csv('bouts.csv')
 
-    stim_info = []
-    distance_ts = []
-    speed_ts = []
-    angle_ts = []
+    timeseries_data = []
     for behavior_file in behavior_files:
         print(behavior_file)
-        ts = _run_timeseries(behavior_file)
-        stim_info.extend(ts[0])
-        time_interp = ts[1]
-        distance_ts.extend(ts[2])
-        speed_ts.extend(ts[3])
-        angle_ts.extend(ts[4])
+        timeseries_data.extend(_run_timeseries(behavior_file))
 
     # filtering outliers
     bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
