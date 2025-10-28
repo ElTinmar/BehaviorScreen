@@ -14,7 +14,7 @@ import cv2
 
 from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader, CPU_VideoProcessor
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
-from BehaviorScreen.core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS, ROOT_FOLDER
+from BehaviorScreen.core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS, ROOT_FOLDER, GROUPING_PARAMETER
 
 import matplotlib.pyplot as plt # this for debugging, remove in the future
 
@@ -221,6 +221,52 @@ class TrialMetrics(TypedDict):
     y: List[pd.Series]
     theta: List[np.ndarray]
     distance_from_center: List[pd.Series]
+
+def extract_time_series(
+        behavior_data: BehaviorData, 
+        behavior_files: BehaviorFiles, 
+    ):
+    
+    stim_trials = get_trials(behavior_data)
+    mm_per_pix = 1/float(behavior_data.metadata['calibration']['pix_per_mm'])
+    fps = behavior_data.metadata['camera']['framerate_value']
+
+    rows = []
+    for identity, data in behavior_data.tracking.groupby('identity'):
+        for stim_select, stim_data in stim_trials.groupby('stim_select'):
+            stim = Stim(stim_select)
+            if not stim in GROUPING_PARAMETER:
+                break
+            for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
+                for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
+                    segment = get_tracking_between(data, row.start_timestamp, row.stop_timestamp)
+                    relative_time = get_relative_time_sec(segment)
+                    time_interp = common_time(30, fps)
+                    
+                    distance = np.cumsum(get_distance_mm(segment, mm_per_pix))
+                    speed = get_speed_mm_per_sec(segment, mm_per_pix)
+                    _, theta_unwrapped = get_theta(segment)
+
+                    distance_interp = interpolate_ts(time_interp, relative_time, distance)
+                    speed_interp = interpolate_ts(time_interp, relative_time, speed)
+                    angle_interp = interpolate_ts(time_interp, relative_time, theta_unwrapped)
+
+                    for t, d, s, a in zip(time_interp, distance_interp, speed_interp, angle_interp):
+                        rows.append({
+                            'file': behavior_files.metadata.stem,
+                            'identity': identity,
+                            'stim': stim_select,
+                            'stim_variable_name': GROUPING_PARAMETER[stim],
+                            'stim_variable_value': condition,
+                            'trial_num': trial_idx,
+                            'time': t,
+                            'distance': d,
+                            'speed': s,
+                            'angle': a
+                        })
+                        
+    return rows
+
 
 def extract_metrics(
         behavior_data: BehaviorData, 
