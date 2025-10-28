@@ -161,6 +161,7 @@ if __name__ == '__main__':
         rotation=90
     )
     plt.hlines(0, 0, 30, linestyles='dotted', color='k')
+    plt.savefig('preycapture_timeseries.png')
     plt.show()
 
 
@@ -170,10 +171,10 @@ if __name__ == '__main__':
     plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']==-1)].groupby('time')['theta'], COLORS[1], label='Dark | Bright')
     plt.ylabel('<cumulative angle (rad)>')
     plt.xlabel('time [s]')
-    plt.ylim(-4, 4)
+    plt.ylim(-3, 3)
     plt.text(
         x=-0.1,
-        y=-4,       
+        y=-3,       
         s="Right",
         ha='right',   
         va='center',     
@@ -182,7 +183,7 @@ if __name__ == '__main__':
     )
     plt.text(
         x=-0.1,
-        y=4,       
+        y=3,       
         s="Left",
         ha='right',   
         va='center',     
@@ -191,6 +192,7 @@ if __name__ == '__main__':
     )
     plt.hlines(0, 0, 30, linestyles='dotted', color='k')
     plt.legend()
+    plt.savefig('phototaxis_timeseries.png')
     plt.show()
 
     plt.figure(figsize=(6,6))
@@ -220,6 +222,7 @@ if __name__ == '__main__':
     )
     plt.hlines(0, 0, 30, linestyles='dotted', color='k')
     plt.legend()
+    plt.savefig('OMR_timeseries.png')
     plt.show()
 
     plt.figure(figsize=(6,6))
@@ -249,6 +252,7 @@ if __name__ == '__main__':
     )
     plt.hlines(0, 0, 30, linestyles='dotted', color='k')
     plt.legend()
+    plt.savefig('OKR_timeseries.png')
     plt.show()
 
     plt.figure(figsize=(6,6))
@@ -257,6 +261,7 @@ if __name__ == '__main__':
     plt.ylabel('<speed [mm/s]>')
     plt.xlabel('time [s]')
     plt.xlim(0,10)
+    plt.savefig('Looming_timeseries.png')
     plt.show()
 
 
@@ -285,6 +290,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.xlabel('bout heading change (deg)')
+    plt.savefig('preycapture_bouts.png')
     plt.show(block=False)
 
     fig = plt.figure(figsize=(12,6))
@@ -320,6 +326,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.xlabel('bout heading change (rad)')
+    plt.savefig('phototaxis_bouts.png')
     plt.show()
 
     fig = plt.figure(figsize=(6,6))
@@ -382,6 +389,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.xlabel('bout heading change (rad)')
+    plt.savefig('OMR_bouts.png')
     plt.show(block=False)
 
     fig = plt.figure(figsize=(12,6))
@@ -417,6 +425,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.xlabel('bout heading change (rad)')
+    plt.savefig('OKR_bouts.png')
     plt.show(block=False)
 
     fig = plt.figure(figsize=(12,6))
@@ -452,6 +461,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.xlim(-200, 200)
+    plt.savefig('Looming_bouts.png')
     plt.show()
 
     fast_bouts = bouts[(bouts['stim']==Stim.LOOMING) & (abs(bouts['peak_yaw_speed'])>=60)]
