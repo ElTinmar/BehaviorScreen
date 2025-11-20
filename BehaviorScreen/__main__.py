@@ -15,8 +15,6 @@ from BehaviorScreen.core import (
     GROUPING_PARAMETER, 
     BASE_DIR, 
     NUM_PROCESSES, 
-    MODELS_FOLDER, 
-    MODELS_URL,
     COLORS,
     Stim
 )
@@ -37,16 +35,9 @@ from BehaviorScreen.plot import (
     plot_tracking_metrics, 
     plot_trajectories
 )
-from BehaviorScreen.get_models import download_and_extract_models
+
 from BehaviorScreen.megabouts import megabout_headtracking_pipeline, get_bout_metrics
-
-
-from megabouts.utils import (
-    bouts_category_name,
-    bouts_category_name_short,
-    bouts_category_color,
-    cmp_bouts,
-)
+from megabouts.utils import bouts_category_name_short
 
 # DLC
 # TODO eye tracking OKR
@@ -66,6 +57,8 @@ from megabouts.utils import (
 # TODO filter dark/bright events to remove transition/rest periods
 
 # TODO overlay reconstructed stimulus on top of video 
+
+# TODO overlay video with ethogram
 
 def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
