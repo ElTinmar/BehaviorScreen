@@ -1,13 +1,14 @@
 from multiprocessing import Pool
 from functools import partial
 import matplotlib.pyplot as plt
+import seaborn as sns
 plt.plot()
 plt.show()
 
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Optional, Iterable, Tuple
 
 DARK_YELLOW = '#dbc300'
 
@@ -38,6 +39,7 @@ from BehaviorScreen.plot import (
 
 from BehaviorScreen.megabouts import megabout_headtracking_pipeline, get_bout_metrics
 from megabouts.utils import bouts_category_name_short
+from scipy.stats import ranksums, ttest_rel
 
 # DLC
 # TODO eye tracking OKR
@@ -132,11 +134,11 @@ if __name__ == '__main__':
     # filtering outliers
     timeseries.loc[timeseries['speed']> 400, 'speed'] = np.nan
 
-    def plot_mean_and_sem(x, col='k', label=''):
+    def plot_mean_and_sem(ax, x, col='k', label=''):
         m = x.mean()
         s = x.sem()
-        plt.plot(m.index, m.values, color = col, label=label)
-        plt.fill_between(
+        ax.plot(m.index, m.values, color = col, label=label)
+        ax.fill_between(
             m.index,
             m.values - s.values,
             m.values + s.values,
@@ -145,18 +147,113 @@ if __name__ == '__main__':
             edgecolor='none'
         )
 
-    def plot_last_value(x):
-        ...
+    def plot_last_value(ax, x, y, names):
+        a, b = x.get_group(29.99).values, y.get_group(29.99).values
+        
 
-    plt.figure(figsize=(6,6))
+    def asterisk(p_value: float) -> str:
+
+        if p_value < 0.0001:
+            significance = '****'
+        elif p_value < 0.001:
+            significance = '***'
+        elif p_value < 0.01:
+            significance = '**'
+        elif p_value < 0.05:
+            significance = '*'
+        else:
+            significance = 'ns' 
+
+        return significance
+
+    def significance_bridge(ax,x,y,p_value,fontsize,prct_offset=0.05):
+
+        bottom, top = ax.get_ylim()
+        height = top-bottom
+        offset = prct_offset * height
+
+        Mx = np.nanmax(x) + 1.5 * offset
+        My = np.nanmax(y) + 1.5 * offset
+        Mxy = np.nanmax((Mx,My)) + offset
+        ax.plot([0, 0, 1, 1], [Mx, Mxy, Mxy, My], color='#555555', lw=1.5)
+
+        significance = asterisk(p_value)
+        ax.text(
+            0.5, Mxy + offset, 
+            f'{significance}', 
+            horizontalalignment='center', 
+            fontsize=fontsize
+        )
+        
+        ax.set_ylim(bottom, Mxy + 3*offset)
+
+    def ranksum_plot(
+            ax,
+            x, 
+            y, 
+            cat_names: Iterable, 
+            ylabel: str, 
+            title: str,
+            col: Iterable, 
+            fontsize: int = 12, 
+            ylim: Optional[Tuple] = None,
+            *args, 
+            **kwargs):
+            
+        stat, p_value = ranksums(x, y, nan_policy='omit', *args, **kwargs)
+
+        df = pd.DataFrame({cat_names[0]: x, cat_names[1]: y})
+        df_melted = df.melt(var_name='cat', value_name='val')
+
+        ax.set_title(title)
+
+        sns.stripplot(ax = ax,
+            data=df_melted, x='cat', y='val', hue='cat',
+            alpha=.5, legend=False, palette=sns.color_palette(col),
+            s=7.5
+        )
+        sns.pointplot(
+            ax = ax,
+            data=df_melted, x='cat', y="val", hue='cat',
+            linestyle="none", errorbar=None,
+            marker="_", markersize=30, markeredgewidth=3,
+            palette=sns.color_palette(col)
+        )
+        ax.set_xlim(-0.5, 1.5)
+
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel('')
+        ax.set_box_aspect(1)
+
+        significance_bridge(ax,x,y,p_value,fontsize)
+
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
     plt.title('Prey capture')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='20.0')].groupby('time')['theta'], COLORS[0], label='| o')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='-20.0')].groupby('time')['theta'], COLORS[1], label='o |')
-    plt.ylabel('<cumulative angle (rad)>')
-    plt.xlabel('time [s]')
-    plt.legend()
-    plt.ylim(-2, 2)
-    plt.text(
+    df = timeseries[
+        (timeseries['stim'] == Stim.PREY_CAPTURE) &
+        (timeseries['stim_variable_value'] == '20.0')
+    ]
+    theta_avg_trials = (
+        df.groupby(['file', 'identity', 'time'])['theta']
+        .mean()  # average over trials first
+        .groupby(['time'])
+    )
+    theta_mean = theta_avg_trials.mean().values
+    theta_sem = theta_avg_trials.sem().values
+    theta_last = theta_avg_trials.get_group(29.99).values
+    
+    x = timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='20.0')].groupby('time')['theta']
+    y = timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='-20.0')].groupby('time')['theta']
+    plot_mean_and_sem(ax[0], x, COLORS[0], label='| o')
+    plot_mean_and_sem(ax[0], y, COLORS[1], label='o |')
+    ax[0].set_ylabel('<cumulative angle (rad)>')
+    ax[0].set_xlabel('time [s]')
+    ax[0].legend()
+    ax[0].set_ylim(-2, 2)
+    ax[0].text(
         x=-0.1,
         y=-2,       
         s="Right",
@@ -165,7 +262,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_yaxis_transform(),
         rotation=90
     )
-    plt.text(
+    ax[0].text(
         x=-0.1,
         y=2,       
         s="Left",
@@ -174,7 +271,16 @@ if __name__ == '__main__':
         transform=plt.gca().get_yaxis_transform(),
         rotation=90
     )
-    plt.hlines(0, 0, 30, linestyles='dotted', color='k')
+    ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
+    ranksum_plot(
+        ax[1],
+        x.get_group(29.99).values, 
+        y.get_group(29.99).values,
+        ['20.0', '-20.0'],
+        ylabel='',
+        title='',
+        col=COLORS
+    )
     plt.savefig('preycapture_timeseries.png')
     plt.show()
 

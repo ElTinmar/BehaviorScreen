@@ -8,6 +8,7 @@ dependencies:
 - tqdm
 - pip
 - ffmpeg
+- seaborn
 - pip:
   - megabouts
   - filetype
