@@ -64,6 +64,8 @@ from megabouts.utils import bouts_category_name_short
 
 # TODO plot ethogram as in Marques et al CurrBiol 2018?
 
+# TODO average over trials in one fish, then over fish
+
 def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
     superimpose_video_trials(directories, behavior_file, behavior_data, 30, GROUPING_PARAMETER)
@@ -103,6 +105,13 @@ if __name__ == '__main__':
     bouts = pd.DataFrame(bouts_data)
     bouts.to_csv('bouts.csv')
 
+    bouts = pd.read_csv(
+        "bouts.csv",
+        converters={
+            "stim_variable_value": lambda x: str(x)
+        }
+    )
+
     # filtering outliers
     bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
     bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
@@ -112,6 +121,13 @@ if __name__ == '__main__':
         timeseries_data.extend(_run_timeseries(behavior_file))
     timeseries = pd.DataFrame(timeseries_data)
     timeseries.to_csv('timeseries.csv')
+
+    timeseries = pd.read_csv(
+        "timeseries.csv",
+        converters={
+            "stim_variable_value": lambda x: str(x)
+        }
+    )
     
     # filtering outliers
     timeseries.loc[timeseries['speed']> 400, 'speed'] = np.nan
@@ -129,10 +145,13 @@ if __name__ == '__main__':
             edgecolor='none'
         )
 
+    def plot_last_value(x):
+        ...
+
     plt.figure(figsize=(6,6))
     plt.title('Prey capture')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==20)].groupby('time')['theta'], COLORS[0], label='| o')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']==-20)].groupby('time')['theta'], COLORS[1], label='o |')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='20.0')].groupby('time')['theta'], COLORS[0], label='| o')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='-20.0')].groupby('time')['theta'], COLORS[1], label='o |')
     plt.ylabel('<cumulative angle (rad)>')
     plt.xlabel('time [s]')
     plt.legend()
@@ -162,8 +181,8 @@ if __name__ == '__main__':
 
     plt.figure(figsize=(6,6))
     plt.title('Phototaxis')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']==1)].groupby('time')['theta'], COLORS[0], label='Bright | Dark')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']==-1)].groupby('time')['theta'], COLORS[1], label='Dark | Bright')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']=='1.0')].groupby('time')['theta'], COLORS[0], label='Bright | Dark')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']=='-1.0')].groupby('time')['theta'], COLORS[1], label='Dark | Bright')
     plt.ylabel('<cumulative angle (rad)>')
     plt.xlabel('time [s]')
     plt.ylim(-3, 3)
@@ -202,8 +221,8 @@ if __name__ == '__main__':
 
     plt.figure(figsize=(6,6))
     plt.title('OMR')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==90)].groupby('time')['theta'], COLORS[0], label='-->')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']==-90)].groupby('time')['theta'], COLORS[1], label='<--')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']=='90.0')].groupby('time')['theta'], COLORS[0], label='-->')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']=='-90.0')].groupby('time')['theta'], COLORS[1], label='<--')
     plt.ylabel('<cumulative angle (rad)>')
     plt.xlabel('time [s]')
     plt.ylim(-15, 15)
@@ -232,8 +251,8 @@ if __name__ == '__main__':
 
     plt.figure(figsize=(6,6))
     plt.title('OKR')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==36)].groupby('time')['theta'], COLORS[0], label='CW')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']==-36)].groupby('time')['theta'], COLORS[1], label='CCW')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']=='36.0')].groupby('time')['theta'], COLORS[0], label='CW')
+    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']=='-36.0')].groupby('time')['theta'], COLORS[1], label='CCW')
     plt.ylabel('<cumulative angle (rad)>')
     plt.xlabel('time [s]')
     plt.ylim(-8, 8)
@@ -275,8 +294,8 @@ if __name__ == '__main__':
     plt.title('prey capture')
     num_bouts = bouts[bouts['stim']==Stim.PREY_CAPTURE].shape[0]//2
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].apply(np.rad2deg).sample(num_bouts).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==20)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='| o')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']==-20)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='o |')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='20.0')]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='| o')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='-20.0')]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='o |')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -311,8 +330,8 @@ if __name__ == '__main__':
     plt.title('phototaxis')
     num_bouts = bouts[bouts['stim']==Stim.PHOTOTAXIS].shape[0]//2
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).apply(np.rad2deg).plot.hist(color='k', bins=180, alpha=0.1, density=True,label='dark')
-    bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']==1)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='Bright | Dark')
-    bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']==-1)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='Dark | Bright')
+    bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']=='1.0')]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='Bright | Dark')
+    bouts[(bouts['stim']==Stim.PHOTOTAXIS) & (bouts['stim_variable_value']=='-1.0')]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='Dark | Bright')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -341,8 +360,8 @@ if __name__ == '__main__':
     first_bouts = bouts[bouts['stim']==Stim.PHOTOTAXIS].groupby(['file', 'identity', 'stim_variable_value', 'trial_num'], group_keys=False).head(n)
     num_bouts = first_bouts.shape[0]//2
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).apply(np.rad2deg).plot.hist(color='k', bins=80, alpha=0.1, density=True, label='dark')
-    first_bouts[first_bouts['stim_variable_value']==1]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='Bright | Dark')
-    first_bouts[first_bouts['stim_variable_value']==-1]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='Dark | Bright')
+    first_bouts[first_bouts['stim_variable_value']=='1.0']['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='Bright | Dark')
+    first_bouts[first_bouts['stim_variable_value']=='-1.0']['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='Dark | Bright')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -374,8 +393,8 @@ if __name__ == '__main__':
     plt.title('OMR directional')
     num_bouts = bouts[bouts['stim']==Stim.OMR].shape[0]//2
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).apply(np.rad2deg).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']==90)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='-->')
-    bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']==-90)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='<--')
+    bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']=='90.0')]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='-->')
+    bouts[(bouts['stim']==Stim.OMR) & (bouts['stim_variable_value']=='-90.0')]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='<--')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -410,8 +429,8 @@ if __name__ == '__main__':
     plt.title('OKR')
     num_bouts = bouts[bouts['stim']==Stim.OKR].shape[0]//2
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].sample(num_bouts).apply(np.rad2deg).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']==36)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='CW')
-    bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']==-36)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='CCW')
+    bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']=='36.0')]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='CW')
+    bouts[(bouts['stim']==Stim.OKR) & (bouts['stim_variable_value']=='-36.0')]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='CCW')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -447,8 +466,8 @@ if __name__ == '__main__':
     plt.title('Looming')
     num_bouts = bouts[(bouts['stim']==Stim.LOOMING)].shape[0]//2
     bouts[(bouts['stim']==Stim.BRIGHT)]['peak_yaw_speed'].sample(num_bouts).plot.hist(color='k', bins=80, alpha=0.5, density=True, label='bright')
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']==2)]['peak_yaw_speed'].plot.kde(color=COLORS[0], label='o | ')
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']==-2)]['peak_yaw_speed'].plot.kde(color=COLORS[1], label=' | o')
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='2.0')]['peak_yaw_speed'].plot.kde(color=COLORS[0], label='o | ')
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-2.0')]['peak_yaw_speed'].plot.kde(color=COLORS[1], label=' | o')
     plt.xlabel('yaw speed (rad/sec)')
     plt.legend()
     plt.text(

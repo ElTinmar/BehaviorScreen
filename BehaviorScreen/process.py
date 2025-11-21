@@ -257,7 +257,7 @@ def extract_time_series(
                             'identity': identity,
                             'stim': stim_select,
                             'stim_variable_name': GROUPING_PARAMETER[stim],
-                            'stim_variable_value': condition,
+                            'stim_variable_value': str(condition),
                             'trial_num': trial_idx,
                             'time': t,
                             'distance': d,
