@@ -39,7 +39,7 @@ from BehaviorScreen.plot import (
 
 from BehaviorScreen.megabouts import megabout_headtracking_pipeline, get_bout_metrics
 from megabouts.utils import bouts_category_name_short
-from scipy.stats import ranksums, ttest_rel
+from scipy.stats import wilcoxon, ttest_rel
 
 # DLC
 # TODO eye tracking OKR
@@ -146,9 +146,6 @@ if __name__ == '__main__':
             alpha = 0.3,
             edgecolor='none'
         )
-
-    def plot_last_value(ax, x, y, names):
-        a, b = x.get_group(29.99).values, y.get_group(29.99).values
         
 
     def asterisk(p_value: float) -> str:
@@ -187,7 +184,7 @@ if __name__ == '__main__':
         
         ax.set_ylim(bottom, Mxy + 3*offset)
 
-    def ranksum_plot(
+    def wilcoxon_plot(
             ax,
             x, 
             y, 
@@ -200,7 +197,7 @@ if __name__ == '__main__':
             *args, 
             **kwargs):
             
-        stat, p_value = ranksums(x, y, nan_policy='omit', *args, **kwargs)
+        stat, p_value = wilcoxon(x, y, nan_policy='omit', *args, **kwargs)
 
         df = pd.DataFrame({cat_names[0]: x, cat_names[1]: y})
         df_melted = df.melt(var_name='cat', value_name='val')
@@ -219,6 +216,11 @@ if __name__ == '__main__':
             marker="_", markersize=30, markeredgewidth=3,
             palette=sns.color_palette(col)
         )
+
+        # TODO: match jitter
+        for xi, yi in zip(x, y):
+            ax.plot([0, 1], [xi, yi], color='gray', alpha=0.5, linewidth=1)
+
         ax.set_xlim(-0.5, 1.5)
 
         ax.set_ylabel(ylabel)
@@ -230,23 +232,21 @@ if __name__ == '__main__':
         if ylim is not None:
             ax.set_ylim(*ylim)
 
+    def group(df, variable):
+        theta_avg_trials = (
+            df.groupby(['file', 'identity', 'time'])[variable]
+            .mean()  # average over trials first
+            .groupby(['time'])
+        )
+        #theta_mean = theta_avg_trials.mean().values
+        #theta_sem = theta_avg_trials.sem().values
+        theta_last = theta_avg_trials.get_group(29.99).values
+        return theta_avg_trials, theta_last
+
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
     plt.title('Prey capture')
-    df = timeseries[
-        (timeseries['stim'] == Stim.PREY_CAPTURE) &
-        (timeseries['stim_variable_value'] == '20.0')
-    ]
-    theta_avg_trials = (
-        df.groupby(['file', 'identity', 'time'])['theta']
-        .mean()  # average over trials first
-        .groupby(['time'])
-    )
-    theta_mean = theta_avg_trials.mean().values
-    theta_sem = theta_avg_trials.sem().values
-    theta_last = theta_avg_trials.get_group(29.99).values
-    
-    x = timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='20.0')].groupby('time')['theta']
-    y = timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='-20.0')].groupby('time')['theta']
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='20.0')], variable='theta')
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='-20.0')], variable='theta')
     plot_mean_and_sem(ax[0], x, COLORS[0], label='| o')
     plot_mean_and_sem(ax[0], y, COLORS[1], label='o |')
     ax[0].set_ylabel('<cumulative angle (rad)>')
@@ -272,10 +272,10 @@ if __name__ == '__main__':
         rotation=90
     )
     ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
-    ranksum_plot(
+    wilcoxon_plot(
         ax[1],
-        x.get_group(29.99).values, 
-        y.get_group(29.99).values,
+        x_last, 
+        y_last,
         ['20.0', '-20.0'],
         ylabel='',
         title='',
@@ -285,14 +285,16 @@ if __name__ == '__main__':
     plt.show()
 
 
-    plt.figure(figsize=(6,6))
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
     plt.title('Phototaxis')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']=='1.0')].groupby('time')['theta'], COLORS[0], label='Bright | Dark')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']=='-1.0')].groupby('time')['theta'], COLORS[1], label='Dark | Bright')
-    plt.ylabel('<cumulative angle (rad)>')
-    plt.xlabel('time [s]')
-    plt.ylim(-3, 3)
-    plt.text(
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']=='1.0')], variable='theta')
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']=='-1.0')], variable='theta')
+    plot_mean_and_sem(ax[0], x, COLORS[0], label='Bright | Dark')
+    plot_mean_and_sem(ax[0], y, COLORS[1], label='Dark | Bright')
+    ax[0].set_ylabel('<cumulative angle (rad)>')
+    ax[0].set_xlabel('time [s]')
+    ax[0].set_ylim(-3, 3)
+    ax[0].text(
         x=-0.1,
         y=-3,       
         s="Right",
@@ -301,7 +303,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_yaxis_transform(),
         rotation=90
     )
-    plt.text(
+    ax[0].text(
         x=-0.1,
         y=3,       
         s="Left",
@@ -310,29 +312,41 @@ if __name__ == '__main__':
         transform=plt.gca().get_yaxis_transform(),
         rotation=90
     )
-    plt.hlines(0, 0, 30, linestyles='dotted', color='k')
-    plt.legend()
+    ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
+    ax[0].legend()
+    wilcoxon_plot(
+        ax[1],
+        x_last, 
+        y_last,
+        ['1.0', '-1.0'],
+        ylabel='',
+        title='',
+        col=COLORS
+    )
     plt.savefig('phototaxis_timeseries.png')
     plt.show()
 
     plt.figure(figsize=(6,6))
     plt.title('Photokinesis')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.DARK)].groupby('time')['distance'], COLORS[0], label='Dark')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]')].groupby('time')['distance'], COLORS[1], label='Bright')
+    ax = plt.gca()
+    plot_mean_and_sem(ax, timeseries[(timeseries['stim']==Stim.DARK)].groupby('time')['distance'], COLORS[0], label='Dark')
+    plot_mean_and_sem(ax, timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]')].groupby('time')['distance'], COLORS[1], label='Bright')
     plt.ylabel('<cumulative distance (mm)>')
     plt.xlabel('time [s]')
     plt.legend()
     plt.savefig('photokinesis_timeseries.png')
     plt.show()
 
-    plt.figure(figsize=(6,6))
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
     plt.title('OMR')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']=='90.0')].groupby('time')['theta'], COLORS[0], label='-->')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']=='-90.0')].groupby('time')['theta'], COLORS[1], label='<--')
-    plt.ylabel('<cumulative angle (rad)>')
-    plt.xlabel('time [s]')
-    plt.ylim(-15, 15)
-    plt.text(
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']=='90.0')], variable='theta')
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']=='-90.0')], variable='theta')
+    plot_mean_and_sem(ax[0], x, COLORS[0], label='-->')
+    plot_mean_and_sem(ax[0], y, COLORS[1], label='<--')
+    ax[0].set_ylabel('<cumulative angle (rad)>')
+    ax[0].set_xlabel('time [s]')
+    ax[0].set_ylim(-15, 15)
+    ax[0].text(
         x=-0.1,
         y=-15,       
         s="Right",
@@ -341,7 +355,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_yaxis_transform(),
         rotation=90
     )
-    plt.text(
+    ax[0].text(
         x=-0.1,
         y=15,       
         s="Left",
@@ -350,19 +364,30 @@ if __name__ == '__main__':
         transform=plt.gca().get_yaxis_transform(),
         rotation=90
     )
-    plt.hlines(0, 0, 30, linestyles='dotted', color='k')
-    plt.legend()
+    ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
+    ax[0].legend()
+    wilcoxon_plot(
+        ax[1],
+        x_last, 
+        y_last,
+        ['90.0', '-90.0'],
+        ylabel='',
+        title='',
+        col=COLORS
+    )
     plt.savefig('OMR_timeseries.png')
     plt.show()
 
-    plt.figure(figsize=(6,6))
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
     plt.title('OKR')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']=='36.0')].groupby('time')['theta'], COLORS[0], label='CW')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']=='-36.0')].groupby('time')['theta'], COLORS[1], label='CCW')
-    plt.ylabel('<cumulative angle (rad)>')
-    plt.xlabel('time [s]')
-    plt.ylim(-8, 8)
-    plt.text(
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']=='36.0')], variable='theta')
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']=='-36.0')], variable='theta')
+    plot_mean_and_sem(ax[0], x, COLORS[0], label='CW')
+    plot_mean_and_sem(ax[0], y, COLORS[1], label='CCW')
+    ax[0].set_ylabel('<cumulative angle (rad)>')
+    ax[0].set_xlabel('time [s]')
+    ax[0].set_ylim(-8, 8)
+    ax[0].text(
         x=-0.1,
         y=-8,       
         s="Right",
@@ -371,7 +396,7 @@ if __name__ == '__main__':
         transform=plt.gca().get_yaxis_transform(),
         rotation=90
     )
-    plt.text(
+    ax[0].text(
         x=-0.1,
         y=8,       
         s="Left",
@@ -380,15 +405,25 @@ if __name__ == '__main__':
         transform=plt.gca().get_yaxis_transform(),
         rotation=90
     )
-    plt.hlines(0, 0, 30, linestyles='dotted', color='k')
-    plt.legend()
+    ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
+    ax[0].legend()
+    wilcoxon_plot(
+        ax[1],
+        x_last, 
+        y_last,
+        ['36.0', '-36.0'],
+        ylabel='',
+        title='',
+        col=COLORS
+    )
     plt.savefig('OKR_timeseries.png')
     plt.show()
 
     plt.figure(figsize=(6,6))
     plt.title('Loomings')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]')].groupby('time')['speed'], col=COLORS[0], label='Bright')
-    plot_mean_and_sem(timeseries[(timeseries['stim']==Stim.LOOMING)].groupby('time')['speed'], col=COLORS[1], label='Looming')
+    ax = plt.gca()
+    plot_mean_and_sem(ax, timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]')].groupby('time')['speed'], col=COLORS[0], label='Bright')
+    plot_mean_and_sem(ax, timeseries[(timeseries['stim']==Stim.LOOMING)].groupby('time')['speed'], col=COLORS[1], label='Looming')
     plt.ylabel('<speed [mm/s]>')
     plt.xlabel('time [s]')
     plt.xlim(0,10)
@@ -530,6 +565,7 @@ if __name__ == '__main__':
     plt.xticks(range(num_cat), bouts_category_name_short)
     plt.xlim(-0.5, num_cat-0.5)
     plt.show()
+
 
     fig = plt.figure(figsize=(6,6))
     plt.title('OKR')
