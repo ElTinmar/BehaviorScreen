@@ -60,6 +60,10 @@ from megabouts.utils import bouts_category_name_short
 
 # TODO overlay video with ethogram
 
+# TODO plot individual data (last point of the timeseries) and statistical tests
+
+# TODO plot ethogram as in Marques et al CurrBiol 2018?
+
 def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
     superimpose_video_trials(directories, behavior_file, behavior_data, 30, GROUPING_PARAMETER)
