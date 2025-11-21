@@ -39,7 +39,8 @@ from BehaviorScreen.plot import (
 
 from BehaviorScreen.megabouts import megabout_headtracking_pipeline, get_bout_metrics
 from megabouts.utils import bouts_category_name_short
-from scipy.stats import wilcoxon, ttest_rel
+from scipy.stats import wilcoxon, friedmanchisquare
+import statsmodels.stats.multitest as smm
 
 # DLC
 # TODO eye tracking OKR
@@ -67,6 +68,8 @@ from scipy.stats import wilcoxon, ttest_rel
 # TODO plot ethogram as in Marques et al CurrBiol 2018?
 
 # TODO average over trials in one fish, then over fish
+
+# TODO add control (dark) in time series plot and wilcoxon 
 
 def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
@@ -223,6 +226,59 @@ if __name__ == '__main__':
 
         ax.set_xlim(-0.5, 1.5)
 
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel('')
+        ax.set_box_aspect(1)
+
+        significance_bridge(ax,x,y,p_value,fontsize)
+
+        if ylim is not None:
+            ax.set_ylim(*ylim)
+
+    def wilcoxon_ctl_plot(
+            ax,
+            x, 
+            y, 
+            ctl,
+            cat_names: Iterable, 
+            ylabel: str, 
+            title: str,
+            col: Iterable, 
+            fontsize: int = 12, 
+            ylim: Optional[Tuple] = None,
+            *args, 
+            **kwargs):
+        
+        # TODO anova first to check groups different
+            
+        stats, p = friedmanchisquare(x,y,ctl)
+        print(stats, p)
+
+        stat, p_value_x = wilcoxon(x, ctl, nan_policy='omit', *args, **kwargs)
+        stat, p_value_y = wilcoxon(y, ctl, nan_policy='omit', *args, **kwargs)
+        stat, p_value = wilcoxon(x, y, nan_policy='omit', *args, **kwargs)
+
+        reject, pvals_corrected, _, _ = smm.multipletests([p_value_x, p_value_y, p_value], method="holm")
+
+        df = pd.DataFrame({cat_names[0]: x, cat_names[1]: y, 'ctl': ctl})
+        df_melted = df.melt(var_name='cat', value_name='val')
+
+        ax.set_title(title)
+
+        sns.stripplot(ax = ax,
+            data=df_melted, x='cat', y='val', hue='cat',
+            alpha=.5, legend=False, palette=sns.color_palette(col),
+            s=7.5
+        )
+        sns.pointplot(
+            ax = ax,
+            data=df_melted, x='cat', y="val", hue='cat',
+            linestyle="none", errorbar=None,
+            marker="_", markersize=30, markeredgewidth=3,
+            palette=sns.color_palette(col)
+        )
+
+        ax.set_xlim(-0.5, 1.5)
         ax.set_ylabel(ylabel)
         ax.set_xlabel('')
         ax.set_box_aspect(1)

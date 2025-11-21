@@ -9,6 +9,7 @@ dependencies:
 - pip
 - ffmpeg
 - seaborn
+- statsmodels
 - pip:
   - megabouts
   - filetype
