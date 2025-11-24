@@ -695,6 +695,9 @@ if __name__ == '__main__':
                         (bouts['stim_variable_value'] == p) & 
                         (bouts['proba'] > 0.5)]
             
+            if stim == Stim.PHOTOTAXIS:
+                df_sub = df_sub.groupby(['file', 'identity', 'stim_variable_value', 'trial_num'], group_keys=False).head(4)
+            
             counts = []
             for cat in range(num_cat):
                 # left
