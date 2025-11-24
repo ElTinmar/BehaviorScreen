@@ -670,38 +670,48 @@ if __name__ == '__main__':
 
     # bout categories 
 
-    stimuli = [
-        Stim.DARK,
-        Stim.BRIGHT,
-        Stim.PREY_CAPTURE,
-        Stim.PHOTOTAXIS,
-        Stim.OMR,
-        Stim.OKR,
-        Stim.LOOMING,
-    ]
+    stimuli = {
+        Stim.DARK: ['[0.0, 0.0, 0.0, 1.0]'],
+        Stim.BRIGHT: ['[0.2, 0.2, 0.0, 1.0]'],
+        Stim.PREY_CAPTURE: ['-20.0', '20.0'],
+        Stim.PHOTOTAXIS: ['-1.0','1.0'],
+        Stim.OMR: ['-90.0', '90.0'],
+        Stim.OKR: ['-36.0', '36.0'],
+        Stim.LOOMING: ['-2.0', '2.0']
+    }
+
+
+    num_cat = len(bouts_category_name_short)
+    sides = ['L', 'R']
+    row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
+    full_index = list(range(num_cat * len(sides)))  
 
     heatmap_df = pd.DataFrame()
-    num_cat = len(bouts_category_name_short)
-    full_index = list(range(num_cat))
 
-    for stim in stimuli:
-        counts = (
-            bouts[(bouts['stim'] == stim) & (bouts['proba'] > 0.8)]
-            ['category']
-            .value_counts()
-            .sort_index()
-            .reindex(full_index, fill_value=0)
-        )
-        heatmap_df[stim.name] = counts/counts.sum()
+    for stim, param_list in stimuli.items():
+        for p in param_list:
+            # Filter bouts by stim, stim_variable_value, and probability
+            df_sub = bouts[(bouts['stim'] == stim) & 
+                        (bouts['stim_variable_value'] == p) & 
+                        (bouts['proba'] > 0.5)]
+            
+            counts = []
+            for cat in range(num_cat):
+                # left
+                left_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == -1)].shape[0]
+                # right
+                right_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == 1)].shape[0]
+                counts.extend([left_count, right_count])
+            
+            counts = pd.Series(counts, index=row_labels)
+            counts = counts / counts.sum()  # normalize
+            heatmap_df[stim.name + ' ' + str(p)] = counts
 
-    heatmap_df = heatmap_df.fillna(0)
-    heatmap_df.index = bouts_category_name_short
+    plt.figure(figsize=(6, 8))
+    plt.imshow(heatmap_df, aspect='auto', cmap='inferno')
+    plt.colorbar(label='prob.')
 
-    plt.figure(figsize=(6,8))
-    plt.imshow(heatmap_df, cmap='inferno')
-    plt.colorbar(label='Count')
-
-    plt.xticks(range(len(heatmap_df.columns)), heatmap_df.columns, rotation=90)
+    plt.xticks(range(len(heatmap_df.columns)), heatmap_df.columns, rotation=90, ha='right')
     plt.yticks(range(len(heatmap_df.index)), heatmap_df.index)
 
     plt.xlabel("Stimulus")
@@ -709,6 +719,7 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.savefig('categories.png')
     plt.show()
+
 
     run_superimpose = partial(_run_superimpose, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:
