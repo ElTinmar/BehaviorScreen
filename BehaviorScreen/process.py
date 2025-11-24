@@ -188,21 +188,17 @@ def get_distance_mm(tracking_data: pd.DataFrame, mm_per_pix: float) -> pd.Series
     distance = mm_per_pix * (x_diff**2 + y_diff**2)**0.5
     return distance
 
-def filter_on_edge(
+def dist_from_center(
         tracking_data: pd.DataFrame, 
         mm_per_pix: float,
         cx: float,
         cy: float,
-        r: float,
-        edge_size_mm: float= 3,
-    ) -> pd.DataFrame:
+    ) -> pd.Series:
 
     x = tracking_data['centroid_x'].astype(float)*mm_per_pix
     y = tracking_data['centroid_y'].astype(float)*mm_per_pix
-    on_edge = (x - cx)**2 + (y-cy)**2 > (r-edge_size_mm)**2
-    filtered_data = tracking_data.copy()
-    filtered_data.loc[on_edge, filtered_data.columns[4:]] = np.nan
-    return filtered_data
+    distance = ((x - cx)**2 + (y - cy)**2)**0.5 
+    return distance
 
 def get_speed_mm_per_sec(tracking_data: pd.DataFrame, mm_per_pix: float) -> pd.Series:
     dx = get_distance_mm(tracking_data, mm_per_pix)
@@ -263,17 +259,18 @@ def extract_time_series(
             for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
                 for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
                     segment = get_tracking_between(data, row.start_timestamp, row.stop_timestamp)
-                    segment = filter_on_edge(segment,mm_per_pix,cx,cy,r,3)
                     
                     relative_time = get_relative_time_sec(segment)
                     distance = np.nancumsum(get_distance_mm(segment, mm_per_pix))
+                    distance_center = dist_from_center(segment, mm_per_pix, cx, cy)
                     speed = get_speed_mm_per_sec(segment, mm_per_pix)
                     _, theta_unwrapped = get_theta(segment)
 
                     distance_interp = interpolate_ts(time_interp, relative_time, distance)
+                    distance_center_interp = interpolate_ts(time_interp, relative_time, distance_center)
                     speed_interp = interpolate_ts(time_interp, relative_time, speed)
                     angle_interp = interpolate_ts(time_interp, relative_time, theta_unwrapped)
-                    for t, d, s, th in zip(time_interp, distance_interp, speed_interp, angle_interp):
+                    for t, d, dc, s, th in zip(time_interp, distance_interp, distance_center_interp, speed_interp, angle_interp):
                         rows.append({
                             'file': behavior_files.metadata.stem,
                             'identity': identity,
@@ -283,6 +280,7 @@ def extract_time_series(
                             'trial_num': trial_idx,
                             'time': t,
                             'distance': d,
+                            'distance_center': dc,
                             'speed': s,
                             'theta': th
                         })
