@@ -107,6 +107,7 @@ if __name__ == '__main__':
     # filtering outliers
     bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
     bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
+    
 
     write_header = True
     filename = "timeseries.csv"

@@ -95,7 +95,7 @@ def circle_roi_index(circles: np.ndarray, rois: List[Tuple[int,int,int,int]]):
             RuntimeError('Circle does not belong to any ROI')
         
         indices.append(index)
-    return indices
+    return np.argsort(indices)
 
 def get_well_coords_mm(
         directories: Directories,
