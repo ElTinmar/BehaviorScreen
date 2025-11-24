@@ -1,7 +1,6 @@
 import pandas as pd
 from typing import (
     Dict, 
-    Callable, 
     Tuple, 
     List, 
     Iterable, 
@@ -9,14 +8,11 @@ from typing import (
 )
 import numpy as np
 from tqdm import tqdm
-from pathlib import Path
 import cv2
 
 from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader, CPU_VideoProcessor
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
-from BehaviorScreen.core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS, ROOT_FOLDER, GROUPING_PARAMETER
-
-import matplotlib.pyplot as plt # this for debugging, remove in the future
+from BehaviorScreen.core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS, GROUPING_PARAMETER
 
 def get_background_image(
         behavior_data: BehaviorData, 
@@ -205,17 +201,6 @@ def get_speed_mm_per_sec(tracking_data: pd.DataFrame, mm_per_pix: float) -> pd.S
     dt = get_relative_time_sec(tracking_data).diff()
     return dx/dt
 
-def get_coordinates_mm(
-        tracking_data: pd.DataFrame, 
-        mm_per_pix: float, 
-        arena_center_mm: np.ndarray
-    ) -> Tuple[pd.Series, pd.Series, pd.Series]:
-
-    x_mm = (tracking_data['centroid_x'] * mm_per_pix) - arena_center_mm[0]
-    y_mm = (tracking_data['centroid_y'] * mm_per_pix) - arena_center_mm[1]
-    radial_distance_mm = (x_mm**2 + y_mm**2)**0.5
-    return x_mm, y_mm, radial_distance_mm
-
 def common_time(trial_duration, fps) -> np.ndarray:
     num_points = int(fps * trial_duration)
     return np.linspace(0, trial_duration, num_points, endpoint=False)
@@ -250,7 +235,7 @@ def extract_time_series(
 
     for identity, data in behavior_data.tracking.groupby('identity'):
         
-        cx,cy,r = well_coords_mm[identity,:]
+        cx,cy,_ = well_coords_mm[identity,:]
 
         for stim_select, stim_data in stim_trials.groupby('stim_select'):
             stim = Stim(stim_select)
@@ -286,96 +271,6 @@ def extract_time_series(
                         })
 
     return rows
-
-
-def extract_metrics(
-        behavior_data: BehaviorData, 
-        well_coords_mm: np.ndarray
-    ) -> Dict[int, Dict[Stim, TrialMetrics]]:
-    
-    stim_trials = get_trials(behavior_data)
-    mm_per_pix = 1/float(behavior_data.metadata['calibration']['pix_per_mm'])
-
-    metrics = {}
-    for identity, data in behavior_data.tracking.groupby('identity'):
-        metrics[identity] = {}
-        for stim_select, stim_data in stim_trials.groupby('stim_select'):
-            stim = Stim(stim_select)
-            metrics[identity][stim] = {}
-            metrics[identity][stim]['relative_time'] = []
-            metrics[identity][stim]['theta_unwrapped'] = []
-            metrics[identity][stim]['distance_traveled'] = [] 
-            metrics[identity][stim]['speed'] = [] 
-            metrics[identity][stim]['parameters'] = []
-            metrics[identity][stim]['x'] = []
-            metrics[identity][stim]['y'] = []
-            metrics[identity][stim]['theta'] = []
-            metrics[identity][stim]['distance_from_center'] = []
-            for trial_idx, row in stim_data.iterrows():
-                segment = get_tracking_between(data, row['start_timestamp'], row['stop_timestamp'])
-                metrics[identity][stim]['relative_time'].append(get_relative_time_sec(segment))
-                metrics[identity][stim]['distance_traveled'].append(get_distance_mm(segment, mm_per_pix))
-                metrics[identity][stim]['speed'].append(get_speed_mm_per_sec(segment, mm_per_pix))
-                x_mm, y_mm, radial_distance_mm = get_coordinates_mm(segment, mm_per_pix, well_coords_mm[identity,:])
-                theta, theta_unwrapped = get_theta(segment)
-                metrics[identity][stim]['theta_unwrapped'].append(theta_unwrapped)
-                metrics[identity][stim]['x'].append(x_mm)
-                metrics[identity][stim]['y'].append(y_mm)
-                metrics[identity][stim]['theta'].append(theta)
-                metrics[identity][stim]['distance_from_center'].append(radial_distance_mm)
-                metrics[identity][stim]['parameters'].append(row)
-                
-    return metrics
-
-# TODO
-def analyse_helper(
-        metrics: Dict,
-        trial_duration_s: float,
-        fps: float,
-        group_names: List, 
-        value_func: Callable, 
-        group_func: Callable,
-    ) -> Tuple[List[np.ndarray], List[np.ndarray], List[np.ndarray]]:
-
-    num_trials = len(metrics['relative_time'])
-    target_time = common_time(trial_duration_s, fps)
-    trials = [np.zeros((len(target_time), 0)), np.zeros((len(target_time), 0))] 
-
-    for trial_idx in range(num_trials):
-        group_idx = group_func(metrics, trial_idx)
-        value = interpolate_ts(
-            target_time, 
-            metrics['relative_time'][trial_idx],
-            value_func(metrics, trial_idx)
-        )
-        trials[group_idx] = np.column_stack((trials[group_idx], value)) 
-
-    avg = []
-    sem = []
-    for group_idx, name in enumerate(group_names):
-        avg.append(np.mean(trials[group_idx], axis=1))
-        sem.append(np.std(trials[group_idx], axis=1, ddof=1))
-
-    return trials, avg, sem
-
-def plot_preycapture():
-    ...
-
-def plot_omr():
-    ...
-
-
-def plot_okr():
-    ...
-
-def plot_looming():
-    ...
-
-def plot_phototaxis():
-    ...
-
-def plot_photokinesis():
-    ...
 
     
 ## VIDEO ---------------------------------------------------------------------------- 
