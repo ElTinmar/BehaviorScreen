@@ -105,9 +105,10 @@ if __name__ == '__main__':
     )
 
     # filtering outliers
+    # bouts[bouts['distance_center']>9] = np.nan # remove bouts on the edge
     bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
     bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
-    
+
 
     write_header = True
     filename = "timeseries.csv"
@@ -499,6 +500,7 @@ if __name__ == '__main__':
     plt.savefig('Looming_timeseries.png')
     plt.show()
 
+    # Bouts
 
     fig = plt.figure(figsize=(6,6))
     plt.title('prey capture')
@@ -527,14 +529,6 @@ if __name__ == '__main__':
     plt.xlabel('bout heading change (deg)')
     plt.savefig('preycapture_bouts.png')
     plt.show(block=False)
-
-    fig = plt.figure(figsize=(12,6))
-    num_cat = len(bouts_category_name_short)
-    counts = bouts[(bouts['stim'] == Stim.PREY_CAPTURE) & (bouts['proba']>0.8)]['category'].value_counts().sort_index()
-    plt.bar(counts.index, counts.values, width=0.8)
-    plt.xticks(range(num_cat), bouts_category_name_short)
-    plt.xlim(-0.5, num_cat-0.5)
-    plt.show()
 
     fig = plt.figure(figsize=(6,6))
     plt.title('phototaxis')
@@ -591,13 +585,9 @@ if __name__ == '__main__':
         transform=plt.gca().get_xaxis_transform() 
     )
     plt.xlabel('bout heading change (deg)')
+    plt.savefig('phototaxis_bouts_first_4.png')
     plt.show(block=False)
 
-    # TODO select only subset
-    fig = plt.figure(figsize=(6,6))
-    bouts[(bouts['stim']==Stim.DARK)]['distance'].plot.hist(bins=180, alpha=0.5, density=True)
-    bouts[(bouts['stim']==Stim.BRIGHT)]['distance'].plot.hist(bins=180, alpha=0.5, density=True)
-    plt.show()
 
     fig = plt.figure(figsize=(6,6))
     plt.title('OMR directional')
@@ -626,14 +616,6 @@ if __name__ == '__main__':
     plt.xlabel('bout heading change (deg)')
     plt.savefig('OMR_bouts.png')
     plt.show(block=False)
-
-    fig = plt.figure(figsize=(12,6))
-    num_cat = len(bouts_category_name_short)
-    counts = bouts[(bouts['stim'] == Stim.OMR) & (bouts['proba']>0.8)]['category'].value_counts().sort_index()
-    plt.bar(counts.index, counts.values, width=0.8)
-    plt.xticks(range(num_cat), bouts_category_name_short)
-    plt.xlim(-0.5, num_cat-0.5)
-    plt.show()
 
 
     fig = plt.figure(figsize=(6,6))
@@ -664,15 +646,6 @@ if __name__ == '__main__':
     plt.savefig('OKR_bouts.png')
     plt.show(block=False)
 
-    fig = plt.figure(figsize=(12,6))
-    num_cat = len(bouts_category_name_short)
-    counts = bouts[(bouts['stim'] == Stim.OKR) & (bouts['proba']>0.8)]['category'].value_counts().sort_index()
-    plt.bar(counts.index, counts.values, width=0.8)
-    plt.xticks(range(num_cat), bouts_category_name_short)
-    plt.xlim(-0.5, num_cat-0.5)
-    plt.show()
-
-    # TODO pick fastest bouts
     fig = plt.figure(figsize=(6,6))
     plt.title('Looming')
     num_bouts = bouts[(bouts['stim']==Stim.LOOMING)].shape[0]//2
@@ -701,13 +674,46 @@ if __name__ == '__main__':
     plt.savefig('Looming_bouts.png')
     plt.show()
 
-    fast_bouts = bouts[(bouts['stim']==Stim.LOOMING) & (abs(bouts['peak_yaw_speed'])>=60)]
-    fig = plt.figure(figsize=(12,6))
+    # bout categories 
+
+    stimuli = [
+        Stim.DARK,
+        Stim.BRIGHT,
+        Stim.PREY_CAPTURE,
+        Stim.PHOTOTAXIS,
+        Stim.OMR,
+        Stim.OKR,
+        Stim.LOOMING,
+    ]
+
+    heatmap_df = pd.DataFrame()
     num_cat = len(bouts_category_name_short)
-    counts = fast_bouts[fast_bouts['proba']>0.8]['category'].value_counts().sort_index()
-    plt.bar(counts.index, counts.values, width=0.8)
-    plt.xticks(range(num_cat), bouts_category_name_short)
-    plt.xlim(-0.5, num_cat-0.5)
+    full_index = list(range(num_cat))
+
+    for stim in stimuli:
+        counts = (
+            bouts[(bouts['stim'] == stim) & (bouts['proba'] > 0.8)]
+            ['category']
+            .value_counts()
+            .sort_index()
+            .reindex(full_index, fill_value=0)
+        )
+        heatmap_df[stim.name] = counts/counts.sum()
+
+    heatmap_df = heatmap_df.fillna(0)
+    heatmap_df.index = bouts_category_name_short
+
+    plt.figure(figsize=(6,8))
+    plt.imshow(heatmap_df, cmap='inferno')
+    plt.colorbar(label='Count')
+
+    plt.xticks(range(len(heatmap_df.columns)), heatmap_df.columns, rotation=90)
+    plt.yticks(range(len(heatmap_df.index)), heatmap_df.index)
+
+    plt.xlabel("Stimulus")
+    plt.ylabel("Category")
+    plt.tight_layout()
+    plt.savefig('categories.png')
     plt.show()
 
     run_superimpose = partial(_run_superimpose, directories = directories)
