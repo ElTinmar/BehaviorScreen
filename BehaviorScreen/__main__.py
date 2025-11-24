@@ -303,9 +303,8 @@ if __name__ == '__main__':
             .mean()  # average over trials first
             .groupby(['time'])
         )
-        #theta_mean = theta_avg_trials.mean().values
-        #theta_sem = theta_avg_trials.sem().values
-        theta_last = theta_avg_trials.get_group((29.99,)).values
+        last = max(theta_avg_trials.groups.keys())
+        theta_last = theta_avg_trials.get_group((last,)).values
         return theta_avg_trials, theta_last
 
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))

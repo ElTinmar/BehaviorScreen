@@ -266,7 +266,7 @@ def extract_time_series(
                     segment = filter_on_edge(segment,mm_per_pix,cx,cy,r,3)
                     
                     relative_time = get_relative_time_sec(segment)
-                    distance = np.cumsum(get_distance_mm(segment, mm_per_pix))
+                    distance = np.nancumsum(get_distance_mm(segment, mm_per_pix))
                     speed = get_speed_mm_per_sec(segment, mm_per_pix)
                     _, theta_unwrapped = get_theta(segment)
 
