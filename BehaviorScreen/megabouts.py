@@ -89,7 +89,7 @@ def get_bout_metrics(
     stim_trials = get_trials(behavior_data)
     
     rows = []
-    
+
     for identity, meg_data in megabout.items():
 
         cx,cy,_ = well_coords_mm[identity,:]
@@ -159,7 +159,6 @@ def get_bout_metrics(
                             'sign': sign,
                             'proba': proba
                         })
-                        # TODO add on_edge boolean
 
     return rows
 
