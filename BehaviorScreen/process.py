@@ -188,6 +188,22 @@ def get_distance_mm(tracking_data: pd.DataFrame, mm_per_pix: float) -> pd.Series
     distance = mm_per_pix * (x_diff**2 + y_diff**2)**0.5
     return distance
 
+def filter_on_edge(
+        tracking_data: pd.DataFrame, 
+        mm_per_pix: float,
+        cx: float,
+        cy: float,
+        r: float,
+        edge_size_mm: float= 3,
+    ) -> pd.DataFrame:
+
+    x = tracking_data['centroid_x'].astype(float)*mm_per_pix
+    y = tracking_data['centroid_y'].astype(float)*mm_per_pix
+    on_edge = (x - cx)**2 + (y-cy)**2 > (r-edge_size_mm)**2
+    filtered_data = tracking_data.copy()
+    filtered_data.loc[on_edge, filtered_data.columns[4:]] = np.nan
+    return filtered_data
+
 def get_speed_mm_per_sec(tracking_data: pd.DataFrame, mm_per_pix: float) -> pd.Series:
     dx = get_distance_mm(tracking_data, mm_per_pix)
     dt = get_relative_time_sec(tracking_data).diff()
@@ -223,10 +239,12 @@ class TrialMetrics(TypedDict):
     distance_from_center: List[pd.Series]
 
 def extract_time_series(
+        directories: Directories,
         behavior_data: BehaviorData, 
         behavior_files: BehaviorFiles, 
     ):
     
+    well_coords_mm = get_well_coords_mm(directories, behavior_files, behavior_data)
     stim_trials = get_trials(behavior_data)
     mm_per_pix = 1/float(behavior_data.metadata['calibration']['pix_per_mm'])
     fps = behavior_data.metadata['camera']['framerate_value']
@@ -235,6 +253,9 @@ def extract_time_series(
     time_interp = common_time(30, fps)
 
     for identity, data in behavior_data.tracking.groupby('identity'):
+        
+        cx,cy,r = well_coords_mm[identity,:]
+
         for stim_select, stim_data in stim_trials.groupby('stim_select'):
             stim = Stim(stim_select)
             if not stim in GROUPING_PARAMETER:
@@ -242,6 +263,7 @@ def extract_time_series(
             for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
                 for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
                     segment = get_tracking_between(data, row.start_timestamp, row.stop_timestamp)
+                    segment = filter_on_edge(segment,mm_per_pix,cx,cy,r,3)
                     
                     relative_time = get_relative_time_sec(segment)
                     distance = np.cumsum(get_distance_mm(segment, mm_per_pix))

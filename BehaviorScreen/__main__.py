@@ -90,9 +90,9 @@ def _run_megabouts(behavior_file: BehaviorFiles) -> List[Dict]:
     meg = megabout_headtracking_pipeline(behavior_data)
     return get_bout_metrics(behavior_data, behavior_file, meg)
 
-def _run_timeseries(behavior_file: BehaviorFiles):
+def _run_timeseries(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
-    return extract_time_series(behavior_data, behavior_file)
+    return extract_time_series(directories, behavior_data, behavior_file)
 
 if __name__ == '__main__':
 
@@ -120,7 +120,7 @@ if __name__ == '__main__':
 
     timeseries_data = []
     for behavior_file in tqdm(behavior_files):
-        timeseries_data.extend(_run_timeseries(behavior_file))
+        timeseries_data.extend(_run_timeseries(behavior_file, directories))
     timeseries = pd.DataFrame(timeseries_data)
     timeseries.to_csv('timeseries.csv')
 
@@ -241,7 +241,7 @@ if __name__ == '__main__':
         df_m = df.melt(var_name="group", value_name="value")
 
         # ---------- 5. Plot points + means ----------
-        ax.set_title(f'Friedman test: {friedman_p:.3f} ({asterisk(friedman_p)})')
+        ax.set_title(f'RM-ANOVA test: {friedman_p:.3f} ({asterisk(friedman_p)})')
 
         sns.stripplot(
             ax=ax,
