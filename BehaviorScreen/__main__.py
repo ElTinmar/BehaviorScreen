@@ -26,8 +26,6 @@ from BehaviorScreen.load import (
     load_data
 )
 from BehaviorScreen.process import (
-    extract_metrics, 
-    get_well_coords_mm,
     superimpose_video_trials,
     export_single_animal_videos,
     extract_time_series
@@ -75,15 +73,6 @@ def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
 def _run_single_animal(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
     export_single_animal_videos(directories, behavior_file, behavior_data, quality=18)
-
-def _run_metrics(behavior_file: BehaviorFiles, directories: Directories):
-    behavior_data = load_data(behavior_file)
-    well_coords_mm = get_well_coords_mm(directories, behavior_file, behavior_data)
-    metrics = extract_metrics(behavior_data, well_coords_mm)
-
-    for identity, data in metrics.items():
-        plot_tracking_metrics(data)
-        plot_trajectories(data)
 
 def _run_megabouts(behavior_file: BehaviorFiles) -> List[Dict]:
     behavior_data = load_data(behavior_file)
