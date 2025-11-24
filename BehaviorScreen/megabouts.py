@@ -24,8 +24,8 @@ from megabouts.segmentation.segmentation import SegmentationResult
 from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 
 from .core import ROOT_FOLDER, GROUPING_PARAMETER, Stim
-from .load import BehaviorData, BehaviorFiles
-from .process import get_trials, get_tracking_between
+from .load import BehaviorData, BehaviorFiles, Directories
+from .process import get_trials, get_well_coords_mm
 
 # Force running on CPU if GPU is not compatible
 CPU = True
@@ -78,16 +78,20 @@ def megabout_headtracking_pipeline(behavior_data: BehaviorData):
     return megabout_results
 
 def get_bout_metrics(
+        directories: Directories,
         behavior_data: BehaviorData, 
         behavior_files: BehaviorFiles,
         megabout: Dict[int, MegaboutData]
     ) -> List[Dict]:
 
+    well_coords_mm = get_well_coords_mm(directories, behavior_files, behavior_data)
     fps = behavior_data.metadata['camera']['framerate_value']
     stim_trials = get_trials(behavior_data)
     
     rows = []
     for identity, meg_data in megabout.items():
+
+        cx,cy,_ = well_coords_mm[identity,:]
 
         for stim_select, stim_data in stim_trials.groupby('stim_select'):
             
@@ -119,6 +123,7 @@ def get_bout_metrics(
                         delta_x = meg_data.traj.x_smooth[on+1:off] - meg_data.traj.x_smooth[on:off-1]
                         delta_y = meg_data.traj.y_smooth[on+1:off] - meg_data.traj.y_smooth[on:off-1]
                         distance = np.sum(np.sqrt(delta_x**2 + delta_y**2))
+                        radial_distance = np.sqrt((meg_data.traj.x_smooth[on]-cx)**2 + (meg_data.traj.y_smooth[on]-cy)**2)
 
                         # bout duration
                         bout_duration = (off-on)/fps
@@ -144,6 +149,7 @@ def get_bout_metrics(
                             'trial_num': trial_idx,
                             'heading_change': heading_change,
                             'distance': distance,
+                            'distance_center': radial_distance,
                             'bout_duration': bout_duration,
                             'interbout_duration': interbout_duration,
                             'peak_axial_speed': peak_axial_speed,
