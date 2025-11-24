@@ -8,7 +8,7 @@ plt.show()
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Optional, Iterable, Tuple, Sequence
+from typing import List, Dict, Optional, Iterable, Sequence
 
 DARK_YELLOW = '#dbc300'
 
@@ -41,6 +41,7 @@ from BehaviorScreen.megabouts import megabout_headtracking_pipeline, get_bout_me
 from megabouts.utils import bouts_category_name_short
 from scipy.stats import wilcoxon, friedmanchisquare, ttest_rel
 import statsmodels.stats.multitest as smm
+from statsmodels.stats.anova import AnovaRM
 import itertools
 
 # DLC
@@ -64,13 +65,8 @@ import itertools
 
 # TODO overlay video with ethogram
 
-# TODO plot individual data (last point of the timeseries) and statistical tests
-
 # TODO plot ethogram as in Marques et al CurrBiol 2018?
 
-# TODO average over trials in one fish, then over fish
-
-# TODO add control (dark) in time series plot and wilcoxon 
 
 def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
@@ -150,7 +146,32 @@ if __name__ == '__main__':
             alpha = 0.3,
             edgecolor='none'
         )
+
+
+    def rm_anova(groups, group_names):
+
+        n_subjects = len(groups[0])
         
+        # Build long-form DataFrame
+        data = []
+        for subj_idx in range(n_subjects):
+            for cond_idx, g in enumerate(groups):
+                data.append({
+                    "subject": subj_idx,
+                    "condition": group_names[cond_idx],
+                    "value": g[subj_idx]
+                })
+        df = pd.DataFrame(data)
+
+        # Run Repeated-Measures ANOVA
+        anova = AnovaRM(df, depvar="value", subject="subject", within=["condition"])
+        res = anova.fit()
+        
+        # Extract F-statistic and p-value
+        F_stat = res.anova_table["F Value"].values[0]
+        p_value = res.anova_table["Pr > F"].values[0]
+        
+        return F_stat, p_value
 
     def asterisk(p) -> str:
         if p < 1e-4: return "****"
@@ -197,7 +218,8 @@ if __name__ == '__main__':
             raise ValueError("Need at least 3 groups for Friedman test.")
 
         # ---------- 2. Friedman test ----------
-        friedman_stat, friedman_p = friedmanchisquare(*groups)
+        #friedman_stat, friedman_p = friedmanchisquare(*groups)
+        friedman_stat, friedman_p = rm_anova(groups, group_names)
 
         # ---------- 3. Post-hoc Wilcoxon tests ----------
         pairs = list(itertools.combinations(range(k), 2))
