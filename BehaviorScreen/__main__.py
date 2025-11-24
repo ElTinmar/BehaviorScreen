@@ -9,6 +9,7 @@ from tqdm import tqdm
 import pandas as pd
 import numpy as np
 from typing import List, Dict, Optional, Iterable, Sequence
+import os
 
 DARK_YELLOW = '#dbc300'
 
@@ -74,10 +75,10 @@ def _run_single_animal(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
     export_single_animal_videos(directories, behavior_file, behavior_data, quality=18)
 
-def _run_megabouts(behavior_file: BehaviorFiles) -> List[Dict]:
+def _run_megabouts(behavior_file: BehaviorFiles, directories: Directories) -> List[Dict]:
     behavior_data = load_data(behavior_file)
     meg = megabout_headtracking_pipeline(behavior_data)
-    return get_bout_metrics(behavior_data, behavior_file, meg)
+    return get_bout_metrics(directories, behavior_data, behavior_file, meg)
 
 def _run_timeseries(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
@@ -92,7 +93,7 @@ if __name__ == '__main__':
 
     bouts_data = []
     for behavior_file in tqdm(behavior_files):
-        bouts_data.extend(_run_megabouts(behavior_file))
+        bouts_data.extend(_run_megabouts(behavior_file, directories))
     bouts = pd.DataFrame(bouts_data)
     bouts.to_csv('bouts.csv')
 
@@ -107,11 +108,26 @@ if __name__ == '__main__':
     bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
     bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
 
-    timeseries_data = []
+    write_header = True
+    filename = "timeseries.csv"
+    if os.path.exists(filename):
+        os.remove(filename)
+
     for behavior_file in tqdm(behavior_files):
-        timeseries_data.extend(_run_timeseries(behavior_file, directories))
-    timeseries = pd.DataFrame(timeseries_data)
-    timeseries.to_csv('timeseries.csv')
+        df = pd.DataFrame(_run_timeseries(behavior_file, directories))
+        df.to_csv(
+            filename,
+            mode="a",
+            header=write_header,
+            index=False
+        )  
+        write_header = False
+
+#    timeseries_data = []
+#    for behavior_file in tqdm(behavior_files):
+#        timeseries_data.extend(_run_timeseries(behavior_file, directories))
+#    timeseries = pd.DataFrame(timeseries_data)
+#    timeseries.to_csv('timeseries.csv')
 
     timeseries = pd.read_csv(
         "timeseries.csv",
