@@ -39,7 +39,7 @@ GROUPING_PARAMETER = {
     Stim.PREY_CAPTURE: 'prey_arc_start_deg'
 }
 
-COLORS = ("#F1500A", "#0A6EF1")
+COLORS = ("#F1500A", "#0A6EF1", "#333333")
 
 #ROOT_FOLDER = Path('/media/martin/DATA/Behavioral_screen')
 #ROOT_FOLDER = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen')

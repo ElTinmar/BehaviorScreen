@@ -8,7 +8,7 @@ plt.show()
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Optional, Iterable, Tuple
+from typing import List, Dict, Optional, Iterable, Tuple, Sequence
 
 DARK_YELLOW = '#dbc300'
 
@@ -39,8 +39,9 @@ from BehaviorScreen.plot import (
 
 from BehaviorScreen.megabouts import megabout_headtracking_pipeline, get_bout_metrics
 from megabouts.utils import bouts_category_name_short
-from scipy.stats import wilcoxon, friedmanchisquare
+from scipy.stats import wilcoxon, friedmanchisquare, ttest_rel
 import statsmodels.stats.multitest as smm
+import itertools
 
 # DLC
 # TODO eye tracking OKR
@@ -151,142 +152,128 @@ if __name__ == '__main__':
         )
         
 
-    def asterisk(p_value: float) -> str:
+    def asterisk(p) -> str:
+        if p < 1e-4: return "****"
+        if p < 1e-3: return "***"
+        if p < 1e-2: return "**"
+        if p < 0.05: return "*"
+        return "ns"
 
-        if p_value < 0.0001:
-            significance = '****'
-        elif p_value < 0.001:
-            significance = '***'
-        elif p_value < 0.01:
-            significance = '**'
-        elif p_value < 0.05:
-            significance = '*'
+    def significance_bridges(ax, pairs, ystarts, fontsize=12):
+        """
+        Draw precomputed non-overlapping bridges.
+        pairs: list of ((i,j), p_corrected)
+        ystarts: list of y-coordinates (same length)
+        """
+        for (i, j), p, y in zip(pairs, pairs, ystarts):
+            sign = asterisk(p[1])
+            x0, x1 = p[0]
+            M = y
+
+            ax.plot([x0, x0, x1, x1],
+                    [M, M+0.02*M, M+0.02*M, M],
+                    lw=1.5, c="#555")
+
+            ax.text((x0+x1)/2, M+0.03*M, sign,
+                    ha='center', va='bottom', fontsize=fontsize)
+
+    def friedman_wilcoxon_plot(
+        ax,
+        groups: Sequence[Iterable],
+        group_names: Sequence[str],
+        ylabel: str,
+        colors: Iterable,
+        fontsize: int = 12,
+        ylim: Optional[tuple] = None
+    ):
+        """
+        groups: e.g. [v0, v1, ctl] where each v is a vector of repeated measures
+        """
+
+        # ---------- 1. Convert and check ----------
+        groups = [np.asarray(g) for g in groups]
+        k = len(groups)
+        if k < 3:
+            raise ValueError("Need at least 3 groups for Friedman test.")
+
+        # ---------- 2. Friedman test ----------
+        friedman_stat, friedman_p = friedmanchisquare(*groups)
+
+        # ---------- 3. Post-hoc Wilcoxon tests ----------
+        pairs = list(itertools.combinations(range(k), 2))
+        p_raw = []
+
+        for i, j in pairs:
+            _, p = ttest_rel(groups[i], groups[j], nan_policy='omit')
+            #_, p = wilcoxon(groups[i], groups[j], nan_policy='omit')
+            p_raw.append(p)
+
+        # Holm correction
+        reject, p_corrected, _, _ = smm.multipletests(p_raw, method="holm")
+
+        # map corrected p-values back to pairs
+        pair_results = [((pairs[i][0], pairs[i][1]), p_corrected[i]) for i in range(len(pairs))]
+
+        # ---------- 4. Melt for plotting ----------
+        df = pd.DataFrame({name: g for name, g in zip(group_names, groups)})
+        df_m = df.melt(var_name="group", value_name="value")
+
+        # ---------- 5. Plot points + means ----------
+        ax.set_title(f'Friedman test: {friedman_p:.3f} ({asterisk(friedman_p)})')
+
+        sns.stripplot(
+            ax=ax,
+            data=df_m,
+            x="group",
+            y="value",
+            hue="group",
+            dodge=False,
+            alpha=.5,
+            palette=colors,
+            legend=False
+        )
+
+        sns.pointplot(
+            ax=ax,
+            data=df_m,
+            x="group",
+            y="value",
+            hue="group",
+            dodge=False,
+            errorbar=None,
+            markers="_",
+            markersize=30, 
+            markeredgewidth=3,
+            linestyle="",
+            palette=colors,            
+            legend=False
+        )
+        
+        ax.set_ylabel(ylabel)
+        ax.set_xlabel("")
+
+        # ---------- 6. Draw non-overlapping significance bridges ----------
+        # Compute heights above each group
+        ymax = np.nanmax(df.values)  
+        height_step = 0.14 * ymax
+
+        bridge_heights = []
+        for idx, ((i, j), p) in enumerate(pair_results):
+            base = ymax + (idx + 1) * height_step
+            bridge_heights.append(base)
+
+        for ((i, j), p_corr), y in zip(pair_results, bridge_heights):
+            start = i+0.1
+            stop = j-0.1
+            sig = asterisk(p_corr)
+            ax.plot([start, start, stop, stop], [y, y+height_step*0.3, y+height_step*0.3, y], color="#555", lw=1.5)
+            ax.text((start+stop)/2, y+height_step*0.35, sig,
+                    ha='center', va='bottom', fontsize=fontsize)
+
+        if ylim is not None:
+            ax.set_ylim(*ylim)
         else:
-            significance = 'ns' 
-
-        return significance
-
-    def significance_bridge(ax,x,y,p_value,fontsize,prct_offset=0.05):
-
-        bottom, top = ax.get_ylim()
-        height = top-bottom
-        offset = prct_offset * height
-
-        Mx = np.nanmax(x) + 1.5 * offset
-        My = np.nanmax(y) + 1.5 * offset
-        Mxy = np.nanmax((Mx,My)) + offset
-        ax.plot([0, 0, 1, 1], [Mx, Mxy, Mxy, My], color='#555555', lw=1.5)
-
-        significance = asterisk(p_value)
-        ax.text(
-            0.5, Mxy + offset, 
-            f'{significance}', 
-            horizontalalignment='center', 
-            fontsize=fontsize
-        )
-        
-        ax.set_ylim(bottom, Mxy + 3*offset)
-
-    def wilcoxon_plot(
-            ax,
-            x, 
-            y, 
-            cat_names: Iterable, 
-            ylabel: str, 
-            title: str,
-            col: Iterable, 
-            fontsize: int = 12, 
-            ylim: Optional[Tuple] = None,
-            *args, 
-            **kwargs):
-            
-        stat, p_value = wilcoxon(x, y, nan_policy='omit', *args, **kwargs)
-
-        df = pd.DataFrame({cat_names[0]: x, cat_names[1]: y})
-        df_melted = df.melt(var_name='cat', value_name='val')
-
-        ax.set_title(title)
-
-        sns.stripplot(ax = ax,
-            data=df_melted, x='cat', y='val', hue='cat',
-            alpha=.5, legend=False, palette=sns.color_palette(col),
-            s=7.5
-        )
-        sns.pointplot(
-            ax = ax,
-            data=df_melted, x='cat', y="val", hue='cat',
-            linestyle="none", errorbar=None,
-            marker="_", markersize=30, markeredgewidth=3,
-            palette=sns.color_palette(col)
-        )
-
-        # TODO: match jitter
-        for xi, yi in zip(x, y):
-            ax.plot([0, 1], [xi, yi], color='gray', alpha=0.5, linewidth=1)
-
-        ax.set_xlim(-0.5, 1.5)
-
-        ax.set_ylabel(ylabel)
-        ax.set_xlabel('')
-        ax.set_box_aspect(1)
-
-        significance_bridge(ax,x,y,p_value,fontsize)
-
-        if ylim is not None:
-            ax.set_ylim(*ylim)
-
-    def wilcoxon_ctl_plot(
-            ax,
-            x, 
-            y, 
-            ctl,
-            cat_names: Iterable, 
-            ylabel: str, 
-            title: str,
-            col: Iterable, 
-            fontsize: int = 12, 
-            ylim: Optional[Tuple] = None,
-            *args, 
-            **kwargs):
-        
-        # TODO anova first to check groups different
-            
-        stats, p = friedmanchisquare(x,y,ctl)
-        print(stats, p)
-
-        stat, p_value_x = wilcoxon(x, ctl, nan_policy='omit', *args, **kwargs)
-        stat, p_value_y = wilcoxon(y, ctl, nan_policy='omit', *args, **kwargs)
-        stat, p_value = wilcoxon(x, y, nan_policy='omit', *args, **kwargs)
-
-        reject, pvals_corrected, _, _ = smm.multipletests([p_value_x, p_value_y, p_value], method="holm")
-
-        df = pd.DataFrame({cat_names[0]: x, cat_names[1]: y, 'ctl': ctl})
-        df_melted = df.melt(var_name='cat', value_name='val')
-
-        ax.set_title(title)
-
-        sns.stripplot(ax = ax,
-            data=df_melted, x='cat', y='val', hue='cat',
-            alpha=.5, legend=False, palette=sns.color_palette(col),
-            s=7.5
-        )
-        sns.pointplot(
-            ax = ax,
-            data=df_melted, x='cat', y="val", hue='cat',
-            linestyle="none", errorbar=None,
-            marker="_", markersize=30, markeredgewidth=3,
-            palette=sns.color_palette(col)
-        )
-
-        ax.set_xlim(-0.5, 1.5)
-        ax.set_ylabel(ylabel)
-        ax.set_xlabel('')
-        ax.set_box_aspect(1)
-
-        significance_bridge(ax,x,y,p_value,fontsize)
-
-        if ylim is not None:
-            ax.set_ylim(*ylim)
+            ax.set_ylim(np.min(groups)-2*height_step, max(bridge_heights) + 2*height_step)
 
     def group(df, variable):
         theta_avg_trials = (
@@ -296,26 +283,28 @@ if __name__ == '__main__':
         )
         #theta_mean = theta_avg_trials.mean().values
         #theta_sem = theta_avg_trials.sem().values
-        theta_last = theta_avg_trials.get_group(29.99).values
+        theta_last = theta_avg_trials.get_group((29.99,)).values
         return theta_avg_trials, theta_last
 
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
     plt.title('Prey capture')
     x, x_last = group(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='20.0')], variable='theta')
     y, y_last = group(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='-20.0')], variable='theta')
-    plot_mean_and_sem(ax[0], x, COLORS[0], label='| o')
+    ctl, ctl_last = group(timeseries[(timeseries['stim']==Stim.DARK)], variable='theta')
+    plot_mean_and_sem(ax[0], ctl, COLORS[2], label='dark')
     plot_mean_and_sem(ax[0], y, COLORS[1], label='o |')
+    plot_mean_and_sem(ax[0], x, COLORS[0], label='| o')
     ax[0].set_ylabel('<cumulative angle (rad)>')
     ax[0].set_xlabel('time [s]')
     ax[0].legend()
     ax[0].set_ylim(-2, 2)
     ax[0].text(
-        x=-0.1,
+        x=-0.15,
         y=-2,       
         s="Right",
         ha='right',   
         va='center',     
-        transform=plt.gca().get_yaxis_transform(),
+        transform=ax[0].get_yaxis_transform(),
         rotation=90
     )
     ax[0].text(
@@ -324,27 +313,26 @@ if __name__ == '__main__':
         s="Left",
         ha='right',   
         va='center',     
-        transform=plt.gca().get_yaxis_transform(),
+        transform=ax[0].get_yaxis_transform(),
         rotation=90
     )
     ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
-    wilcoxon_plot(
+    friedman_wilcoxon_plot(
         ax[1],
-        x_last, 
-        y_last,
-        ['20.0', '-20.0'],
-        ylabel='',
-        title='',
-        col=COLORS
+        groups = [x_last, ctl_last, y_last],
+        group_names=['| o', 'dark', 'o |'],
+        ylabel='<cumulative angle (rad)>',
+        colors=[COLORS[0], COLORS[2], COLORS[1]],
     )
     plt.savefig('preycapture_timeseries.png')
     plt.show()
-
 
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
     plt.title('Phototaxis')
     x, x_last = group(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']=='1.0')], variable='theta')
     y, y_last = group(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']=='-1.0')], variable='theta')
+    ctl, ctl_last = group(timeseries[(timeseries['stim']==Stim.DARK)], variable='theta')
+    plot_mean_and_sem(ax[0], ctl, COLORS[2], label='dark')
     plot_mean_and_sem(ax[0], x, COLORS[0], label='Bright | Dark')
     plot_mean_and_sem(ax[0], y, COLORS[1], label='Dark | Bright')
     ax[0].set_ylabel('<cumulative angle (rad)>')
@@ -356,7 +344,7 @@ if __name__ == '__main__':
         s="Right",
         ha='right',   
         va='center',     
-        transform=plt.gca().get_yaxis_transform(),
+        transform=ax[0].get_yaxis_transform(),
         rotation=90
     )
     ax[0].text(
@@ -365,19 +353,17 @@ if __name__ == '__main__':
         s="Left",
         ha='right',   
         va='center',     
-        transform=plt.gca().get_yaxis_transform(),
+        transform=ax[0].get_yaxis_transform(),
         rotation=90
     )
     ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
     ax[0].legend()
-    wilcoxon_plot(
+    friedman_wilcoxon_plot(
         ax[1],
-        x_last, 
-        y_last,
-        ['1.0', '-1.0'],
-        ylabel='',
-        title='',
-        col=COLORS
+        groups = [x_last, ctl_last, y_last],
+        group_names=['Bright | Dark', 'dark', 'Dark | Bright'],
+        ylabel='<cumulative angle (rad)>',
+        colors=[COLORS[0], COLORS[2], COLORS[1]],
     )
     plt.savefig('phototaxis_timeseries.png')
     plt.show()
@@ -397,6 +383,8 @@ if __name__ == '__main__':
     plt.title('OMR')
     x, x_last = group(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']=='90.0')], variable='theta')
     y, y_last = group(timeseries[(timeseries['stim']==Stim.OMR) & (timeseries['stim_variable_value']=='-90.0')], variable='theta')
+    ctl, ctl_last = group(timeseries[(timeseries['stim']==Stim.DARK)], variable='theta')
+    plot_mean_and_sem(ax[0], ctl, COLORS[2], label='dark')
     plot_mean_and_sem(ax[0], x, COLORS[0], label='-->')
     plot_mean_and_sem(ax[0], y, COLORS[1], label='<--')
     ax[0].set_ylabel('<cumulative angle (rad)>')
@@ -408,7 +396,7 @@ if __name__ == '__main__':
         s="Right",
         ha='right',   
         va='center',     
-        transform=plt.gca().get_yaxis_transform(),
+        transform=ax[0].get_yaxis_transform(),
         rotation=90
     )
     ax[0].text(
@@ -417,19 +405,17 @@ if __name__ == '__main__':
         s="Left",
         ha='right',   
         va='center',     
-        transform=plt.gca().get_yaxis_transform(),
+        transform=ax[0].get_yaxis_transform(),
         rotation=90
     )
     ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
     ax[0].legend()
-    wilcoxon_plot(
+    friedman_wilcoxon_plot(
         ax[1],
-        x_last, 
-        y_last,
-        ['90.0', '-90.0'],
-        ylabel='',
-        title='',
-        col=COLORS
+        groups = [x_last, ctl_last, y_last],
+        group_names=['-->', 'dark', '<--'],
+        ylabel='<cumulative angle (rad)>',
+        colors=[COLORS[0], COLORS[2], COLORS[1]],
     )
     plt.savefig('OMR_timeseries.png')
     plt.show()
@@ -438,6 +424,8 @@ if __name__ == '__main__':
     plt.title('OKR')
     x, x_last = group(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']=='36.0')], variable='theta')
     y, y_last = group(timeseries[(timeseries['stim']==Stim.OKR) & (timeseries['stim_variable_value']=='-36.0')], variable='theta')
+    ctl, ctl_last = group(timeseries[(timeseries['stim']==Stim.DARK)], variable='theta')
+    plot_mean_and_sem(ax[0], ctl, COLORS[2], label='dark')
     plot_mean_and_sem(ax[0], x, COLORS[0], label='CW')
     plot_mean_and_sem(ax[0], y, COLORS[1], label='CCW')
     ax[0].set_ylabel('<cumulative angle (rad)>')
@@ -449,7 +437,7 @@ if __name__ == '__main__':
         s="Right",
         ha='right',   
         va='center',     
-        transform=plt.gca().get_yaxis_transform(),
+        transform=ax[0].get_yaxis_transform(),
         rotation=90
     )
     ax[0].text(
@@ -458,19 +446,17 @@ if __name__ == '__main__':
         s="Left",
         ha='right',   
         va='center',     
-        transform=plt.gca().get_yaxis_transform(),
+        transform=ax[0].get_yaxis_transform(),
         rotation=90
     )
     ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
     ax[0].legend()
-    wilcoxon_plot(
+    friedman_wilcoxon_plot(
         ax[1],
-        x_last, 
-        y_last,
-        ['36.0', '-36.0'],
-        ylabel='',
-        title='',
-        col=COLORS
+        groups = [x_last, ctl_last, y_last],
+        group_names=['CW', 'dark', 'CCW'],
+        ylabel='<cumulative angle (rad)>',
+        colors=[COLORS[0], COLORS[2], COLORS[1]],
     )
     plt.savefig('OKR_timeseries.png')
     plt.show()
