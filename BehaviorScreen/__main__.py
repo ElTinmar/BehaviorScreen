@@ -125,12 +125,6 @@ if __name__ == '__main__':
         )  
         write_header = False
 
-#    timeseries_data = []
-#    for behavior_file in tqdm(behavior_files):
-#        timeseries_data.extend(_run_timeseries(behavior_file, directories))
-#    timeseries = pd.DataFrame(timeseries_data)
-#    timeseries.to_csv('timeseries.csv')
-
     timeseries = pd.read_csv(
         "timeseries.csv",
         converters={
