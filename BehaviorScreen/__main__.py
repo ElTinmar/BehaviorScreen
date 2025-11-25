@@ -852,8 +852,8 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(6,6))
     plt.title('Looming')
     bouts[(bouts['stim']==Stim.BRIGHT)]['peak_yaw_speed'].plot.hist(color='k', bins=180, alpha=0.1, density=True, label='bright')
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['peak_yaw_speed'].plot.kde(color=COLORS[0], label='o | ')
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['peak_yaw_speed'].plot.kde(color=COLORS[1], label=' | o')
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['peak_yaw_speed'].plot.kde(color=COLORS[0], label='o | ', bw_method=0.1)
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['peak_yaw_speed'].plot.kde(color=COLORS[1], label=' | o', bw_method=0.1)
     plt.xlabel('yaw speed (deg/sec)')
     plt.legend()
     plt.text(
@@ -879,8 +879,8 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(6,6))
     plt.title('Looming')
     bouts[(bouts['stim']==Stim.BRIGHT)]['heading_change'].plot.hist(color='k', bins=180, alpha=0.1, density=True, label='bright')
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['heading_change'].plot.kde(color=COLORS[0], label='o | ')
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['heading_change'].plot.kde(color=COLORS[1], label=' | o')
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['heading_change'].plot.kde(color=COLORS[0], label='o | ', bw_method=0.15)
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['heading_change'].plot.kde(color=COLORS[1], label=' | o', bw_method=0.15)
     plt.xlabel('heading_change (rad)')
     plt.legend()
     plt.text(
