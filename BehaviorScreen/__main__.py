@@ -977,6 +977,4 @@ if __name__ == '__main__':
     with Pool(processes=NUM_PROCESSES) as pool:
         pool.map(run_single_animal, behavior_files)
 
-    run_metrics = partial(_run_metrics, directories = directories)
-    with Pool(processes=NUM_PROCESSES) as pool:
-        pool.map(run_metrics, behavior_files)
+
