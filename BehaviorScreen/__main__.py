@@ -944,6 +944,9 @@ if __name__ == '__main__':
             
             if stim == Stim.PHOTOTAXIS:
                 df_sub = df_sub.groupby(['file', 'identity', 'stim_variable_value', 'trial_num'], group_keys=False).head(4)
+
+            if stim == Stim.LOOMING:
+                df_sub = df_sub[(bouts['trial_time']>=4) & (bouts['trial_time']<=6)]
             
             counts = []
             for cat in range(num_cat):
