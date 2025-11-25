@@ -32,7 +32,7 @@ SLP_PATH = "/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/output/
 OUT_PATH = "predictions_overlay.mp4"
 POINT_RADIUS = 4
 LINE_THICKNESS = 1
-ALPHA = 0.25  # transparency for overlay graphics
+ALPHA = 0.5  # transparency for overlay graphics
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 FPS_OUT = 20
 # ----------------------------------------------------------------------------
@@ -134,7 +134,9 @@ for i in range(len(frame_map)):
                 pts = np.array([ [p.x, p.y] for p in inst.points ])  # might need adjustment
             draw_instance(overlay, pts, color=(0,255,255))
 
-    frame = cv2.addWeighted(overlay, ALPHA, frame, 1 - ALPHA, 0)
+    mask = overlay.any(axis=2)  
+    frame[mask] = cv2.addWeighted(overlay[mask], ALPHA, frame[mask], 1 - ALPHA, 0)
+
 
     out.write(frame)
     frame_i += 1
