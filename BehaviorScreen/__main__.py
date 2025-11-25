@@ -199,7 +199,7 @@ if __name__ == '__main__':
             ax.text((x0+x1)/2, M+0.03*M, sign,
                     ha='center', va='bottom', fontsize=fontsize)
 
-    def friedman_wilcoxon_plot(
+    def anova_ttest_plot(
         ax,
         groups: Sequence[Iterable],
         group_names: Sequence[str],
@@ -217,6 +217,7 @@ if __name__ == '__main__':
         if k >= 3:
             _, anova_p = rm_anova(groups, group_names)
             #_, anova_p = friedmanchisquare(*groups)
+            ax.set_title(f'RM-ANOVA test: {anova_p:.3f} ({asterisk(anova_p)})')
         else:
             anova_p = 0
 
@@ -240,8 +241,6 @@ if __name__ == '__main__':
 
         df = pd.DataFrame({name: g for name, g in zip(group_names, groups)})
         df_m = df.melt(var_name="group", value_name="value")
-
-        ax.set_title(f'RM-ANOVA test: {anova_p:.3f} ({asterisk(anova_p)})')
 
         sns.stripplot(
             ax=ax,
@@ -337,7 +336,7 @@ if __name__ == '__main__':
         rotation=90
     )
     ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
-    friedman_wilcoxon_plot(
+    anova_ttest_plot(
         ax[1],
         groups = [x_last, ctl_last, y_last],
         group_names=['| o', 'dark', 'o |'],
@@ -378,7 +377,7 @@ if __name__ == '__main__':
     )
     ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
     ax[0].legend()
-    friedman_wilcoxon_plot(
+    anova_ttest_plot(
         ax[1],
         groups = [x_last, ctl_last, y_last],
         group_names=['Bright | Dark', 'dark', 'Dark | Bright'],
@@ -420,7 +419,7 @@ if __name__ == '__main__':
     )
     ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
     ax[0].legend()
-    friedman_wilcoxon_plot(
+    anova_ttest_plot(
         ax[1],
         groups = [x_last, ctl_last, y_last],
         group_names=['Bright | Dark', 'dark', 'Dark | Bright'],
@@ -439,7 +438,7 @@ if __name__ == '__main__':
     ax[0].set_ylabel('<speed (mm.s-1)>')
     ax[0].set_xlabel('time [s]')
     ax[0].legend()
-    friedman_wilcoxon_plot(
+    anova_ttest_plot(
         ax[1],
         groups = [x_last, y_last],
         group_names=['dark', 'bright'],
@@ -447,6 +446,25 @@ if __name__ == '__main__':
         colors=[COLORS[0], COLORS[1]],
     )
     plt.savefig('photokinesis_speed_timeseries.png')
+    plt.show()
+
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
+    plt.title('Photokinesis')
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.DARK) & (timeseries['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < timeseries['stim_start_time'])], 'distance')
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (timeseries['stim_start_time'] < 3000)], 'distance')
+    plot_mean_and_sem(ax[0], x, COLORS[0], label='Dark')
+    plot_mean_and_sem(ax[0], y, COLORS[1], label='Bright')
+    ax[0].set_ylabel('<distance (mm)>')
+    ax[0].set_xlabel('time [s]')
+    ax[0].legend()
+    anova_ttest_plot(
+        ax[1],
+        groups = [x_last, y_last],
+        group_names=['dark', 'bright'],
+        ylabel='<distance (mm)>',
+        colors=[COLORS[0], COLORS[1]],
+    )
+    plt.savefig('photokinesis_distance_timeseries.png')
     plt.show()
 
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
@@ -480,7 +498,7 @@ if __name__ == '__main__':
     )
     ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
     ax[0].legend()
-    friedman_wilcoxon_plot(
+    anova_ttest_plot(
         ax[1],
         groups = [x_last, ctl_last, y_last],
         group_names=['-->', 'dark', '<--'],
@@ -521,7 +539,7 @@ if __name__ == '__main__':
     )
     ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
     ax[0].legend()
-    friedman_wilcoxon_plot(
+    anova_ttest_plot(
         ax[1],
         groups = [x_last, ctl_last, y_last],
         group_names=['CW', 'dark', 'CCW'],
