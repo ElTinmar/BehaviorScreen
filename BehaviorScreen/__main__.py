@@ -298,13 +298,13 @@ if __name__ == '__main__':
         else:
             ax.set_ylim(np.min(groups)-2*height_step, max(bridge_heights) + 2*height_step)
 
-    def group(df, variable):
+    def group(df, variable, last=29.99):
         theta_avg_trials = (
             df.groupby(['file', 'identity', 'time'])[variable]
             .mean()  # average over trials first
             .groupby(['time'])
         )
-        last = max(theta_avg_trials.groups.keys())
+        #last = max(theta_avg_trials.groups.keys())
         theta_last = theta_avg_trials.get_group((last,)).values
         return theta_avg_trials, theta_last
 
@@ -388,6 +388,48 @@ if __name__ == '__main__':
         colors=[COLORS[0], COLORS[2], COLORS[1]],
     )
     plt.savefig('phototaxis_timeseries.png')
+    plt.show()
+
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
+    plt.title('Phototaxis')
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']=='1.0')], 'theta', 2.0)
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.PHOTOTAXIS) & (timeseries['stim_variable_value']=='-1.0')],'theta', 2.0)
+    ctl, ctl_last = group(timeseries[(timeseries['stim']==Stim.DARK)], 'theta', 2.0)
+    plot_mean_and_sem(ax[0], ctl, COLORS[2], label='dark')
+    plot_mean_and_sem(ax[0], x, COLORS[0], label='Bright | Dark')
+    plot_mean_and_sem(ax[0], y, COLORS[1], label='Dark | Bright')
+    ax[0].set_ylabel('<cumulative angle (rad)>')
+    ax[0].set_xlabel('time [s]')
+    ax[0].set_ylim(-0.4, 0.4)
+    ax[0].set_xlim(0, 2)
+    ax[0].text(
+        x=-0.1,
+        y=-3,       
+        s="Right",
+        ha='right',   
+        va='center',     
+        transform=ax[0].get_yaxis_transform(),
+        rotation=90
+    )
+    ax[0].text(
+        x=-0.1,
+        y=3,       
+        s="Left",
+        ha='right',   
+        va='center',     
+        transform=ax[0].get_yaxis_transform(),
+        rotation=90
+    )
+    ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
+    ax[0].legend()
+    friedman_wilcoxon_plot(
+        ax[1],
+        groups = [x_last, ctl_last, y_last],
+        group_names=['Bright | Dark', 'dark', 'Dark | Bright'],
+        ylabel='<cumulative angle (rad)>',
+        colors=[COLORS[0], COLORS[2], COLORS[1]],
+    )
+    plt.savefig('phototaxis_timeseries_first3sec.png')
     plt.show()
 
     plt.figure(figsize=(6,6))
