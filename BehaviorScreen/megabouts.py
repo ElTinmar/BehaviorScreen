@@ -141,6 +141,9 @@ def get_bout_metrics(
                         yaw_speed = meg_data.traj.yaw_speed[on:off]
                         peak_yaw_speed = yaw_speed[np.argmax(np.abs(yaw_speed))]
 
+                        # trial time
+                        trial_time = 1e-9*(meg_data.timestamp[on] - row.start_timestamp)
+
                         rows.append({
                             'file': behavior_files.metadata.stem,
                             'identity': identity,
@@ -149,6 +152,7 @@ def get_bout_metrics(
                             'stim_variable_value': str(condition),
                             'stim_start_time': 1e-9*(row.start_timestamp - stim_trials.start_timestamp[0]),
                             'trial_num': trial_idx,
+                            'trial_time': trial_time,
                             'heading_change': heading_change,
                             'distance': distance,
                             'distance_center': radial_distance,

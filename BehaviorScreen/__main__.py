@@ -450,6 +450,25 @@ if __name__ == '__main__':
 
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
     plt.title('Photokinesis')
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.DARK) & (timeseries['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < timeseries['stim_start_time'])], 'theta')
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (timeseries['stim_start_time'] < 3000)], 'theta')
+    plot_mean_and_sem(ax[0], x, COLORS[0], label='Dark')
+    plot_mean_and_sem(ax[0], y, COLORS[1], label='Bright')
+    ax[0].set_ylabel('<heading change (rad)>')
+    ax[0].set_xlabel('time [s]')
+    ax[0].legend()
+    anova_ttest_plot(
+        ax[1],
+        groups = [x_last, y_last],
+        group_names=['dark', 'bright'],
+        ylabel='<heading change (rad)>',
+        colors=[COLORS[0], COLORS[1]],
+    )
+    plt.savefig('photokinesis_heading_timeseries.png')
+    plt.show()
+
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
+    plt.title('Photokinesis')
     x, x_last = group(timeseries[(timeseries['stim']==Stim.DARK) & (timeseries['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < timeseries['stim_start_time'])], 'distance')
     y, y_last = group(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (timeseries['stim_start_time'] < 3000)], 'distance')
     plot_mean_and_sem(ax[0], x, COLORS[0], label='Dark')
@@ -465,6 +484,25 @@ if __name__ == '__main__':
         colors=[COLORS[0], COLORS[1]],
     )
     plt.savefig('photokinesis_distance_timeseries.png')
+    plt.show()
+
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
+    plt.title('Photokinesis')
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.DARK) & (timeseries['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < timeseries['stim_start_time'])], 'distance_center')
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (timeseries['stim_start_time'] < 3000)], 'distance_center')
+    plot_mean_and_sem(ax[0], x, COLORS[0], label='Dark')
+    plot_mean_and_sem(ax[0], y, COLORS[1], label='Bright')
+    ax[0].set_ylabel('<radial distance (mm)>')
+    ax[0].set_xlabel('time [s]')
+    ax[0].legend()
+    anova_ttest_plot(
+        ax[1],
+        groups = [x_last, y_last],
+        group_names=['dark', 'bright'],
+        ylabel='<radial distance (mm)>',
+        colors=[COLORS[0], COLORS[1]],
+    )
+    plt.savefig('photokinesis_radial_distance_timeseries.png')
     plt.show()
 
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
@@ -552,12 +590,52 @@ if __name__ == '__main__':
     plt.figure(figsize=(6,6))
     plt.title('Loomings')
     ax = plt.gca()
-    plot_mean_and_sem(ax, timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]')].groupby('time')['speed'], col=COLORS[0], label='Bright')
+    plot_mean_and_sem(ax, timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (timeseries['stim_start_time'] < 3000)].groupby('time')['speed'], col=COLORS[0], label='Bright')
     plot_mean_and_sem(ax, timeseries[(timeseries['stim']==Stim.LOOMING)].groupby('time')['speed'], col=COLORS[1], label='Looming')
     plt.ylabel('<speed [mm/s]>')
     plt.xlabel('time [s]')
     plt.xlim(0,10)
     plt.savefig('Looming_timeseries.png')
+    plt.show()
+
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
+    plt.title('Looming')
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.LOOMING) & (timeseries['stim_variable_value']=='2.0')], 'theta', 10.0)
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.LOOMING) & (timeseries['stim_variable_value']=='-2.0')], 'theta', 10.0)
+    plot_mean_and_sem(ax[0], x, COLORS[0], label=' | o')
+    plot_mean_and_sem(ax[0], y, COLORS[1], label='o | ')
+    ax[0].set_xlim(0, 10)
+    ax[0].set_ylabel('<cumulative angle (rad)>')
+    ax[0].set_xlabel('time [s]')
+    ax[0].set_ylim(-0.5, 0.5)
+    ax[0].text(
+        x=-0.1,
+        y=-0.5,       
+        s="Right",
+        ha='right',   
+        va='center',     
+        transform=ax[0].get_yaxis_transform(),
+        rotation=90
+    )
+    ax[0].text(
+        x=-0.1,
+        y=0.5,       
+        s="Left",
+        ha='right',   
+        va='center',     
+        transform=ax[0].get_yaxis_transform(),
+        rotation=90
+    )
+    ax[0].hlines(0, 0, 30, linestyles='dotted', color='k')
+    ax[0].legend()
+    anova_ttest_plot(
+        ax[1],
+        groups = [x_last, y_last],
+        group_names=['o | ', ' | o'],
+        ylabel='<cumulative angle (rad)>',
+        colors=[COLORS[0], COLORS[1]],
+    )
+    plt.savefig('looming_angle_timeseries.png')
     plt.show()
 
     # Bouts
@@ -771,8 +849,8 @@ if __name__ == '__main__':
     plt.title('Looming')
     num_bouts = bouts[(bouts['stim']==Stim.LOOMING)].shape[0]//2
     bouts[(bouts['stim']==Stim.BRIGHT)]['peak_yaw_speed'].sample(num_bouts).plot.hist(color='k', bins=80, alpha=0.1, density=True, label='bright')
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='2.0')]['peak_yaw_speed'].plot.kde(color=COLORS[0], label='o | ')
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-2.0')]['peak_yaw_speed'].plot.kde(color=COLORS[1], label=' | o')
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='2.0')]['peak_yaw_speed'].plot.kde(color=COLORS[0], label=' | o')
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-2.0')]['peak_yaw_speed'].plot.kde(color=COLORS[1], label='o | ')
     plt.xlabel('yaw speed (rad/sec)')
     plt.legend()
     plt.text(
