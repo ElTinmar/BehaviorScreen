@@ -109,6 +109,11 @@ if __name__ == '__main__':
     bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
     bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
 
+    bouts[
+        (bouts['file']=='03_07dpf_WT_Fri_10_Oct_2025_14h35min10sec') &
+        (bouts['identity']==0) 
+    ] = np.nan
+
 
     write_header = True
     filename = "timeseries.csv"
@@ -134,6 +139,12 @@ if __name__ == '__main__':
     
     # filtering outliers
     timeseries.loc[timeseries['speed']> 400, 'speed'] = np.nan
+
+    # tracking failure during bright 
+    timeseries[
+        (timeseries['file']=='03_07dpf_WT_Fri_10_Oct_2025_14h35min10sec') &
+        (timeseries['identity']==0) 
+    ] = np.nan
 
     def plot_mean_and_sem(ax, x, col='k', label=''):
         m = x.mean()
