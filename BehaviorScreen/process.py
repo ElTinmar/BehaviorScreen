@@ -262,6 +262,7 @@ def extract_time_series(
                             'stim': stim_select,
                             'stim_variable_name': GROUPING_PARAMETER[stim],
                             'stim_variable_value': str(condition),
+                            'stim_start_time': 1e-9*(row.start_timestamp - stim_trials.start_timestamp[0]),
                             'trial_num': trial_idx,
                             'time': t,
                             'distance': d,

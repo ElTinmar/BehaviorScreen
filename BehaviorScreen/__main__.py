@@ -105,7 +105,7 @@ if __name__ == '__main__':
     )
 
     # filtering outliers
-    # bouts[bouts['distance_center']>9] = np.nan # remove bouts on the edge
+    bouts[bouts['distance_center']>9] = np.nan # remove bouts on the edge
     bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
     bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
 
@@ -212,17 +212,15 @@ if __name__ == '__main__':
         groups: e.g. [v0, v1, ctl] where each v is a vector of repeated measures
         """
 
-        # ---------- 1. Convert and check ----------
         groups = [np.asarray(g) for g in groups]
         k = len(groups)
-        if k < 3:
-            raise ValueError("Need at least 3 groups for Friedman test.")
+        if k >= 3:
+            _, anova_p = rm_anova(groups, group_names)
+            #_, anova_p = friedmanchisquare(*groups)
+        else:
+            anova_p = 0
 
-        # ---------- 2. Friedman test ----------
-        #friedman_stat, friedman_p = friedmanchisquare(*groups)
-        friedman_stat, friedman_p = rm_anova(groups, group_names)
-
-        # ---------- 3. Post-hoc Wilcoxon tests ----------
+        # post-hoc tests
         pairs = list(itertools.combinations(range(k), 2))
         p_raw = []
 
@@ -232,17 +230,18 @@ if __name__ == '__main__':
             p_raw.append(p)
 
         # Holm correction
-        reject, p_corrected, _, _ = smm.multipletests(p_raw, method="holm")
+        if len(pairs) > 1:
+            _, p_corrected, _, _ = smm.multipletests(p_raw, method="holm")
+        else:
+            p_corrected = p_raw
 
         # map corrected p-values back to pairs
         pair_results = [((pairs[i][0], pairs[i][1]), p_corrected[i]) for i in range(len(pairs))]
 
-        # ---------- 4. Melt for plotting ----------
         df = pd.DataFrame({name: g for name, g in zip(group_names, groups)})
         df_m = df.melt(var_name="group", value_name="value")
 
-        # ---------- 5. Plot points + means ----------
-        ax.set_title(f'RM-ANOVA test: {friedman_p:.3f} ({asterisk(friedman_p)})')
+        ax.set_title(f'RM-ANOVA test: {anova_p:.3f} ({asterisk(anova_p)})')
 
         sns.stripplot(
             ax=ax,
@@ -275,7 +274,6 @@ if __name__ == '__main__':
         ax.set_ylabel(ylabel)
         ax.set_xlabel("")
 
-        # ---------- 6. Draw non-overlapping significance bridges ----------
         # Compute heights above each group
         ymax = np.nanmax(df.values)  
         height_step = 0.14 * ymax
@@ -312,7 +310,7 @@ if __name__ == '__main__':
     plt.title('Prey capture')
     x, x_last = group(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='20.0')], variable='theta')
     y, y_last = group(timeseries[(timeseries['stim']==Stim.PREY_CAPTURE) & (timeseries['stim_variable_value']=='-20.0')], variable='theta')
-    ctl, ctl_last = group(timeseries[(timeseries['stim']==Stim.DARK)], variable='theta')
+    ctl, ctl_last = group(timeseries[(timeseries['stim']==Stim.DARK) & (0 < timeseries['stim_start_time'])], variable='theta') # use all 20 dark trials
     plot_mean_and_sem(ax[0], ctl, COLORS[2], label='dark')
     plot_mean_and_sem(ax[0], y, COLORS[1], label='o |')
     plot_mean_and_sem(ax[0], x, COLORS[0], label='| o')
@@ -432,15 +430,23 @@ if __name__ == '__main__':
     plt.savefig('phototaxis_timeseries_first3sec.png')
     plt.show()
 
-    plt.figure(figsize=(6,6))
+    fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
     plt.title('Photokinesis')
-    ax = plt.gca()
-    plot_mean_and_sem(ax, timeseries[(timeseries['stim']==Stim.DARK)].groupby('time')['distance'], COLORS[0], label='Dark')
-    plot_mean_and_sem(ax, timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]')].groupby('time')['distance'], COLORS[1], label='Bright')
-    plt.ylabel('<cumulative distance (mm)>')
-    plt.xlabel('time [s]')
-    plt.legend()
-    plt.savefig('photokinesis_timeseries.png')
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.DARK) & (timeseries['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < timeseries['stim_start_time'])], 'speed')
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.BRIGHT) & (timeseries['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (timeseries['stim_start_time'] < 3000)], 'speed')
+    plot_mean_and_sem(ax[0], x, COLORS[0], label='Dark')
+    plot_mean_and_sem(ax[0], y, COLORS[1], label='Bright')
+    ax[0].set_ylabel('<speed (mm.s-1)>')
+    ax[0].set_xlabel('time [s]')
+    ax[0].legend()
+    friedman_wilcoxon_plot(
+        ax[1],
+        groups = [x_last, y_last],
+        group_names=['dark', 'bright'],
+        ylabel='<speed (mm.s-1)>',
+        colors=[COLORS[0], COLORS[1]],
+    )
+    plt.savefig('photokinesis_speed_timeseries.png')
     plt.show()
 
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
@@ -592,6 +598,67 @@ if __name__ == '__main__':
     )
     plt.xlabel('bout heading change (deg)')
     plt.savefig('phototaxis_bouts.png')
+    plt.show()
+
+
+    fig = plt.figure(figsize=(6,6))
+    plt.title('photokinesis')
+    bouts[(bouts['stim']==Stim.DARK) & (bouts['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < bouts['stim_start_time'])]['distance'].plot.kde(color=COLORS[0], label='Dark')
+    bouts[(bouts['stim']==Stim.BRIGHT) & (bouts['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (bouts['stim_start_time'] < 3000)]['distance'].plot.kde(color=COLORS[1], label='Bright')
+    plt.xlim(-1, 20)
+    plt.legend()
+    plt.xlabel('distance (mm)')
+    plt.savefig('photokinesis_bout_distance.png')
+    plt.show()
+
+    fig = plt.figure(figsize=(6,6))
+    plt.title('photokinesis')
+    bouts[(bouts['stim']==Stim.DARK) & (bouts['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < bouts['stim_start_time'])]['peak_axial_speed'].plot.kde(color=COLORS[0], label='Dark')
+    bouts[(bouts['stim']==Stim.BRIGHT) & (bouts['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (bouts['stim_start_time'] < 3000)]['peak_axial_speed'].plot.kde(color=COLORS[1], label='Bright')
+    plt.xlim(-1, 200)
+    plt.legend()
+    plt.xlabel('peak axial speed (mm.s-1)')
+    plt.savefig('photokinesis_bout_speed.png')
+    plt.show()
+
+    fig = plt.figure(figsize=(6,6))
+    plt.title('photokinesis')
+    bouts[(bouts['stim']==Stim.DARK) & (bouts['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < bouts['stim_start_time'])]['bout_duration'].plot.kde(color=COLORS[0], label='Dark')
+    bouts[(bouts['stim']==Stim.BRIGHT) & (bouts['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (bouts['stim_start_time'] < 3000)]['bout_duration'].plot.kde(color=COLORS[1], label='Bright')
+    plt.xlim(0, 1)
+    plt.legend()
+    plt.xlabel('bout_duration (s)')
+    plt.savefig('photokinesis_bout_duration.png')
+    plt.show()
+
+    fig = plt.figure(figsize=(6,6))
+    plt.title('photokinesis')
+    bouts[(bouts['stim']==Stim.DARK) & (bouts['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < bouts['stim_start_time'])]['interbout_duration'].plot.kde(color=COLORS[0], label='Dark')
+    bouts[(bouts['stim']==Stim.BRIGHT) & (bouts['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (bouts['stim_start_time'] < 3000)]['interbout_duration'].plot.kde(color=COLORS[1], label='Bright')
+    plt.xlim(-1, 4)
+    plt.legend()
+    plt.xlabel('interbout_duration (s)')
+    plt.savefig('photokinesis_interbout_duration.png')
+    plt.show()
+
+    fig = plt.figure(figsize=(6,6))
+    plt.title('photokinesis')
+    bouts[(bouts['stim']==Stim.DARK) & (bouts['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < bouts['stim_start_time'])]['heading_change'].plot.kde(color=COLORS[0], label='Dark')
+    bouts[(bouts['stim']==Stim.BRIGHT) & (bouts['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (bouts['stim_start_time'] < 3000)]['heading_change'].plot.kde(color=COLORS[1], label='Bright')
+    plt.xlim(-3, 3)
+    plt.legend()
+    plt.xlabel('heading_change (rad)')
+    plt.savefig('photokinesis_heading_change.png')
+    plt.show()
+
+    fig = plt.figure(figsize=(6,6))
+    plt.title('thigmotaxis dark/bright')
+    bouts[(bouts['stim']==Stim.DARK) & (bouts['stim_variable_value']=='[0.0, 0.0, 0.0, 1.0]') & (1500 < bouts['stim_start_time'])]['distance_center'].plot.kde(color=COLORS[0], label='Dark')
+    bouts[(bouts['stim']==Stim.BRIGHT) & (bouts['stim_variable_value']=='[0.2, 0.2, 0.0, 1.0]') & (bouts['stim_start_time'] < 3000)]['distance_center'].plot.kde(color=COLORS[1], label='Bright')
+    plt.xlim(-1, 11)
+    plt.legend()
+    plt.xlabel('radial_distance (mm)')
+    plt.savefig('photokinesis_radial_distance.png')
     plt.show()
 
     fig = plt.figure(figsize=(6,6))

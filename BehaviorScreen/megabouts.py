@@ -28,7 +28,7 @@ from .load import BehaviorData, BehaviorFiles, Directories
 from .process import get_trials, get_well_coords_mm
 
 # Force running on CPU if GPU is not compatible
-CPU = True
+CPU = False
 if CPU:
     import torch
     torch.cuda.is_available = lambda: False
@@ -147,6 +147,7 @@ def get_bout_metrics(
                             'stim': stim_select,
                             'stim_variable_name': GROUPING_PARAMETER[stim],
                             'stim_variable_value': str(condition),
+                            'stim_start_time': 1e-9*(row.start_timestamp - stim_trials.start_timestamp[0]),
                             'trial_num': trial_idx,
                             'heading_change': heading_change,
                             'distance': distance,
