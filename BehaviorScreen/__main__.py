@@ -732,24 +732,23 @@ if __name__ == '__main__':
 
     for stim, param_list in stimuli.items():
         for p in param_list:
-            # Filter bouts by stim, stim_variable_value, and probability
             df_sub = bouts[(bouts['stim'] == stim) & 
                         (bouts['stim_variable_value'] == p) & 
-                        (bouts['proba'] > 0.5)]
+                        (bouts['proba'] > 0.5) &
+                        (bouts['distance_center'] < 15)
+                    ]
             
             if stim == Stim.PHOTOTAXIS:
                 df_sub = df_sub.groupby(['file', 'identity', 'stim_variable_value', 'trial_num'], group_keys=False).head(4)
             
             counts = []
             for cat in range(num_cat):
-                # left
                 left_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == -1)].shape[0]
-                # right
                 right_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == 1)].shape[0]
                 counts.extend([left_count, right_count])
             
             counts = pd.Series(counts, index=row_labels)
-            counts = counts / counts.sum()  # normalize
+            counts = counts / counts.sum()  
             heatmap_df[stim.name + ' ' + str(p)] = counts
 
     plt.figure(figsize=(6, 8))
