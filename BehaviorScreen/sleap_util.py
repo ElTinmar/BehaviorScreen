@@ -1,6 +1,8 @@
 import sleap_io as sio
 from sleap import PredictedInstance
 import numpy as np
+import cv2
+from pathlib import Path
 
 def remove_all_predicted_instances(input_slp, output_slp):
     labels = sio.load_file(input_slp)
@@ -25,21 +27,12 @@ def replace_nans(input_slp, output_slp):
     labels.save(output_slp)
 
 
-
-
-
-import math
-import cv2
-import numpy as np
-import sleap_io as sio
-from pathlib import Path
-
 # --- USER CONFIG ------------------------------------------------------------
 SLP_PATH = "/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/output/results/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.predictions.slp" 
 OUT_PATH = "predictions_overlay.mp4"
-POINT_RADIUS = 5
+POINT_RADIUS = 4
 LINE_THICKNESS = 1
-ALPHA = 0.5  # transparency for overlay graphics
+ALPHA = 0.25  # transparency for overlay graphics
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 FPS_OUT = 20
 # ----------------------------------------------------------------------------
@@ -139,11 +132,7 @@ for i in range(len(frame_map)):
                 # Fallback: inst.points -> dict or structured array
                 # try to convert to numpy
                 pts = np.array([ [p.x, p.y] for p in inst.points ])  # might need adjustment
-            # choose a color per instance (simple hash)
-            hue = int((idx * 30) % 180)
-            # convert HSV-ish to BGR visually; trivial mapping:
-            color = (int((hue * 1.2) % 255), int((255 - hue) % 255), int((hue*0.5+50) % 255))
-            draw_instance(overlay, pts, color=color)
+            draw_instance(overlay, pts, color=(0,255,255))
 
     frame = cv2.addWeighted(overlay, ALPHA, frame, 1 - ALPHA, 0)
 
