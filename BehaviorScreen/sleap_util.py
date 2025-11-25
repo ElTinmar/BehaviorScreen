@@ -35,11 +35,13 @@ import sleap_io as sio
 from pathlib import Path
 
 # --- USER CONFIG ------------------------------------------------------------
-SLP_PATH = "/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/output/results/02_07dpf_wt_Thu_09_Oct_2025_17h26min06sec_fish_3.slp" 
+SLP_PATH = "/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/output/results/00_07dpf_WT_Fri_10_Oct_2025_10h04min42sec_fish_0.predictions.slp" 
 OUT_PATH = "predictions_overlay.mp4"
-POINT_RADIUS = 3
-LINE_THICKNESS = 2
+POINT_RADIUS = 5
+LINE_THICKNESS = 1
+ALPHA = 0.5  # transparency for overlay graphics
 FONT = cv2.FONT_HERSHEY_SIMPLEX
+FPS_OUT = 20
 # ----------------------------------------------------------------------------
 
 # Load labels
@@ -87,24 +89,25 @@ cap = cv2.VideoCapture(video_filename)
 if not cap.isOpened():
     raise RuntimeError(f"Cannot open video: {video_filename}")
 
-fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+fps = cap.get(cv2.CAP_PROP_FPS) or 100.0
 w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # or 'avc1' / 'H264' if available
-out = cv2.VideoWriter(OUT_PATH, fourcc, fps, (w, h))
+out = cv2.VideoWriter(OUT_PATH, fourcc, FPS_OUT, (w, h))
 
 frame_i = 0
 total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-print(f"Writing overlay to {OUT_PATH}  (fps={fps}, size={w}x{h}, frames={total})")
+print(f"Writing overlay to {OUT_PATH}  (fps={FPS_OUT}, size={w}x{h}, frames={total})")
 
 # Helper: draw a single instance (numpy (n_nodes,2) or structured array)
 def draw_instance(img, coord_array, color=(0, 255, 0)):
     # coord_array assumed shape (n_nodes, 2)
     # Draw points
+    overlay = img.copy()
     for (x, y) in coord_array:
         if np.isnan(x) or np.isnan(y):
             continue
-        cv2.circle(img, (int(round(x)), int(round(y))), POINT_RADIUS, color, -1)
+        cv2.circle(img, (int(round(x)), int(round(y))), POINT_RADIUS, color, 1)
     # Draw skeleton edges
     for a, b in skeleton_edges:
         if a >= coord_array.shape[0] or b >= coord_array.shape[0]:
@@ -123,6 +126,8 @@ for i in range(len(frame_map)):
     if not ret:
         break
 
+    overlay = np.zeros_like(frame)
+
     if frame_i in frame_map:
         labeled_frame = frame_map[frame_i]
         # each 'instance' is a sleap instance (predicted or labeled)
@@ -135,20 +140,12 @@ for i in range(len(frame_map)):
                 # try to convert to numpy
                 pts = np.array([ [p.x, p.y] for p in inst.points ])  # might need adjustment
             # choose a color per instance (simple hash)
-            hue = int((idx * 47) % 180)
+            hue = int((idx * 30) % 180)
             # convert HSV-ish to BGR visually; trivial mapping:
             color = (int((hue * 1.2) % 255), int((255 - hue) % 255), int((hue*0.5+50) % 255))
-            draw_instance(frame, pts, color=color)
-            # optionally label identity/track if present:
-            try:
-                if inst.track is not None:
-                    # draw track id near first point
-                    x0, y0 = pts[0]
-                    if not (math.isnan(x0) or math.isnan(y0)):
-                        cv2.putText(frame, f"id:{inst.track.id if hasattr(inst.track,'id') else inst.track}",
-                                    (int(round(x0))+5, int(round(y0))-5), FONT, 0.5, (255,255,255), 1, cv2.LINE_AA)
-            except Exception:
-                pass
+            draw_instance(overlay, pts, color=color)
+
+    frame = cv2.addWeighted(overlay, ALPHA, frame, 1 - ALPHA, 0)
 
     out.write(frame)
     frame_i += 1
