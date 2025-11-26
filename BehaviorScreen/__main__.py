@@ -41,28 +41,17 @@ import statsmodels.stats.multitest as smm
 from statsmodels.stats.anova import AnovaRM
 import itertools
 
-# DLC
+# SLEAP
 # TODO eye tracking OKR
 # TODO eye tracking + tail tracking and classification J-turn PREY_CAPTURE
-
-# megabouts
-# TODO bout segmentation and distribution of heading change per bout
-# TODO bout classification for every behavior + ethogram? 
-
-# TODO auto detect edges/center coordinates on video/picture
-# TODO filter bouts on edges (bout that starts and ends on the edge)?
 
 # TODO separate analysis and plotting. Use multiprocessing for analysis here
 
 # TODO linear mixed effects analysis to get within and between individual variability
 
-# TODO filter dark/bright events to remove transition/rest periods
-
 # TODO overlay reconstructed stimulus on top of video 
 
 # TODO overlay video with ethogram
-
-# TODO plot ethogram as in Marques et al CurrBiol 2018?
 
 
 def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
