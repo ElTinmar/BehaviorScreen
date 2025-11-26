@@ -53,6 +53,7 @@ import itertools
 
 # TODO overlay video with ethogram
 
+# TODO indentify the main source of variability within/between individuals
 
 def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
