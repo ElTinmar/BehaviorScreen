@@ -11,8 +11,6 @@ import numpy as np
 from typing import List, Dict, Optional, Iterable, Sequence
 import os
 
-DARK_YELLOW = '#dbc300'
-
 from BehaviorScreen.core import (
     GROUPING_PARAMETER, 
     BASE_DIR, 
