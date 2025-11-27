@@ -2,8 +2,7 @@ import pandas as pd
 from typing import (
     Tuple, 
     List, 
-    Iterable, 
-    TypedDict, 
+    Iterable
 )
 import numpy as np
 import cv2
