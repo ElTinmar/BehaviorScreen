@@ -55,6 +55,8 @@ import itertools
 
 # TODO indentify the main source of variability within/between individuals
 
+# TODO megabout segmentation sanity checks
+
 def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
     superimpose_video_trials(directories, behavior_file, behavior_data, 30, GROUPING_PARAMETER)
