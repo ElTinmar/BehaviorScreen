@@ -36,7 +36,7 @@ from BehaviorScreen.plot import (
 
 from BehaviorScreen.megabouts import megabout_headtracking_pipeline, get_bout_metrics
 from megabouts.utils import bouts_category_name_short
-from scipy.stats import wilcoxon, friedmanchisquare, ttest_rel
+from scipy.stats import ttest_rel
 import statsmodels.stats.multitest as smm
 from statsmodels.stats.anova import AnovaRM
 import itertools
@@ -56,6 +56,8 @@ import itertools
 # TODO overlay video with ethogram
 
 # TODO megabout segmentation sanity checks
+
+# TODO prey capture try to show bouts only first 5 seconds of the trial (will HAT disappear?)
 
 def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
@@ -651,10 +653,37 @@ if __name__ == '__main__':
     # Bouts
 
     fig = plt.figure(figsize=(6,6))
-    plt.title('prey capture')
+    plt.title('prey capture first 0-5 sec')
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].apply(np.rad2deg).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='20.0')]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='| o')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='-20.0')]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='o |')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='20.0') & (bouts['trial_time']<=5)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='| o')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='-20.0') & (bouts['trial_time']<=5)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='o |')
+    plt.xlim(-180, 180)
+    plt.legend()
+    plt.text(
+        x=-180,
+        y=-0.075,       
+        s="Right",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
+    plt.text(
+        x=180,
+        y=-0.075,       
+        s="Left",
+        ha='center',   
+        va='top',     
+        transform=plt.gca().get_xaxis_transform() 
+    )
+    plt.xlabel('bout heading change (deg)')
+    plt.savefig('preycapture_bouts.png')
+    plt.show(block=False)
+
+    fig = plt.figure(figsize=(6,6))
+    plt.title('prey capture first 25-30 sec')
+    bouts[(bouts['stim']==Stim.DARK)]['heading_change'].apply(np.rad2deg).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='20.0') & (bouts['trial_time']>=25)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='| o')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='-20.0') & (bouts['trial_time']>=25)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='o |')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -937,6 +966,9 @@ if __name__ == '__main__':
 
             if stim == Stim.LOOMING:
                 df_sub = df_sub[(bouts['trial_time']>=4) & (bouts['trial_time']<=6)]
+
+            if stim == Stim.PREY_CAPTURE:
+                df_sub = df_sub[(bouts['trial_time']<=10)]
             
             counts = []
             for cat in range(num_cat):
@@ -971,3 +1003,45 @@ if __name__ == '__main__':
         pool.map(run_single_animal, behavior_files)
 
 
+## PREY CAPTURE
+
+    num_cat = len(bouts_category_name_short)
+    sides = ['L', 'R']
+    row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
+    full_index = list(range(num_cat * len(sides)))  
+
+    heatmap_df = pd.DataFrame()
+
+    stim = Stim.PREY_CAPTURE
+    for start, stop in [(0,5),(5,10),(10,15),(15,20),(20,25)]:
+        mask = (bouts['trial_time']>=start) & (bouts['trial_time']<=stop)
+        for p in ['-20.0', '20.0']:
+            df_sub = bouts[(bouts['stim'] == stim) & 
+                        (bouts['stim_variable_value'] == p) & 
+                        (bouts['proba'] > 0.5) &
+                        (bouts['distance_center'] < 15) &
+                        mask
+                    ]
+
+            counts = []
+            for cat in range(num_cat):
+                left_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == -1)].shape[0]
+                right_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == 1)].shape[0]
+                counts.extend([left_count, right_count])
+            
+            counts = pd.Series(counts, index=row_labels)
+            counts = counts / counts.sum()  
+            heatmap_df[stim.name + f'_{start}-{stop}s_' + str(p)] = counts
+        
+    plt.figure(figsize=(6, 8))
+    plt.imshow(heatmap_df, aspect='auto', cmap='inferno')
+    plt.colorbar(label='prob.')
+
+    plt.xticks(range(len(heatmap_df.columns)), heatmap_df.columns, rotation=90, ha='right')
+    plt.yticks(range(len(heatmap_df.index)), heatmap_df.index)
+
+    plt.xlabel("Stimulus")
+    plt.ylabel("Category")
+    plt.tight_layout()
+    plt.savefig('categories_pc.png')
+    plt.show()

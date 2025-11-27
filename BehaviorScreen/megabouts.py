@@ -26,7 +26,7 @@ from .load import BehaviorData, BehaviorFiles, Directories
 from .process import get_trials, get_well_coords_mm
 
 # Force running on CPU if GPU is not compatible
-CPU = False
+CPU = True
 if CPU:
     import torch
     torch.cuda.is_available = lambda: False
