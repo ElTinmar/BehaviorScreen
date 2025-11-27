@@ -1,10 +1,8 @@
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 from cycler import cycler
 import networkx as nx
-import copy
 from typing import NamedTuple, Dict, List
 
 from megabouts.tracking_data import TrackingConfig, FullTrackingData, HeadTrackingData
