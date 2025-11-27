@@ -49,11 +49,11 @@ import itertools
 
 # TODO linear mixed effects analysis to get within and between individual variability
 
+# TODO indentify the main source of variability within/between individuals
+
 # TODO overlay reconstructed stimulus on top of video 
 
 # TODO overlay video with ethogram
-
-# TODO indentify the main source of variability within/between individuals
 
 # TODO megabout segmentation sanity checks
 
