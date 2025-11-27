@@ -24,11 +24,11 @@ from BehaviorScreen.load import (
     find_files, 
     load_data
 )
-from BehaviorScreen.process import (
+from BehaviorScreen.video import (
     superimpose_video_trials,
-    export_single_animal_videos,
-    extract_time_series
+    export_single_animal_videos
 )
+from BehaviorScreen.process import extract_time_series
 from BehaviorScreen.plot import (
     plot_tracking_metrics, 
     plot_trajectories
