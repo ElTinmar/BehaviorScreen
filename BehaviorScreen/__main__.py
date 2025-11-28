@@ -993,16 +993,6 @@ if __name__ == '__main__':
     plt.savefig('categories.png')
     plt.show()
 
-
-    run_superimpose = partial(_run_superimpose, directories = directories)
-    with Pool(processes=NUM_PROCESSES) as pool:
-        pool.map(run_superimpose, behavior_files)
-
-    run_single_animal = partial(_run_single_animal, directories = directories)
-    with Pool(processes=NUM_PROCESSES) as pool:
-        pool.map(run_single_animal, behavior_files)
-
-
 ## PREY CAPTURE
 
     num_cat = len(bouts_category_name_short)
@@ -1045,3 +1035,233 @@ if __name__ == '__main__':
     plt.tight_layout()
     plt.savefig('categories_pc.png')
     plt.show()
+
+## PHOTOTAXIS
+
+    num_cat = len(bouts_category_name_short)
+    sides = ['L', 'R']
+    row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
+    full_index = list(range(num_cat * len(sides)))  
+
+    heatmap_df = pd.DataFrame()
+
+    stim = Stim.PHOTOTAXIS
+    for start, stop in [(0,2.5),(2.5,5),(5,7.5),(7.5,10)]:
+        mask = (bouts['trial_time']>=start) & (bouts['trial_time']<=stop)
+        for p in ['-1.0', '1.0']:
+            df_sub = bouts[(bouts['stim'] == stim) & 
+                        (bouts['stim_variable_value'] == p) & 
+                        (bouts['proba'] > 0.5) &
+                        (bouts['distance_center'] < 15) &
+                        mask
+                    ]
+
+            counts = []
+            for cat in range(num_cat):
+                left_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == -1)].shape[0]
+                right_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == 1)].shape[0]
+                counts.extend([left_count, right_count])
+            
+            counts = pd.Series(counts, index=row_labels)
+            counts = counts / counts.sum()  
+            heatmap_df[stim.name + f'_{start}-{stop}s_' + str(p)] = counts
+        
+    plt.figure(figsize=(6, 8))
+    plt.imshow(heatmap_df, aspect='auto', cmap='inferno')
+    plt.colorbar(label='prob.')
+
+    plt.xticks(range(len(heatmap_df.columns)), heatmap_df.columns, rotation=90, ha='right')
+    plt.yticks(range(len(heatmap_df.index)), heatmap_df.index)
+
+    plt.xlabel("Stimulus")
+    plt.ylabel("Category")
+    plt.tight_layout()
+    plt.savefig('categories_ptx.png')
+    plt.show()
+
+## LOOMINGS
+
+    num_cat = len(bouts_category_name_short)
+    sides = ['L', 'R']
+    row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
+    full_index = list(range(num_cat * len(sides)))  
+
+    heatmap_df = pd.DataFrame()
+
+    stim = Stim.LOOMING
+    for start, stop in [(0,2.5),(2.5,5),(5,7.5),(7.5,10)]:
+        mask = (bouts['trial_time']>=start) & (bouts['trial_time']<=stop)
+        for p in ['-2.0', '2.0']:
+            df_sub = bouts[(bouts['stim'] == stim) & 
+                        (bouts['stim_variable_value'] == p) & 
+                        (bouts['proba'] > 0.5) &
+                        (bouts['distance_center'] < 15) &
+                        mask
+                    ]
+
+            counts = []
+            for cat in range(num_cat):
+                left_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == -1)].shape[0]
+                right_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == 1)].shape[0]
+                counts.extend([left_count, right_count])
+            
+            counts = pd.Series(counts, index=row_labels)
+            counts = counts / counts.sum()  
+            heatmap_df[stim.name + f'_{start}-{stop}s_' + str(p)] = counts
+        
+    plt.figure(figsize=(6, 8))
+    plt.imshow(heatmap_df, aspect='auto', cmap='inferno')
+    plt.colorbar(label='prob.')
+
+    plt.xticks(range(len(heatmap_df.columns)), heatmap_df.columns, rotation=90, ha='right')
+    plt.yticks(range(len(heatmap_df.index)), heatmap_df.index)
+
+    plt.xlabel("Stimulus")
+    plt.ylabel("Category")
+    plt.tight_layout()
+    plt.savefig('categories_looming.png')
+    plt.show()
+
+## OMR
+
+    num_cat = len(bouts_category_name_short)
+    sides = ['L', 'R']
+    row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
+    full_index = list(range(num_cat * len(sides)))  
+
+    heatmap_df = pd.DataFrame()
+
+    stim = Stim.OMR
+    for start, stop in [(0,5),(5,10),(10,15),(15,20),(20,25)]:
+        mask = (bouts['trial_time']>=start) & (bouts['trial_time']<=stop)
+        for p in ['-90.0', '90.0']:
+            df_sub = bouts[(bouts['stim'] == stim) & 
+                        (bouts['stim_variable_value'] == p) & 
+                        (bouts['proba'] > 0.5) &
+                        (bouts['distance_center'] < 15) &
+                        mask
+                    ]
+
+            counts = []
+            for cat in range(num_cat):
+                left_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == -1)].shape[0]
+                right_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == 1)].shape[0]
+                counts.extend([left_count, right_count])
+            
+            counts = pd.Series(counts, index=row_labels)
+            counts = counts / counts.sum()  
+            heatmap_df[stim.name + f'_{start}-{stop}s_' + str(p)] = counts
+        
+    plt.figure(figsize=(6, 8))
+    plt.imshow(heatmap_df, aspect='auto', cmap='inferno')
+    plt.colorbar(label='prob.')
+
+    plt.xticks(range(len(heatmap_df.columns)), heatmap_df.columns, rotation=90, ha='right')
+    plt.yticks(range(len(heatmap_df.index)), heatmap_df.index)
+
+    plt.xlabel("Stimulus")
+    plt.ylabel("Category")
+    plt.tight_layout()
+    plt.savefig('categories_omr.png')
+    plt.show()
+
+## OKR
+
+    num_cat = len(bouts_category_name_short)
+    sides = ['L', 'R']
+    row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
+    full_index = list(range(num_cat * len(sides)))  
+
+    heatmap_df = pd.DataFrame()
+
+    stim = Stim.OKR
+    for start, stop in [(0,5),(5,10),(10,15),(15,20),(20,25)]:
+        mask = (bouts['trial_time']>=start) & (bouts['trial_time']<=stop)
+        for p in ['-36.0', '36.0']:
+            df_sub = bouts[(bouts['stim'] == stim) & 
+                        (bouts['stim_variable_value'] == p) & 
+                        (bouts['proba'] > 0.5) &
+                        (bouts['distance_center'] < 15) &
+                        mask
+                    ]
+
+            counts = []
+            for cat in range(num_cat):
+                left_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == -1)].shape[0]
+                right_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == 1)].shape[0]
+                counts.extend([left_count, right_count])
+            
+            counts = pd.Series(counts, index=row_labels)
+            counts = counts / counts.sum()  
+            heatmap_df[stim.name + f'_{start}-{stop}s_' + str(p)] = counts
+        
+    plt.figure(figsize=(6, 8))
+    plt.imshow(heatmap_df, aspect='auto', cmap='inferno')
+    plt.colorbar(label='prob.')
+
+    plt.xticks(range(len(heatmap_df.columns)), heatmap_df.columns, rotation=90, ha='right')
+    plt.yticks(range(len(heatmap_df.index)), heatmap_df.index)
+
+    plt.xlabel("Stimulus")
+    plt.ylabel("Category")
+    plt.tight_layout()
+    plt.savefig('categories_okr.png')
+    plt.show()
+
+## ALL
+
+    num_cat = len(bouts_category_name_short)
+    sides = ['L', 'R']
+    row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
+    full_index = list(range(num_cat * len(sides)))  
+
+    heatmap_df = pd.DataFrame()
+
+    for stim, param_list in stimuli.items():
+        for start, stop in [(0,2.5),(2.5,5),(5,7.5),(7.5,10),(10,15),(15,20),(20,30)]:
+            if (stim == Stim.LOOMING) & (start>=10):
+                continue
+
+            mask = (bouts['trial_time']>=start) & (bouts['trial_time']<=stop)
+            for p in param_list:
+                df_sub = bouts[(bouts['stim'] == stim) & 
+                            (bouts['stim_variable_value'] == p) & 
+                            (bouts['proba'] > 0.5) &
+                            (bouts['distance_center'] < 15) &
+                            mask
+                        ]
+                
+                counts = []
+                for cat in range(num_cat):
+                    left_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == -1)].shape[0]
+                    right_count = df_sub[(df_sub['category'] == cat) & (df_sub['sign'] == 1)].shape[0]
+                    counts.extend([left_count, right_count])
+                
+                counts = pd.Series(counts, index=row_labels)
+                counts = counts / counts.sum()  
+                heatmap_df[stim.name + f'_{start}-{stop}s_' + str(p)] = counts
+
+    plt.figure(figsize=(20, 8))
+    plt.imshow(heatmap_df, aspect='auto', cmap='inferno')
+    plt.colorbar(label='prob.')
+
+    plt.xticks(range(len(heatmap_df.columns)), heatmap_df.columns, rotation=90, ha='center')
+    plt.yticks(range(len(heatmap_df.index)), heatmap_df.index)
+
+    plt.xlabel("Stimulus")
+    plt.ylabel("Category")
+    plt.tight_layout()
+    plt.savefig('categories_vs_time.png')
+    plt.show()
+
+
+##
+
+
+    run_superimpose = partial(_run_superimpose, directories = directories)
+    with Pool(processes=NUM_PROCESSES) as pool:
+        pool.map(run_superimpose, behavior_files)
+
+    run_single_animal = partial(_run_single_animal, directories = directories)
+    with Pool(processes=NUM_PROCESSES) as pool:
+        pool.map(run_single_animal, behavior_files)
