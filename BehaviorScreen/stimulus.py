@@ -1,3 +1,4 @@
+from typing import Tuple
 import numpy as np
 
 
@@ -81,15 +82,16 @@ def prey_capture_arc_stimulus_sine(
         prey_arc_start_deg: float,
         prey_arc_stop_deg: float,
         prey_speed_deg_s: float
-    ) -> float:
+    ) -> Tuple[float, float]:
     
     arc_start_rad = np.deg2rad(prey_arc_start_deg)
     arc_stop_rad = np.deg2rad(prey_arc_stop_deg)
     angle_range_rad = arc_stop_rad - arc_start_rad
     angle_rad = arc_start_rad
     freq = np.deg2rad(prey_speed_deg_s) / (2*np.abs(angle_range_rad))
-    angle_rad += angle_range_rad * (np.sin(2*np.pi*freq*shader_trial_time)/2 + 0.5)
-    return angle_rad
+    phase = freq * shader_trial_time
+    angle_rad += angle_range_rad * (np.sin(2*np.pi*phase)/2 + 0.5)
+    return angle_rad, phase % 2*np.pi # TODO fix phase pls
 
 
 def prey_capture_arc_stimulus_modulo(
