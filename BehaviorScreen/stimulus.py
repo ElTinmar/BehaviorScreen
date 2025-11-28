@@ -91,7 +91,7 @@ def prey_capture_arc_stimulus_sine(
     freq = np.deg2rad(prey_speed_deg_s) / (2*np.abs(angle_range_rad))
     phase = freq * shader_trial_time
     angle_rad += angle_range_rad * (np.sin(2*np.pi*phase)/2 + 0.5)
-    return angle_rad, phase % 2*np.pi # TODO fix phase pls
+    return angle_rad, (2*phase) % 2*np.pi 
 
 
 def prey_capture_arc_stimulus_modulo(
