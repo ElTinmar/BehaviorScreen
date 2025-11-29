@@ -1257,21 +1257,17 @@ if __name__ == '__main__':
 
     ## Prey capture phase
 
-    HAT = 7
-    JTURN = 6
 
-    fig = plt.figure(figsize=(12, 6))
-    ax0 = fig.add_subplot(121, projection='polar')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==HAT)].stim_phase.hist(ax = ax0, bins=36)
-    ax0.set_title(bouts_category_name_short[HAT])
-    ax0.vlines(x=np.pi/2, ymin=0, ymax=100, color='r')
-    ax0.vlines(x=3*np.pi/2, ymin=0, ymax=100, color='r')
+    num_cat = len(bouts_category_name_short)
+    n = int(np.ceil(np.sqrt(num_cat)))
 
-    ax1 = fig.add_subplot(122, projection='polar')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==JTURN)].stim_phase.hist(ax = ax1, bins=36)
-    ax1.set_title(bouts_category_name_short[JTURN])
-    ax1.vlines(x=np.pi/2, ymin=0, ymax=150, color='r')
-    ax1.vlines(x=3*np.pi/2, ymin=0, ymax=150, color='r')
+    fig = plt.figure(figsize=(12, 12))
+    for idx, name in enumerate(bouts_category_name_short):
+        ax = fig.add_subplot(n,n,idx+1,projection='polar')
+        bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==idx)].stim_phase.hist(ax=ax, bins=36)
+        ax.set_title(name)
+
+    plt.tight_layout()
     plt.savefig('prey_capture_phase.png')
     plt.show()
 
