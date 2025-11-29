@@ -1257,7 +1257,6 @@ if __name__ == '__main__':
 
     ## Prey capture phase
 
-
     num_cat = len(bouts_category_name_short)
     n = int(np.ceil(np.sqrt(num_cat)))
 
