@@ -57,7 +57,7 @@ import itertools
 
 # TODO megabout segmentation sanity checks
 
-# TODO prey capture try to show bouts only first 5 seconds of the trial (will HAT disappear?)
+# TODO permutation tests with DARK? 
 
 def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
