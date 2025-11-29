@@ -1257,6 +1257,24 @@ if __name__ == '__main__':
 
     ## Prey capture phase
 
+    HAT = 7
+    JTURN = 6
+
+    fig = plt.figure(figsize=(12, 6))
+    ax0 = fig.add_subplot(121, projection='polar')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==HAT)].stim_phase.hist(ax = ax0, bins=36)
+    ax0.set_title(bouts_category_name_short[HAT])
+    ax0.vlines(x=np.pi/2, ymin=0, ymax=100, color='r')
+    ax0.vlines(x=3*np.pi/2, ymin=0, ymax=100, color='r')
+
+    ax1 = fig.add_subplot(122, projection='polar')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==JTURN)].stim_phase.hist(ax = ax1, bins=36)
+    ax1.set_title(bouts_category_name_short[JTURN])
+    ax1.vlines(x=np.pi/2, ymin=0, ymax=150, color='r')
+    ax1.vlines(x=3*np.pi/2, ymin=0, ymax=150, color='r')
+    plt.savefig('prey_capture_phase.png')
+    plt.show()
+
     num_cat = len(bouts_category_name_short)
     n = int(np.ceil(np.sqrt(num_cat)))
 
@@ -1267,11 +1285,11 @@ if __name__ == '__main__':
         ax.set_title(name)
 
     plt.tight_layout()
-    plt.savefig('prey_capture_phase.png')
+    plt.savefig('prey_capture_phase_all.png')
     plt.show()
 
-## 
 
+## 
     run_superimpose = partial(_run_superimpose, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:
         pool.map(run_superimpose, behavior_files)
