@@ -69,8 +69,8 @@ def _run_single_animal(behavior_file: BehaviorFiles, directories: Directories):
 
 def _run_megabouts(behavior_file: BehaviorFiles, directories: Directories) -> List[Dict]:
     behavior_data = load_data(behavior_file)
-    meg = megabout_headtracking_pipeline(behavior_data)
-    return get_bout_metrics(directories, behavior_data, behavior_file, meg)
+    megabout = megabout_headtracking_pipeline(behavior_data)
+    return get_bout_metrics(directories, behavior_data, behavior_file, megabout)
 
 def _run_timeseries(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
@@ -1255,7 +1255,60 @@ if __name__ == '__main__':
     plt.show()
 
 
-##
+## Phase
+HAT = 7
+JTURN = 6
+
+fig = plt.figure(figsize=(12, 6))
+ax0 = fig.add_subplot(121, projection='polar')
+bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==HAT)].stim_phase.hist(ax = ax0, bins=36)
+ax0.set_title(bouts_category_name_short[HAT])
+ax0.vlines(x=np.pi/2, ymin=0, ymax=100, color='r')
+ax0.vlines(x=3*np.pi/2, ymin=0, ymax=100, color='r')
+
+ax1 = fig.add_subplot(122, projection='polar')
+bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==JTURN)].stim_phase.hist(ax = ax1, bins=36)
+ax1.set_title(bouts_category_name_short[JTURN])
+ax1.vlines(x=np.pi/2, ymin=0, ymax=150, color='r')
+ax1.vlines(x=3*np.pi/2, ymin=0, ymax=150, color='r')
+plt.show()
+
+## Angle
+
+HAT = 7
+JTURN = 6
+
+
+fig = plt.figure(figsize=(12, 12))
+
+ax0 = fig.add_subplot(221, projection='polar')
+bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==HAT) & (bouts['stim_variable_value'] == '20.0')].prey_angle.hist(ax = ax0, bins=18)
+ax0.set_title(bouts_category_name_short[HAT])
+ax0.vlines(x=np.pi/2, ymin=0, ymax=100, color='r')
+ax0.vlines(x=3*np.pi/2, ymin=0, ymax=100, color='r')
+
+ax1 = fig.add_subplot(222, projection='polar')
+bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==JTURN) & (bouts['stim_variable_value'] == '20.0')].prey_angle.hist(ax = ax1, bins=18)
+ax1.set_title(bouts_category_name_short[JTURN])
+ax1.vlines(x=np.pi/2, ymin=0, ymax=150, color='r')
+ax1.vlines(x=3*np.pi/2, ymin=0, ymax=150, color='r')
+
+ax2 = fig.add_subplot(223, projection='polar')
+bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==HAT) & (bouts['stim_variable_value'] == '-20.0')].prey_angle.hist(ax = ax2, bins=18)
+ax2.set_title(bouts_category_name_short[HAT])
+ax2.vlines(x=np.pi/2, ymin=0, ymax=100, color='r')
+ax2.vlines(x=3*np.pi/2, ymin=0, ymax=100, color='r')
+
+ax3 = fig.add_subplot(224, projection='polar')
+bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['category']==JTURN) & (bouts['stim_variable_value'] == '-20.0')].prey_angle.hist(ax = ax3, bins=18)
+ax3.set_title(bouts_category_name_short[JTURN])
+ax3.vlines(x=np.pi/2, ymin=0, ymax=150, color='r')
+ax3.vlines(x=3*np.pi/2, ymin=0, ymax=150, color='r')
+
+plt.show()
+
+## Separating by side
+
 
 
     run_superimpose = partial(_run_superimpose, directories = directories)

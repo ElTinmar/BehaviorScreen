@@ -21,9 +21,10 @@ from megabouts.classification.classification import TailBouts
 from megabouts.segmentation.segmentation import SegmentationResult
 from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 
-from .core import ROOT_FOLDER, GROUPING_PARAMETER, Stim
-from .load import BehaviorData, BehaviorFiles, Directories
-from .process import get_trials, get_well_coords_mm
+from BehaviorScreen.core import ROOT_FOLDER, GROUPING_PARAMETER, Stim
+from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
+from BehaviorScreen.process import get_trials, get_well_coords_mm
+from BehaviorScreen.stimulus import get_shader_trial_time, prey_capture_arc_stimulus_sine
 
 # Force running on CPU if GPU is not compatible
 CPU = False
@@ -142,6 +143,19 @@ def get_bout_metrics(
                         # trial time
                         trial_time = 1e-9*(meg_data.timestamp[on] - row.start_timestamp)
 
+                        #FIXME Stimulus phase
+                        stim_phase = np.nan
+                        prey_angle = np.nan
+                        if stim == Stim.PREY_CAPTURE:
+                            shader_trial_time = get_shader_trial_time(row.start_time_sec, trial_time, 3600)
+                            prey_angle, stim_phase = prey_capture_arc_stimulus_sine(
+                                shader_trial_time,
+                                row.prey_arc_start_deg,
+                                row.prey_arc_stop_deg,
+                                row.prey_speed_deg_s
+                            )
+
+
                         rows.append({
                             'file': behavior_files.metadata.stem,
                             'identity': identity,
@@ -155,6 +169,8 @@ def get_bout_metrics(
                             'distance': distance,
                             'distance_center': radial_distance,
                             'bout_duration': bout_duration,
+                            'stim_phase': stim_phase,
+                            'prey_angle': prey_angle,
                             'interbout_duration': interbout_duration,
                             'peak_axial_speed': peak_axial_speed,
                             'peak_yaw_speed': peak_yaw_speed,

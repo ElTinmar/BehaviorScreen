@@ -247,6 +247,7 @@ def extract_time_series(
                     distance_center_interp = interpolate_ts(time_interp, relative_time, distance_center)
                     speed_interp = interpolate_ts(time_interp, relative_time, speed)
                     angle_interp = interpolate_ts(time_interp, relative_time, theta_unwrapped)
+
                     for t, d, dc, s, th in zip(time_interp, distance_interp, distance_center_interp, speed_interp, angle_interp):
                         rows.append({
                             'file': behavior_files.metadata.stem,
