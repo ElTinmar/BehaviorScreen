@@ -39,10 +39,41 @@ GROUPING_PARAMETER = {
     Stim.PREY_CAPTURE: 'prey_arc_start_deg'
 }
 
+STIM_PARAMETERS = [
+    'looming_angle_start_deg',
+    'looming_angle_stop_deg',
+    'looming_center_mm',
+    'looming_distance_to_screen_mm',
+    'looming_expansion_speed_deg_per_sec',
+    'looming_expansion_speed_mm_per_sec',
+    'looming_expansion_time_sec',
+    'looming_period_sec',
+    'looming_size_to_speed_ratio_ms',
+    'looming_type',
+    'n_preys',
+    'okr_spatial_frequency_deg',
+    'okr_speed_deg_per_sec',
+    'omr_angle_deg',
+    'omr_spatial_period_mm',
+    'omr_speed_mm_per_sec',
+    'phototaxis_polarity',
+    'prey_arc_start_deg',
+    'prey_arc_stop_deg',
+    'prey_capture_type',
+    'prey_radius_mm',
+    'prey_speed_deg_s',
+    'prey_speed_mm_s',
+    'prey_trajectory_radius_mm',
+    'ramp_duration_sec',
+    'ramp_powerlaw_exponent',
+    'ramp_type',
+    'start_time_sec'
+]
+
 COLORS = ("#F1500A", "#0A6EF1", "#333333")
 
-ROOT_FOLDER = Path('/media/martin/DATA1/Behavioral_screen')
-#ROOT_FOLDER = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen')
+#ROOT_FOLDER = Path('/media/martin/DATA1/Behavioral_screen')
+ROOT_FOLDER = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen')
 #ROOT_FOLDER = Path('/home/martin/Downloads/')
 BASE_DIR = ROOT_FOLDER / 'output'
 

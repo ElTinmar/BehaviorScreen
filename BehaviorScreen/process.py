@@ -7,8 +7,18 @@ from typing import (
 import numpy as np
 import cv2
 
-from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
-from BehaviorScreen.core import Stim, WellDimensions, AGAROSE_WELL_DIMENSIONS, GROUPING_PARAMETER
+from BehaviorScreen.load import (
+    BehaviorData, 
+    BehaviorFiles, 
+    Directories
+)
+from BehaviorScreen.core import (
+    Stim, 
+    WellDimensions, 
+    AGAROSE_WELL_DIMENSIONS, 
+    GROUPING_PARAMETER,
+    STIM_PARAMETERS
+)
 
 def get_background_image(
         behavior_data: BehaviorData, 
@@ -135,15 +145,12 @@ def get_trials(
             "stim_select": stim_select,
             "start_timestamp": start_timestamp,
             "stop_timestamp": stop_timestamp,
-            "start_time_sec": stim_dict.get("start_time_sec", pd.NA),
-            "prey_arc_start_deg": stim_dict.get("prey_arc_start_deg", pd.NA),
-            "phototaxis_polarity": stim_dict.get("phototaxis_polarity", pd.NA),
-            "omr_angle_deg": stim_dict.get("omr_angle_deg", pd.NA),
-            "okr_speed_deg_per_sec": stim_dict.get("okr_speed_deg_per_sec", pd.NA),
             "looming_center_mm_x": stim_dict.get("looming_center_mm", [pd.NA, pd.NA])[0],
             "foreground_color": str(stim_dict["foreground_color"]),
             "background_color": str(stim_dict["background_color"]),
         }
+        for parameter in STIM_PARAMETERS:
+            row.update({parameter: stim_dict.get(parameter, pd.NA)})
 
         if Stim(stim_select) in keep_stim:
             rows.append(row)
