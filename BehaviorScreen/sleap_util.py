@@ -1,8 +1,17 @@
 import sleap_io as sio
+from sleap.info.write_tracking_h5 import main as write_analysis
 from sleap import PredictedInstance
 import numpy as np
 import cv2
 from pathlib import Path
+
+def export_csv(input_slp: Path | str, output_csv: Path | str):
+    labels = sio.load_file(input_slp)
+    write_analysis(labels=labels, output_path=output_csv, csv=True)
+
+def export(prediction_folder: Path):
+    for file in prediction_folder.glob('*.slp'):
+        export_csv(file, file.with_suffix(".csv"))
 
 def remove_all_predicted_instances(input_slp, output_slp):
     labels = sio.load_file(input_slp)
