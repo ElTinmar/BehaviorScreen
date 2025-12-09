@@ -1,10 +1,33 @@
 import os
-from pathlib import Path
+import pandas as pd
+
+import sleap_io as sio
 
 from eks.command_line_args import handle_io, handle_parse_args
 from eks.singlecam_smoother import fit_eks_singlecam
 from eks.utils import plot_results
+import eks
 
+def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
+    filepath = os.path.join(base_dir, slp_file)
+    labels = sio.load_file(filepath)
+    
+    keypoint_names = [node.name for node in labels.skeleton.nodes]
+    data = labels.numpy(return_confidence=True)
+    
+    reshaped_data = data.reshape(data.shape[0], -1)
+    columns = []
+    for keypoint_name in keypoint_names:
+        columns.append(f"{keypoint_name}_x")
+        columns.append(f"{keypoint_name}_y")
+        columns.append(f"{keypoint_name}_likelihood")
+
+    df = pd.DataFrame(reshaped_data, columns=columns)
+    df.to_csv(f'{slp_file}.csv', index=False)
+    return df, keypoint_names
+
+# monkey patching convert_slp_dlc
+eks.utils.convert_slp_dlc = convert_slp_dlc
 
 def run_smoother(
     input_source: str | list[str],
