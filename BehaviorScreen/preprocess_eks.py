@@ -1,8 +1,10 @@
 import os
+from pathlib import Path
 
 from eks.command_line_args import handle_io, handle_parse_args
 from eks.singlecam_smoother import fit_eks_singlecam
 from eks.utils import plot_results
+
 
 def run_smoother(
     input_source: str | list[str],
@@ -50,7 +52,6 @@ def run_smoother(
     )
 
     return output_df, s_finals, bodypart_list, save_dir
-
 
 if __name__ == "__main__":
 

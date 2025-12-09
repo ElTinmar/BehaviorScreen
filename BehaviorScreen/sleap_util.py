@@ -2,6 +2,7 @@ import sleap_io as sio
 from sleap.info.write_tracking_h5 import main as write_analysis
 from sleap import PredictedInstance
 import numpy as np
+import os
 import pandas as pd
 import cv2
 from pathlib import Path
@@ -12,6 +13,24 @@ from megabouts.config import TailPreprocessingConfig
 from megabouts.preprocessing import TailPreprocessing
 
 from tqdm import tqdm
+
+def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
+    filepath = os.path.join(base_dir, slp_file)
+    labels = sio.load_file(filepath)
+    
+    keypoint_names = [node.name for node in labels.skeleton.nodes]
+    data = labels.numpy(return_confidence=True)
+    
+    reshaped_data = data.reshape(data.shape[0], -1)
+    columns = []
+    for keypoint_name in keypoint_names:
+        columns.append(f"{keypoint_name}_x")
+        columns.append(f"{keypoint_name}_y")
+        columns.append(f"{keypoint_name}_likelihood")
+
+    df = pd.DataFrame(reshaped_data, columns=columns)
+    df.to_csv(f'{slp_file}.csv', index=False)
+    return df, keypoint_names
 
 def compute_angle_between_vectors(v1, v2):
     dot_product = np.einsum("ij,ij->i", v1, v2)
