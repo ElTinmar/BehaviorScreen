@@ -23,7 +23,7 @@ def convert_slp_dlc(base_dir: str, slp_file: str) -> tuple:
         columns.append(f"{keypoint_name}_likelihood")
 
     df = pd.DataFrame(reshaped_data, columns=columns)
-    df.to_csv(f'{slp_file}.csv', index=False)
+    #df.to_csv(f'{slp_file}.csv', index=False)
     return df, keypoint_names
 
 # monkey patching convert_slp_dlc
