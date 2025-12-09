@@ -13,6 +13,7 @@ dependencies:
 - pip:
   - megabouts
   - filetype
+  - sleap
   - git+https://github.com/ElTinmar/video_tools.git@main
 
   
