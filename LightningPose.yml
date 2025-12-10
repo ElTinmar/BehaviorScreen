@@ -1,0 +1,11 @@
+name: LightningPose
+channels:
+- conda-forge
+dependencies:
+- python == 3.10
+- ipython
+- pip
+- pip:
+  - lightning-pose
+
+  
