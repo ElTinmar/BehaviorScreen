@@ -111,6 +111,15 @@ def export(prediction_folder: Path):
     for file in prediction_folder.glob('*.slp'):
         export_csv(file)
 
+def keep_user_labeled_only(input_slp, output_slp):
+    labels = sio.load_file(input_slp)
+    labels.labeled_frames = [
+        f for f in labels.labeled_frames 
+        if any([True for i in f.instances if not isinstance(i, PredictedInstance)])
+    ]
+    labels.suggestions = []
+    labels.save(output_slp)
+
 def remove_all_predicted_instances(input_slp, output_slp):
     labels = sio.load_file(input_slp)
     labels.labeled_frames = [f for f in labels.labeled_frames if f and not isinstance(f.instances[0], PredictedInstance)]

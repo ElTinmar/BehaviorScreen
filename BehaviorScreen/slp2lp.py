@@ -77,18 +77,20 @@ def extract_labels_from_pkg_slp(file_path: str, base_output_dir: str | None) -> 
     with h5py.File(file_path, 'r') as hdf_file:
 
         # Extract data for each video
+        frames_dataset = hdf_file['frames']
+
         for video_group, video_filename in video_names.items():
             if video_group in hdf_file and 'frames' in hdf_file:
-                frames_dataset = hdf_file['frames']
+                
                 frame_references = {
                     frame['frame_id']: frame['frame_idx']
                     for frame in frames_dataset
                     if frame['video'] == int(video_group.replace('video', ''))
                 }
-                print(frame_references)
 
                 # Correct frame references for the current video group
                 frame_numbers = hdf_file[f'{video_group}/frame_numbers'][:]
+                
                 frame_id_to_number = {
                     frame_id: frame_numbers[idx]
                     for idx, frame_id in enumerate(frame_references.keys())
@@ -154,6 +156,8 @@ def extract_labels_from_pkg_slp(file_path: str, base_output_dir: str | None) -> 
 
 if __name__ == "__main__":
 
+    # apparently you need to keep only user labeled frames. Use sleap_util.keep_user_labeled_only 
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--slp_file", type=str)
     parser.add_argument("--lp_dir", type=str)
@@ -172,7 +176,7 @@ if __name__ == "__main__":
         raise NameError("slp_file and lp_dir cannot be the same")
 
     # Extract and save labeled data from SLEAP project
-    #extract_frames_from_pkg_slp(slp_file, lp_dir)
+    extract_frames_from_pkg_slp(slp_file, lp_dir)
 
     # Extract labels and create the required DataFrame
     extract_labels_from_pkg_slp(slp_file, lp_dir)
