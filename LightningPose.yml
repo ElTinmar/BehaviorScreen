@@ -6,6 +6,7 @@ dependencies:
 - ipython
 - pip
 - pip:
+  - numpy == 1.26.4
   - lightning-pose
 
   
