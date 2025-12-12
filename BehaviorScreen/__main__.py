@@ -305,7 +305,7 @@ if __name__ == '__main__':
             .mean()  # average over trials first
             .groupby(['time'])
         )
-        #last = max(theta_avg_trials.groups.keys())
+        last = max(theta_avg_trials.groups.keys())
         theta_last = theta_avg_trials.get_group((last,)).values
         return theta_avg_trials, theta_last
 
@@ -613,8 +613,8 @@ if __name__ == '__main__':
 
     fig, ax = plt.subplots(nrows=1, ncols=2, figsize=(12, 6))
     plt.title('Looming')
-    x, x_last = group(timeseries[(timeseries['stim']==Stim.LOOMING) & (timeseries['stim_variable_value']=='2.0')], 'theta', 10.0)
-    y, y_last = group(timeseries[(timeseries['stim']==Stim.LOOMING) & (timeseries['stim_variable_value']=='-2.0')], 'theta', 10.0)
+    x, x_last = group(timeseries[(timeseries['stim']==Stim.LOOMING) & (timeseries['stim_variable_value']=='3.0')], 'theta', 10.0)
+    y, y_last = group(timeseries[(timeseries['stim']==Stim.LOOMING) & (timeseries['stim_variable_value']=='-3.0')], 'theta', 10.0)
     plot_mean_and_sem(ax[0], x, COLORS[0], label='o | ')
     plot_mean_and_sem(ax[0], y, COLORS[1], label=' | o')
     ax[0].set_xlim(0, 10)
