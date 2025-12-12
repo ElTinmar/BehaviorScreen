@@ -24,7 +24,7 @@ from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 from BehaviorScreen.core import ROOT_FOLDER, GROUPING_PARAMETER, Stim
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
 from BehaviorScreen.process import get_trials, get_well_coords_mm
-from BehaviorScreen.stimulus import get_shader_trial_time, prey_capture_arc_stimulus_sine
+from BehaviorScreen.stimulus import get_shader_trial_time, prey_capture_arc_stimulus_cosine
 
 # Force running on CPU if GPU is not compatible
 CPU = False
@@ -148,7 +148,7 @@ def get_bout_metrics(
                         prey_angle = np.nan
                         if stim == Stim.PREY_CAPTURE:
                             shader_trial_time = get_shader_trial_time(row.start_time_sec, trial_time, 3600)
-                            prey_angle, stim_phase = prey_capture_arc_stimulus_sine(
+                            prey_angle, stim_phase = prey_capture_arc_stimulus_cosine(
                                 shader_trial_time,
                                 row.prey_arc_start_deg,
                                 row.prey_arc_stop_deg,

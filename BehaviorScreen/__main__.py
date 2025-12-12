@@ -1,15 +1,16 @@
+from typing import List, Dict, Optional, Iterable, Sequence
+import os
 from multiprocessing import Pool
 from functools import partial
+
 import matplotlib.pyplot as plt
-import seaborn as sns
 plt.plot()
 plt.show()
 
+import seaborn as sns
 from tqdm import tqdm
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Optional, Iterable, Sequence
-import os
 
 from BehaviorScreen.core import (
     GROUPING_PARAMETER, 
@@ -87,7 +88,7 @@ if __name__ == '__main__':
     for behavior_file in tqdm(behavior_files):
         bouts_data.extend(_run_megabouts(behavior_file, directories))
     bouts = pd.DataFrame(bouts_data)
-    bouts.to_csv('bouts.csv')
+    bouts.to_csv('bouts_oceanus.csv')
 
     bouts = pd.read_csv(
         "bouts.csv",
