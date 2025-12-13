@@ -20,6 +20,48 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
+import sleap_io as sio
+from sleap import PredictedInstance
+from pathlib import Path
+import cv2
+
+def slp2lp(slp_pkg_file: Path, base_output_dir: Path) -> pd.DataFrame:
+
+    labels = sio.load_file(slp_pkg_file)
+
+    rows = []
+    index = []
+
+    for frame in labels.labeled_frames:
+
+        # skip if no user instance
+        if not frame.user_instances:
+            continue
+        
+        user_instance = frame.user_instances[0]
+
+        video_file = Path(frame.video.backend.source_filename).stem
+        image_file = f'labeled-data/{video_file}/img{frame.frame_idx:08}.png'
+        index.append(image_file)    
+
+        # extract image from video
+        image_path = base_output_dir / image_file
+        image_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(image_path, frame.image) 
+    
+        # extract keypoints
+        keypoints_flat = user_instance.numpy().flatten().tolist()
+        rows.append(keypoints_flat)
+
+    keypoint_names = [node.name for node in labels.skeleton.nodes]
+    columns = pd.MultiIndex.from_product(
+        [["lightning_tracker"], keypoint_names, ["x", "y"]],
+        names=["scorer", "bodyparts", "coords"],
+    )
+
+    df = pd.DataFrame(rows, columns=columns, index=index)
+    df.to_csv(base_output_dir / "CollectedData.csv")
+
 
 def extract_video_names_from_pkg_slp(file_path: str) -> dict:
     """Identify video names from .pkg.slp file."""
