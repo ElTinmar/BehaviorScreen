@@ -88,12 +88,12 @@ if __name__ == '__main__':
     for behavior_file in tqdm(behavior_files):
         bouts_data.extend(_run_megabouts(behavior_file, directories))
     bouts = pd.DataFrame(bouts_data)
-    bouts.to_csv('bouts_oceanus.csv')
-
+    bouts.to_csv('bouts.csv', mode="a")
+  
     bouts = pd.read_csv(
         "bouts.csv",
         converters={
-            "stim_variable_value": lambda x: str(x)
+            "stim_variable_value": lambda x: str(x),
         }
     )
 
@@ -683,8 +683,8 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(6,6))
     plt.title('prey capture first 25-30 sec')
     bouts[(bouts['stim']==Stim.DARK)]['heading_change'].apply(np.rad2deg).plot.hist(color='k', bins=180, alpha=0.1, density=True, label='dark')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='20.0') & (bouts['trial_time']>=25)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='| o')
-    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='-20.0') & (bouts['trial_time']>=25)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='o |')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='20.0') & (bouts['trial_time']<=5)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[0], label='| o')
+    bouts[(bouts['stim']==Stim.PREY_CAPTURE) & (bouts['stim_variable_value']=='-20.0') & (bouts['trial_time']<=5)]['heading_change'].apply(np.rad2deg).plot.kde(color=COLORS[1], label='o |')
     plt.xlim(-180, 180)
     plt.legend()
     plt.text(
@@ -883,8 +883,8 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(6,6))
     plt.title('Looming')
     bouts[(bouts['stim']==Stim.BRIGHT)]['peak_yaw_speed'].plot.hist(color='k', bins=180, alpha=0.1, density=True, label='bright')
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['peak_yaw_speed'].plot.kde(color=COLORS[0], label='o | ', bw_method=0.1)
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['peak_yaw_speed'].plot.kde(color=COLORS[1], label=' | o', bw_method=0.1)
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='3.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['peak_yaw_speed'].plot.kde(color=COLORS[0], label='o | ', bw_method=0.1)
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-3.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['peak_yaw_speed'].plot.kde(color=COLORS[1], label=' | o', bw_method=0.1)
     plt.xlabel('yaw speed (deg/sec)')
     plt.legend()
     plt.text(
@@ -910,8 +910,8 @@ if __name__ == '__main__':
     fig = plt.figure(figsize=(6,6))
     plt.title('Looming')
     bouts[(bouts['stim']==Stim.BRIGHT)]['heading_change'].plot.hist(color='k', bins=180, alpha=0.1, density=True, label='bright')
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['heading_change'].plot.kde(color=COLORS[0], label='o | ', bw_method=0.15)
-    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-2.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['heading_change'].plot.kde(color=COLORS[1], label=' | o', bw_method=0.15)
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='3.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['heading_change'].plot.kde(color=COLORS[0], label='o | ', bw_method=0.15)
+    bouts[(bouts['stim']==Stim.LOOMING) & (bouts['stim_variable_value']=='-3.0') & (bouts['trial_time']>=4) & (bouts['trial_time']<=6)]['heading_change'].plot.kde(color=COLORS[1], label=' | o', bw_method=0.15)
     plt.xlabel('heading_change (rad)')
     plt.legend()
     plt.text(
@@ -941,9 +941,9 @@ if __name__ == '__main__':
         Stim.BRIGHT: ['[0.2, 0.2, 0.0, 1.0]'],
         Stim.PREY_CAPTURE: ['-20.0', '20.0'],
         Stim.PHOTOTAXIS: ['-1.0','1.0'],
-        Stim.OMR: ['-90.0', '90.0'],
+        Stim.OMR: ['-90.0', '90.0', '0.0'],
         Stim.OKR: ['-36.0', '36.0'],
-        Stim.LOOMING: ['-2.0', '2.0']
+        Stim.LOOMING: ['-3.0', '3.0']
     }
 
 
@@ -1092,7 +1092,7 @@ if __name__ == '__main__':
     stim = Stim.LOOMING
     for start, stop in [(0,2.5),(2.5,5),(5,7.5),(7.5,10)]:
         mask = (bouts['trial_time']>=start) & (bouts['trial_time']<=stop)
-        for p in ['-2.0', '2.0']:
+        for p in ['-3.0', '3.0']:
             df_sub = bouts[(bouts['stim'] == stim) & 
                         (bouts['stim_variable_value'] == p) & 
                         (bouts['proba'] > 0.5) &
@@ -1220,7 +1220,11 @@ if __name__ == '__main__':
 
     for stim, param_list in stimuli.items():
         for start, stop in [(0,2.5),(2.5,5),(5,7.5),(7.5,10),(10,15),(15,20),(20,30)]:
-            if (stim == Stim.LOOMING) & (start>=10):
+            
+            if (stim in [Stim.OKR, Stim.OMR, Stim.LOOMING]) & (start>=10):
+                continue
+
+            if (stim == Stim.PHOTOTAXIS) & (start>=5):
                 continue
 
             mask = (bouts['trial_time']>=start) & (bouts['trial_time']<=stop)

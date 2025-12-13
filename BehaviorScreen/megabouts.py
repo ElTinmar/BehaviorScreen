@@ -143,13 +143,13 @@ def get_bout_metrics(
                         # trial time
                         trial_time = 1e-9*(meg_data.timestamp[on] - row.start_timestamp)
 
-                        #FIXME Stimulus phase
+                        # Stimulus phase
                         stim_phase = np.nan
-                        prey_angle = np.nan
                         if stim == Stim.PREY_CAPTURE:
-                            shader_trial_time = get_shader_trial_time(row.start_time_sec, trial_time, 3600)
-                            prey_angle, stim_phase = prey_capture_arc_stimulus_cosine(
-                                shader_trial_time,
+                            stim_phase = prey_capture_arc_stimulus_cosine(
+                                row.start_time_sec,
+                                trial_time,
+                                3600,
                                 row.prey_arc_start_deg,
                                 row.prey_arc_stop_deg,
                                 row.prey_speed_deg_s
@@ -170,7 +170,6 @@ def get_bout_metrics(
                             'distance_center': radial_distance,
                             'bout_duration': bout_duration,
                             'stim_phase': stim_phase,
-                            'prey_angle': prey_angle,
                             'interbout_duration': interbout_duration,
                             'peak_axial_speed': peak_axial_speed,
                             'peak_yaw_speed': peak_yaw_speed,
