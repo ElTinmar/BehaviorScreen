@@ -6,7 +6,6 @@ dependencies:
 - ipython
 - pip
 - pip:
-  - numpy == 1.26.4
-  - lightning-pose
+  - git+https://github.com/paninski-lab/lightning-pose
 
   
