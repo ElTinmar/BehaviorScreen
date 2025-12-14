@@ -88,6 +88,16 @@ def full_tracking_pipeline(input_file, mm_per_px, fps):
     pipeline.tail_preprocessing_cfg.savgol_window_ms = 20
     ethogram, bouts, segments, tail, traj = pipeline.run(tracking_data)
 
+    megabout_results = MegaboutData(
+            timestamps, # TODO get corresponding timestamps
+            ethogram, 
+            bouts, 
+            segments, 
+            traj
+        ) 
+
+    return megabout_results
+
 def FullTrackingData_from_sleap(
         sleap_csv: str, 
         mm_per_pix, fps, 
