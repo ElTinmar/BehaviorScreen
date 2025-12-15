@@ -79,8 +79,8 @@ def megabout_headtracking_pipeline(behavior_data: BehaviorData):
 
 def full_tracking_pipeline(input_file, mm_per_px, fps):
     
-    tracking_data = FullTrackingData_from_lp(input_file)
-    tracking_cfg = TrackingConfig(fps=fps, tracking="head_tracking")
+    tracking_data = FullTrackingData_from_lp(input_file, mm_per_px, fps)
+    tracking_cfg = TrackingConfig(fps=fps, tracking="full_tracking")
     pipeline = FullTrackingPipeline(tracking_cfg, exclude_CS=True)
     pipeline.segmentation_cfg.min_bout_duration_ms=70
     pipeline.segmentation_cfg.threshold = 7.5
