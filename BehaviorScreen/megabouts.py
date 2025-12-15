@@ -120,9 +120,12 @@ def FullTrackingData_from_sleap(
     return tracking_data
 
 
-def EyeData_from_lp(lp_csv: str) -> pd.DataFrame:
+def EyeData_from_lp(lp_csv: str, threshold: float = 0.95) -> pd.DataFrame:
 
     df = pd.read_csv(lp_csv, header=[0,1,2])
+
+    keep_left = (df.heatmap_tracker.Eye_Left_Front.likelihood > 0.95) & (df.heatmap_tracker.Eye_Left_Back.likelihood > 0.95)
+    keep_right = (df.heatmap_tracker.Eye_Right_Front.likelihood > 0.95) & (df.heatmap_tracker.Eye_Right_Back.likelihood > 0.95)
     
     left_eye = compute_eye_angle_from_keypoints(
         front_x = df.heatmap_tracker.Eye_Left_Front.x,
@@ -132,7 +135,8 @@ def EyeData_from_lp(lp_csv: str) -> pd.DataFrame:
         head_x = df.heatmap_tracker.Head.x.values,
         head_y = df.heatmap_tracker.Head.y.values,
         swimbladder_x = df.heatmap_tracker.Swim_Bladder.x,
-        swimbladder_y = df.heatmap_tracker.Swim_Bladder.y 
+        swimbladder_y = df.heatmap_tracker.Swim_Bladder.y,
+        mask = keep_left
     )
     right_eye = compute_eye_angle_from_keypoints(
         front_x = df.heatmap_tracker.Eye_Right_Front.x,
@@ -142,7 +146,8 @@ def EyeData_from_lp(lp_csv: str) -> pd.DataFrame:
         head_x = df.heatmap_tracker.Head.x.values,
         head_y = df.heatmap_tracker.Head.y.values,
         swimbladder_x = df.heatmap_tracker.Swim_Bladder.x,
-        swimbladder_y = df.heatmap_tracker.Swim_Bladder.y 
+        swimbladder_y = df.heatmap_tracker.Swim_Bladder.y,
+        mask = keep_right
     )
 
 def FullTrackingData_from_lp(
