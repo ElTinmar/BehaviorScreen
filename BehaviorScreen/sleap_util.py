@@ -14,26 +14,7 @@ from megabouts.preprocessing import TailPreprocessing
 
 from tqdm import tqdm
 
-def compute_angle_between_vectors(v1, v2):
-    dot_product = np.einsum("ij,ij->i", v1, v2)
-    cos_angle = dot_product
-    sin_angle = np.cross(v1, v2)
-    angle = np.arctan2(sin_angle, cos_angle)
-    return angle
 
-def compute_eye_angle_from_keypoints(
-        front_x, 
-        front_y, 
-        back_x, 
-        back_y,
-        head_x,
-        head_y,
-        swimbladder_x,
-        swimbladder_y):
-    
-    v1 = np.array([head_x - swimbladder_x, head_y - swimbladder_y])
-    v2 = np.array([front_x - back_x, front_y - back_y])
-    return compute_angle_between_vectors(v1.T, v2.T)
 
 def SLEAP_to_tracking(sleap_file: Path | str, mm_per_px: float):
 

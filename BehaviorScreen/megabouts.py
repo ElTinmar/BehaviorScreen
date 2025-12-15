@@ -5,6 +5,7 @@ import matplotlib.gridspec as gridspec
 from cycler import cycler
 import networkx as nx
 from typing import NamedTuple, Dict, List
+from dataclasses import dataclass
 
 from megabouts.tracking_data import TrackingConfig, FullTrackingData, HeadTrackingData
 from megabouts.config import TrajSegmentationConfig
@@ -24,7 +25,7 @@ from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 
 from BehaviorScreen.core import ROOT_FOLDER, GROUPING_PARAMETER, Stim
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
-from BehaviorScreen.process import get_trials, get_well_coords_mm
+from BehaviorScreen.process import get_trials, get_well_coords_mm, compute_eye_angle_from_keypoints
 from BehaviorScreen.stimulus import get_shader_trial_time, prey_capture_arc_stimulus_cosine
 
 # Force running on CPU if GPU is not compatible
@@ -117,6 +118,32 @@ def FullTrackingData_from_sleap(
         head_x=head_x, head_y=head_y, tail_x=tail_x, tail_y=tail_y
     )
     return tracking_data
+
+
+def EyeData_from_lp(lp_csv: str) -> pd.DataFrame:
+
+    df = pd.read_csv(lp_csv, header=[0,1,2])
+    
+    left_eye = compute_eye_angle_from_keypoints(
+        front_x = df.heatmap_tracker.Eye_Left_Front.x,
+        front_y = df.heatmap_tracker.Eye_Left_Front.y,
+        back_x = df.heatmap_tracker.Eye_Left_Back.x,
+        back_y = df.heatmap_tracker.Eye_Left_Back.y,
+        head_x = df.heatmap_tracker.Head.x.values,
+        head_y = df.heatmap_tracker.Head.y.values,
+        swimbladder_x = df.heatmap_tracker.Swim_Bladder.x,
+        swimbladder_y = df.heatmap_tracker.Swim_Bladder.y 
+    )
+    right_eye = compute_eye_angle_from_keypoints(
+        front_x = df.heatmap_tracker.Eye_Right_Front.x,
+        front_y = df.heatmap_tracker.Eye_Right_Front.y,
+        back_x = df.heatmap_tracker.Eye_Right_Back.x,
+        back_y = df.heatmap_tracker.Eye_Right_Back.y,
+        head_x = df.heatmap_tracker.Head.x.values,
+        head_y = df.heatmap_tracker.Head.y.values,
+        swimbladder_x = df.heatmap_tracker.Swim_Bladder.x,
+        swimbladder_y = df.heatmap_tracker.Swim_Bladder.y 
+    )
 
 def FullTrackingData_from_lp(
         lp_csv: str, 
