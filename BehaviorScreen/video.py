@@ -16,14 +16,25 @@ def export_single_animal_videos(
     ) -> None:
 
     directories.results.mkdir(parents=True, exist_ok=True)
+    video_cropper = CPU_VideoProcessor(str(behavior_file.video), quality = quality)
 
-    processor = CPU_VideoProcessor(str(behavior_file.video), quality = quality)
     for i, (x,y,w,h) in  enumerate(behavior_data.metadata['identity']['ROIs']):
-        processor.crop(
+
+        # cropped video
+        video_cropper.crop(
             x,y,w,h,
             suffix=f"fish_{i}",
             dest_folder=str(directories.results)
         )
+
+        # timestamps
+        
+
+        # tracking
+
+        # stimuli
+
+        # metadata
 
 def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int:
     distance = behavior_data.video_timestamps['timestamp'] - timestamp
