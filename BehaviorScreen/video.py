@@ -21,13 +21,6 @@ def export_single_animal_videos(
 
     for i, (x,y,w,h) in  enumerate(behavior_data.metadata['identity']['ROIs']):
 
-        # cropped video
-        video_cropper.crop(
-            x,y,w,h,
-            suffix=f"fish_{i}",
-            dest_folder=str(directories.results)
-        )
-
         # tracking
         tracking_file = behavior_file.tracking.stem + f"_fish_{i}.csv"
         df = behavior_data.tracking
@@ -47,6 +40,12 @@ def export_single_animal_videos(
         with open(directories.results / metadata_file, 'w') as fp:
             json.dump(behavior_data.stimuli, fp)
 
+        # cropped video
+        video_cropper.crop(
+            x,y,w,h,
+            suffix=f"fish_{i}",
+            dest_folder=str(directories.results)
+        )
 
 def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int:
     distance = behavior_data.video_timestamps['timestamp'] - timestamp
