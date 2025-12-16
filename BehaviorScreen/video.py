@@ -1,6 +1,7 @@
 
 from typing import Dict
 
+import json
 import numpy as np
 from tqdm import tqdm
 
@@ -27,14 +28,25 @@ def export_single_animal_videos(
             dest_folder=str(directories.results)
         )
 
-        # timestamps
-        
-
         # tracking
+        tracking_file = behavior_file.tracking.stem + f"_fish_{i}.csv"
+        df = behavior_data.tracking
+        df[df.identity == i].set_index('index').to_csv(directories.results / tracking_file)
+
+        # timestamps
+        video_timestamp = behavior_file.video_timestamps.stem + f"_fish_{i}.csv"
+        behavior_data.video_timestamps.to_csv(directories.results / video_timestamp)
 
         # stimuli
+        stim_file = behavior_file.stimuli.stem + f"_fish_{i}.json"
+        with open(directories.results / stim_file, 'w') as fp:
+            json.dump(behavior_data.stimuli, fp)
 
         # metadata
+        metadata_file = behavior_file.metadata.stem + f"_fish_{i}.metadata"
+        with open(directories.results / metadata_file, 'w') as fp:
+            json.dump(behavior_data.stimuli, fp)
+
 
 def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int:
     distance = behavior_data.video_timestamps['timestamp'] - timestamp
