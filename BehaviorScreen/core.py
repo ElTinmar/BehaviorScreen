@@ -75,11 +75,11 @@ COLORS = ("#F1500A", "#0A6EF1", "#333333")
 #ROOT_FOLDER = Path('/media/martin/DATA1/Behavioral_screen')
 ROOT_FOLDER = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen')
 #ROOT_FOLDER = Path('/home/martin/Downloads/')
-BASE_DIR = ROOT_FOLDER / 'DATASET_DEC_40fish/chronus'
+BASE_DIR = ROOT_FOLDER / 'DATA/WT_Ronidazole_4mM_dec_2025/chronus'
 
 MODELS_URL = "https://figshare.unimelb.edu.au/ndownloader/articles/29275838/versions/2"
 MODELS_FOLDER = ROOT_FOLDER / 'SLEAP_DLC'
 
 
-NUM_PROCESSES = 6
+NUM_PROCESSES = 4
 
