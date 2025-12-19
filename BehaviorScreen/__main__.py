@@ -81,7 +81,17 @@ def _run_timeseries(behavior_file: BehaviorFiles, directories: Directories):
 
 if __name__ == '__main__':
 
-    directories = Directories(BASE_DIR)
+    directories = Directories(
+        root = BASE_DIR,
+        metadata = 'data',
+        stimuli = 'data',
+        tracking = 'data',
+        temperature = 'data',
+        video = 'video',
+        video_timestamp = 'video',
+        results = 'results',
+        plots = 'plots'
+    )
     behavior_files = find_files(directories)
     
     #download_and_extract_models(MODELS_URL, MODELS_FOLDER)
@@ -1304,3 +1314,19 @@ if __name__ == '__main__':
     run_single_animal = partial(_run_single_animal, directories = directories)
     with Pool(processes=NUM_PROCESSES) as pool:
         pool.map(run_single_animal, behavior_files)
+
+
+#####
+
+directories = Directories(
+    BASE_DIR,
+    metadata = '',
+    stimuli = '',
+    tracking = '',
+    temperature = '',
+    video = '',
+    video_timestamp = '',
+    results = 'results',
+    plots = 'plots'
+)
+behavior_files = find_files(directories)
