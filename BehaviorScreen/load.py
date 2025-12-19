@@ -129,9 +129,11 @@ def load_lightning_pose(full_tracking_file: Path) -> pd.DataFrame:
     df = pd.read_csv(full_tracking_file, header=[0,1,2])
     return df
 
-def load_full_tracking(full_tracking_file: Path) -> pd.DataFrame:
+def load_full_tracking(full_tracking_file: Optional[Path]) -> pd.DataFrame:
     # TODO normalize SLEAP/DLC/lightning pose
     # Dont want to assume one specific organisation of CSV
+    if full_tracking_file is None:
+        return pd.DataFrame()
     return load_lightning_pose(full_tracking_file)
 
 def load_video(video_file: Path) -> OpenCV_VideoReader:

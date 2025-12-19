@@ -83,10 +83,8 @@ def _run_timeseries(behavior_file: BehaviorFiles, directories: Directories):
 
 if __name__ == '__main__':
 
-    BASE_DIR = ROOT_FOLDER / 'October/data'
-
     directories = Directories(
-        root = BASE_DIR,
+        root = ROOT_FOLDER / 'WT_oct_2025',
         metadata = 'data',
         stimuli = 'data',
         tracking = 'data',
