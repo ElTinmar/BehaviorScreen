@@ -78,9 +78,12 @@ def megabout_headtracking_pipeline(behavior_data: BehaviorData):
 
     return megabout_results
 
-def full_tracking_pipeline(input_file, mm_per_px, fps):
+def megabout_fulltracking_pipeline(behavior_data: BehaviorData):
+
+    mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
+    fps = behavior_data.metadata['camera']['framerate_value']
     
-    tracking_data = FullTrackingData_from_lp(input_file, mm_per_px, fps)
+    tracking_data = FullTrackingData_from_lp(behavior_data.full_tracking, mm_per_pix)
     tracking_cfg = TrackingConfig(fps=fps, tracking="full_tracking")
     pipeline = FullTrackingPipeline(tracking_cfg, exclude_CS=True)
     pipeline.segmentation_cfg.min_bout_duration_ms=70
@@ -89,8 +92,11 @@ def full_tracking_pipeline(input_file, mm_per_px, fps):
     pipeline.tail_preprocessing_cfg.savgol_window_ms = 20
     ethogram, bouts, segments, tail, traj = pipeline.run(tracking_data)
 
+    timestamps = behavior_data.tracking.timestamp
+    # TODO, full tracking is one frame longer ???
+
     megabout_results = MegaboutData(
-            timestamps, # TODO get corresponding timestamps
+            timestamps, 
             ethogram, 
             bouts, 
             segments, 
@@ -113,7 +119,6 @@ def FullTrackingData_from_sleap(
     tail_x = df.loc[:, ("heatmap_tracker", tail_parts, "x")].values * mm_per_pix
     tail_y = df.loc[:, ("heatmap_tracker", tail_parts, "y")].values * mm_per_pix
 
-    tracking_cfg = TrackingConfig(fps=fps, tracking="full_tracking")
     tracking_data = FullTrackingData.from_keypoints(
         head_x=head_x, head_y=head_y, tail_x=tail_x, tail_y=tail_y
     )
@@ -150,22 +155,13 @@ def EyeData_from_lp(lp_csv: str, threshold: float = 0.95) -> pd.DataFrame:
         mask = keep_right
     )
 
-def FullTrackingData_from_lp(
-        lp_csv: str, 
-        mm_per_pix, 
-        fps, 
-        thresh_score: float = 0.75
-    ) -> FullTrackingData:
-    
-    df = pd.read_csv(lp_csv, header=[0,1,2])
-    
+def FullTrackingData_from_lp(df: pd.DataFrame, mm_per_pix: float) -> FullTrackingData:
+        
     head_x = df.heatmap_tracker.Head.x.values * mm_per_pix
     head_y = df.heatmap_tracker.Head.y.values * mm_per_pix
     tail_parts = [f"Tail_{i}" for i in range(9)] # exclude last tail point
     tail_x = df.loc[:, ("heatmap_tracker", tail_parts, "x")].values * mm_per_pix
     tail_y = df.loc[:, ("heatmap_tracker", tail_parts, "y")].values * mm_per_pix
-
-    tracking_cfg = TrackingConfig(fps=fps, tracking="full_tracking")
     tracking_data = FullTrackingData.from_keypoints(
         head_x=head_x, head_y=head_y, tail_x=tail_x, tail_y=tail_y
     )
@@ -272,6 +268,109 @@ def get_bout_metrics(
                             'sign': sign,
                             'proba': proba
                         })
+
+    return rows
+
+
+def get_bout_metrics2(
+        directories: Directories,
+        behavior_data: BehaviorData, 
+        behavior_files: BehaviorFiles,
+        megabout: MegaboutData
+    ) -> List[Dict]:
+
+    well_coords_mm = get_well_coords_mm(directories, behavior_files, behavior_data)
+    fps = behavior_data.metadata['camera']['framerate_value']
+    stim_trials = get_trials(behavior_data)
+    
+    rows = []
+
+    cx,cy,_ = well_coords_mm[0,:]
+
+    for stim_select, stim_data in stim_trials.groupby('stim_select'):
+        
+        stim = Stim(stim_select)
+        if not stim in GROUPING_PARAMETER:
+            break
+
+        for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
+
+            for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
+
+                bout_start = megabout.timestamp[megabout.bouts.onset]
+                bout_stop = megabout.timestamp[megabout.bouts.offset]
+                mask = (bout_start > row.start_timestamp) & (bout_stop < row.stop_timestamp) 
+
+                off_previous = np.nan
+                for on, off, category, sign, proba in zip(
+                    megabout.bouts.onset[mask], 
+                    megabout.bouts.offset[mask],
+                    megabout.bouts.category[mask],
+                    megabout.bouts.sign[mask],
+                    megabout.bouts.proba[mask],
+                ):
+
+                    # heading change
+                    heading_change = megabout.traj.yaw_smooth[off] - megabout.traj.yaw_smooth[on]
+
+                    # distance 
+                    delta_x = megabout.traj.x_smooth[on+1:off] - megabout.traj.x_smooth[on:off-1]
+                    delta_y = megabout.traj.y_smooth[on+1:off] - megabout.traj.y_smooth[on:off-1]
+                    distance = np.sum(np.sqrt(delta_x**2 + delta_y**2))
+                    radial_distance = np.sqrt((megabout.traj.x_smooth[on]-cx)**2 + (megabout.traj.y_smooth[on]-cy)**2)
+
+                    # bout duration
+                    bout_duration = (off-on)/fps
+
+                    # interbout duration
+                    interbout_duration = (on-off_previous)/fps
+                    off_previous = off
+
+                    # peak axial speed
+                    axial_speed = megabout.traj.axial_speed[on:off]
+                    peak_axial_speed = axial_speed[np.argmax(np.abs(axial_speed))]
+
+                    # peak yaw speed
+                    yaw_speed = megabout.traj.yaw_speed[on:off]
+                    peak_yaw_speed = yaw_speed[np.argmax(np.abs(yaw_speed))]
+
+                    # trial time
+                    trial_time = 1e-9*(megabout.timestamp[on] - row.start_timestamp)
+
+                    # Stimulus phase
+                    stim_phase = np.nan
+                    if stim == Stim.PREY_CAPTURE:
+                        stim_phase = prey_capture_arc_stimulus_cosine(
+                            row.start_time_sec,
+                            trial_time,
+                            3600,
+                            row.prey_arc_start_deg,
+                            row.prey_arc_stop_deg,
+                            row.prey_speed_deg_s
+                        )
+
+
+                    rows.append({
+                        'file': behavior_files.metadata.stem,
+                        'identity': identity,
+                        'stim': stim_select,
+                        'stim_variable_name': GROUPING_PARAMETER[stim],
+                        'stim_variable_value': str(condition),
+                        'stim_start_time': 1e-9*(row.start_timestamp - stim_trials.start_timestamp[0]),
+                        'trial_num': trial_idx,
+                        'trial_time': trial_time,
+                        'heading_change': heading_change,
+                        'distance': distance,
+                        'distance_center': radial_distance,
+                        'bout_duration': bout_duration,
+                        'stim_phase': stim_phase,
+                        'interbout_duration': interbout_duration,
+                        'peak_axial_speed': peak_axial_speed,
+                        'peak_yaw_speed': peak_yaw_speed,
+                        'category': category,
+                        'sign': sign,
+                        'proba': proba
+                    })
 
     return rows
 

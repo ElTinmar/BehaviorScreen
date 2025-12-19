@@ -36,8 +36,11 @@ from BehaviorScreen.plot import (
     plot_tracking_metrics, 
     plot_trajectories
 )
-
-from BehaviorScreen.megabouts import megabout_headtracking_pipeline, get_bout_metrics
+from BehaviorScreen.megabouts import (
+    megabout_headtracking_pipeline,
+    megabout_fulltracking_pipeline, 
+    get_bout_metrics
+)
 from megabouts.utils import bouts_category_name_short
 from scipy.stats import ttest_rel
 import statsmodels.stats.multitest as smm
@@ -75,6 +78,11 @@ def _run_single_animal(behavior_file: BehaviorFiles, directories: Directories):
 def _run_megabouts(behavior_file: BehaviorFiles, directories: Directories) -> List[Dict]:
     behavior_data = load_data(behavior_file)
     megabout = megabout_headtracking_pipeline(behavior_data)
+    return get_bout_metrics(directories, behavior_data, behavior_file, megabout)
+
+def _run_megabouts_full(behavior_file: BehaviorFiles, directories: Directories) -> List[Dict]:
+    behavior_data = load_data(behavior_file)
+    megabout = megabout_fulltracking_pipeline(behavior_data)
     return get_bout_metrics(directories, behavior_data, behavior_file, megabout)
 
 def _run_timeseries(behavior_file: BehaviorFiles, directories: Directories):
@@ -1318,17 +1326,22 @@ if __name__ == '__main__':
         pool.map(run_single_animal, behavior_files)
 
 
-##### After exporting single individuals
+    ##### After exporting single individuals
 
-directories = Directories(
-    ROOT_FOLDER / 'October',
-    metadata='data',
-    stimuli='data',
-    tracking='data',
-    full_tracking= 'lightning_pose',
-    video='data',
-    video_timestamp='data',
-    results = 'results',
-    plots = 'plots'
-)
-behavior_files = find_files(directories)
+    directories = Directories(
+        ROOT_FOLDER / 'October',
+        metadata='data',
+        stimuli='data',
+        tracking='data',
+        full_tracking= 'lightning_pose',
+        video='data',
+        video_timestamp='data',
+        results = 'results',
+        plots = 'plots'
+    )
+    behavior_files = find_files(directories)
+
+    bouts_data = []
+    for behavior_file in tqdm(behavior_files):
+        bouts_data.extend(_run_megabouts_full(behavior_file, directories))
+    bouts = pd.DataFrame(bouts_data)
