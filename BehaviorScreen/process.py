@@ -356,7 +356,7 @@ def export_single_animal_stimuli(
         out_path = directories.results / stim_file 
         with open(out_path, 'w') as fp:
             for line in behavior_data.stimuli:
-                fp.write(json.dumps(line))
+                fp.write(json.dumps(line) + '\n')
 
 def export_single_animal_videos(
         directories: Directories,
