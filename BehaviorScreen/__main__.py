@@ -29,7 +29,7 @@ from BehaviorScreen.load import (
 )
 from BehaviorScreen.video import (
     superimpose_video_trials,
-    export_single_animal_videos
+    export_single_animal
 )
 from BehaviorScreen.process import extract_time_series
 from BehaviorScreen.plot import (
@@ -70,7 +70,7 @@ def _run_superimpose(behavior_file: BehaviorFiles, directories: Directories):
 
 def _run_single_animal(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
-    export_single_animal_videos(directories, behavior_file, behavior_data, quality=18)
+    export_single_animal(directories, behavior_file, behavior_data, quality=18)
 
 def _run_megabouts(behavior_file: BehaviorFiles, directories: Directories) -> List[Dict]:
     behavior_data = load_data(behavior_file)

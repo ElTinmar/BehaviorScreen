@@ -9,43 +9,111 @@ from video_tools import OpenCV_VideoWriter, OpenCV_VideoReader, CPU_VideoProcess
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
 from BehaviorScreen.core import Stim
 
-def export_single_animal_videos(
-        directories: Directories, 
-        behavior_file: BehaviorFiles,
-        behavior_data: BehaviorData,
-        quality: int = 18
-    ) -> None:
-
+def ensure_results_dir(directories: Directories) -> None:
     directories.results.mkdir(parents=True, exist_ok=True)
-    video_cropper = CPU_VideoProcessor(str(behavior_file.video), quality = quality)
 
-    for i, (x,y,w,h) in  enumerate(behavior_data.metadata['identity']['ROIs']):
+def export_single_animal_metadata(
+    directories: Directories,
+    behavior_file: BehaviorFiles,
+    behavior_data: BehaviorData,
+) -> None:
 
-        # tracking
-        tracking_file = behavior_file.tracking.stem + f"_fish_{i}.csv"
-        df = behavior_data.tracking
-        df[df.identity == i].set_index('index').to_csv(directories.results / tracking_file)
-
-        # timestamps
-        video_timestamp = behavior_file.video_timestamps.stem + f"_fish_{i}.csv"
-        behavior_data.video_timestamps.to_csv(directories.results / video_timestamp)
-
-        # stimuli
-        stim_file = behavior_file.stimuli.stem + f"_fish_{i}.json"
-        with open(directories.results / stim_file, 'w') as fp:
-            json.dump(behavior_data.stimuli, fp)
-
-        # metadata
+    ensure_results_dir(directories)
+    
+    for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
         metadata_file = behavior_file.metadata.stem + f"_fish_{i}.metadata"
-        with open(directories.results / metadata_file, 'w') as fp:
+        out_path = directories.results / metadata_file
+
+        with open(out_path, 'w') as fp:
             json.dump(behavior_data.metadata, fp)
 
-        # cropped video
+def export_single_animal_tracking(
+    directories: Directories,
+    behavior_file: BehaviorFiles,
+    behavior_data: BehaviorData,
+) -> None:
+
+    ensure_results_dir(directories)
+
+    df = behavior_data.tracking
+    for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
+        tracking_file = behavior_file.tracking.stem + f"_fish_{i}.csv"
+        out_path = directories.results / tracking_file
+        df[df.identity == i].set_index('index').to_csv(out_path)
+        
+
+def export_single_animal_timestamps(
+    directories: Directories,
+    behavior_file: BehaviorFiles,
+    behavior_data: BehaviorData,
+) -> None:
+
+    ensure_results_dir(directories)
+
+    for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
+        timestamp_file = behavior_file.video_timestamps.stem + f"_fish_{i}.csv"
+        out_path = directories.results / timestamp_file 
+        behavior_data.video_timestamps.to_csv(out_path)
+
+def export_single_animal_stimuli(
+    directories: Directories,
+    behavior_file: BehaviorFiles,
+    behavior_data: BehaviorData,
+) -> None:
+
+    ensure_results_dir(directories)
+
+    for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
+        stim_file = behavior_file.stimuli.stem + f"_fish_{i}.json"
+        out_path = directories.results / stim_file 
+        with open(out_path, 'w') as fp:
+            json.dump(behavior_data.stimuli, fp)
+
+def export_single_animal_videos(
+    directories: Directories,
+    behavior_file: BehaviorFiles,
+    behavior_data: BehaviorData,
+    quality: int = 18,
+) -> None:
+
+    ensure_results_dir(directories)
+
+    video_cropper = CPU_VideoProcessor(
+        str(behavior_file.video),
+        quality=quality,
+    )
+
+    for i, (x, y, w, h) in enumerate(
+        behavior_data.metadata['identity']['ROIs']
+    ):
         video_cropper.crop(
-            x,y,w,h,
+            x, y, w, h,
             suffix=f"fish_{i}",
-            dest_folder=str(directories.results)
+            dest_folder=str(directories.results),
         )
+
+def export_single_animal(
+    directories: Directories,
+    behavior_file: BehaviorFiles,
+    behavior_data: BehaviorData,
+    quality: int = 18,
+) -> None:
+
+    export_single_animal_tracking(
+        directories, behavior_file, behavior_data
+    )
+    export_single_animal_timestamps(
+        directories, behavior_file, behavior_data
+    )
+    export_single_animal_stimuli(
+        directories, behavior_file, behavior_data
+    )
+    export_single_animal_metadata(
+        directories, behavior_file, behavior_data
+    )
+    export_single_animal_videos(
+        directories, behavior_file, behavior_data, quality
+    )
 
 def timestamp_to_frame_index(behavior_data: BehaviorData, timestamp: int) -> int:
     distance = behavior_data.video_timestamps['timestamp'] - timestamp
