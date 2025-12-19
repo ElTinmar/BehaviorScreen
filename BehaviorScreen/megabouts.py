@@ -272,6 +272,7 @@ def get_bout_metrics(
     return rows
 
 
+# Run this on individual animals
 def get_bout_metrics2(
         directories: Directories,
         behavior_data: BehaviorData, 
