@@ -1318,7 +1318,7 @@ if __name__ == '__main__':
         pool.map(run_single_animal, behavior_files)
 
 
-#####
+##### After exporting single individuals
 
 directories = Directories(
     ROOT_FOLDER / 'October',
