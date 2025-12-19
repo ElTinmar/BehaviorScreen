@@ -1343,3 +1343,4 @@ if __name__ == '__main__':
     for behavior_file in tqdm(behavior_files):
         bouts_data.extend(_run_megabouts_full(behavior_file, directories))
     bouts = pd.DataFrame(bouts_data)
+    bouts.to_csv('bouts_full_tracking.csv', mode="a")
