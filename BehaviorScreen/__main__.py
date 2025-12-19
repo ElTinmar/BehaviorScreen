@@ -36,7 +36,8 @@ from BehaviorScreen.plot import (
 from BehaviorScreen.megabouts import (
     megabout_headtracking_pipeline,
     megabout_fulltracking_pipeline, 
-    get_bout_metrics
+    get_bout_metrics,
+    get_bout_metrics2,
 )
 from megabouts.utils import bouts_category_name_short
 from scipy.stats import ttest_rel
@@ -80,7 +81,7 @@ def _run_megabouts(behavior_file: BehaviorFiles, directories: Directories) -> Li
 def _run_megabouts_full(behavior_file: BehaviorFiles, directories: Directories) -> List[Dict]:
     behavior_data = load_data(behavior_file)
     megabout = megabout_fulltracking_pipeline(behavior_data)
-    return get_bout_metrics(directories, behavior_data, behavior_file, megabout)
+    return get_bout_metrics2(directories, behavior_data, behavior_file, megabout)
 
 def _run_timeseries(behavior_file: BehaviorFiles, directories: Directories):
     behavior_data = load_data(behavior_file)
