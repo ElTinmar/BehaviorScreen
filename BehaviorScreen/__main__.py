@@ -963,7 +963,7 @@ if __name__ == '__main__':
         Stim.PHOTOTAXIS: ['-1.0','1.0'],
         Stim.OMR: ['-90.0', '90.0', '0.0'],
         Stim.OKR: ['-36.0', '36.0'],
-        Stim.LOOMING: ['-3.0', '3.0']
+        Stim.LOOMING: ['-2.0', '2.0', '-3.0', '3.0']
     }
 
 
