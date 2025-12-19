@@ -1,13 +1,29 @@
 from pathlib import Path
+import socket
+import multiprocessing as mp
 
-#ROOT_FOLDER = Path('/media/martin/DATA1/Behavioral_screen')
-#ROOT_FOLDER = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen')
-ROOT_FOLDER = Path('/home/martin/Desktop/DATA')
-BASE_DIR = ROOT_FOLDER / 'October/data'
+# multiprocessing --------------------------------------
 
-MODELS_URL = "https://figshare.unimelb.edu.au/ndownloader/articles/29275838/versions/2"
-MODELS_FOLDER = ROOT_FOLDER / 'SLEAP_DLC'
+def default_num_processes(reserve: int = 2) -> int:
+    n = mp.cpu_count()
+    return max(1, n - reserve)
 
+NUM_PROCESSES = default_num_processes()
 
-NUM_PROCESSES = 4
+# path --------------------------------------
 
+HOST = socket.gethostname()
+
+DATA_ROOTS = {
+    "O1-596": Path("/media/martin/DATA1/Behavioral_screen"),
+    "O1-619": Path("/home/martin/Desktop/DATA"),
+    "TheBeast": Path("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen"),
+}
+
+try:
+    ROOT_FOLDER = DATA_ROOTS[HOST]
+except KeyError:
+    raise RuntimeError(
+        f"Unknown host '{HOST}'. "
+        "Please add it to DATA_ROOTS in config.py"
+    )

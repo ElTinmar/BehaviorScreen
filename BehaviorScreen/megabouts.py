@@ -23,7 +23,7 @@ from megabouts.classification.classification import TailBouts
 from megabouts.segmentation.segmentation import SegmentationResult
 from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 
-from BehaviorScreen.core import ROOT_FOLDER, GROUPING_PARAMETER, Stim
+from BehaviorScreen.core import GROUPING_PARAMETER, Stim
 from BehaviorScreen.load import BehaviorData, BehaviorFiles, Directories
 from BehaviorScreen.process import get_trials, get_well_coords_mm, compute_eye_angle_from_keypoints
 from BehaviorScreen.stimulus import get_shader_trial_time, prey_capture_arc_stimulus_cosine

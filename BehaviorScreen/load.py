@@ -10,6 +10,7 @@ class BehaviorData(NamedTuple):
     metadata: Dict
     stimuli: List[Dict]
     tracking: pd.DataFrame
+    full_tracking: pd.DataFrame
     video: OpenCV_VideoReader #NOTE not sure yet about this
     video_timestamps: pd.DataFrame
     temperature: pd.DataFrame
@@ -18,6 +19,7 @@ class BehaviorFiles(NamedTuple):
     metadata: Path
     stimuli: Path
     tracking: Path
+    full_tracking: Path
     video: Path
     video_timestamps: Path
     temperature: Optional[Path]
@@ -29,6 +31,7 @@ class Directories:
             metadata: str = '',
             stimuli: str = '',
             tracking: str = '',
+            full_tracking: str = '',
             temperature: str = '',
             video: str = '',
             video_timestamp: str = '',
@@ -40,6 +43,7 @@ class Directories:
         self.metadata: Path = self.root / metadata
         self.stimuli: Path = self.root / stimuli
         self.tracking: Path = self.root / tracking
+        self.full_tracking: Path = self.root / full_tracking
         self.temperature: Path = self.root / temperature 
         self.video: Path = self.root / video
         self.video_timestamps: Path = self.root / video_timestamp
@@ -81,6 +85,8 @@ def filename_regexp(prefix: str, extension: str) -> Pattern:
 metadata_filename_regexp = filename_regexp('','metadata')
 stimuli_filename_regexp = filename_regexp('stim_','json')
 tracking_filename_regexp = filename_regexp('tracking_','csv')
+full_tracking_filename_regexp = filename_regexp('','csv')
+video_timestamps_filename_regexp = filename_regexp('','csv')
 temperature_filename_regexp = filename_regexp('temperature_','csv')
 video_filename_regexp = filename_regexp('','mp4')
 video_timestamps_filename_regexp = filename_regexp('','csv')
@@ -119,6 +125,15 @@ def load_stimuli(stim_file: Path) -> List[Dict]:
 def load_tracking(tracking_file: Path) -> pd.DataFrame:
     return pd.read_csv(tracking_file)
 
+def load_lightning_pose(full_tracking_file: Path) -> pd.DataFrame:
+    df = pd.read_csv(full_tracking_file, header=[0,1,2])
+    return df
+
+def load_full_tracking(full_tracking_file: Path) -> pd.DataFrame:
+    # TODO normalize SLEAP/DLC/lightning pose
+    # Dont want to assume one specific organisation of CSV
+    return load_lightning_pose(full_tracking_file)
+
 def load_video(video_file: Path) -> OpenCV_VideoReader:
     reader = OpenCV_VideoReader()
     reader.open_file(str(video_file))
@@ -137,6 +152,7 @@ def load_data(files: BehaviorFiles) -> BehaviorData:
         metadata = load_metadata(files.metadata),
         stimuli = load_stimuli(files.stimuli),
         tracking = load_tracking(files.tracking),
+        full_tracking = load_full_tracking(files.full_tracking),
         video = load_video(files.video),
         video_timestamps = load_video_timestamps(files.video_timestamps),
         temperature = load_temperature(files.temperature)
@@ -186,6 +202,7 @@ def find_files(dir: Directories) -> List[BehaviorFiles]:
             metadata = metadata_file,
             stimuli = find_file(file_info, dir.stimuli, stimuli_filename_regexp), # type: ignore
             tracking = find_file(file_info, dir.tracking, tracking_filename_regexp), # type: ignore
+            full_tracking = find_file(file_info, dir.full_tracking, full_tracking_filename_regexp, required=False), # type: ignore
             video = find_file(file_info, dir.video, video_filename_regexp), # type: ignore
             video_timestamps = find_file(file_info, dir.video_timestamps, video_timestamps_filename_regexp), # type: ignore
             temperature = find_file(file_info, dir.temperature, temperature_filename_regexp, required=False)

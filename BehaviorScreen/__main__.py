@@ -18,7 +18,7 @@ from BehaviorScreen.core import (
     Stim
 )
 from BehaviorScreen.config import (
-    BASE_DIR, 
+    ROOT_FOLDER, 
     NUM_PROCESSES
 )
 from BehaviorScreen.load import (
@@ -82,6 +82,8 @@ def _run_timeseries(behavior_file: BehaviorFiles, directories: Directories):
     return extract_time_series(directories, behavior_data, behavior_file)
 
 if __name__ == '__main__':
+
+    BASE_DIR = ROOT_FOLDER / 'October/data'
 
     directories = Directories(
         root = BASE_DIR,
@@ -1321,13 +1323,13 @@ if __name__ == '__main__':
 #####
 
 directories = Directories(
-    BASE_DIR,
-    metadata = '',
-    stimuli = '',
-    tracking = '',
-    temperature = '',
-    video = '',
-    video_timestamp = '',
+    ROOT_FOLDER / 'October',
+    metadata='data',
+    stimuli='data',
+    tracking='data',
+    full_tracking= 'lightning_pose',
+    video='data',
+    video_timestamp='data',
     results = 'results',
     plots = 'plots'
 )
