@@ -38,7 +38,7 @@ def export_single_animal_videos(
         # metadata
         metadata_file = behavior_file.metadata.stem + f"_fish_{i}.metadata"
         with open(directories.results / metadata_file, 'w') as fp:
-            json.dump(behavior_data.stimuli, fp)
+            json.dump(behavior_data.metadata, fp)
 
         # cropped video
         video_cropper.crop(
