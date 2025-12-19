@@ -23,16 +23,28 @@ class BehaviorFiles(NamedTuple):
     temperature: Optional[Path]
 
 class Directories:
-    def __init__(self, root: Path) -> None:
+    def __init__(
+            self, 
+            root: Path,
+            metadata: str = '',
+            stimuli: str = '',
+            tracking: str = '',
+            temperature: str = '',
+            video: str = '',
+            video_timestamp: str = '',
+            results: str = '',
+            plots: str = ''
+        ) -> None:
+
         self.root: Path = root
-        self.metadata: Path = self.root / 'data' 
-        self.stimuli: Path = self.root / 'data'
-        self.tracking: Path = self.root / 'data'
-        self.temperature: Path = self.root / 'data' 
-        self.video: Path = self.root / 'video'
-        self.video_timestamps: Path = self.root / 'video'
-        self.results: Path = self.root / 'results'
-        self.plots: Path = self.root / 'plots'
+        self.metadata: Path = self.root / metadata
+        self.stimuli: Path = self.root / stimuli
+        self.tracking: Path = self.root / tracking
+        self.temperature: Path = self.root / temperature 
+        self.video: Path = self.root / video
+        self.video_timestamps: Path = self.root / video_timestamp
+        self.results: Path = self.root / results
+        self.plots: Path = self.root / plots
 
 class FileNameInfo(NamedTuple):
     fish_id: int
@@ -45,6 +57,7 @@ class FileNameInfo(NamedTuple):
     hour: int
     minute: int
     second: int
+    extra: Optional[str]
 
 def filename_regexp(prefix: str, extension: str) -> Pattern:
     regexp = re.compile(
@@ -58,7 +71,8 @@ def filename_regexp(prefix: str, extension: str) -> Pattern:
         r"(?P<year>\d{4})_"
         r"(?P<hour>\d{2})h"
         r"(?P<minute>\d{2})min"
-        r"(?P<second>\d{2})sec\."
+        r"(?P<second>\d{2})sec"
+        r"(?:_(?P<extra>[^.]+))?\."
         f"{extension}$"
     )
     return regexp
@@ -86,7 +100,8 @@ def parse_filename(path: Path, regexp: Pattern) -> FileNameInfo:
         year = int(g["year"]),
         hour = int(g["hour"]),
         minute = int(g["minute"]),
-        second = int(g["second"])
+        second = int(g["second"]),
+        extra = g["extra"]
     )
 
 def load_metadata(metadata_file: Path) -> Dict:
@@ -127,21 +142,40 @@ def load_data(files: BehaviorFiles) -> BehaviorData:
         temperature = load_temperature(files.temperature)
     )
 
-def find_file(file_info: FileNameInfo, dir: Path, regexp: Pattern, prefix: str, extension: str, required: bool = True) -> Optional[Path]:
-    for file in dir.glob(f'{prefix}*.{extension}'):
-        info = parse_filename(file, regexp)
+def find_file(
+    file_info: FileNameInfo,
+    dir: Path,
+    regexp: Pattern,
+    required: bool = True,
+) -> Optional[Path]:
+
+    for file in dir.iterdir():
+
+        if not file.is_file():
+            continue
+
+        try:
+            info = parse_filename(file, regexp)
+        except ValueError:
+            continue  
+
         if (
             info.fish_id == file_info.fish_id and
             info.age == file_info.age and
             info.line == file_info.line and
             info.day == file_info.day and
             info.month == file_info.month and
-            info.year == file_info.year
+            info.year == file_info.year and
+            info.extra == file_info.extra
         ):
             return file
-        
+
     if required:
-        raise FileNotFoundError(f"No matching video found for {file_info}")
+        raise FileNotFoundError(
+            f"No matching file in {dir} for {file_info}"
+        )
+
+    return None
 
 def find_files(dir: Directories) -> List[BehaviorFiles]:
     metadata_files = list(dir.metadata.glob("*.metadata"))
@@ -150,11 +184,11 @@ def find_files(dir: Directories) -> List[BehaviorFiles]:
         file_info = parse_filename(metadata_file, metadata_filename_regexp)
         exp = BehaviorFiles(
             metadata = metadata_file,
-            stimuli = find_file(file_info, dir.stimuli, stimuli_filename_regexp, 'stim_', 'json'), # type: ignore
-            tracking = find_file(file_info, dir.tracking, tracking_filename_regexp, 'tracking_', 'csv'), # type: ignore
-            video = find_file(file_info, dir.video, video_filename_regexp, '', 'mp4'), # type: ignore
-            video_timestamps = find_file(file_info, dir.video_timestamps, video_timestamps_filename_regexp, '', 'csv'), # type: ignore
-            temperature = find_file(file_info, dir.temperature, temperature_filename_regexp, 'temperature_', 'csv', required=False)
+            stimuli = find_file(file_info, dir.stimuli, stimuli_filename_regexp), # type: ignore
+            tracking = find_file(file_info, dir.tracking, tracking_filename_regexp), # type: ignore
+            video = find_file(file_info, dir.video, video_filename_regexp), # type: ignore
+            video_timestamps = find_file(file_info, dir.video_timestamps, video_timestamps_filename_regexp), # type: ignore
+            temperature = find_file(file_info, dir.temperature, temperature_filename_regexp, required=False)
         )
         experiments.append(exp)
     return experiments
