@@ -92,7 +92,7 @@ def megabout_fulltracking_pipeline(behavior_data: BehaviorData):
     pipeline.tail_preprocessing_cfg.savgol_window_ms = 20
     ethogram, bouts, segments, tail, traj = pipeline.run(tracking_data)
 
-    timestamps = behavior_data.tracking.timestamp
+    timestamps = behavior_data.tracking.timestamp.values
     # TODO, full tracking is one frame longer ???
 
     megabout_results = MegaboutData(
@@ -352,7 +352,6 @@ def get_bout_metrics2(
 
                     rows.append({
                         'file': behavior_files.metadata.stem,
-                        'identity': identity,
                         'stim': stim_select,
                         'stim_variable_name': GROUPING_PARAMETER[stim],
                         'stim_variable_value': str(condition),
