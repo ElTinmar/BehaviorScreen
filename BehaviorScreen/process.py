@@ -348,6 +348,7 @@ def export_single_animal_stimuli(
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
     ) -> None:
+    # NOTE: not using JSON properly
 
     ensure_results_dir(directories)
 
