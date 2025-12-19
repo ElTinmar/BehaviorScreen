@@ -14,10 +14,12 @@ import numpy as np
 
 from BehaviorScreen.core import (
     GROUPING_PARAMETER, 
-    BASE_DIR, 
-    NUM_PROCESSES, 
     COLORS,
     Stim
+)
+from BehaviorScreen.config import (
+    BASE_DIR, 
+    NUM_PROCESSES
 )
 from BehaviorScreen.load import (
     Directories, 
