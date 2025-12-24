@@ -28,7 +28,8 @@ from BehaviorScreen.load import (
     load_data
 )
 from BehaviorScreen.video import superimpose_video_trials
-from BehaviorScreen.process import extract_time_series, export_single_animal
+from BehaviorScreen.process import extract_time_series
+from BehaviorScreen.export import export_single_animal
 from BehaviorScreen.plot import (
     plot_tracking_metrics, 
     plot_trajectories
