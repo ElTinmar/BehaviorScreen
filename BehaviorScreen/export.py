@@ -168,6 +168,7 @@ def export_cli(
     behavior_files = find_files(directories)
 
     for file in behavior_files:
+        print(f'processing {file.metadata.stem}')
         behavior_data = load_data(file)
         export_single_animal(
             directories,
