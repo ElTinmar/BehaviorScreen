@@ -201,14 +201,53 @@ if __name__ == '__main__':
     )
 
     # Directory layout overrides
-    parser.add_argument("--metadata", default="data")
-    parser.add_argument("--stimuli", default="data")
-    parser.add_argument("--tracking", default="data")
-    parser.add_argument("--temperature", default="data")
-    parser.add_argument("--video", default="video")
-    parser.add_argument("--video-timestamp", default="video")
-    parser.add_argument("--results", default="results")
-    parser.add_argument("--plots", default="plots")
+    parser.add_argument(
+        "--metadata",
+        default="data",
+        help="Subfolder containing metadata files (default: data)",
+    )
+
+    parser.add_argument(
+        "--stimuli",
+        default="data",
+        help="Subfolder containing stimulus log files (default: data)",
+    )
+
+    parser.add_argument(
+        "--tracking",
+        default="data",
+        help="Subfolder containing tracking CSV files (default: data)",
+    )
+
+    parser.add_argument(
+        "--temperature",
+        default="data",
+        help="Subfolder containing temperature logs (default: data)",
+    )
+
+    parser.add_argument(
+        "--video",
+        default="video",
+        help="Subfolder containing raw video files (default: video)",
+    )
+
+    parser.add_argument(
+        "--video-timestamp",
+        default="video",
+        help="Subfolder containing video timestamp files (default: video)",
+    )
+
+    parser.add_argument(
+        "--results",
+        default="results",
+        help="Subfolder where per-animal exports will be written (default: results)",
+    )
+
+    parser.add_argument(
+        "--plots",
+        default="plots",
+        help="Subfolder containing plots (default: plots)",
+    )
 
     # Feature toggles
     parser.add_argument("--no-tracking", action="store_true")
