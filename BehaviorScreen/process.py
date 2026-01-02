@@ -20,6 +20,11 @@ from BehaviorScreen.core import (
     STIM_PARAMETERS
 )
 
+# def get_background_image(
+#         behavior_data: BehaviorData
+#     ) -> np.ndarray:
+#     return behavior_data.metadata['background']['image'] # TODO fix in export single 
+
 def get_background_image(
         behavior_data: BehaviorData, 
         num_samples: int = 100

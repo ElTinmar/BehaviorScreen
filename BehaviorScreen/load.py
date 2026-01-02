@@ -138,6 +138,8 @@ def load_full_tracking(full_tracking_file: Optional[Path]) -> pd.DataFrame:
 
 def load_video(video_file: Path) -> OpenCV_VideoReader:
     reader = OpenCV_VideoReader()
+    if video_file is None:
+        return reader
     reader.open_file(str(video_file))
     return reader 
 
@@ -205,8 +207,8 @@ def find_files(dir: Directories) -> List[BehaviorFiles]:
             stimuli = find_file(file_info, dir.stimuli, stimuli_filename_regexp), # type: ignore
             tracking = find_file(file_info, dir.tracking, tracking_filename_regexp), # type: ignore
             full_tracking = find_file(file_info, dir.full_tracking, full_tracking_filename_regexp, required=False), # type: ignore
-            video = find_file(file_info, dir.video, video_filename_regexp), # type: ignore
-            video_timestamps = find_file(file_info, dir.video_timestamps, video_timestamps_filename_regexp), # type: ignore
+            video = find_file(file_info, dir.video, video_filename_regexp, required=False), # type: ignore
+            video_timestamps = find_file(file_info, dir.video_timestamps, video_timestamps_filename_regexp, required=False), # type: ignore
             temperature = find_file(file_info, dir.temperature, temperature_filename_regexp, required=False)
         )
         experiments.append(exp)

@@ -1,6 +1,7 @@
 import json
 import argparse
 from pathlib import Path
+import numpy as np
 
 from video_tools import CPU_VideoProcessor
 from BehaviorScreen.load import (
@@ -22,12 +23,15 @@ def export_single_animal_metadata(
 
     ensure_results_dir(directories)
     
-    for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
+    for i, (x,y,w,h) in enumerate(behavior_data.metadata['identity']['ROIs']):
         metadata_file = behavior_file.metadata.stem + f"_fish_{i}.metadata"
         out_path = directories.results / metadata_file
+        metadata = behavior_data.metadata.copy()
+        background_img = np.asarray(metadata['background']['image'])
+        metadata['background']['image'] = background_img[x:x+w, y:y+h]
 
         with open(out_path, 'w') as fp:
-            json.dump(behavior_data.metadata, fp)
+            json.dump(metadata, fp)
 
 def export_single_animal_tracking(
         directories: Directories,
