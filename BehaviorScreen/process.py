@@ -112,11 +112,10 @@ def get_well_coords_mm(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData, 
-        num_samples: int = 100,
         tolerance_mm = 2,
     ) -> np.ndarray:
 
-    background_image = get_background_image(behavior_data, num_samples)
+    background_image = get_background_image(behavior_data)
     pix_per_mm = behavior_data.metadata['calibration']['pix_per_mm']
     circles = get_circles(
         background_image, 
