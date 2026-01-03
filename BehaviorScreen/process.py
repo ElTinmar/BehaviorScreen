@@ -25,7 +25,7 @@ def get_background_image(
     ) -> np.ndarray:
     return np.asarray(behavior_data.metadata['background']['image_ROI']) 
 
-def compute_background_image(
+def get_background_image_2(
         behavior_data: BehaviorData, 
         num_samples: int = 100
     ) -> np.ndarray:
