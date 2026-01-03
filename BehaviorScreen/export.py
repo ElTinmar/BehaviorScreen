@@ -29,6 +29,8 @@ def export_single_animal_metadata(
         metadata = behavior_data.metadata.copy()
         background_img = np.asarray(metadata['background']['image'])
         metadata['background']['image_ROI'] = background_img[x:x+w, y:y+h].tolist()
+        metadata['export'] = {}
+        metadata['export']['fish_ID'] = i
 
         with open(out_path, 'w') as fp:
             json.dump(metadata, fp)
