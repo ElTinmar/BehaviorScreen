@@ -91,6 +91,7 @@ def save_detected_circles(
         cv2.circle(img_color, center, radius, (0, 255, 0), 2)
         cv2.circle(img_color, center, 2, (0, 0, 255), 3)
 
+    #TODO directories.results may not exist 
     result = directories.results / f"{behavior_file.metadata.stem}_WELLS.png"
     cv2.imwrite(str(result), img_color)
     
