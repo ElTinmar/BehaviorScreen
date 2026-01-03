@@ -91,7 +91,7 @@ def save_detected_circles(
         cv2.circle(img_color, center, radius, (0, 255, 0), 2)
         cv2.circle(img_color, center, 2, (0, 0, 255), 3)
 
-    result = directories.results / f"{behavior_file.video.stem}_WELLS.png"
+    result = directories.results / f"{behavior_file.metadata.stem}_WELLS.png"
     cv2.imwrite(str(result), img_color)
     
 def circle_roi_index(circles: np.ndarray, rois: List[Tuple[int,int,int,int]]):
