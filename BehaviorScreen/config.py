@@ -16,7 +16,7 @@ HOST = socket.gethostname()
 
 DATA_ROOTS = {
     "o1-596": Path("/media/martin/DATA1/Behavioral_screen"),
-    "O1-619": Path("/home/martin/Desktop/DATA/WT_dec"),
+    "O1-619": Path("/home/martin/Desktop/DATA/WT_Ronidazole"),
     "TheBeast": Path("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen"),
 }
 

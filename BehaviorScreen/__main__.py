@@ -1328,11 +1328,11 @@ if __name__ == '__main__':
     ##### After exporting single individuals
 
     directories = Directories(
-        ROOT_FOLDER / 'chronus',
+        ROOT_FOLDER / 'oceanus',
         metadata='data',
         stimuli='data',
         tracking='data',
-        full_tracking= 'video_preds_WT_dec_2025_chronus',
+        full_tracking= 'video_preds_WT_Ronidazole_4mM_dec_2025_oceanus',
         video='data',
         video_timestamp='data',
         results = 'results',
