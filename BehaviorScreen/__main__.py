@@ -1432,6 +1432,9 @@ for stim, param_list in stimuli.items():
 
 # O-BEND
 for start, stop in time_bins:
+    if start >= 5:
+        break
+
     name = f"BRIGHT->DARK_{start}-{stop}s"
     epochs[name] = (
         (bouts.stim == Stim.DARK) &
