@@ -960,11 +960,11 @@ if __name__ == '__main__':
     stimuli = {
         Stim.DARK: ['[0.0, 0.0, 0.0, 1.0]'],
         Stim.BRIGHT: ['[0.2, 0.2, 0.0, 1.0]'],
-        Stim.PREY_CAPTURE: ['-20.0', '20.0'],
-        Stim.PHOTOTAXIS: ['-1.0','1.0'],
-        Stim.OMR: ['-90.0', '90.0', '0.0'],
-        Stim.OKR: ['-36.0', '36.0'],
-        Stim.LOOMING: ['-2.0', '2.0', '-3.0', '3.0']
+        Stim.PREY_CAPTURE: ['-20', '20'],
+        Stim.PHOTOTAXIS: ['-1','1'],
+        Stim.OMR: ['-90', '90', '0'],
+        Stim.OKR: ['-36', '36'],
+        Stim.LOOMING: ['-2', '2', '-3', '3']
     }
 
 
@@ -1232,6 +1232,10 @@ if __name__ == '__main__':
 
 ## ALL
 
+    # TODO: 
+    # bright and dark select right trial_nums: DARK: 10 to 19, BRIGHT: 26 to 35?
+    # O-bends 
+
     num_cat = len(bouts_category_name_short)
     sides = ['L', 'R']
     row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
@@ -1344,4 +1348,13 @@ if __name__ == '__main__':
     for behavior_file in tqdm(behavior_files):
         bouts_data.extend(_run_megabouts_full(behavior_file, directories))
     bouts = pd.DataFrame(bouts_data)
-    bouts.to_csv('bouts_full_tracking.csv', mode="a")
+    bouts.to_csv('bouts_full_tracking.csv', mode="a", header=True, index=False)
+
+
+### 
+
+O_bends = bouts[(bouts.stim == Stim.DARK) & (bouts.trial_num >= 20) & (bouts.trial_num <25)]
+
+n_O_bends = []
+for i in range(25):
+    n_O_bends.append(sum(bouts[(bouts.stim == Stim.DARK) & (bouts.trial_num == i) & (bouts.proba > 0.5) & (bouts.trial_time<1)].category == 10))
