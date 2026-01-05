@@ -1232,7 +1232,7 @@ if __name__ == '__main__':
 
 ## ALL
 
-    # TODO: 
+    # TODO add those: 
     # DARK: bouts[(bouts.stim == Stim.DARK) & (bouts.trial_num >= 10) & (bouts.trial_num < 20)]
     # O-BEND: bouts[(bouts.stim == Stim.DARK) & (bouts.trial_num >= 20) & (bouts.trial_num <25) & (bouts.trial_time<1)] 
     # BRIGHT: bouts[(bouts.stim == Stim.BRIGHT) & (bouts.stim_variable_value=='[0.2, 0.2, 0.0, 1.0]') & (bouts.trial_num >= 5)]
@@ -1359,3 +1359,117 @@ O_bends = bouts[(bouts.stim == Stim.DARK) & (bouts.trial_num >= 20) & (bouts.tri
 n_O_bends = []
 for i in range(25):
     n_O_bends.append(sum(bouts[(bouts.stim == Stim.DARK) & (bouts.trial_num == i) & (bouts.proba > 0.5) & (bouts.trial_time<1)].category == 10))
+
+
+###
+
+stimuli = {
+    Stim.PREY_CAPTURE: ['-20', '20'],
+    Stim.PHOTOTAXIS: ['-1','1'],
+    Stim.OMR: ['-90', '90', '0'],
+    Stim.OKR: ['-36', '36'],
+    Stim.LOOMING: ['-3', '3']
+}
+
+# time bins (s)
+time_bins = [
+    (0, 2.5),
+    (2.5, 5),
+    (5, 7.5),
+    (7.5, 10),
+    (10, 15),
+    (15, 20),
+    (20, 30),
+]
+
+sides = ['L', 'R']
+num_cat = len(bouts_category_name_short)
+row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
+
+heatmap_df = pd.DataFrame()
+
+epochs = {}
+
+# DARK
+for start, stop in time_bins:
+    name = f"DARK_{start}-{stop}s"
+    epochs[name] = (
+        (bouts.stim == Stim.DARK) &
+        (bouts.trial_num >= 10) &
+        (bouts.trial_num < 20) &
+        (bouts.trial_time >= start) &
+        (bouts.trial_time <= stop)
+    )
+    
+# BRIGHT
+for start, stop in time_bins:
+    name = f"BRIGHT_{start}-{stop}s"
+    epochs[name] = (
+        (bouts.stim == Stim.BRIGHT) &
+        (bouts.stim_variable_value == '[0.2, 0.2, 0.0, 1.0]') &
+        (bouts.trial_num >= 5) &
+        (bouts.trial_time >= start) &
+        (bouts.trial_time <= stop)
+    )
+
+for stim, param_list in stimuli.items():
+    for start, stop in time_bins:
+        for p in param_list:
+
+            if stim in {Stim.OKR, Stim.OMR, Stim.LOOMING} and start >= 10:
+                continue
+            if stim is Stim.PHOTOTAXIS and start >= 5:
+                continue
+
+            name = f"{stim.name}_{p}_{start}-{stop}s"
+
+            epochs[name] = (
+                (bouts.stim == stim) &
+                (bouts.stim_variable_value == p) &
+                (bouts.trial_time >= start) &
+                (bouts.trial_time <= stop)
+            )
+
+# O-BEND
+for start, stop in time_bins:
+    name = f"BRIGHT->DARK_{start}-{stop}s"
+    epochs[name] = (
+        (bouts.stim == Stim.DARK) &
+        (bouts.trial_num >= 20) &
+        (bouts.trial_num < 25) &
+        (bouts.trial_time >= start) &
+        (bouts.trial_time <= stop)
+    )
+
+for name, mask in epochs.items():
+
+    df_sub = bouts[
+        mask &
+        (bouts.proba > 0.5) &
+        (bouts.distance_center < 15)
+    ]
+
+    counts = []
+    for cat in range(num_cat):
+        left = df_sub[(df_sub.category == cat) & (df_sub.sign == -1)].shape[0]
+        right = df_sub[(df_sub.category == cat) & (df_sub.sign == 1)].shape[0]
+        counts.extend([left, right])
+
+    counts = pd.Series(counts, index=row_labels)
+    if counts.sum() > 0:
+        counts /= counts.sum()
+
+    heatmap_df[name] = counts
+
+plt.figure(figsize=(20, 8))
+plt.imshow(heatmap_df, aspect='auto', cmap='inferno')
+plt.colorbar(label='prob.')
+
+plt.xticks(range(len(heatmap_df.columns)), heatmap_df.columns, rotation=90, ha='center')
+plt.yticks(range(len(heatmap_df.index)), heatmap_df.index)
+
+plt.xlabel("Epoch")
+plt.ylabel("Category")
+plt.tight_layout()
+plt.savefig("categories_vs_time.png")
+plt.show()
