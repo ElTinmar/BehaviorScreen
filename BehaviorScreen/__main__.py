@@ -1233,8 +1233,9 @@ if __name__ == '__main__':
 ## ALL
 
     # TODO: 
-    # bright and dark select right trial_nums: DARK: 10 to 19, BRIGHT: 26 to 35?
-    # O-bends 
+    # DARK: bouts[(bouts.stim == Stim.DARK) & (bouts.trial_num >= 10) & (bouts.trial_num < 20)]
+    # O-BEND: bouts[(bouts.stim == Stim.DARK) & (bouts.trial_num >= 20) & (bouts.trial_num <25) & (bouts.trial_time<1)] 
+    # BRIGHT: bouts[(bouts.stim == Stim.BRIGHT) & (bouts.stim_variable_value=='[0.2, 0.2, 0.0, 1.0]') & (bouts.trial_num >= 5)]
 
     num_cat = len(bouts_category_name_short)
     sides = ['L', 'R']
@@ -1333,12 +1334,12 @@ if __name__ == '__main__':
 
     directories = Directories(
         ROOT_FOLDER / 'oceanus',
-        metadata='data',
-        stimuli='data',
-        tracking='data',
-        full_tracking= 'video_preds_WT_Ronidazole_4mM_dec_2025_oceanus',
-        video='data',
-        video_timestamp='data',
+        metadata='results',
+        stimuli='results',
+        tracking='results',
+        full_tracking= 'video_preds_WT_dec_2025_oceanus',
+        video='results',
+        video_timestamp='results',
         results = 'results',
         plots = 'plots'
     )

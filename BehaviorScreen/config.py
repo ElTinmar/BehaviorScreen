@@ -15,7 +15,7 @@ NUM_PROCESSES = default_num_processes()
 HOST = socket.gethostname()
 
 DATA_ROOTS = {
-    "o1-596": Path("/media/martin/DATA1/Behavioral_screen"),
+    "o1-596": Path("/media/martin/DATA1/Behavioral_screen/DATA/WT_dec_2025"),
     "O1-619": Path("/home/martin/Desktop/DATA/WT_Ronidazole"),
     "TheBeast": Path("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen"),
 }
