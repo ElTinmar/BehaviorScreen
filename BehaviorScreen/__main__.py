@@ -1373,6 +1373,8 @@ time_bins = [
     (20, 30),
 ]
 
+# TODO maybe split that in separate functions for prey capture, OKR ...  and write a function to merge them all together?
+
 def get_bouts_heatmap(
     bouts: pd.DataFrame,
     bouts_category_name_short: List[str] = bouts_category_name_short,
