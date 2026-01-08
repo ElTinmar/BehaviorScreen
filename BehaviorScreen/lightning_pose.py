@@ -27,15 +27,15 @@ def download_model(
 def estimate_pose(
         model_directory: Path,
         video_directory: Path,
-        output_folder: Path,
+        output_directory: Path,
         video_extensions: List[str] = [".mp4", ".avi"],
         lightning_pose_conda_env: str = "LightningPose"
     ) -> None: 
 
     video_directory = Path(video_directory)
     model_directory = Path(model_directory)
-    output_folder = Path(output_folder)
-    output_folder.mkdir(parents=True, exist_ok=True)
+    output_directory = Path(output_directory)
+    output_directory.mkdir(parents=True, exist_ok=True)
 
     videos = [v for v in video_directory.iterdir() if v.suffix.lower() in video_extensions]
     if not videos:
@@ -53,7 +53,7 @@ def estimate_pose(
         ]
         subprocess.run(cmd, check=True)
 
-    shutil.move(str(model_directory / 'video_preds'), str(output_folder))
+    shutil.move(str(model_directory / 'video_preds'), str(output_directory))
 
 if __name__ == '__main__':
     

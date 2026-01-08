@@ -62,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--lightning-pose",
+        default="lightning_pose",
+        help="Subfolder containing lightning pose tracking CSV files (default: data)",
+    )
+
+    parser.add_argument(
         "--temperature",
         default="data",
         help="Subfolder containing temperature logs (default: data)",
@@ -124,8 +130,9 @@ def main(args: argparse.Namespace) -> None:
 
     # 2. popse estimation with lightning pose
     estimate_pose(
-        args.model_dir,
-        args.results
+        model_directory=args.model_dir,
+        video_directory=args.results,
+        output_directory=args.lightning_pose
     )
     
     # 3. extract bout metrics in relation with stimuli
