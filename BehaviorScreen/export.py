@@ -15,7 +15,7 @@ from BehaviorScreen.load import (
 def ensure_results_dir(directories: Directories) -> None:
     directories.results.mkdir(parents=True, exist_ok=True)
 
-def export_single_animal_metadata(
+def export_metadata(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
@@ -35,7 +35,7 @@ def export_single_animal_metadata(
         with open(out_path, 'w') as fp:
             json.dump(metadata, fp)
 
-def export_single_animal_tracking(
+def export_tracking(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
@@ -50,7 +50,7 @@ def export_single_animal_tracking(
         df[df.identity == i].set_index('index').to_csv(out_path)
         
 
-def export_single_animal_timestamps(
+def export_timestamps(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
@@ -63,7 +63,7 @@ def export_single_animal_timestamps(
         out_path = directories.results / timestamp_file 
         behavior_data.video_timestamps.to_csv(out_path)
 
-def export_single_animal_stimuli(
+def export_stimuli(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
@@ -79,7 +79,7 @@ def export_single_animal_stimuli(
             for line in behavior_data.stimuli:
                 fp.write(json.dumps(line) + '\n')
 
-def export_single_animal_videos(
+def export_videos(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
@@ -102,7 +102,7 @@ def export_single_animal_videos(
             dest_folder=str(directories.results),
         )
 
-def export_single_animal(
+def export(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
@@ -116,27 +116,27 @@ def export_single_animal(
     ) -> None:
 
     if export_tracking:
-        export_single_animal_tracking(
+        export_tracking(
             directories, behavior_file, behavior_data
         )
 
     if export_timestamps:
-        export_single_animal_timestamps(
+        export_timestamps(
             directories, behavior_file, behavior_data
         )
 
     if export_stimuli:
-        export_single_animal_stimuli(
+        export_stimuli(
             directories, behavior_file, behavior_data
         )
 
     if export_metadata:
-        export_single_animal_metadata(
+        export_metadata(
             directories, behavior_file, behavior_data
         )
 
     if export_videos:
-        export_single_animal_videos(
+        export_videos(
             directories, behavior_file, behavior_data, quality
         )
 
@@ -218,7 +218,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 def main(args: argparse.Namespace) -> None:
-    export_cli(
+    export_single_animals(
         root=args.root,
         metadata=args.metadata,
         stimuli=args.stimuli,
@@ -236,7 +236,7 @@ def main(args: argparse.Namespace) -> None:
         export_videos=not args.no_videos,
     )
 
-def export_cli(
+def export_single_animals(
         root: Path,
         *,
         metadata: str = 'data',
@@ -272,7 +272,7 @@ def export_cli(
     for file in behavior_files:
         print(f'processing {file.metadata.stem}')
         behavior_data = load_data(file)
-        export_single_animal(
+        export(
             directories,
             file,
             behavior_data,

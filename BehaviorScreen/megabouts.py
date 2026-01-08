@@ -259,7 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--lightning-pose",
-        default="data",
+        default="lightning_pose",
         help="Subfolder containing lightning pose tracking CSV files (default: data)",
     )
 
