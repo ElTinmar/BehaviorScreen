@@ -363,6 +363,4 @@ def main(args: argparse.Namespace) -> None:
     
 if __name__ == '__main__':
 
-    parser = build_parser()
-    args = parser.parse_args()
-    main(args)
+    main(build_parser().parse_args())

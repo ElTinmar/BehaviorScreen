@@ -140,55 +140,7 @@ def export_single_animal(
             directories, behavior_file, behavior_data, quality
         )
 
-def export_cli(
-        root: Path,
-        *,
-        metadata: str = 'data',
-        stimuli: str = 'data',
-        tracking: str = 'data',
-        temperature: str = 'data',
-        video: str = 'video',
-        video_timestamp: str = 'video',
-        results: str = 'results',
-        plots: str = 'plots',
-        quality: int = 18,
-        export_tracking: bool = True,
-        export_timestamps: bool = True,
-        export_stimuli: bool = True,
-        export_metadata: bool = True,
-        export_videos: bool = True,
-    ) -> None:
-
-    directories = Directories(
-        root=root,
-        metadata=metadata,
-        stimuli=stimuli,
-        tracking=tracking,
-        temperature=temperature,
-        video=video,
-        video_timestamp=video_timestamp,
-        results=results,
-        plots=plots,
-    )
-
-    behavior_files = find_files(directories)
-
-    for file in behavior_files:
-        print(f'processing {file.metadata.stem}')
-        behavior_data = load_data(file)
-        export_single_animal(
-            directories,
-            file,
-            behavior_data,
-            export_tracking = export_tracking,
-            export_timestamps = export_timestamps,
-            export_stimuli = export_stimuli,
-            export_metadata = export_metadata,
-            export_videos = export_videos,
-            quality = quality,
-        )
-    
-if __name__ == '__main__':
+def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description="Export per-animal behavior data (tracking, metadata, stimuli, videos)"
@@ -263,8 +215,9 @@ if __name__ == '__main__':
     parser.add_argument("--no-metadata", action="store_true")
     parser.add_argument("--no-videos", action="store_true")
 
-    args = parser.parse_args()
+    return parser
 
+def main(args: argparse.Namespace) -> None:
     export_cli(
         root=args.root,
         metadata=args.metadata,
@@ -282,3 +235,56 @@ if __name__ == '__main__':
         export_metadata=not args.no_metadata,
         export_videos=not args.no_videos,
     )
+
+def export_cli(
+        root: Path,
+        *,
+        metadata: str = 'data',
+        stimuli: str = 'data',
+        tracking: str = 'data',
+        temperature: str = 'data',
+        video: str = 'video',
+        video_timestamp: str = 'video',
+        results: str = 'results',
+        plots: str = 'plots',
+        quality: int = 18,
+        export_tracking: bool = True,
+        export_timestamps: bool = True,
+        export_stimuli: bool = True,
+        export_metadata: bool = True,
+        export_videos: bool = True,
+    ) -> None:
+
+    directories = Directories(
+        root=root,
+        metadata=metadata,
+        stimuli=stimuli,
+        tracking=tracking,
+        temperature=temperature,
+        video=video,
+        video_timestamp=video_timestamp,
+        results=results,
+        plots=plots,
+    )
+
+    behavior_files = find_files(directories)
+
+    for file in behavior_files:
+        print(f'processing {file.metadata.stem}')
+        behavior_data = load_data(file)
+        export_single_animal(
+            directories,
+            file,
+            behavior_data,
+            export_tracking = export_tracking,
+            export_timestamps = export_timestamps,
+            export_stimuli = export_stimuli,
+            export_metadata = export_metadata,
+            export_videos = export_videos,
+            quality = quality,
+        )
+    
+if __name__ == '__main__':
+
+    main(build_parser().parse_args())
+
