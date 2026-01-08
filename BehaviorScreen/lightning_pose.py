@@ -1,5 +1,6 @@
 from pathlib import Path
 from urllib.request import urlretrieve
+import subprocess
 
 from BehaviorScreen.config import LIGHTNING_POSE_MODEL_URL
 
@@ -13,9 +14,16 @@ def download_model(
     print("Downloading...")
     urlretrieve(url, file)
 
-# litpose predict model_path video
 def estimate_pose(
+        ckpt_file: Path,
         video: Path,
-        ckpt_file: Path
-    ):
-    ...
+        lightning_pose_conda_env: str = "LightningPose"
+    ) -> None: 
+
+    cmd = [
+        "conda", "run", "-n", lightning_pose_conda_env,
+        "litpose",
+        "predict",
+        str(ckpt_file), str(video),
+    ]
+    subprocess.run(cmd, check=True)
