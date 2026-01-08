@@ -233,8 +233,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "output",
-        type=Path,
+        "--bouts-csv",
+        default='bouts.csv',
         help="Output CSV file",
     )
 
@@ -300,7 +300,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run_megabouts(
         root: Path,
-        output_csv: Path,
+        output_csv: str,
         metadata: str,
         stimuli: str,
         tracking: str,
@@ -340,7 +340,7 @@ def run_megabouts(
         bouts_data.extend(bout_metrics)
     bouts = pd.DataFrame(bouts_data)
     bouts.to_csv(
-        output_csv, 
+        root / output_csv, 
         header=True, 
         index=False
     )
@@ -348,7 +348,7 @@ def run_megabouts(
 def main(args: argparse.Namespace) -> None:
     run_megabouts(
         root=args.root,
-        output_csv=args.output,
+        output_csv=args.bouts_csv,
         metadata=args.metadata,
         stimuli=args.stimuli,
         tracking=args.tracking,

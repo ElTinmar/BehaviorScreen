@@ -107,35 +107,35 @@ def export(
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
         *,
-        export_tracking: bool = True,
-        export_timestamps: bool = True,
-        export_stimuli: bool = True,
-        export_metadata: bool = True,
-        export_videos: bool = True,
+        tracking_flag: bool = True,
+        timestamps_flag: bool = True,
+        stimuli_flag: bool = True,
+        metadata_flag: bool = True,
+        videos_flag: bool = True,
         quality: int = 18,
     ) -> None:
 
-    if export_tracking:
+    if tracking_flag:
         export_tracking(
             directories, behavior_file, behavior_data
         )
 
-    if export_timestamps:
+    if timestamps_flag:
         export_timestamps(
             directories, behavior_file, behavior_data
         )
 
-    if export_stimuli:
+    if stimuli_flag:
         export_stimuli(
             directories, behavior_file, behavior_data
         )
 
-    if export_metadata:
+    if metadata_flag:
         export_metadata(
             directories, behavior_file, behavior_data
         )
 
-    if export_videos:
+    if videos_flag:
         export_videos(
             directories, behavior_file, behavior_data, quality
         )
@@ -229,11 +229,11 @@ def main(args: argparse.Namespace) -> None:
         results=args.results,
         plots=args.plots,
         quality=args.quality,
-        export_tracking=not args.no_tracking,
-        export_timestamps=not args.no_timestamps,
-        export_stimuli=not args.no_stimuli,
-        export_metadata=not args.no_metadata,
-        export_videos=not args.no_videos,
+        tracking_flag=not args.no_tracking,
+        timestamps_flag=not args.no_timestamps,
+        stimuli_flag=not args.no_stimuli,
+        metadata_flag=not args.no_metadata,
+        videos_flag=not args.no_videos,
     )
 
 def export_single_animals(
@@ -248,11 +248,11 @@ def export_single_animals(
         results: str = 'results',
         plots: str = 'plots',
         quality: int = 18,
-        export_tracking: bool = True,
-        export_timestamps: bool = True,
-        export_stimuli: bool = True,
-        export_metadata: bool = True,
-        export_videos: bool = True,
+        tracking_flag: bool = True,
+        timestamps_flag: bool = True,
+        stimuli_flag: bool = True,
+        metadata_flag: bool = True,
+        videos_flag: bool = True,
     ) -> None:
 
     directories = Directories(
@@ -276,11 +276,11 @@ def export_single_animals(
             directories,
             file,
             behavior_data,
-            export_tracking = export_tracking,
-            export_timestamps = export_timestamps,
-            export_stimuli = export_stimuli,
-            export_metadata = export_metadata,
-            export_videos = export_videos,
+            tracking_flag = tracking_flag,
+            timestamps_flag = timestamps_flag,
+            stimuli_flag = stimuli_flag,
+            metadata_flag = metadata_flag,
+            videos_flag = videos_flag,
             quality = quality,
         )
     

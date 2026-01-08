@@ -24,6 +24,47 @@ def download_model(
     print("Cleaning up...")
     zip_file.unlink()
 
+
+def move_directory_contents(src: Path, dst: Path, overwrite: bool = True) -> None:
+    """
+    Move the contents of src into dst
+
+    Parameters
+    ----------
+    src : Path
+        Source directory whose contents will be moved.
+    dst : Path
+        Destination directory.
+    overwrite : bool
+        Whether to overwrite existing files/directories in dst.
+    """
+    src = Path(src)
+    dst = Path(dst)
+
+    if not src.is_dir():
+        raise NotADirectoryError(f"Source directory does not exist: {src}")
+
+    dst.mkdir(parents=True, exist_ok=True)
+
+    for item in src.iterdir():
+        target = dst / item.name
+
+        if target.exists():
+            if not overwrite:
+                raise FileExistsError(f"Target already exists: {target}")
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+
+        shutil.move(str(item), str(target))
+
+    # Remove src if it's empty after moving
+    try:
+        src.rmdir()
+    except OSError:
+        pass
+
 def estimate_pose(
         model_directory: Path,
         video_directory: Path,
@@ -53,7 +94,10 @@ def estimate_pose(
         ]
         subprocess.run(cmd, check=True)
 
-    shutil.move(str(model_directory / 'video_preds'), str(output_directory))
+    move_directory_contents(
+        model_directory / "video_preds",
+        output_directory
+    )
 
 if __name__ == '__main__':
     

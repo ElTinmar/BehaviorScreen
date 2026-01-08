@@ -4,7 +4,7 @@ from pathlib import Path
 from BehaviorScreen.export import export_single_animals
 from BehaviorScreen.megabouts import run_megabouts
 from BehaviorScreen.lightning_pose import estimate_pose
-from BehaviorScreen.plot import plot_bout_heatmap
+#from BehaviorScreen.plot import plot_bout_heatmap
 
 # TODO eye tracking OKR
 # TODO eye tracking + tail tracking and classification J-turn PREY_CAPTURE
@@ -30,8 +30,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "bout_csv",
+        "model_dir",
         type=Path,
+        help="Root experiment folder (e.g. WT_oct_2025)",
+    )
+
+    parser.add_argument(
+        "--bouts-csv",
+        default='bouts.csv',
         help="Output CSV file",
     )
 
@@ -109,36 +115,36 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(args: argparse.Namespace) -> None:
 
-    print("1. export ROIs separately")
-    export_single_animals(
-        root=args.root,
-        metadata=args.metadata,
-        stimuli=args.stimuli,
-        tracking=args.tracking,
-        temperature=args.temperature,
-        video=args.video,
-        video_timestamp=args.video_timestamp,
-        results=args.results,
-        plots=args.plots,
-        quality=args.quality,
-        export_tracking=not args.no_tracking,
-        export_timestamps=not args.no_timestamps,
-        export_stimuli=not args.no_stimuli,
-        export_metadata=not args.no_metadata,
-        export_videos=not args.no_videos,
-    )
+    # print("1. export ROIs")
+    # export_single_animals(
+    #     root=args.root,
+    #     metadata=args.metadata,
+    #     stimuli=args.stimuli,
+    #     tracking=args.tracking,
+    #     temperature=args.temperature,
+    #     video=args.video,
+    #     video_timestamp=args.video_timestamp,
+    #     results=args.results,
+    #     plots=args.plots,
+    #     quality=args.quality,
+    #     tracking_flag=not args.no_tracking,
+    #     timestamps_flag=not args.no_timestamps,
+    #     stimuli_flag=not args.no_stimuli,
+    #     metadata_flag=not args.no_metadata,
+    #     videos_flag=not args.no_videos,
+    # )
 
-    print("2. popse estimation with lightning pose")
+    print("2. pose estimation")
     estimate_pose(
         model_directory=args.model_dir,
-        video_directory=args.results,
-        output_directory=args.lightning_pose
+        video_directory=args.root / args.results,
+        output_directory=args.root / args.lightning_pose
     )
     
-    print("3. extract bout metrics in relation with stimuli")
+    print("3. extract bout metrics")
     run_megabouts(
         root=args.root,
-        output_csv=args.output,
+        output_csv=args.bouts_csv,
         metadata=args.metadata,
         stimuli=args.stimuli,
         tracking=args.tracking,
@@ -151,8 +157,8 @@ def main(args: argparse.Namespace) -> None:
         cpu=args.cpu
     )
 
-    print("4. plot")
-    plot_bout_heatmap()
+    #print("4. plot")
+    #plot_bout_heatmap()
 
 if __name__ == '__main__':
 
