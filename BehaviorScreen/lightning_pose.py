@@ -1,22 +1,18 @@
 from pathlib import Path
 from urllib.request import urlretrieve
-from zipfile import ZipFile
+from BehaviorScreen.config import LIGHTNING_POSE_MODEL_URL
 
-URL = "https://owncloud.gwdg.de/"
-
-def download_model(url: str = URL, destination: Path = ''):
+def download_model(
+        url: str = LIGHTNING_POSE_MODEL_URL, 
+        destination: Path = Path('')
+    ):
 
     destination.mkdir(parents=True, exist_ok=True)
-    zip_file = destination / "models.zip"
-
+    file = destination / "lightning_pose.ckpt"
     print("Downloading...")
-    urlretrieve(url, zip_file)
+    urlretrieve(url, file)
 
-    print("Extracting...")
-    with ZipFile(zip_file, "r") as zip:
-        zip.extractall(destination)
-
-    zip_file.unlink()
-
-def estimate_pose():
+def estimate_pose(
+        ckpt_file: Path
+    ):
     ...

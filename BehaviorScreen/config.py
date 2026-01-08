@@ -2,6 +2,8 @@ from pathlib import Path
 import socket
 import multiprocessing as mp
 
+LIGHTNING_POSE_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/gbgFp5L8IPs369u/download"
+
 # multiprocessing --------------------------------------
 
 def default_num_processes(reserve: int = 2) -> int:
