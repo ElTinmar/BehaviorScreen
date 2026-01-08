@@ -109,7 +109,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(args: argparse.Namespace) -> None:
 
-    # 1. export ROIs separately
+    print("1. export ROIs separately")
     export_single_animals(
         root=args.root,
         metadata=args.metadata,
@@ -128,14 +128,14 @@ def main(args: argparse.Namespace) -> None:
         export_videos=not args.no_videos,
     )
 
-    # 2. popse estimation with lightning pose
+    print("2. popse estimation with lightning pose")
     estimate_pose(
         model_directory=args.model_dir,
         video_directory=args.results,
         output_directory=args.lightning_pose
     )
     
-    # 3. extract bout metrics in relation with stimuli
+    print("3. extract bout metrics in relation with stimuli")
     run_megabouts(
         root=args.root,
         output_csv=args.output,
@@ -151,7 +151,7 @@ def main(args: argparse.Namespace) -> None:
         cpu=args.cpu
     )
 
-    # 4. plot
+    print("4. plot")
     plot_bout_heatmap()
 
 if __name__ == '__main__':
