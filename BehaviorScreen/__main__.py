@@ -123,7 +123,10 @@ def main(args: argparse.Namespace) -> None:
     )
 
     # 2. popse estimation with lightning pose
-    estimate_pose()
+    estimate_pose(
+        args.model_dir,
+        args.results
+    )
     
     # 3. extract bout metrics in relation with stimuli
     run_megabouts(
