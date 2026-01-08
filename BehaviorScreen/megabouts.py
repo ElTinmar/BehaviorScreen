@@ -36,7 +36,6 @@ class MegaboutResults(NamedTuple):
     tail: TailPreprocessingResult
     traj: TrajPreprocessingResult
 
-# TODO: finish this
 def EyeData_from_lp(lp_csv: str, threshold: float = 0.95) -> pd.DataFrame:
 
     df = pd.read_csv(lp_csv, header=[0,1,2])
@@ -221,40 +220,7 @@ def get_bout_metrics(
 
     return rows
 
-def run_megabout(args) -> None:
-
-    if args.cpu:
-        # Force running on CPU if GPU is not compatible
-        import torch
-        torch.cuda.is_available = lambda: False
-
-    directories = Directories(
-        args.root,
-        metadata=args.metadata,
-        stimuli=args.stimuli,
-        tracking=args.tracking,
-        full_tracking= args.lightning_pose,
-        video=args.video,
-        video_timestamp=args.video_timestamp,
-        results=args.results,
-        plots=args.plots,
-    )
-    behavior_files = find_files(directories)
-
-    bouts_data = []
-    for behavior_file in tqdm(behavior_files):
-        behavior_data = load_data(behavior_file)
-        megabout = megabout_fulltracking_pipeline(behavior_data)
-        bout_metrics = get_bout_metrics(directories, behavior_data, behavior_file, megabout)
-        bouts_data.extend(bout_metrics)
-    bouts = pd.DataFrame(bouts_data)
-    bouts.to_csv(
-        args.output, 
-        header=True, 
-        index=False
-    )
-    
-if __name__ == '__main__':
+def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         description="Run megabout pipeline on tracking data from Lightning Pose"
@@ -330,5 +296,43 @@ if __name__ == '__main__':
     # Run megabout on CPU if no compatible GPU
     parser.add_argument("--cpu", action="store_true")
 
+    return parser
+
+def main(args: argparse.Namespace) -> None:
+
+    if args.cpu:
+        # Force running on CPU if GPU is not compatible
+        import torch
+        torch.cuda.is_available = lambda: False
+
+    directories = Directories(
+        args.root,
+        metadata=args.metadata,
+        stimuli=args.stimuli,
+        tracking=args.tracking,
+        full_tracking= args.lightning_pose,
+        video=args.video,
+        video_timestamp=args.video_timestamp,
+        results=args.results,
+        plots=args.plots,
+    )
+    behavior_files = find_files(directories)
+
+    bouts_data = []
+    for behavior_file in tqdm(behavior_files):
+        behavior_data = load_data(behavior_file)
+        megabout = megabout_fulltracking_pipeline(behavior_data)
+        bout_metrics = get_bout_metrics(directories, behavior_data, behavior_file, megabout)
+        bouts_data.extend(bout_metrics)
+    bouts = pd.DataFrame(bouts_data)
+    bouts.to_csv(
+        args.output, 
+        header=True, 
+        index=False
+    )
+    
+if __name__ == '__main__':
+
+    parser = build_parser()
     args = parser.parse_args()
-    run_megabout(args)
+    main(args)
