@@ -298,23 +298,37 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
-def main(args: argparse.Namespace) -> None:
+def run_megabouts(
+        root: Path,
+        output_csv: Path,
+        metadata: str,
+        stimuli: str,
+        tracking: str,
+        lightning_pose: str,
+        temperature: str,
+        video: str,
+        video_timestamp: str,
+        results: str,
+        plots: str,
+        cpu: bool,
+    ) -> None:
 
-    if args.cpu:
+    if cpu:
         # Force running on CPU if GPU is not compatible
         import torch
         torch.cuda.is_available = lambda: False
 
     directories = Directories(
-        args.root,
-        metadata=args.metadata,
-        stimuli=args.stimuli,
-        tracking=args.tracking,
-        full_tracking= args.lightning_pose,
-        video=args.video,
-        video_timestamp=args.video_timestamp,
-        results=args.results,
-        plots=args.plots,
+        root,
+        metadata=metadata,
+        stimuli=stimuli,
+        tracking=tracking,
+        full_tracking=lightning_pose,
+        temperature=temperature,
+        video=video,
+        video_timestamp=video_timestamp,
+        results=results,
+        plots=plots
     )
     behavior_files = find_files(directories)
 
@@ -326,9 +340,25 @@ def main(args: argparse.Namespace) -> None:
         bouts_data.extend(bout_metrics)
     bouts = pd.DataFrame(bouts_data)
     bouts.to_csv(
-        args.output, 
+        output_csv, 
         header=True, 
         index=False
+    )
+
+def main(args: argparse.Namespace) -> None:
+    run_megabouts(
+        root=args.root,
+        output_csv=args.output,
+        metadata=args.metadata,
+        stimuli=args.stimuli,
+        tracking=args.tracking,
+        lightning_pose=args.lightning_pose,
+        temperature=args.temperature,
+        video=args.video,
+        video_timestamp=args.video_timestamp,
+        results=args.results,
+        plots=args.plots,
+        cpu=args.cpu
     )
     
 if __name__ == '__main__':
