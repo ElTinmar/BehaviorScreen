@@ -1,5 +1,4 @@
 *.csv
-*.ckpt
 model/
 
 # Byte-compiled / optimized / DLL files
