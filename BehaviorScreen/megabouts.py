@@ -334,6 +334,7 @@ def run_megabouts(
 
     bouts_data = []
     for behavior_file in tqdm(behavior_files):
+        print(behavior_file)
         behavior_data = load_data(behavior_file)
         megabout = megabout_fulltracking_pipeline(behavior_data)
         bout_metrics = get_bout_metrics(directories, behavior_data, behavior_file, megabout)

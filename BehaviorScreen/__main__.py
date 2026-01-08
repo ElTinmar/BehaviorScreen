@@ -115,24 +115,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(args: argparse.Namespace) -> None:
 
-    # print("1. export ROIs")
-    # export_single_animals(
-    #     root=args.root,
-    #     metadata=args.metadata,
-    #     stimuli=args.stimuli,
-    #     tracking=args.tracking,
-    #     temperature=args.temperature,
-    #     video=args.video,
-    #     video_timestamp=args.video_timestamp,
-    #     results=args.results,
-    #     plots=args.plots,
-    #     quality=args.quality,
-    #     tracking_flag=not args.no_tracking,
-    #     timestamps_flag=not args.no_timestamps,
-    #     stimuli_flag=not args.no_stimuli,
-    #     metadata_flag=not args.no_metadata,
-    #     videos_flag=not args.no_videos,
-    # )
+    print("1. export ROIs")
+    export_single_animals(
+        root=args.root,
+        metadata=args.metadata,
+        stimuli=args.stimuli,
+        tracking=args.tracking,
+        temperature=args.temperature,
+        video=args.video,
+        video_timestamp=args.video_timestamp,
+        results=args.results,
+        plots=args.plots,
+        quality=args.quality,
+        tracking_flag=not args.no_tracking,
+        timestamps_flag=not args.no_timestamps,
+        stimuli_flag=not args.no_stimuli,
+        metadata_flag=not args.no_metadata,
+        videos_flag=not args.no_videos,
+    )
 
     print("2. pose estimation")
     estimate_pose(
@@ -145,13 +145,13 @@ def main(args: argparse.Namespace) -> None:
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
-        metadata=args.metadata,
-        stimuli=args.stimuli,
-        tracking=args.tracking,
+        metadata=args.results,
+        stimuli=args.results,
+        tracking=args.results,
         lightning_pose=args.lightning_pose,
-        temperature=args.temperature,
-        video=args.video,
-        video_timestamp=args.video_timestamp,
+        temperature=args.results,
+        video=args.results,
+        video_timestamp=args.results,
         results=args.results,
         plots=args.plots,
         cpu=args.cpu
