@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import List
 from urllib.request import urlretrieve
 import subprocess
 from zipfile import ZipFile
@@ -24,17 +25,26 @@ def download_model(
 
 def estimate_pose(
         model_directory: Path,
-        video: Path,
+        video_directory: Path,
+        video_extensions: List[str] = [".mp4", ".avi"],
         lightning_pose_conda_env: str = "LightningPose"
     ) -> None: 
 
-    cmd = [
-        "conda", "run", "-n", lightning_pose_conda_env,
-        "litpose",
-        "predict",
-        str(model_directory), str(video),
-    ]
-    subprocess.run(cmd, check=True)
+    videos = [v for v in video_directory.iterdir() if v.suffix.lower() in video_extensions]
+    if not videos:
+        print(f"No video files found in {video_directory}")
+        return  
+    
+    for video in videos:
+        print(f"Processing {video}...")
+        cmd = [
+            "conda", "run", "-n", lightning_pose_conda_env,
+            "litpose",
+            "predict",
+            str(model_directory), 
+            str(video),
+        ]
+        subprocess.run(cmd, check=True)
 
 if __name__ == '__main__':
     
