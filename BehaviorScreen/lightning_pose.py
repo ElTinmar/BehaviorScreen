@@ -1,6 +1,7 @@
 from pathlib import Path
 from urllib.request import urlretrieve
 import subprocess
+from zipfile import ZipFile
 
 from BehaviorScreen.config import LIGHTNING_POSE_MODEL_URL
 
@@ -10,12 +11,19 @@ def download_model(
     ):
 
     destination.mkdir(parents=True, exist_ok=True)
-    file = destination / "lightning_pose.ckpt"
-    print("Downloading...")
-    urlretrieve(url, file)
+    zip_file = destination / "model.zip"
+    print(f"Downloading {url}...")
+    urlretrieve(url, zip_file)
+
+    print("Extracting...")
+    with ZipFile(zip_file, "r") as zip:
+        zip.extractall(destination)
+
+    print("Cleaning up...")
+    zip_file.unlink()
 
 def estimate_pose(
-        ckpt_file: Path,
+        model_directory: Path,
         video: Path,
         lightning_pose_conda_env: str = "LightningPose"
     ) -> None: 
@@ -24,6 +32,10 @@ def estimate_pose(
         "conda", "run", "-n", lightning_pose_conda_env,
         "litpose",
         "predict",
-        str(ckpt_file), str(video),
+        str(model_directory), str(video),
     ]
     subprocess.run(cmd, check=True)
+
+if __name__ == '__main__':
+    
+    download_model()
