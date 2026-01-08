@@ -160,6 +160,8 @@ def main(args: argparse.Namespace) -> None:
     #print("4. plot")
     #plot_bout_heatmap()
 
+    #print("5. overlay ethogram videos + reconstructed stim")
+
 if __name__ == '__main__':
 
     main(build_parser().parse_args())
