@@ -221,6 +221,39 @@ def get_bout_metrics(
 
     return rows
 
+def run_megabout(args) -> None:
+
+    if args.cpu:
+        # Force running on CPU if GPU is not compatible
+        import torch
+        torch.cuda.is_available = lambda: False
+
+    directories = Directories(
+        args.root,
+        metadata=args.metadata,
+        stimuli=args.stimuli,
+        tracking=args.tracking,
+        full_tracking= args.lightning_pose,
+        video=args.video,
+        video_timestamp=args.video_timestamp,
+        results=args.results,
+        plots=args.plots,
+    )
+    behavior_files = find_files(directories)
+
+    bouts_data = []
+    for behavior_file in tqdm(behavior_files):
+        behavior_data = load_data(behavior_file)
+        megabout = megabout_fulltracking_pipeline(behavior_data)
+        bout_metrics = get_bout_metrics(directories, behavior_data, behavior_file, megabout)
+        bouts_data.extend(bout_metrics)
+    bouts = pd.DataFrame(bouts_data)
+    bouts.to_csv(
+        args.output, 
+        header=True, 
+        index=False
+    )
+    
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(
@@ -298,34 +331,4 @@ if __name__ == '__main__':
     parser.add_argument("--cpu", action="store_true")
 
     args = parser.parse_args()
-
-    if args.cpu:
-        # Force running on CPU if GPU is not compatible
-        import torch
-        torch.cuda.is_available = lambda: False
-
-    directories = Directories(
-        args.root,
-        metadata=args.metadata,
-        stimuli=args.stimuli,
-        tracking=args.tracking,
-        full_tracking= args.lightning_pose,
-        video=args.video,
-        video_timestamp=args.video_timestamp,
-        results=args.results,
-        plots=args.plots,
-    )
-    behavior_files = find_files(directories)
-
-    bouts_data = []
-    for behavior_file in tqdm(behavior_files):
-        behavior_data = load_data(behavior_file)
-        megabout = megabout_fulltracking_pipeline(behavior_data)
-        bout_metrics = get_bout_metrics(directories, behavior_data, behavior_file, megabout)
-        bouts_data.extend(bout_metrics)
-    bouts = pd.DataFrame(bouts_data)
-    bouts.to_csv(
-        args.output, 
-        header=True, 
-        index=False
-    )
+    run_megabout(args)
