@@ -14,6 +14,7 @@ import argparse
 import io
 import json
 import os
+import shutil
 
 import h5py
 import numpy as np
@@ -24,6 +25,15 @@ import sleap_io as sio
 from sleap import PredictedInstance
 from pathlib import Path
 import cv2
+
+def keep_user_labeled_only(input_slp, output_slp):
+    labels = sio.load_file(input_slp)
+    labels.labeled_frames = [
+        f for f in labels.labeled_frames 
+        if any([True for i in f.instances if not isinstance(i, PredictedInstance)])
+    ]
+    labels.suggestions = []
+    labels.save(output_slp)
 
 def slp2lp(slp_pkg_file: Path, base_output_dir: Path) -> pd.DataFrame:
 
@@ -198,8 +208,6 @@ def extract_labels_from_pkg_slp(file_path: str, base_output_dir: str | None) -> 
 
 if __name__ == "__main__":
 
-    # apparently you need to keep only user labeled frames. Use sleap_util.keep_user_labeled_only 
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--slp_file", type=str)
     parser.add_argument("--lp_dir", type=str)
@@ -216,9 +224,17 @@ if __name__ == "__main__":
     # Check paths are not the same
     if slp_file == lp_dir:
         raise NameError("slp_file and lp_dir cannot be the same")
+    
+    tmp_slp_file = Path('tmp.slp')
+    
+    keep_user_labeled_only(slp_file, tmp_slp_file)
 
     # Extract and save labeled data from SLEAP project
-    extract_frames_from_pkg_slp(slp_file, lp_dir)
+    extract_frames_from_pkg_slp(tmp_slp_file, lp_dir)
 
     # Extract labels and create the required DataFrame
-    extract_labels_from_pkg_slp(slp_file, lp_dir)
+    extract_labels_from_pkg_slp(tmp_slp_file, lp_dir)
+
+    tmp_slp_file.unlink()
+
+    
