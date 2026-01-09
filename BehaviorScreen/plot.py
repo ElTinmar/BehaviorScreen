@@ -292,10 +292,7 @@ def plot_bout_heatmap(fig, ax, heatmap_df) -> None:
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Category")
 
-def main(args: argparse.Namespace) -> None:
-
-    input_csv = args.root / args.bouts_csv
-    output_png = args.root / args.bouts_png
+def plot_heatmap(input_csv: Path, output_png: Path) -> None:
 
     # load bouts
     bouts = load_bouts(input_csv)
@@ -320,6 +317,12 @@ def main(args: argparse.Namespace) -> None:
     fig.tight_layout()
     plt.savefig(output_png)
     plt.show()
+
+def main(args: argparse.Namespace) -> None:
+
+    input_csv = args.root / args.bouts_csv
+    output_png = args.root / args.bouts_png
+    plot_heatmap(input_csv, output_png)
 
 if __name__ == "__main__":
 

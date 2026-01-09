@@ -4,7 +4,7 @@ from pathlib import Path
 from BehaviorScreen.export import export_single_animals
 from BehaviorScreen.megabouts import run_megabouts
 from BehaviorScreen.lightning_pose import estimate_pose
-#from BehaviorScreen.plot import plot_bout_heatmap
+from BehaviorScreen.plot import plot_heatmap
 
 # TODO eye tracking OKR
 # TODO eye tracking + tail tracking and classification J-turn PREY_CAPTURE
@@ -39,6 +39,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--bouts-csv",
         default='bouts.csv',
         help="Output CSV file",
+    )
+
+    parser.add_argument(
+        "--bouts-png",
+        default='bouts.png',
+        help="output PNG file",
     )
 
     parser.add_argument(
@@ -157,8 +163,11 @@ def main(args: argparse.Namespace) -> None:
         cpu=args.cpu
     )
 
-    #print("4. plot")
-    #plot_bout_heatmap()
+    print("4. plot")
+    plot_heatmap(
+        input_csv = args.root / args.bouts_csv,
+        output_png = args.root / args.bouts_png,
+    )
 
     #print("5. overlay ethogram videos + reconstructed stim")
 
