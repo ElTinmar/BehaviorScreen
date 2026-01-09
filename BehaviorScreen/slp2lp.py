@@ -14,7 +14,6 @@ import argparse
 import io
 import json
 import os
-import shutil
 
 import h5py
 import numpy as np
@@ -33,7 +32,7 @@ def keep_user_labeled_only(input_slp, output_slp):
         if any([True for i in f.instances if not isinstance(i, PredictedInstance)])
     ]
     labels.suggestions = []
-    labels.save(output_slp)
+    labels.save(output_slp, embed=True)
 
 def slp2lp(slp_pkg_file: Path, base_output_dir: Path) -> pd.DataFrame:
 
