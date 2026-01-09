@@ -1,17 +1,15 @@
+from typing import List, Tuple, Optional, Any, Protocol, NamedTuple
+import argparse
+from pathlib import Path
 import pandas as pd
 import numpy as np
 
-bouts = pd.read_csv(
-    "bouts.csv",
-    converters={
-        "stim_variable_value": lambda x: str(x),
-    }
-)
+import matplotlib.pyplot as plt
 
-# filtering outliers
-bouts[bouts['distance_center']>9] = np.nan # remove bouts on the edge
-bouts.loc[bouts['distance']> 20, 'distance'] = np.nan
-bouts.loc[bouts['peak_axial_speed']> 300, 'peak_axial_speed'] = np.nan
+from megabouts.utils import bouts_category_name_short   
+from BehaviorScreen.core import Stim
+
+num_bouts_categories = len(bouts_category_name_short)
 
 time_bins = [
     (0, 2.5),
@@ -23,126 +21,306 @@ time_bins = [
     (20, 30),
 ]
 
-# TODO maybe split that in separate functions for prey capture, OKR ...  and write a function to merge them all together?
+def build_parser() -> argparse.ArgumentParser:
+    
+    parser = argparse.ArgumentParser(
+        description="Collect bout.csv and plot results"
+    )
 
-def get_bouts_heatmap(
-    bouts: pd.DataFrame,
-    bouts_category_name_short: List[str] = bouts_category_name_short,
-    time_bins: List[Tuple[float, float]] = time_bins,
-) -> pd.DataFrame:
+    parser.add_argument(
+        "root",
+        type=Path,
+        help="Root experiment folder (e.g. WT_oct_2025)",
+    )
 
-    stimuli = {
-        Stim.PREY_CAPTURE: ['-20', '20'],
-        Stim.PHOTOTAXIS: ['-1','1'],
-        Stim.OMR: ['-90', '90', '0'],
-        Stim.OKR: ['-36', '36'],
-        Stim.LOOMING: ['-3', '3']
-    }
+    parser.add_argument(
+        "--bouts-csv",
+        default='bouts.csv',
+        help="input CSV file",
+    )
+
+    parser.add_argument(
+        "--bouts-png",
+        default='bouts.png',
+        help="output PNG file",
+    )
+
+    return parser
+
+def load_bouts(bout_csv: Path) -> pd.DataFrame:
+
+    bouts = pd.read_csv(
+        bout_csv,
+        converters={
+            "stim_variable_value": lambda x: str(x),
+        }
+    )
+
+    return bouts
+
+def filter_bouts(bouts: pd.DataFrame) -> pd.DataFrame:
+
+    # TODO adapt this
+    return bouts
+
+    filtered_bouts = bouts.copy()
+    filtered_bouts[filtered_bouts['distance_center'] > 9] = np.nan 
+    filtered_bouts[filtered_bouts['proba'] < 0.75] = np.nan
+    filtered_bouts[filtered_bouts['distance'] > 20] = np.nan
+    filtered_bouts[filtered_bouts['peak_axial_speed'] > 300] = np.nan
+
+    return filtered_bouts
+
+class MaskResult(NamedTuple):
+    name: str
+    mask: pd.Series
+
+class MaskFn(Protocol):
+    def __call__(
+        self, 
+        bouts: pd.DataFrame, 
+        param: Optional[Any], 
+        t_start: float, 
+        t_stop: float
+    ) -> Optional[MaskResult]:
+        ...
+
+def prey_capture_mask(
+        bouts: pd.DataFrame, 
+        param: Optional[Any], 
+        t_start: float, 
+        t_stop: float
+    ) -> Tuple[bool, str, pd.Series]:
+
+    name = f"PREY_CAPTURE_{param}_{t_start}-{t_stop}s"
+    mask = (
+        (bouts.stim == Stim.PREY_CAPTURE) &
+        (bouts.stim_variable_value == param) &
+        (bouts.trial_time >= t_start) &
+        (bouts.trial_time <= t_stop)
+    )
+    return MaskResult(name, mask)
+
+def omr_mask(
+        bouts: pd.DataFrame, 
+        param: Optional[Any], 
+        t_start: float, 
+        t_stop: float
+    ) -> Tuple[bool, str, pd.Series]:
+
+    if t_start >= 10:
+        return None
+    
+    name = f"OMR_{param}_{t_start}-{t_stop}s"
+    mask = (
+        (bouts.stim == Stim.OMR) &
+        (bouts.stim_variable_value == param) &
+        (bouts.trial_time >= t_start) &
+        (bouts.trial_time <= t_stop)
+    )
+    return MaskResult(name, mask)
+
+def okr_mask(
+        bouts: pd.DataFrame, 
+        param: Optional[Any], 
+        t_start: float, 
+        t_stop: float
+    ) -> Tuple[bool, str, pd.Series]:
+
+    if t_start >= 10:
+        return None
+    
+    name = f"OKR_{param}_{t_start}-{t_stop}s"
+    mask = (
+        (bouts.stim == Stim.OKR) &
+        (bouts.stim_variable_value == param) &
+        (bouts.trial_time >= t_start) &
+        (bouts.trial_time <= t_stop)
+    )
+    return MaskResult(name, mask)
+
+def phototaxis_mask(
+        bouts: pd.DataFrame, 
+        param: Optional[Any], 
+        t_start: float, 
+        t_stop: float
+    ) -> Tuple[bool, str, pd.Series]:
+
+    if t_start >= 5:
+        return None
+    
+    name = f"PHOTOTAXIS_{param}_{t_start}-{t_stop}s"
+    mask = (
+        (bouts.stim == Stim.PHOTOTAXIS) &
+        (bouts.stim_variable_value == param) &
+        (bouts.trial_time >= t_start) &
+        (bouts.trial_time <= t_stop)
+    )
+    return MaskResult(name, mask)
+
+def loomings_mask(
+        bouts: pd.DataFrame, 
+        param: Optional[Any], 
+        t_start: float, 
+        t_stop: float
+    ) -> Tuple[bool, str, pd.Series]:
+
+    if t_start >= 10:
+        return None
+    
+    name = f"LOOMING_{param}_{t_start}-{t_stop}s"
+    mask = (
+        (bouts.stim == Stim.LOOMING) &
+        (bouts.stim_variable_value == param) &
+        (bouts.trial_time >= t_start) &
+        (bouts.trial_time <= t_stop)
+    )
+    return MaskResult(name, mask)
+
+# TODO: these are a bit brittle since they rely on the organization of the protocol
+# (hardcoded trial_num for given stimulus)
+def dark_mask(        
+        bouts: pd.DataFrame, 
+        param: Optional[Any], 
+        t_start: float, 
+        t_stop: float
+    ) -> Tuple[bool, str, pd.Series]:
+
+    name = f"DARK_{t_start}-{t_stop}s"
+    mask = (
+        (bouts.stim == Stim.DARK) &
+        (bouts.trial_num >= 10) &
+        (bouts.trial_num < 20) &
+        (bouts.trial_time >= t_start) &
+        (bouts.trial_time <= t_stop)
+    )
+    return MaskResult(name, mask)
+
+def bright_mask(        
+        bouts: pd.DataFrame, 
+        param: Optional[Any], 
+        t_start: float, 
+        t_stop: float
+    ) -> Tuple[bool, str, pd.Series]:
+
+    name = f"BRIGHT_{t_start}-{t_stop}s"
+    mask = (
+        (bouts.stim == Stim.BRIGHT) &
+        (bouts.stim_variable_value == '[0.2, 0.2, 0.0, 1.0]') &
+        (bouts.trial_num >= 5) &
+        (bouts.trial_time >= t_start) &
+        (bouts.trial_time <= t_stop)
+    )
+    return MaskResult(name, mask)
+
+def bright2dark_mask(        
+        bouts: pd.DataFrame, 
+        param: Optional[Any], 
+        t_start: float, 
+        t_stop: float
+    ) -> Tuple[bool, str, pd.Series]:
+
+    if t_start >= 5:
+        return None
+        
+    name = f"BRIGHT->DARK_{t_start}-{t_stop}s"
+    mask = (
+        (bouts.stim == Stim.DARK) &
+        (bouts.trial_num >= 20) &
+        (bouts.trial_num < 25) &
+        (bouts.trial_time >= t_start) &
+        (bouts.trial_time <= t_stop)
+    )
+    return MaskResult(name, mask)
+
+def add_heatmap_column(
+        bouts: pd.DataFrame, 
+        heatmap_df: pd.DataFrame,
+        name: str, 
+        mask: pd.Series
+    ) -> pd.DataFrame:
     
     sides = ['L', 'R']
-    num_cat = len(bouts_category_name_short)
     row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
+    df_sub = bouts[mask]
 
-    heatmap_df = pd.DataFrame()
+    counts = []
+    for cat in range(num_bouts_categories):
+        left = df_sub[(df_sub.category == cat) & (df_sub.sign == -1)].shape[0]
+        right = df_sub[(df_sub.category == cat) & (df_sub.sign == 1)].shape[0]
+        counts.extend([left, right])
 
-    epochs = {}
+    counts = pd.Series(counts, index=row_labels)
+    if counts.sum() > 0:
+        counts /= counts.sum()
 
-    # DARK
-    for start, stop in time_bins:
-        name = f"DARK_{start}-{stop}s"
-        epochs[name] = (
-            (bouts.stim == Stim.DARK) &
-            (bouts.trial_num >= 10) &
-            (bouts.trial_num < 20) &
-            (bouts.trial_time >= start) &
-            (bouts.trial_time <= stop)
-        )
-        
-    # BRIGHT
-    for start, stop in time_bins:
-        name = f"BRIGHT_{start}-{stop}s"
-        epochs[name] = (
-            (bouts.stim == Stim.BRIGHT) &
-            (bouts.stim_variable_value == '[0.2, 0.2, 0.0, 1.0]') &
-            (bouts.trial_num >= 5) &
-            (bouts.trial_time >= start) &
-            (bouts.trial_time <= stop)
-        )
-
-    for stim, param_list in stimuli.items():
-        for start, stop in time_bins:
-            for p in param_list:
-
-                if stim in {Stim.OKR, Stim.OMR, Stim.LOOMING} and start >= 10:
-                    continue
-                if stim is Stim.PHOTOTAXIS and start >= 5:
-                    continue
-
-                name = f"{stim.name}_{p}_{start}-{stop}s"
-
-                epochs[name] = (
-                    (bouts.stim == stim) &
-                    (bouts.stim_variable_value == p) &
-                    (bouts.trial_time >= start) &
-                    (bouts.trial_time <= stop)
-                )
-
-    # O-BEND
-    for start, stop in time_bins:
-        if start >= 5:
-            break
-
-        name = f"BRIGHT->DARK_{start}-{stop}s"
-        epochs[name] = (
-            (bouts.stim == Stim.DARK) &
-            (bouts.trial_num >= 20) &
-            (bouts.trial_num < 25) &
-            (bouts.trial_time >= start) &
-            (bouts.trial_time <= stop)
-        )
-
-    for name, mask in epochs.items():
-
-        df_sub = bouts[
-            mask &
-            (bouts.proba > 0.5) &
-            (bouts.distance_center < 15)
-        ]
-
-        counts = []
-        for cat in range(num_cat):
-            left = df_sub[(df_sub.category == cat) & (df_sub.sign == -1)].shape[0]
-            right = df_sub[(df_sub.category == cat) & (df_sub.sign == 1)].shape[0]
-            counts.extend([left, right])
-
-        counts = pd.Series(counts, index=row_labels)
-        if counts.sum() > 0:
-            counts /= counts.sum()
-
-        heatmap_df[name] = counts
+    heatmap_df[name] = counts
     
     return heatmap_df
 
+def add_stim(
+        bouts: pd.DataFrame,
+        heatmap_df: pd.DataFrame,
+        mask_function: MaskFn,
+        stim_parameters: List
+    ) -> pd.DataFrame:
+
+    for t_start, t_stop in time_bins:
+        for param in stim_parameters:
+            result = mask_function(bouts, param, t_start, t_stop)
+            
+            if result is None:
+                continue
+                
+            heatmap_df = add_heatmap_column(
+                bouts, 
+                heatmap_df,
+                result.name,
+                result.mask
+            )
+    
+    return heatmap_df
 
 def plot_bout_heatmap(fig, ax, heatmap_df) -> None:
 
     im = ax.imshow(heatmap_df, aspect='auto', cmap='inferno')
     fig.colorbar(im, ax=ax, label='prob.')
-
     ax.set_xticks(range(len(heatmap_df.columns)))
     ax.set_xticklabels(heatmap_df.columns, rotation=90, ha='center')
-
     ax.set_yticks(range(len(heatmap_df.index)))
     ax.set_yticklabels(heatmap_df.index)
-
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Category")
 
+def main(args: argparse.Namespace) -> None:
 
-heatmap_df = get_bouts_heatmap(bouts)
-fig = plt.figure(figsize=(20, 8))
-ax = fig.gca()
-plot_bout_heatmap(fig, ax, heatmap_df)
-fig.tight_layout()
-plt.savefig("categories_vs_time.png")
-plt.show()
+    input_csv = args.root / args.bouts_csv
+    output_png = args.root / args.bouts_png
+
+    # load bouts
+    bouts = load_bouts(input_csv)
+    filtered_bouts = filter_bouts(bouts)
+
+    # construct heatmap
+    heatmap_df = pd.DataFrame()
+    heatmap_df = add_stim(filtered_bouts, heatmap_df, dark_mask, [None])
+    heatmap_df = add_stim(filtered_bouts, heatmap_df, bright_mask, [None])
+    heatmap_df = add_stim(filtered_bouts, heatmap_df, prey_capture_mask, ['-20', '20'])
+    heatmap_df = add_stim(filtered_bouts, heatmap_df, phototaxis_mask, ['-1', '1'])
+    heatmap_df = add_stim(filtered_bouts, heatmap_df, omr_mask, ['-90','90'])
+    heatmap_df = add_stim(filtered_bouts, heatmap_df, omr_mask, ['0'])
+    heatmap_df = add_stim(filtered_bouts, heatmap_df, okr_mask, ['-36','36'])
+    heatmap_df = add_stim(filtered_bouts, heatmap_df, loomings_mask, ['-3','3'])
+    heatmap_df = add_stim(filtered_bouts, heatmap_df, bright2dark_mask, [None])
+
+    # plot and save
+    fig = plt.figure(figsize=(20, 8))
+    ax = fig.gca()
+    plot_bout_heatmap(fig, ax, heatmap_df)
+    fig.tight_layout()
+    plt.savefig(output_png)
+    plt.show()
+
+if __name__ == "__main__":
+
+    main(build_parser().parse_args())
