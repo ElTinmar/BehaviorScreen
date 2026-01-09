@@ -245,9 +245,9 @@ def add_heatmap_column(
     df_sub = bouts[mask]
 
     counts = []
-    for cat in range(num_bouts_categories):
-        left = df_sub[(df_sub.category == cat) & (df_sub.sign == -1)].shape[0]
-        right = df_sub[(df_sub.category == cat) & (df_sub.sign == 1)].shape[0]
+    for idx, cat_name in enumerate(bouts_category_name_short):
+        left = df_sub[(df_sub.category == idx) & (df_sub.sign == -1)].shape[0]
+        right = df_sub[(df_sub.category == idx) & (df_sub.sign == 1)].shape[0]
         counts.extend([left, right])
 
     counts = pd.Series(counts, index=row_labels)
