@@ -29,7 +29,7 @@ def keep_user_labeled_only(input_slp, output_slp):
         if any([True for i in f.instances if not isinstance(i, PredictedInstance)])
     ]
     labels.suggestions = []
-    labels.save(output_slp)
+    labels.save(output_slp, embed=True)
 
 def remove_all_predicted_instances(input_slp, output_slp):
     labels = sio.load_file(input_slp)
