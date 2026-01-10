@@ -121,6 +121,10 @@ def megabout_fulltracking_pipeline(
 
     return megabout_results
 
+# TODO 
+def save_bouts(megabout_results: MegaboutResults) -> None:
+    ...
+
 def get_bout_metrics(
         directories: Directories,
         behavior_data: BehaviorData, 
@@ -338,6 +342,7 @@ def run_megabouts(
     for behavior_file in tqdm(behavior_files):
         behavior_data = load_data(behavior_file)
         megabout = megabout_fulltracking_pipeline(behavior_data)
+        # save_bouts(megabout)
         bout_metrics = get_bout_metrics(directories, behavior_data, behavior_file, megabout)
         bouts_data.extend(bout_metrics)
     bouts = pd.DataFrame(bouts_data)
