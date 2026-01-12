@@ -5,7 +5,7 @@ import subprocess
 import shutil
 from zipfile import ZipFile
 
-from BehaviorScreen.config import LIGHTNING_POSE_MODEL_URL
+LIGHTNING_POSE_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/cysLNkUMxr3emTn/download"
 
 def download_model(
         url: str = LIGHTNING_POSE_MODEL_URL, 
