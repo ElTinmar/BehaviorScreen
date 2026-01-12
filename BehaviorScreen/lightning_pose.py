@@ -83,6 +83,7 @@ def estimate_pose(
         print(f"No video files found in {video_directory}")
         return  
     
+    # f"--overrides data.data_dir={model_directory}"
     for video in videos:
         print(f"Processing {video}...")
         cmd = [
