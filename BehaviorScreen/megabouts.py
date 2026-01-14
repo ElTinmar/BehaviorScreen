@@ -279,7 +279,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lightning-pose",
         default="lightning_pose",
-        help="Subfolder containing lightning pose tracking CSV files (default: data)",
+        help="Subfolder containing lightning pose tracking CSV files (default: lightning_pose)",
     )
 
     parser.add_argument(
@@ -351,6 +351,7 @@ def run_megabouts(
         plots=plots
     )
     behavior_files = find_files(directories)
+    print(behavior_files)
 
     bout_stim = []
     megabout_results = {}

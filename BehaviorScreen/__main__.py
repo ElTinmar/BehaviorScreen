@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
         default='megabout.pkl',
         help="Output pickle file containing megabouts results",
     )
-    
+
     parser.add_argument(
         "--bouts-png",
         default='bouts.png',
@@ -82,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lightning-pose",
         default="lightning_pose",
-        help="Subfolder containing lightning pose tracking CSV files (default: data)",
+        help="Subfolder containing lightning pose tracking CSV files (default: lightning_pose)",
     )
 
     parser.add_argument(
