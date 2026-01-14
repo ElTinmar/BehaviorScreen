@@ -21,3 +21,10 @@ python -m BehaviorScreen.lightning_pose
 ```
 python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 ```
+
+## TODO
+
+- overlay bout classification on video
+- overlay reconstructed stimulus on video
+- save full data out of megabouts with reference/pointer in bouts.csv
+- eye tracking: imbalance in the training data? might need to annotate more during OKR? might need another model altogether
