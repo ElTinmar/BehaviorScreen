@@ -24,7 +24,6 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 
 ## TODO
 
-
 - overlay bout classification on video
 - overlay reconstructed stimulus on video
 
