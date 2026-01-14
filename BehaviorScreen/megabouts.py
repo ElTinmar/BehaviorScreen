@@ -129,7 +129,8 @@ def get_bout_metrics(
         directories: Directories,
         behavior_data: BehaviorData, 
         behavior_files: BehaviorFiles,
-        megabout: MegaboutResults
+        megabout: MegaboutResults,
+        rollover_time_s: int = 3600
     ) -> List[Dict]:
 
     well_coords_mm = get_well_coords_mm(directories, behavior_files, behavior_data)
@@ -196,7 +197,7 @@ def get_bout_metrics(
                         stim_phase = prey_capture_arc_stimulus_cosine(
                             row.start_time_sec,
                             trial_time,
-                            3600,
+                            rollover_time_s,
                             row.prey_arc_start_deg,
                             row.prey_arc_stop_deg,
                             row.prey_speed_deg_s
@@ -205,6 +206,10 @@ def get_bout_metrics(
 
                     rows.append({
                         'file': behavior_files.metadata.stem,
+                        'frame_start': on,
+                        'frame_stop': off,
+                        'time_start': megabout.timestamp[on],
+                        'time_stop': megabout.timestamp[off],
                         'stim': stim_select,
                         'stim_variable_name': GROUPING_PARAMETER[stim],
                         'stim_variable_value': str(condition),
