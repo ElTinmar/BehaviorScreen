@@ -1,5 +1,3 @@
-# TODO maybe split in two steps running megabouts and combining with stim data
-
 import numpy as np
 import pandas as pd
 from typing import NamedTuple, Dict, List
