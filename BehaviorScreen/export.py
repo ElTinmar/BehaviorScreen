@@ -11,6 +11,7 @@ from BehaviorScreen.load import (
     find_files,
     load_data
 )
+from BehaviorScreen.process import get_background_image_safe
 
 def ensure_results_dir(directories: Directories) -> None:
     directories.results.mkdir(parents=True, exist_ok=True)
@@ -27,7 +28,13 @@ def export_metadata(
         metadata_file = behavior_file.metadata.stem + f"_fish_{i}.metadata"
         out_path = directories.results / metadata_file
         metadata = behavior_data.metadata.copy()
-        background_img = np.asarray(metadata['background']['image'])
+
+        try:
+            background_img = np.asarray(metadata['background']['image'])
+        except KeyError:
+            # TODO fix the issue 
+            background = get_background_image_safe(behavior_data)
+
         metadata['background']['image_ROI'] = background_img[x:x+w, y:y+h].tolist()
         metadata['export'] = {}
         metadata['export']['fish_ID'] = i
