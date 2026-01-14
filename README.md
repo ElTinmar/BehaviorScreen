@@ -27,5 +27,7 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - overlay bout classification on video
 - overlay reconstructed stimulus on video
 - save full data out of megabouts with reference/pointer in bouts.csv
+- plot trajectories of bouts (loomings, phototaxis)
 - eye tracking: imbalance in the training data? might need to annotate more during OKR? might need another model altogether
+- prey capture: eye convergence, okr: saccades
 - maybe put sleap in a separate environment and use ```conda run```
