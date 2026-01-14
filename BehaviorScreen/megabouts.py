@@ -137,6 +137,8 @@ def get_bout_metrics(
     well_coords_mm = get_well_coords_mm(directories, behavior_files, behavior_data)
     fps = behavior_data.metadata['camera']['framerate_value']
     stim_trials = get_trials(behavior_data)
+    bout_start = megabout.timestamp[megabout.bouts.onset]
+    bout_stop = megabout.timestamp[megabout.bouts.offset]
     
     rows = []
 
@@ -152,21 +154,17 @@ def get_bout_metrics(
 
             for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
 
-                bout_start = megabout.timestamp[megabout.bouts.onset]
-                bout_stop = megabout.timestamp[megabout.bouts.offset]
                 mask = (bout_start > row.start_timestamp) & (bout_stop < row.stop_timestamp) 
 
                 off_previous = np.nan
-                for on, off, category, sign, proba in zip(
+                for on, off, category, sign, proba, bout_index in zip(
                     megabout.bouts.onset[mask], 
                     megabout.bouts.offset[mask],
                     megabout.bouts.category[mask],
                     megabout.bouts.sign[mask],
                     megabout.bouts.proba[mask],
+                    np.flatnonzero(mask)
                 ):
-                    
-                    # TODO bout index 
-                    bout_index = 0
 
                     # heading change
                     heading_change = megabout.traj.yaw_smooth[off] - megabout.traj.yaw_smooth[on]
