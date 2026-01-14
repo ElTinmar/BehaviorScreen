@@ -33,7 +33,7 @@ def export_metadata(
             background_img = np.asarray(metadata['background']['image'])
         except KeyError:
             # TODO fix the issue 
-            background = get_background_image_safe(behavior_data)
+            background_img = get_background_image_safe(behavior_data)
 
         metadata['background']['image_ROI'] = background_img[x:x+w, y:y+h].tolist()
         metadata['export'] = {}
