@@ -28,3 +28,4 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - overlay reconstructed stimulus on video
 - save full data out of megabouts with reference/pointer in bouts.csv
 - eye tracking: imbalance in the training data? might need to annotate more during OKR? might need another model altogether
+- maybe put sleap in a separate environment and use ```conda run```
