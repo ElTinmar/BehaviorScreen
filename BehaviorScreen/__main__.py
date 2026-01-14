@@ -42,6 +42,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--megabout",
+        default='megabout.pkl',
+        help="Output pickle file containing megabouts results",
+    )
+    
+    parser.add_argument(
         "--bouts-png",
         default='bouts.png',
         help="output PNG file",
@@ -151,6 +157,7 @@ def main(args: argparse.Namespace) -> None:
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
+        output_megabout=args.megabout,
         metadata=args.results,
         stimuli=args.results,
         tracking=args.results,
