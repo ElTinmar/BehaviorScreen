@@ -164,6 +164,9 @@ def get_bout_metrics(
                     megabout.bouts.sign[mask],
                     megabout.bouts.proba[mask],
                 ):
+                    
+                    # TODO bout index 
+                    bout_index = 0
 
                     # heading change
                     heading_change = megabout.traj.yaw_smooth[off] - megabout.traj.yaw_smooth[on]
@@ -209,6 +212,7 @@ def get_bout_metrics(
 
                     rows.append({
                         'file': behavior_files.metadata.stem,
+                        'bout_index': bout_index,
                         'frame_start': on,
                         'frame_stop': off,
                         'time_start': start_time,
