@@ -96,6 +96,7 @@ def megabout_fulltracking_pipeline(
     mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
     fps = behavior_data.metadata['camera']['framerate_value']
     timestamps = behavior_data.tracking.timestamp.values
+    # timestamps = behavior_data.video_timestamps.timestamp.values
 
     # configure pipeline
     tracking_cfg = TrackingConfig(fps=fps, tracking="full_tracking")
@@ -188,8 +189,10 @@ def get_bout_metrics(
                     yaw_speed = megabout.traj.yaw_speed[on:off]
                     peak_yaw_speed = yaw_speed[np.argmax(np.abs(yaw_speed))]
 
-                    # trial time
+                    # time
                     trial_time = 1e-9*(megabout.timestamp[on] - row.start_timestamp)
+                    start_time = 1e-9*(megabout.timestamp[on] - megabout.timestamp[0])
+                    stop_time = 1e-9*(megabout.timestamp[off] - megabout.timestamp[0])
 
                     # Stimulus phase
                     stim_phase = np.nan
@@ -208,8 +211,8 @@ def get_bout_metrics(
                         'file': behavior_files.metadata.stem,
                         'frame_start': on,
                         'frame_stop': off,
-                        'time_start': megabout.timestamp[on],
-                        'time_stop': megabout.timestamp[off],
+                        'time_start': start_time,
+                        'time_stop': stop_time,
                         'stim': stim_select,
                         'stim_variable_name': GROUPING_PARAMETER[stim],
                         'stim_variable_value': str(condition),
