@@ -108,5 +108,11 @@ def overlay(
             row = stim_df.loc[frame_num]
             stim_select = row.stim_select
         
+def overlay_pose_estimation() -> None:
+    pass
 
+def overlay_stimulus() -> None:
+    pass
 
+def overlay_bout_classification() -> None:
+    pass
