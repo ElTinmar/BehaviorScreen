@@ -1,5 +1,6 @@
 *.csv
 model/
+8Jan2026
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
