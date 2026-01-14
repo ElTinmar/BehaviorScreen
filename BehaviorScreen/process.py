@@ -23,7 +23,14 @@ from BehaviorScreen.core import (
 def get_background_image(
         behavior_data: BehaviorData
     ) -> np.ndarray:
-    return np.asarray(behavior_data.metadata['background']['image_ROI'], dtype=np.uint8) 
+
+    try:
+        background = np.asarray(behavior_data.metadata['background']['image_ROI'], dtype=np.uint8) 
+    except:
+        # TODO fix the issue 
+        background = get_background_image_2(behavior_data)
+
+    return background
 
 def get_background_image_2(
         behavior_data: BehaviorData, 
