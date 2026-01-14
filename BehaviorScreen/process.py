@@ -24,13 +24,7 @@ def get_background_image(
         behavior_data: BehaviorData
     ) -> np.ndarray:
 
-    try:
-        background = np.asarray(behavior_data.metadata['background']['image_ROI'], dtype=np.uint8) 
-    except KeyError:
-        # TODO fix the issue 
-        background = get_background_image_safe(behavior_data)
-
-    return background
+    return np.asarray(behavior_data.metadata['background']['image_ROI'], dtype=np.uint8)
 
 def get_background_image_safe(
         behavior_data: BehaviorData, 
