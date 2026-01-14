@@ -351,7 +351,6 @@ def run_megabouts(
         plots=plots
     )
     behavior_files = find_files(directories)
-    print(behavior_files)
 
     bout_stim = []
     megabout_results = {}
