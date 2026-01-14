@@ -3,6 +3,7 @@ import argparse
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import re
 
 import matplotlib.pyplot as plt
 
@@ -47,12 +48,23 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
+
+def normalize_stim_values(x: str) -> str:
+
+    _int_float = re.compile(r'^(-?\d+)\.0+$')
+
+    m = _int_float.fullmatch(x)
+    if m:
+        return m.group(1)
+
+    return x
+
 def load_bouts(bout_csv: Path) -> pd.DataFrame:
 
     bouts = pd.read_csv(
         bout_csv,
         converters={
-            "stim_variable_value": lambda x: str(x),
+            "stim_variable_value": normalize_stim_values,
         }
     )
 
