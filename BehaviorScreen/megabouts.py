@@ -5,6 +5,7 @@ import pandas as pd
 from typing import NamedTuple, Dict, List
 import argparse
 from pathlib import Path
+import pickle
 from tqdm import tqdm
 
 from megabouts.tracking_data import TrackingConfig, FullTrackingData
@@ -121,10 +122,6 @@ def megabout_fulltracking_pipeline(
         ) 
 
     return megabout_results
-
-# TODO 
-def save_bouts(megabout_results: MegaboutResults) -> None:
-    ...
 
 def get_bout_metrics(
         directories: Directories,
@@ -251,7 +248,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bouts-csv",
         default='bouts.csv',
-        help="Output CSV file",
+        help="Output CSV file containing bout x visual stim",
+    )
+
+    parser.add_argument(
+        "--megabout",
+        default='megabout.pkl',
+        help="Output pickle file containing megabouts results",
     )
 
     # Directory layout overrides
@@ -317,6 +320,7 @@ def build_parser() -> argparse.ArgumentParser:
 def run_megabouts(
         root: Path,
         output_csv: str,
+        output_megabout: str,
         metadata: str,
         stimuli: str,
         tracking: str,
@@ -348,24 +352,30 @@ def run_megabouts(
     )
     behavior_files = find_files(directories)
 
-    bouts_data = []
+    bout_stim = []
+    megabout_results = {}
     for behavior_file in tqdm(behavior_files):
         behavior_data = load_data(behavior_file)
         megabout = megabout_fulltracking_pipeline(behavior_data)
-        # save_bouts(megabout)
+        megabout_results[behavior_file.metadata.stem] = megabout
         bout_metrics = get_bout_metrics(directories, behavior_data, behavior_file, megabout)
-        bouts_data.extend(bout_metrics)
-    bouts = pd.DataFrame(bouts_data)
+        bout_stim.extend(bout_metrics)
+
+    bouts = pd.DataFrame(bout_stim)
     bouts.to_csv(
         root / output_csv, 
         header=True, 
         index=False
     )
 
+    with open(root / output_megabout, "wb") as f:
+        pickle.dump(megabout_results, f)
+
 def main(args: argparse.Namespace) -> None:
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
+        output_megabout=args.megabout,
         metadata=args.metadata,
         stimuli=args.stimuli,
         tracking=args.tracking,
