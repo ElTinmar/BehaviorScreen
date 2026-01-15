@@ -27,7 +27,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "yaml",
         type=Path,
-        help="Root experiment folder (e.g. WT_oct_2025)",
+        help="plot config file",
     )
 
     parser.add_argument(
@@ -137,7 +137,10 @@ def expand_stimuli(cfg: dict) -> Generator[StimSpec, None, None]:
     for entry in cfg["stimuli"]:
         bins = entry.get("time_bins", global_time_bins)
         params = entry.get("params", [None])
+
         trials = entry.get("trial_range", None)
+        if trials is not None:
+            trials = tuple(trials)
 
         for t_start, t_stop in bins:
             for p in params:
@@ -151,7 +154,7 @@ def expand_stimuli(cfg: dict) -> Generator[StimSpec, None, None]:
 def construct_all_masks(bouts: pd.DataFrame, cfg_path: Path) -> List[MaskResult]:
 
     cfg = load_yaml_config(cfg_path)
-    
+
     masks: List[MaskResult] = []
     for spec in expand_stimuli(cfg):
         masks.append(create_mask(bouts, spec))
