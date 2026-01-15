@@ -32,4 +32,4 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - eye tracking: imbalance in the training data? might need to annotate more during OKR? might need another model altogether
 - prey capture: eye convergence, okr: saccades
 
-- maybe put sleap in a separate environment and use ```conda run```
+- clean dead code in process.py
