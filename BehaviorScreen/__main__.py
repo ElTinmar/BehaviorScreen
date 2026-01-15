@@ -36,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--yaml",
+        default = 'BehaviorScreen/screen.yaml',
+        help="Plot config file",
+    )
+
+    parser.add_argument(
         "--bouts-csv",
         default='bouts.csv',
         help="Output CSV file",
@@ -173,6 +179,7 @@ def main(args: argparse.Namespace) -> None:
     print("4. plot")
     plot_heatmap(
         input_csv = args.root / args.bouts_csv,
+        config_yaml = args.yaml,
         output_png = args.root / args.bouts_png,
     )
 
