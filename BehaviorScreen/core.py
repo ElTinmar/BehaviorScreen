@@ -68,5 +68,3 @@ STIM_PARAMETERS = [
     'ramp_type',
     'start_time_sec'
 ]
-
-COLORS = ("#F1500A", "#0A6EF1", "#333333")
