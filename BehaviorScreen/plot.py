@@ -12,18 +12,6 @@ import matplotlib.pyplot as plt
 from megabouts.utils import bouts_category_name_short   
 from BehaviorScreen.core import Stim
 
-num_bouts_categories = len(bouts_category_name_short)
-
-time_bins = [
-    (0, 2.5),
-    (2.5, 5),
-    (5, 7.5),
-    (7.5, 10),
-    (10, 15),
-    (15, 20),
-    (20, 30),
-]
-
 def build_parser() -> argparse.ArgumentParser:
     
     parser = argparse.ArgumentParser(
