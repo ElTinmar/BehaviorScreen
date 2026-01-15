@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import re
+from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
 
@@ -96,6 +97,55 @@ class MaskFn(Protocol):
         t_stop: float
     ) -> Optional[MaskResult]:
         ...
+
+# TODO there might be a way to use only one function and avoid code duplication
+@dataclass
+class StimSpec:
+    stim: Stim
+    max_time: Optional[float] = None
+    max_trial: Optional[int] = None
+    time_range: Optional[Tuple[int, int]] = None
+    trial_range: Optional[Tuple[int, int]] = None
+    param: Optional[str] = None
+
+def create_mask(bouts: pd.DataFrame, stim_spec: StimSpec) -> Optional[MaskResult]:
+    
+    name_parts = [str(stim_spec.stim)]
+    mask = (bouts.stim == stim_spec.stim)
+
+    if stim_spec.param is not None:
+        mask &= (bouts.stim_variable_value == stim_spec.param) 
+        name_parts.append(stim_spec.param)
+
+    if stim_spec.time_range is not None:
+
+        lo, hi = stim_spec.time_range
+        
+        if stim_spec.max_time is not None:
+            if lo > stim_spec.max_time:
+                return None
+
+        mask &= (bouts.trial_time >= lo) & (bouts.trial_time < hi)
+        name_parts.append(f"{lo}s-{hi}s")    
+    
+    if stim_spec.trial_range is not None:
+
+        lo, hi = stim_spec.trial_range
+
+        if stim_spec.max_trial is not None:
+            if lo > stim_spec.max_trial:
+                return None
+
+        mask &= (bouts.trial_num >= lo) & (bouts.trial_num < hi)
+        name_parts.append(f"trial_#{lo}-trial_#{hi}")    
+
+    name = "_".join(name_parts)
+
+    return MaskResult(name, mask)
+
+MASKS = {
+
+}
 
 def prey_capture_mask(
         bouts: pd.DataFrame, 
@@ -311,6 +361,7 @@ def plot_heatmap(input_csv: Path, output_png: Path) -> None:
     filtered_bouts = filter_bouts(bouts)
 
     # construct heatmap
+    # TODO read from JSON file how you want to construct the heatmap
     heatmap_df = pd.DataFrame()
     heatmap_df = add_stim(filtered_bouts, heatmap_df, dark_mask, [None])
     heatmap_df = add_stim(filtered_bouts, heatmap_df, bright_mask, [None])
