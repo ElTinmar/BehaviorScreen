@@ -120,16 +120,6 @@ def load_yaml_config(path: Path) -> dict:
         cfg = yaml.safe_load(f)
     return cfg
 
-STIM_MAP = {
-    'DARK': Stim.DARK,
-    'BRIGHT': Stim.BRIGHT,
-    'PREY_CAPTURE': Stim.PREY_CAPTURE,
-    'PHOTOTAXIS': Stim.PHOTOTAXIS,
-    'OMR': Stim.OMR,
-    'OKR': Stim.OKR,
-    'LOOMING': Stim.LOOMING,
-}
-
 def expand_stimuli(cfg: dict) -> Generator[StimSpec, None, None]:
 
     global_time_bins = cfg.get("time_bins", [])
@@ -145,7 +135,7 @@ def expand_stimuli(cfg: dict) -> Generator[StimSpec, None, None]:
         for t_start, t_stop in bins:
             for p in params:
                 yield StimSpec(
-                    stim=STIM_MAP[entry["stim"]],
+                    stim=Stim[entry["stim"]],
                     param=p,
                     time_range=(t_start, t_stop),
                     trial_range=trials,
