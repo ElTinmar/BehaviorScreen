@@ -71,13 +71,14 @@ def filter_bouts(bouts: pd.DataFrame) -> pd.DataFrame:
     # TODO adapt this
     return bouts
 
-    filtered_bouts = bouts.copy()
-    filtered_bouts[filtered_bouts['distance_center'] > 9] = np.nan 
-    filtered_bouts[filtered_bouts['proba'] < 0.75] = np.nan
-    filtered_bouts[filtered_bouts['distance'] > 20] = np.nan
-    filtered_bouts[filtered_bouts['peak_axial_speed'] > 300] = np.nan
-
-    return filtered_bouts
+    # filtered_bouts = bouts.copy()
+    # filtered_bouts = filtered_bouts[
+    #     (filtered_bouts['distance_center'] <= 9) &
+    #     (filtered_bouts['proba'] >= 0.80) &
+    #     (filtered_bouts['distance'] <= 25) &
+    #     (filtered_bouts['peak_axial_speed'] <= 300)
+    # ]
+    # return filtered_bouts
 
 class MaskResult(NamedTuple):
     name: str
