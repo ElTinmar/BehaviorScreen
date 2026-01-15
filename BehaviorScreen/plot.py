@@ -185,9 +185,10 @@ def add_heatmap_column(
     
     return heatmap_df
 
-def plot_bout_heatmap(fig, ax, heatmap_df) -> None:
+def plot_bout_heatmap(fig, ax, heatmap_df, max_prob: float = 0.35) -> None:
 
     im = ax.imshow(heatmap_df, aspect='auto', cmap='inferno')
+    im.set_clim(0, max_prob)
     fig.colorbar(im, ax=ax, label='prob.')
     ax.set_xticks(range(len(heatmap_df.columns)))
     ax.set_xticklabels(heatmap_df.columns, rotation=90, ha='center')
