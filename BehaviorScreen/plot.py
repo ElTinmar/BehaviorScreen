@@ -1,4 +1,4 @@
-from typing import List, Tuple, Optional, Any, Protocol, NamedTuple, Generator
+from typing import List, Tuple, Optional, NamedTuple, Generator
 import argparse
 from pathlib import Path
 import pandas as pd
