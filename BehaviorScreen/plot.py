@@ -91,8 +91,7 @@ class StimSpec:
     trial_range: Optional[Tuple[int, int]] = None
     param: Optional[str] = None
 
-
-def create_mask(bouts: pd.DataFrame, stim_spec: StimSpec) -> Optional[MaskResult]:
+def create_mask(bouts: pd.DataFrame, stim_spec: StimSpec) -> MaskResult:
     
     name_parts = [str(stim_spec.stim)]
     mask = (bouts.stim == stim_spec.stim)
@@ -152,21 +151,20 @@ def expand_stimuli(cfg: dict) -> Generator[StimSpec, None, None]:
 def construct_all_masks(bouts: pd.DataFrame, cfg_path: Path) -> List[MaskResult]:
 
     cfg = load_yaml_config(cfg_path)
+    
     masks: List[MaskResult] = []
-
     for spec in expand_stimuli(cfg):
-        result = create_mask(bouts, spec)
-        if result is not None:
-            masks.append(result)
+        masks.append(create_mask(bouts, spec))
 
     return masks
 
+# side-effect mutate heatmap_df
 def add_heatmap_column(
         bouts: pd.DataFrame, 
         heatmap_df: pd.DataFrame,
         name: str, 
         mask: pd.Series
-    ) -> pd.DataFrame:
+    ) -> None:
     
     sides = ['L', 'R']
     row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
@@ -184,7 +182,6 @@ def add_heatmap_column(
 
     heatmap_df[name] = counts
     
-    return heatmap_df
 
 def plot_bout_heatmap(fig, ax, heatmap_df, max_prob: float = 0.35) -> None:
 
