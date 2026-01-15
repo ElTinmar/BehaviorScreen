@@ -17,18 +17,40 @@ stimuli:
     params: ["-20", "20"]
   - stim: PHOTOTAXIS
     params: ["-1", "1"]
-time_bins:
+    time_bins:
       - [0, 1]
   - stim: OMR
     params: ["-90", "90"]
+    time_bins:
+      - [0, 2.5]
+      - [2.5, 5]
+      - [5, 7.5]
+      - [7.5, 10]
   - stim: OMR
     params: ["0"]
+    time_bins:
+      - [0, 2.5]
+      - [2.5, 5]
+      - [5, 7.5]
+      - [7.5, 10]
   - stim: OKR
     params: ["-36", "36"]
+    time_bins:
+      - [0, 2.5]
+      - [2.5, 5]
+      - [5, 7.5]
+      - [7.5, 10]
   - stim: LOOMING
     params: ["-3", "3"]
+    time_bins:
+      - [3, 4]
+      - [4, 5]
+      - [5, 6]
+      - [6, 7]
   - stim: DARK
     time_bins:
       - [0, 1]
+      - [1, 2]
+      - [2, 3]
     trial_range: [20, 25]
 

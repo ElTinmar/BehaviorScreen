@@ -222,7 +222,7 @@ def plot_heatmap(
         add_heatmap_column(filtered_bouts, heatmap_df, mask.name, mask.mask)
 
     # plot and save
-    fig = plt.figure(figsize=(20, 8))
+    fig = plt.figure(figsize=(20, 10))
     ax = fig.gca()
     plot_bout_heatmap(fig, ax, heatmap_df)
     fig.tight_layout()
