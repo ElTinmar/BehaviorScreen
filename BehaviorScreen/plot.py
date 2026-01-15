@@ -1,9 +1,10 @@
-from typing import List, Tuple, Optional, Any, Protocol, NamedTuple
+from typing import List, Tuple, Optional, Any, Protocol, NamedTuple, Generator
 import argparse
 from pathlib import Path
 import pandas as pd
 import numpy as np
 import re
+import yaml
 from dataclasses import dataclass
 
 import matplotlib.pyplot as plt
@@ -31,6 +32,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "root",
+        type=Path,
+        help="Root experiment folder (e.g. WT_oct_2025)",
+    )
+
+    parser.add_argument(
+        "yaml",
         type=Path,
         help="Root experiment folder (e.g. WT_oct_2025)",
     )
@@ -88,25 +95,13 @@ class MaskResult(NamedTuple):
     name: str
     mask: pd.Series
 
-class MaskFn(Protocol):
-    def __call__(
-        self, 
-        bouts: pd.DataFrame, 
-        param: Optional[Any], 
-        t_start: float, 
-        t_stop: float
-    ) -> Optional[MaskResult]:
-        ...
-
-# TODO there might be a way to use only one function and avoid code duplication
 @dataclass
 class StimSpec:
     stim: Stim
-    max_time: Optional[float] = None
-    max_trial: Optional[int] = None
     time_range: Optional[Tuple[int, int]] = None
     trial_range: Optional[Tuple[int, int]] = None
     param: Optional[str] = None
+
 
 def create_mask(bouts: pd.DataFrame, stim_spec: StimSpec) -> Optional[MaskResult]:
     
@@ -118,24 +113,12 @@ def create_mask(bouts: pd.DataFrame, stim_spec: StimSpec) -> Optional[MaskResult
         name_parts.append(stim_spec.param)
 
     if stim_spec.time_range is not None:
-
         lo, hi = stim_spec.time_range
-        
-        if stim_spec.max_time is not None:
-            if lo > stim_spec.max_time:
-                return None
-
         mask &= (bouts.trial_time >= lo) & (bouts.trial_time < hi)
         name_parts.append(f"{lo}s-{hi}s")    
     
     if stim_spec.trial_range is not None:
-
         lo, hi = stim_spec.trial_range
-
-        if stim_spec.max_trial is not None:
-            if lo > stim_spec.max_trial:
-                return None
-
         mask &= (bouts.trial_num >= lo) & (bouts.trial_num < hi)
         name_parts.append(f"trial_#{lo}-trial_#{hi}")    
 
@@ -143,157 +126,51 @@ def create_mask(bouts: pd.DataFrame, stim_spec: StimSpec) -> Optional[MaskResult
 
     return MaskResult(name, mask)
 
-MASKS = {
+def load_yaml_config(path: Path) -> dict:
+    """Load YAML config from file"""
+    with open(path, 'r') as f:
+        cfg = yaml.safe_load(f)
+    return cfg
 
+STIM_MAP = {
+    'DARK': Stim.DARK,
+    'BRIGHT': Stim.BRIGHT,
+    'PREY_CAPTURE': Stim.PREY_CAPTURE,
+    'PHOTOTAXIS': Stim.PHOTOTAXIS,
+    'OMR': Stim.OMR,
+    'OKR': Stim.OKR,
+    'LOOMING': Stim.LOOMING,
 }
 
-def prey_capture_mask(
-        bouts: pd.DataFrame, 
-        param: Optional[Any], 
-        t_start: float, 
-        t_stop: float
-    ) -> Tuple[bool, str, pd.Series]:
+def expand_stimuli(cfg: dict) -> Generator[StimSpec, None, None]:
 
-    name = f"PREY_CAPTURE_{param}_{t_start}-{t_stop}s"
-    mask = (
-        (bouts.stim == Stim.PREY_CAPTURE) &
-        (bouts.stim_variable_value == param) &
-        (bouts.trial_time >= t_start) &
-        (bouts.trial_time <= t_stop)
-    )
-    return MaskResult(name, mask)
+    global_time_bins = cfg.get("time_bins", [])
 
-def omr_mask(
-        bouts: pd.DataFrame, 
-        param: Optional[Any], 
-        t_start: float, 
-        t_stop: float
-    ) -> Tuple[bool, str, pd.Series]:
+    for entry in cfg["stimuli"]:
+        bins = entry.get("time_bins", global_time_bins)
+        params = entry.get("params", [None])
+        trials = entry.get("trial_range", None)
 
-    if t_start >= 10:
-        return None
-    
-    name = f"OMR_{param}_{t_start}-{t_stop}s"
-    mask = (
-        (bouts.stim == Stim.OMR) &
-        (bouts.stim_variable_value == param) &
-        (bouts.trial_time >= t_start) &
-        (bouts.trial_time <= t_stop)
-    )
-    return MaskResult(name, mask)
+        for t_start, t_stop in bins:
+            for p in params:
+                yield StimSpec(
+                    stim=STIM_MAP[entry["stim"]],
+                    param=p,
+                    time_range=(t_start, t_stop),
+                    trial_range=trials,
+                )
 
-def okr_mask(
-        bouts: pd.DataFrame, 
-        param: Optional[Any], 
-        t_start: float, 
-        t_stop: float
-    ) -> Tuple[bool, str, pd.Series]:
+def construct_all_masks(bouts: pd.DataFrame, cfg_path: Path) -> List[MaskResult]:
 
-    if t_start >= 10:
-        return None
-    
-    name = f"OKR_{param}_{t_start}-{t_stop}s"
-    mask = (
-        (bouts.stim == Stim.OKR) &
-        (bouts.stim_variable_value == param) &
-        (bouts.trial_time >= t_start) &
-        (bouts.trial_time <= t_stop)
-    )
-    return MaskResult(name, mask)
+    cfg = load_yaml_config(cfg_path)
+    masks: List[MaskResult] = []
 
-def phototaxis_mask(
-        bouts: pd.DataFrame, 
-        param: Optional[Any], 
-        t_start: float, 
-        t_stop: float
-    ) -> Tuple[bool, str, pd.Series]:
+    for spec in expand_stimuli(cfg):
+        result = create_mask(bouts, spec)
+        if result is not None:
+            masks.append(result)
 
-    if t_start >= 5:
-        return None
-    
-    name = f"PHOTOTAXIS_{param}_{t_start}-{t_stop}s"
-    mask = (
-        (bouts.stim == Stim.PHOTOTAXIS) &
-        (bouts.stim_variable_value == param) &
-        (bouts.trial_time >= t_start) &
-        (bouts.trial_time <= t_stop)
-    )
-    return MaskResult(name, mask)
-
-def loomings_mask(
-        bouts: pd.DataFrame, 
-        param: Optional[Any], 
-        t_start: float, 
-        t_stop: float
-    ) -> Tuple[bool, str, pd.Series]:
-
-    if t_start >= 10:
-        return None
-    
-    name = f"LOOMING_{param}_{t_start}-{t_stop}s"
-    mask = (
-        (bouts.stim == Stim.LOOMING) &
-        (bouts.stim_variable_value == param) &
-        (bouts.trial_time >= t_start) &
-        (bouts.trial_time <= t_stop)
-    )
-    return MaskResult(name, mask)
-
-# TODO: these are a bit brittle since they rely on the organization of the protocol
-# (hardcoded trial_num for given stimulus)
-def dark_mask(        
-        bouts: pd.DataFrame, 
-        param: Optional[Any], 
-        t_start: float, 
-        t_stop: float
-    ) -> Tuple[bool, str, pd.Series]:
-
-    name = f"DARK_{t_start}-{t_stop}s"
-    mask = (
-        (bouts.stim == Stim.DARK) &
-        (bouts.trial_num >= 10) &
-        (bouts.trial_num < 20) &
-        (bouts.trial_time >= t_start) &
-        (bouts.trial_time <= t_stop)
-    )
-    return MaskResult(name, mask)
-
-def bright_mask(        
-        bouts: pd.DataFrame, 
-        param: Optional[Any], 
-        t_start: float, 
-        t_stop: float
-    ) -> Tuple[bool, str, pd.Series]:
-
-    name = f"BRIGHT_{t_start}-{t_stop}s"
-    mask = (
-        (bouts.stim == Stim.BRIGHT) &
-        (bouts.stim_variable_value == '[0.2, 0.2, 0.0, 1.0]') &
-        (bouts.trial_num >= 5) &
-        (bouts.trial_time >= t_start) &
-        (bouts.trial_time <= t_stop)
-    )
-    return MaskResult(name, mask)
-
-def bright2dark_mask(        
-        bouts: pd.DataFrame, 
-        param: Optional[Any], 
-        t_start: float, 
-        t_stop: float
-    ) -> Tuple[bool, str, pd.Series]:
-
-    if t_start >= 5:
-        return None
-        
-    name = f"BRIGHT->DARK_{t_start}-{t_stop}s"
-    mask = (
-        (bouts.stim == Stim.DARK) &
-        (bouts.trial_num >= 20) &
-        (bouts.trial_num < 25) &
-        (bouts.trial_time >= t_start) &
-        (bouts.trial_time <= t_stop)
-    )
-    return MaskResult(name, mask)
+    return masks
 
 def add_heatmap_column(
         bouts: pd.DataFrame, 
@@ -320,29 +197,6 @@ def add_heatmap_column(
     
     return heatmap_df
 
-def add_stim(
-        bouts: pd.DataFrame,
-        heatmap_df: pd.DataFrame,
-        mask_function: MaskFn,
-        stim_parameters: List
-    ) -> pd.DataFrame:
-
-    for t_start, t_stop in time_bins:
-        for param in stim_parameters:
-            result = mask_function(bouts, param, t_start, t_stop)
-            
-            if result is None:
-                continue
-                
-            heatmap_df = add_heatmap_column(
-                bouts, 
-                heatmap_df,
-                result.name,
-                result.mask
-            )
-    
-    return heatmap_df
-
 def plot_bout_heatmap(fig, ax, heatmap_df) -> None:
 
     im = ax.imshow(heatmap_df, aspect='auto', cmap='inferno')
@@ -354,24 +208,18 @@ def plot_bout_heatmap(fig, ax, heatmap_df) -> None:
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Category")
 
-def plot_heatmap(input_csv: Path, output_png: Path) -> None:
+def plot_heatmap(
+        input_csv: Path, 
+        config_yaml: Path, 
+        output_png: Path
+    ) -> None:
 
-    # load bouts
     bouts = load_bouts(input_csv)
     filtered_bouts = filter_bouts(bouts)
 
-    # construct heatmap
-    # TODO read from JSON file how you want to construct the heatmap
     heatmap_df = pd.DataFrame()
-    heatmap_df = add_stim(filtered_bouts, heatmap_df, dark_mask, [None])
-    heatmap_df = add_stim(filtered_bouts, heatmap_df, bright_mask, [None])
-    heatmap_df = add_stim(filtered_bouts, heatmap_df, prey_capture_mask, ['-20', '20'])
-    heatmap_df = add_stim(filtered_bouts, heatmap_df, phototaxis_mask, ['-1', '1'])
-    heatmap_df = add_stim(filtered_bouts, heatmap_df, omr_mask, ['-90','90'])
-    heatmap_df = add_stim(filtered_bouts, heatmap_df, omr_mask, ['0'])
-    heatmap_df = add_stim(filtered_bouts, heatmap_df, okr_mask, ['-36','36'])
-    heatmap_df = add_stim(filtered_bouts, heatmap_df, loomings_mask, ['-3','3'])
-    heatmap_df = add_stim(filtered_bouts, heatmap_df, bright2dark_mask, [None])
+    for mask in construct_all_masks(filtered_bouts, config_yaml):
+        add_heatmap_column(filtered_bouts, heatmap_df, mask.name, mask.mask)
 
     # plot and save
     fig = plt.figure(figsize=(20, 8))
@@ -385,7 +233,8 @@ def main(args: argparse.Namespace) -> None:
 
     input_csv = args.root / args.bouts_csv
     output_png = args.root / args.bouts_png
-    plot_heatmap(input_csv, output_png)
+    config_yaml = args.yaml
+    plot_heatmap(input_csv, config_yaml, output_png)
 
 if __name__ == "__main__":
 
