@@ -1,4 +1,18 @@
+from pathlib import Path
+import argparse 
+from dataclasses import dataclass, field
+
 import numpy as np
+import pandas as pd
+from  tqdm import tqdm
+
+from BehaviorScreen.load import (
+    Directories, 
+    BehaviorData,
+    BehaviorFiles,
+    find_files, 
+    load_data
+)
 
 PI = np.pi
 
@@ -35,6 +49,80 @@ IMAGE = 9
 RAMP = 10
 TURING = 11
 
+
+MAX_PREY = 64
+
+@dataclass
+class Param:
+    # Colors
+    u_foreground_color: list = field(default_factory=lambda: [1.0, 1.0, 1.0, 0.2])
+    u_background_color: list = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.2])
+
+    # General
+    u_coordinate_system: int = 0
+    u_stim_select: float = 0.0
+    u_phototaxis_polarity: float = 1.0
+
+    # OMR
+    u_omr_spatial_period_mm: float = 10.0
+    u_omr_angle_deg: float = 0.0
+    u_omr_speed_mm_per_sec: float = 0.0
+
+    # Turing
+    u_turing_spatial_period_mm: float = 10.0
+    u_turing_angle_deg: float = 0.0
+    u_turing_speed_mm_per_sec: float = 0.0
+    u_turing_n_waves: float = 1.0
+
+    # Concentric
+    u_concentric_spatial_period_mm: float = 10.0
+    u_concentric_speed_mm_per_sec: float = 0.0
+
+    # OKR
+    u_okr_spatial_frequency_deg: float = 1.0
+    u_okr_speed_deg_per_sec: float = 0.0
+
+    # Looming
+    u_looming_type: int = 0
+    u_looming_center_mm: list = field(default_factory=lambda: [0.0, 0.0])
+    u_looming_period_sec: float = 1.0
+    u_looming_expansion_time_sec: float = 0.5
+    u_looming_expansion_speed_mm_per_sec: float = 0.0
+    u_looming_expansion_speed_deg_per_sec: float = 0.0
+    u_looming_angle_start_deg: float = 0.0
+    u_looming_angle_stop_deg: float = 90.0
+    u_looming_size_to_speed_ratio_ms: float = 1.0
+    u_looming_distance_to_screen_mm: float = 100.0
+
+    # Dot
+    u_dot_center_mm: list = field(default_factory=lambda: [0.0, 0.0])
+    u_dot_radius_mm: float = 1.0
+
+    # Prey capture
+    u_prey_capture_type: int = 0
+    u_prey_periodic_function: int = 0
+    u_n_preys: float = 0.0
+    u_prey_radius_mm: float = 1.0
+    u_prey_trajectory_radius_mm: float = 5.0
+    u_prey_speed_mm_s: float = 0.0
+    u_prey_speed_deg_s: float = 0.0
+    u_prey_arc_start_deg: float = 0.0
+    u_prey_arc_stop_deg: float = 360.0
+    u_prey_arc_phase_deg: float = 0.0
+    u_prey_position: np.ndarray = field(default_factory=lambda: np.zeros((MAX_PREY, 2)))
+    u_prey_trajectory_angle: np.ndarray = field(default_factory=lambda: np.zeros(MAX_PREY))
+
+    # Image stimulus
+    u_image_texture: int = 0
+    u_image_size: list = field(default_factory=lambda: [0.0, 0.0])
+    u_image_res_px_per_mm: float = 10.0
+    u_image_offset_mm: list = field(default_factory=lambda: [0.0, 0.0])
+
+    # Ramp
+    u_ramp_duration_sec: float = 1.0
+    u_ramp_powerlaw_exponent: float = 1.0
+    u_ramp_type: int = 0
+
 def mod(a, b):
     return a - b * np.floor(a / b)
 
@@ -44,16 +132,69 @@ def mix(a, b, t):
 def hash1(x):
     return np.mod(np.sin(x * 127.1) * 43758.5453, 1.0)
 
-
 def alpha_blend(background_rgb, overlay_rgba):
-    alpha = overlay_rgba[..., 3:4]
-    return background_rgb * (1 - alpha) + overlay_rgba[..., :3] * alpha
+
+    bg = background_rgb.astype(np.float32) / 255.0
+    fg = overlay_rgba.astype(np.float32)
+    
+    alpha = fg[..., 3:4]  
+    blended = bg * (1 - alpha) + fg[..., :3] * alpha
+    return (blended * 255).clip(0, 255).astype(np.uint8)
 
 def make_coords_mm(width_px, height_px, mm_per_pixel, center_mm=(0.0, 0.0)):
     x = (np.arange(width_px) - width_px / 2) * mm_per_pixel + center_mm[0]
     y = (height_px / 2 - np.arange(height_px)) * mm_per_pixel + center_mm[1]
     X, Y = np.meshgrid(x, y)
     return X, Y
+
+
+def egocentric_coords_mm(image_shape, centroid, pc1, pc2, mm_per_pixel):
+    """
+    Generate a coordinate grid in mm, centered on centroid and aligned
+    such that:
+        pc1 defines the +y axis
+        pc2 defines the +x axis
+
+    Parameters
+    ----------
+    image_shape : tuple
+        (H, W) of the image.
+    centroid : array-like
+        (x, y) pixel coordinates of centroid.
+    pc1 : array-like
+        (x, y) pixel vector for principal component 1.
+    pc2 : array-like
+        (x, y) pixel vector for principal component 2.
+    mm_per_pixel : float
+        Conversion factor from pixels to millimeters.
+
+    Returns
+    -------
+    coords_mm : ndarray
+        Array of shape (H, W, 2), where coords_mm[..., 0] is x_mm
+        and coords_mm[..., 1] is y_mm.
+    """
+    H, W = image_shape[:2]
+
+    # Create pixel coordinate grid (x increases right, y increases down)
+    xs = np.arange(W)
+    ys = np.arange(H)
+    X, Y = np.meshgrid(xs, ys)
+    coords = np.stack([X, Y], axis=-1).astype(float)
+
+    centroid = np.asarray(centroid, dtype=float)
+    coords_centered = coords - centroid
+
+    pc1 = np.asarray(pc1, dtype=float)
+    pc2 = np.asarray(pc2, dtype=float)
+    y_axis = pc1 / np.linalg.norm(pc1)
+    x_axis = pc2 / np.linalg.norm(pc2)
+    R = np.stack([x_axis, y_axis], axis=1) 
+
+    coords_rot = coords_centered @ R
+    coords_mm = coords_rot * mm_per_pixel
+
+    return coords_mm
 
 def dark_stimulus_vec(X, Y, p):
     H, W = X.shape
@@ -124,7 +265,6 @@ def looming_stimulus_vec(X, Y, p):
     dist = np.sqrt((X - p.u_looming_center_mm[0])**2 + (Y - p.u_looming_center_mm[1])**2)
     mask = dist <= looming_radius
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
-
 
 def ramp_stimulus_vec(X, Y, p):
     relative_time = np.mod(p.u_time_s - p.u_start_time_s, p.u_ramp_duration_sec)
@@ -214,3 +354,181 @@ def prey_capture_stimulus_vec(X, Y, bbox_mm, p):
             result |= dist <= p.u_prey_radius_mm
 
     return np.where(result[..., None], p.u_foreground_color, p.u_background_color)
+
+def overlay_stimulus(       
+        root: Path,
+        metadata: str,
+        stimuli: str,
+        tracking: str,
+        lightning_pose: str,
+        temperature: str,
+        video: str,
+        video_timestamp: str,
+        results: str,
+        plots: str,
+    ) -> None:
+
+    ## temp
+    root = Path('/home/martin/Desktop/WT_dec_2025')
+    metadata = 'results'
+    stimuli = 'results'
+    tracking = 'results'
+    lightning_pose = 'results'
+    video =  'results'
+    video_timestamp = 'results'
+    temperature = 'results'
+    results = 'results'
+    plots = 'results'
+    ##
+
+    directories = Directories(
+        root,
+        metadata=metadata,
+        stimuli=stimuli,
+        tracking=tracking,
+        full_tracking=lightning_pose,
+        temperature=temperature,
+        video=video,
+        video_timestamp=video_timestamp,
+        results=results,
+        plots=plots
+    )
+    behavior_files = find_files(directories)
+
+    for behavior_file in tqdm(behavior_files):
+        behavior_data = load_data(behavior_file)
+
+        mm_per_pixel = 1/behavior_data.metadata['calibration']['pix_per_mm']
+
+        num_frames = behavior_data.video.get_number_of_frame()  
+        if num_frames != behavior_data.tracking.shape[0]:
+            raise RuntimeError(f'num frame mismatch: {behavior_file.video}')
+        
+        for frame_idx in range(num_frames):
+
+            ret, image = behavior_data.video.next_frame()
+            
+            if not ret:
+                raise RuntimeError(f'failed to read image #{frame_idx}')
+
+            coords_mm = egocentric_coords_mm(
+                image.shape,
+                centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values,
+                pc1 = behavior_data.tracking.loc[frame_idx, ['pc1_x', 'pc1_y']].values,
+                pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
+                mm_per_pixel=mm_per_pixel
+            )
+            
+            p = Param(u_dot_center_mm=[0,0], u_dot_radius_mm=1)
+            overlay = dot_stimulus_vec(
+                coords_mm[:,:,0],
+                coords_mm[:,:,1],
+                p
+            )
+            stim = alpha_blend(image, overlay)
+            plt.imshow(stim)
+            plt.show()
+
+def main(args: argparse.Namespace) -> None:
+
+    overlay_stimulus(
+        root=args.root,
+        output_csv=args.bouts_csv,
+        output_megabout=args.megabout,
+        metadata=args.metadata,
+        stimuli=args.stimuli,
+        tracking=args.tracking,
+        lightning_pose=args.lightning_pose,
+        temperature=args.temperature,
+        video=args.video,
+        video_timestamp=args.video_timestamp,
+        results=args.results,
+        plots=args.plots,
+        cpu=args.cpu
+    )
+
+def build_parser() -> argparse.ArgumentParser:
+
+    parser = argparse.ArgumentParser(
+        description="Run megabout pipeline on tracking data from Lightning Pose"
+    )
+
+    parser.add_argument(
+        "root",
+        type=Path,
+        help="Root experiment folder (e.g. WT_oct_2025)",
+    )
+
+    parser.add_argument(
+        "--bouts-csv",
+        default='bouts.csv',
+        help="Output CSV file containing bout x visual stim",
+    )
+
+    parser.add_argument(
+        "--megabout",
+        default='megabout.pkl',
+        help="Output pickle file containing megabouts results",
+    )
+
+    # Directory layout overrides
+    parser.add_argument(
+        "--metadata",
+        default="data",
+        help="Subfolder containing metadata files (default: data)",
+    )
+
+    parser.add_argument(
+        "--stimuli",
+        default="data",
+        help="Subfolder containing stimulus log files (default: data)",
+    )
+
+    parser.add_argument(
+        "--tracking",
+        default="data",
+        help="Subfolder containing tracking CSV files (default: data)",
+    )
+
+    parser.add_argument(
+        "--lightning-pose",
+        default="lightning_pose",
+        help="Subfolder containing lightning pose tracking CSV files (default: lightning_pose)",
+    )
+
+    parser.add_argument(
+        "--temperature",
+        default="data",
+        help="Subfolder containing temperature logs (default: data)",
+    )
+
+    parser.add_argument(
+        "--video",
+        default="video",
+        help="Subfolder containing raw video files (default: video)",
+    )
+
+    parser.add_argument(
+        "--video-timestamp",
+        default="video",
+        help="Subfolder containing video timestamp files (default: video)",
+    )
+
+    parser.add_argument(
+        "--results",
+        default="results",
+        help="Subfolder where per-animal exports will be written (default: results)",
+    )
+
+    parser.add_argume
+        "--plots",
+        default="plots",
+        help="Subfolder containing plots (default: plots)",
+    )
+
+    return parser
+
+if __name__ == '__main__':
+
+    main(build_parser().parse_args())
+
