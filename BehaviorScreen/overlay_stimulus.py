@@ -62,6 +62,7 @@ rollover_time_sec = 3600
 class Param:
     u_time_s: float = 0
     u_start_time: float = 0
+    u_pix_per_mm_proj: float = 0 # TODO check that 
 
     # Colors
     u_foreground_color: list = field(default_factory=lambda: [1.0, 1.0, 1.0, 0.2])
