@@ -399,12 +399,17 @@ def overlay_stimulus(
         behavior_data = load_data(behavior_file)
 
         mm_per_pixel = 1/behavior_data.metadata['calibration']['pix_per_mm']
+        
+        # TODO fix that in export
+        fish_ID = behavior_data.metadata['export']['fish_ID']
+        offset_x, offset_y, _, _ = behavior_data.metadata['identity']['ROIs'][fish_ID]
+        offset = np.array([offset_x, offset_y])
 
         num_frames = behavior_data.video.get_number_of_frame()  
         if num_frames != behavior_data.tracking.shape[0]:
             raise RuntimeError(f'num frame mismatch: {behavior_file.video}')
         
-        for frame_idx in range(num_frames):
+        for frame_idx in tqdm(range(num_frames)):
 
             ret, image = behavior_data.video.next_frame()
             
@@ -413,21 +418,22 @@ def overlay_stimulus(
 
             coords_mm = egocentric_coords_mm(
                 image.shape,
-                centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values,
+                centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values - offset,
                 pc1 = behavior_data.tracking.loc[frame_idx, ['pc1_x', 'pc1_y']].values,
                 pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
                 mm_per_pixel=mm_per_pixel
             )
             
-            p = Param(u_dot_center_mm=[0,0], u_dot_radius_mm=1)
+            p = Param(u_dot_center_mm=[0,2], u_dot_radius_mm=0.5)
             overlay = dot_stimulus_vec(
                 coords_mm[:,:,0],
                 coords_mm[:,:,1],
                 p
             )
             stim = alpha_blend(image, overlay)
-            plt.imshow(stim)
-            plt.show()
+            imshow('display', stim)
+            waitKey(8)            
+
 
 def main(args: argparse.Namespace) -> None:
 
