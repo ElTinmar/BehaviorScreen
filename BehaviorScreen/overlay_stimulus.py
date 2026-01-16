@@ -321,9 +321,31 @@ def okr_overlay(X, Y, p):
     mask = mod(angle - phase, angular_spatial_freq) > angular_spatial_freq / 2
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
+# TODO fix this 
 def image_overlay(X, Y, p):
-    ...
-    
+    H, W = X.shape
+    overlay = np.broadcast_to(p.u_background_color, (H, W, 4)).copy()
+
+    if p.u_image_texture is None:
+        return overlay
+
+    image_size_mm = np.array(p.u_image_size) / p.u_image_res_px_per_mm
+    coords_x = (X - p.u_image_offset_mm[0]) / image_size_mm[0] + 0.5
+    coords_y = (Y - p.u_image_offset_mm[1]) / image_size_mm[1] + 0.5
+
+    mask = (coords_x >= 0) & (coords_x <= 1) & (coords_y >= 0) & (coords_y <= 1)
+    if not np.any(mask):
+        return overlay
+
+    H_tex, W_tex, _ = p.u_image_texture.shape
+    ix = np.clip((coords_x * W_tex).astype(int), 0, W_tex - 1)
+    iy = np.clip((coords_y * H_tex).astype(int), 0, H_tex - 1)
+
+    overlay[mask] = p.u_image_texture[iy[mask], ix[mask]]
+
+    return overlay
+
+# TODO fix that (bbox argument should not be here)
 def prey_capture_overlay(X, Y, bbox_mm, p):
     H, W = X.shape
     result = np.zeros((H, W), dtype=bool)
