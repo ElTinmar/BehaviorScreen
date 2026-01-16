@@ -54,7 +54,7 @@ def export_tracking(
     for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
         tracking_file = behavior_file.tracking.stem + f"_fish_{i}.csv"
         out_path = directories.results / tracking_file
-        df[df.identity == i].set_index('index').to_csv(out_path)
+        df[df.identity == i].set_index('index').to_csv(out_path, index=False)
         
 
 def export_timestamps(
@@ -68,7 +68,7 @@ def export_timestamps(
     for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
         timestamp_file = behavior_file.video_timestamps.stem + f"_fish_{i}.csv"
         out_path = directories.results / timestamp_file 
-        behavior_data.video_timestamps.to_csv(out_path)
+        behavior_data.video_timestamps.to_csv(out_path, index=False)
 
 def export_stimuli(
         directories: Directories,
