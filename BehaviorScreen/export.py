@@ -54,7 +54,22 @@ def export_tracking(
     for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
         tracking_file = behavior_file.tracking.stem + f"_fish_{i}.csv"
         out_path = directories.results / tracking_file
-        df[df.identity == i].set_index('index').to_csv(out_path)
+        current_df = df[df.identity == i].set_index('index').copy()
+
+        offset_x, offset_y, _, _ = behavior_data.metadata['identity']['ROIs'][i]
+        coords_to_transform = [
+            'centroid',
+            'left_eye',
+            'right_eye'
+        ]
+        n_tail_points = behavior_data.metadata['settings']['tracking']['n_tail_pts_interp']
+        coords_to_transform.extend([f'tail_point_{n:03}' for n in range(n_tail_points)])
+        
+        for coord in coords_to_transform:
+            current_df[coord + '_x'] -= offset_x
+            current_df[coord + '_y'] -= offset_y
+
+        current_df.to_csv(out_path)
         
 
 def export_timestamps(
