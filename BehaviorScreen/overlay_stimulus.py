@@ -621,6 +621,7 @@ def overlay(
 
             writer.write_frame(stim)        
 
+        writer.close()
 
 def main(args: argparse.Namespace) -> None:
 
