@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 from  tqdm import tqdm
+import cv2
 
 from BehaviorScreen.load import (
     Directories, 
@@ -70,7 +71,7 @@ class Param:
 
     # General
     u_coordinate_system: int = 0
-    u_stim_select: float = 0.0
+    u_stim_select: Stim = Stim.DARK
     u_phototaxis_polarity: float = 1.0
 
     # OMR
@@ -506,6 +507,7 @@ def stim_to_param(stim: dict, time_sec: float) -> Param:
     return p
 
 def overlay_stimulus(X,Y,p):
+
     fn = overlay_funcs.get(p.u_stim_select, None)
     if fn is not None:
         return fn(X,Y,p)
@@ -554,6 +556,7 @@ def overlay(
         behavior_data = load_data(behavior_file)
 
         mm_per_pixel = 1/behavior_data.metadata['calibration']['pix_per_mm']
+        timestamp_start = behavior_data.video_timestamps.loc[0, 'timestamp']
         
         # TODO fix that in export
         fish_ID = behavior_data.metadata['export']['fish_ID']
@@ -563,7 +566,7 @@ def overlay(
         num_frames = behavior_data.video.get_number_of_frame()  
         if num_frames != behavior_data.tracking.shape[0]:
             raise RuntimeError(f'num frame mismatch: {behavior_file.video}')
-        
+                
         for frame_idx in tqdm(range(num_frames)):
 
             ret, image = behavior_data.video.next_frame()
@@ -582,6 +585,7 @@ def overlay(
 
             timestamp = behavior_data.video_timestamps.loc[frame_idx, 'timestamp']
             time_sec = (1e-9*timestamp) % rollover_time_sec  
+            exp_time_sec = 1e-9*(timestamp-timestamp_start)
             current_stim = get_active_stimulus(behavior_data.stimuli, timestamp)
             
             if current_stim is None:
@@ -594,6 +598,15 @@ def overlay(
                     parameters
                 )
                 stim = alpha_blend(image, oly)
+
+            # TODO make a function
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 1
+            color = (255, 255, 255)
+            thickness = 2
+            position = (10,30)
+            label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
+            cv2.putText(stim, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
 
             imshow('display', stim)
             waitKey(1)            
