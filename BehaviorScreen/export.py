@@ -54,7 +54,7 @@ def export_tracking(
     for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
         tracking_file = behavior_file.tracking.stem + f"_fish_{i}.csv"
         out_path = directories.results / tracking_file
-        df[df.identity == i].set_index('index').to_csv(out_path, index=False)
+        df[df.identity == i].set_index('index').to_csv(out_path)
         
 
 def export_timestamps(
