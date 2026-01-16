@@ -62,7 +62,7 @@ rollover_time_sec = 3600
 @dataclass
 class Param:
     u_time_s: float = 0
-    u_start_time: float = 0
+    u_start_time_sec: float = 0
     u_pix_per_mm_proj: float = 0 # TODO check that 
 
     # Colors
@@ -254,7 +254,7 @@ def concentric_grating_overlay(X, Y, p):
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
 def looming_overlay(X, Y, p):
-    relative_time = mod(p.u_time_s - p.u_start_time_s, p.u_looming_period_sec)
+    relative_time = mod(p.u_time_s - p.u_start_time_sec, p.u_looming_period_sec)
     looming_on = float(relative_time <= p.u_looming_expansion_time_sec)
 
     if p.u_looming_type == LINEAR_RADIUS:
@@ -270,7 +270,7 @@ def looming_overlay(X, Y, p):
         t_0 = p.u_looming_size_to_speed_ratio_ms / np.tan(angle_start_rad / 2)
         t_f = p.u_looming_size_to_speed_ratio_ms / np.tan(angle_stop_rad / 2)
         period_ms = t_0 - t_f
-        relative_time_ms = mod(1000 * (p.u_time_s - p.u_start_time_s), period_ms)
+        relative_time_ms = mod(1000 * (p.u_time_s - p.u_start_time_sec), period_ms)
         looming_radius = (
             p.u_looming_distance_to_screen_mm
             * p.u_looming_size_to_speed_ratio_ms
@@ -284,7 +284,7 @@ def looming_overlay(X, Y, p):
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
 def ramp_overlay(X, Y, p):
-    relative_time = np.mod(p.u_time_s - p.u_start_time_s, p.u_ramp_duration_sec)
+    relative_time = np.mod(p.u_time_s - p.u_start_time_sec, p.u_ramp_duration_sec)
     frac = np.clip(relative_time / p.u_ramp_duration_sec, 0.0, 1.0)
 
     if p.u_ramp_type == p.LINEAR:
@@ -363,7 +363,7 @@ def prey_capture_overlay(X, Y, bbox_mm, p):
             result |= dist <= p.u_prey_radius_mm
 
     elif p.u_prey_capture_type == ARC:
-        relative_time_s = p.u_time_s - p.u_start_time_s
+        relative_time_s = p.u_time_s - p.u_start_time_sec
         arc_start_rad = np.deg2rad(p.u_prey_arc_start_deg)
         arc_stop_rad = np.deg2rad(p.u_prey_arc_stop_deg)
         arc_phase_rad = np.deg2rad(p.u_prey_arc_phase_deg)
@@ -436,6 +436,7 @@ def stim_to_param(stim: dict, time_sec: float) -> Param:
         stim_enum = Stim.DARK  
 
     p.u_stim_select = stim_enum
+    p.u_start_time_sec = stim.get('start_time_sec', p.u_start_time_sec)
     p.u_foreground_color = stim.get('foreground_color', p.u_foreground_color)
     p.u_background_color = stim.get('background_color', p.u_background_color)
     p.u_coordinate_system = stim.get('coordinate_system', p.u_coordinate_system)
@@ -526,7 +527,7 @@ def overlay(
     ) -> None:
 
     ## temp
-    root = Path('/home/martin/Desktop/WT_dec_2025')
+    root = Path('/home/martin/Desktop/WT_dec_2025/no_filter')
     output_video = root / 'stim_overlay.mp4'
     metadata = 'results'
     stimuli = 'results'
@@ -566,15 +567,11 @@ def overlay(
             fps = behavior_data.video.get_fps(), 
             q = 20,
         )
-        
-        # TODO fix that in export
-        fish_ID = behavior_data.metadata['export']['fish_ID']
-        offset_x, offset_y, _, _ = behavior_data.metadata['identity']['ROIs'][fish_ID]
-        offset = np.array([offset_x, offset_y])
 
         num_frames = behavior_data.video.get_number_of_frame()  
         if num_frames != behavior_data.tracking.shape[0]:
-            raise RuntimeError(f'num frame mismatch: {behavior_file.video}')
+            print(num_frames, behavior_data.tracking.shape[0])
+            #raise RuntimeError(f'num frame mismatch: {behavior_file.video}')
                 
         for frame_idx in tqdm(range(num_frames)):
 
@@ -586,7 +583,7 @@ def overlay(
             # TODO write functions for the different coordinate systems
             coords_mm = egocentric_coords_mm(
                 image.shape,
-                centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values - offset,
+                centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values,
                 pc1 = behavior_data.tracking.loc[frame_idx, ['pc1_x', 'pc1_y']].values,
                 pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
                 mm_per_pixel=mm_per_pixel
@@ -608,20 +605,22 @@ def overlay(
                     parameters
                 )
                 stim = alpha_blend(image, oly)
-
-                # TODO make a function
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                font_scale = 1
-                color = (255, 255, 255)
-                thickness = 2
-                position = (10,30)
                 label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
-            
+
+            # TODO make a function
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 1
+            color = (255, 255, 255)
+            thickness = 2
+            position = (10,30)
             cv2.putText(stim, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
 
-            writer.write_frame(stim)        
+            writer.write_frame(stim)
+            imshow('overlay', stim)
+            waitKey(1)        
 
         writer.close()
+        destroyAllWindows()
 
 def main(args: argparse.Namespace) -> None:
 
