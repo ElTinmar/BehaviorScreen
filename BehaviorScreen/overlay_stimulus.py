@@ -65,8 +65,8 @@ class Param:
     u_pix_per_mm_proj: float = 0 # TODO check that 
 
     # Colors
-    u_foreground_color: list = field(default_factory=lambda: [1.0, 1.0, 1.0, 0.2])
-    u_background_color: list = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.2])
+    u_foreground_color: list = field(default_factory=lambda: [1.0, 1.0, 1.0, 1.0])
+    u_background_color: list = field(default_factory=lambda: [0.0, 0.0, 0.0, 1.0])
 
     # General
     u_coordinate_system: int = 0
