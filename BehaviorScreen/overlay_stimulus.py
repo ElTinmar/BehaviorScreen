@@ -570,6 +570,7 @@ def overlay(
             if not ret:
                 raise RuntimeError(f'failed to read image #{frame_idx}')
 
+            # TODO write functions for the different coordinate systems
             coords_mm = egocentric_coords_mm(
                 image.shape,
                 centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values - offset,
