@@ -143,12 +143,12 @@ def mix(a, b, t):
 def hash1(x):
     return np.mod(np.sin(x * 127.1) * 43758.5453, 1.0)
 
-def alpha_blend(background_rgb, overlay_rgba):
+def alpha_blend(background_rgb, overlay_rgba, alpha_max = 0.5):
 
     bg = background_rgb.astype(np.float32) / 255.0
     fg = overlay_rgba.astype(np.float32)
     
-    alpha = 0.2*fg[..., 3:4]  
+    alpha = alpha_max * fg[..., 3:4]  
     blended = bg * (1 - alpha) + fg[..., :3] * alpha
     return (blended * 255).clip(0, 255).astype(np.uint8)
 
@@ -204,9 +204,7 @@ def egocentric_coords_mm(image_shape, centroid, pc1, pc2, mm_per_pixel):
 
     pc1 = np.asarray(pc1, dtype=float)
     pc2 = np.asarray(pc2, dtype=float)
-    y_axis = pc1 / np.linalg.norm(pc1)
-    x_axis = pc2 / np.linalg.norm(pc2)
-    R = np.stack([x_axis, y_axis], axis=1) 
+    R = np.stack([pc1, pc2], axis=1).T 
 
     coords_rot = coords_centered @ R
     coords_mm = coords_rot * mm_per_pixel
@@ -287,9 +285,9 @@ def ramp_overlay(X, Y, p):
     relative_time = np.mod(p.u_time_s - p.u_start_time_sec, p.u_ramp_duration_sec)
     frac = np.clip(relative_time / p.u_ramp_duration_sec, 0.0, 1.0)
 
-    if p.u_ramp_type == p.LINEAR:
+    if p.u_ramp_type == LINEAR:
         ramp_value = frac
-    elif p.u_ramp_type == p.POWER_LAW:
+    elif p.u_ramp_type == POWER_LAW:
         ramp_value = frac ** (1 / p.u_ramp_powerlaw_exponent)
     else:
         ramp_value = 0.0
@@ -347,7 +345,7 @@ def image_overlay(X, Y, p):
     return overlay
 
 # TODO fix that (bbox argument should not be here)
-def prey_capture_overlay(X, Y, bbox_mm, p):
+def prey_capture_overlay(X, Y, p):
     H, W = X.shape
     result = np.zeros((H, W), dtype=bool)
 
@@ -384,16 +382,16 @@ def prey_capture_overlay(X, Y, bbox_mm, p):
         dist = np.sqrt((X - prey_pos[0])**2 + (Y - prey_pos[1])**2)
         result = dist <= p.u_prey_radius_mm
 
-    elif p.u_prey_capture_type == RANDOM_CLOUD:
-        for i in range(int(p.u_n_preys)):
-            prey_pos_mm = p.u_prey_position[i] / p.u_pix_per_mm_proj
-            prey_dir = np.array([
-                np.cos(p.u_prey_trajectory_angle[i]),
-                np.sin(p.u_prey_trajectory_angle[i])
-            ])
-            pos = mod(prey_pos_mm + p.u_time_s * p.u_prey_speed_mm_s * prey_dir, bbox_mm[2:4]) - bbox_mm[2:4] / 2
-            dist = np.sqrt((X - pos[0])**2 + (Y - pos[1])**2)
-            result |= dist <= p.u_prey_radius_mm
+    # elif p.u_prey_capture_type == RANDOM_CLOUD:
+    #     for i in range(int(p.u_n_preys)):
+    #         prey_pos_mm = p.u_prey_position[i] / p.u_pix_per_mm_proj
+    #         prey_dir = np.array([
+    #             np.cos(p.u_prey_trajectory_angle[i]),
+    #             np.sin(p.u_prey_trajectory_angle[i])
+    #         ])
+    #         pos = mod(prey_pos_mm + p.u_time_s * p.u_prey_speed_mm_s * prey_dir, bbox_mm[2:4]) - bbox_mm[2:4] / 2
+    #         dist = np.sqrt((X - pos[0])**2 + (Y - pos[1])**2)
+    #         result |= dist <= p.u_prey_radius_mm
 
     return np.where(result[..., None], p.u_foreground_color, p.u_background_color)
 
@@ -616,7 +614,7 @@ def overlay(
             cv2.putText(stim, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
 
             writer.write_frame(stim)
-            imshow('overlay', stim)
+            imshow('overlay', cv2.cvtColor(stim, cv2.COLOR_RGB2BGR))
             waitKey(1)        
 
         writer.close()
