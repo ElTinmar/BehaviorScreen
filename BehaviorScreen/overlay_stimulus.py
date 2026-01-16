@@ -520,7 +520,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Subfolder where per-animal exports will be written (default: results)",
     )
 
-    parser.add_argume
+    parser.add_argument(
         "--plots",
         default="plots",
         help="Subfolder containing plots (default: plots)",
