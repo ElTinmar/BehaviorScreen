@@ -13,6 +13,7 @@ from BehaviorScreen.load import (
     find_files, 
     load_data
 )
+from BehaviorScreen.core import Stim
 
 from qt_widgets import imshow, waitKey, destroyAllWindows
 
@@ -155,6 +156,12 @@ def make_coords_mm(width_px, height_px, mm_per_pixel, center_mm=(0.0, 0.0)):
     X, Y = np.meshgrid(x, y)
     return X, Y
 
+# TODO handle different coordinate system
+def fish_centered():
+    pass
+
+def bbox_centered():
+    pass
 
 def egocentric_coords_mm(image_shape, centroid, pc1, pc2, mm_per_pixel):
     """
@@ -204,19 +211,19 @@ def egocentric_coords_mm(image_shape, centroid, pc1, pc2, mm_per_pixel):
 
     return coords_mm
 
-def dark_stimulus_vec(X, Y, p):
+def dark_overlay(X, Y, p):
     H, W = X.shape
     return np.broadcast_to(p.u_background_color, (H, W, 4))
 
-def bright_stimulus_vec(X, Y, p):
+def bright_overlay(X, Y, p):
     H, W = X.shape
     return np.broadcast_to(p.u_foreground_color, (H, W, 4))
 
-def phototaxis_stimulus_vec(X, Y, p):
+def phototaxis_overlay(X, Y, p):
     mask = (p.u_phototaxis_polarity * X) > 0
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
-def omr_stimulus_vec(X, Y, p):
+def omr_overlay(X, Y, p):
     angle_rad = np.deg2rad(p.u_omr_angle_deg)
     orientation_vector = np.array([-np.sin(angle_rad), np.cos(angle_rad)])
     position = X * orientation_vector[0] + Y * orientation_vector[1]
@@ -229,12 +236,12 @@ def omr_stimulus_vec(X, Y, p):
     mask = np.sin(2 * PI * (angle - phase)) > 0
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
-def dot_stimulus_vec(X, Y, p):
+def dot_overlay(X, Y, p):
     dist = np.sqrt((X - p.u_dot_center_mm[0])**2 + (Y - p.u_dot_center_mm[1])**2)
     mask = dist <= p.u_dot_radius_mm
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
-def concentric_grating_stimulus_vec(X, Y, p):
+def concentric_grating_overlay(X, Y, p):
     spatial_freq = 1.0 / p.u_concentric_spatial_period_mm
     temporal_freq = p.u_concentric_speed_mm_per_sec / p.u_concentric_spatial_period_mm
     distance = np.sqrt(X**2 + Y**2)
@@ -244,7 +251,7 @@ def concentric_grating_stimulus_vec(X, Y, p):
     mask = np.sin(2 * PI * (angle + phase)) > 0
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
-def looming_stimulus_vec(X, Y, p):
+def looming_overlay(X, Y, p):
     relative_time = mod(p.u_time_s - p.u_start_time_s, p.u_looming_period_sec)
     looming_on = float(relative_time <= p.u_looming_expansion_time_sec)
 
@@ -274,7 +281,7 @@ def looming_stimulus_vec(X, Y, p):
     mask = dist <= looming_radius
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
-def ramp_stimulus_vec(X, Y, p):
+def ramp_overlay(X, Y, p):
     relative_time = np.mod(p.u_time_s - p.u_start_time_s, p.u_ramp_duration_sec)
     frac = np.clip(relative_time / p.u_ramp_duration_sec, 0.0, 1.0)
 
@@ -287,7 +294,7 @@ def ramp_stimulus_vec(X, Y, p):
 
     return mix(p.u_background_color, p.u_foreground_color, ramp_value)
 
-def turing_stimulus_vec(X, Y, p):
+def turing_overlay(X, Y, p):
     angle_rad = np.deg2rad(p.u_turing_angle_deg)
     velocity = p.u_turing_speed_mm_per_sec * np.array([-np.sin(angle_rad), np.cos(angle_rad)])
     Xp = X - velocity[0] * p.u_time_s
@@ -305,7 +312,7 @@ def turing_stimulus_vec(X, Y, p):
     mask = wave_sum > 0
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
-def okr_stimulus_vec(X, Y, p):
+def okr_overlay(X, Y, p):
     angular_spatial_freq = np.deg2rad(p.u_okr_spatial_frequency_deg)
     angular_temporal_freq = np.deg2rad(p.u_okr_speed_deg_per_sec)
     angle = np.arctan2(Y, X)
@@ -313,7 +320,10 @@ def okr_stimulus_vec(X, Y, p):
     mask = mod(angle - phase, angular_spatial_freq) > angular_spatial_freq / 2
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
-def prey_capture_stimulus_vec(X, Y, bbox_mm, p):
+def image_overlay(X, Y, p):
+    ...
+    
+def prey_capture_overlay(X, Y, bbox_mm, p):
     H, W = X.shape
     result = np.zeros((H, W), dtype=bool)
 
@@ -363,7 +373,90 @@ def prey_capture_stimulus_vec(X, Y, bbox_mm, p):
 
     return np.where(result[..., None], p.u_foreground_color, p.u_background_color)
 
-def overlay_stimulus(       
+def get_active_stimulus(stimuli, timestamp):
+    stimuli_sorted = sorted(stimuli, key=lambda s: s['timestamp'])
+    active_stim = None
+    for stim in stimuli_sorted:
+        if stim['timestamp'] <= timestamp:
+            active_stim = stim
+        else:
+            break
+    return active_stim
+
+overlay_funcs = {
+    Stim.DARK: dark_overlay,
+    Stim.BRIGHT: bright_overlay,
+    Stim.PHOTOTAXIS: phototaxis_overlay,
+    Stim.OMR: omr_overlay,
+    Stim.OKR: okr_overlay,
+    Stim.LOOMING: looming_overlay,    
+    Stim.PREY_CAPTURE: prey_capture_overlay,
+    Stim.CONCENTRIC_GRATING: concentric_grating_overlay,
+    Stim.DOT: dot_overlay,
+    Stim.IMAGE: image_overlay,
+    Stim.RAMP: ramp_overlay,
+    Stim.TURING: turing_overlay,
+}
+
+def stim_to_param(stim: dict, time_sec: float) -> Param:
+    """Convert stimulus dict to Param dataclass using Stim enum."""
+    p = Param(u_time_s=time_sec)
+
+    if stim is None:
+        return p
+
+    # Convert stim_select to Stim enum
+    try:
+        stim_enum = Stim(int(stim.get('stim_select', 0)))
+    except ValueError:
+        stim_enum = Stim.DARK  
+
+    p.u_stim_select = stim_enum
+    p.u_foreground_color = stim.get('foreground_color', p.u_foreground_color)
+    p.u_background_color = stim.get('background_color', p.u_background_color)
+    p.u_coordinate_system = stim.get('coordinate_sytem', p.u_coordinate_system)
+
+    if stim_enum == Stim.DOT:
+        p.u_dot_center_mm = stim.get('dot_center_mm', p.u_dot_center_mm)
+        p.u_dot_radius_mm = stim.get('dot_radius_mm', p.u_dot_radius_mm)
+
+    elif stim_enum == Stim.OMR:
+        p.u_omr_spatial_period_mm = stim.get('omr_spatial_period_mm', p.u_omr_spatial_period_mm)
+        p.u_omr_angle_deg = stim.get('omr_angle_deg', p.u_omr_angle_deg)
+        p.u_omr_speed_mm_per_sec = stim.get('omr_speed_mm_per_sec', p.u_omr_speed_mm_per_sec)
+
+    elif stim_enum == Stim.TURING:
+        p.u_turing_spatial_period_mm = stim.get('turing_spatial_period_mm', p.u_turing_spatial_period_mm)
+        p.u_turing_angle_deg = stim.get('turing_angle_deg', p.u_turing_angle_deg)
+        p.u_turing_speed_mm_per_sec = stim.get('turing_speed_mm_per_sec', p.u_turing_speed_mm_per_sec)
+        p.u_turing_n_waves = stim.get('turing_n_waves', p.u_turing_n_waves)
+
+    elif stim_enum == Stim.CONCENTRIC_GRATING:
+        p.u_concentric_spatial_period_mm = stim.get('concentric_spatial_period_mm', p.u_concentric_spatial_period_mm)
+        p.u_concentric_speed_mm_per_sec = stim.get('concentric_speed_mm_per_sec', p.u_concentric_speed_mm_per_sec)
+
+    elif stim_enum == Stim.LOOMING:
+        p.u_looming_type = stim.get('looming_type', p.u_looming_type)
+        p.u_looming_center_mm = stim.get('looming_center_mm', p.u_looming_center_mm)
+        p.u_looming_period_sec = stim.get('looming_period_sec', p.u_looming_period_sec)
+        p.u_looming_expansion_time_sec = stim.get('looming_expansion_time_sec', p.u_looming_expansion_time_sec)
+        p.u_looming_expansion_speed_mm_per_sec = stim.get('looming_expansion_speed_mm_per_sec', p.u_looming_expansion_speed_mm_per_sec)
+        p.u_looming_expansion_speed_deg_per_sec = stim.get('looming_expansion_speed_deg_per_sec', p.u_looming_expansion_speed_deg_per_sec)
+        p.u_looming_angle_start_deg = stim.get('looming_angle_start_deg', p.u_looming_angle_start_deg)
+        p.u_looming_angle_stop_deg = stim.get('looming_angle_stop_deg', p.u_looming_angle_stop_deg)
+        p.u_looming_size_to_speed_ratio_ms = stim.get('looming_size_to_speed_ratio_ms', p.u_looming_size_to_speed_ratio_ms)
+        p.u_looming_distance_to_screen_mm = stim.get('looming_distance_to_screen_mm', p.u_looming_distance_to_screen_mm)
+
+    # Add other Stim types (OKR, Prey, Image, Ramp, etc.) similarly
+
+    return p
+
+def overlay_stimulus(X,Y,p):
+    fn = overlay_funcs.get(p.u_stim_select, None)
+    if fn is not None:
+        return fn(X,Y,p)
+
+def overlay(       
         root: Path,
         metadata: str,
         stimuli: str,
@@ -431,27 +524,30 @@ def overlay_stimulus(
                 pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
                 mm_per_pixel=mm_per_pixel
             )
-            
+
             timestamp = behavior_data.video_timestamps.loc[frame_idx, 'timestamp']
             time_sec = (1e-9*timestamp) % rollover_time_sec  
-            p = Param(u_dot_center_mm=[0,2], u_dot_radius_mm=0.5, u_time_s=time_sec)
+            current_stim = get_active_stimulus(behavior_data.stimuli, timestamp)
+            
+            if current_stim is None:
+                stim = image
+            else:
+                parameters = stim_to_param(current_stim, time_sec)
+                oly = overlay_stimulus(
+                    coords_mm[:,:,0],
+                    coords_mm[:,:,1],
+                    parameters
+                )
+                stim = alpha_blend(image, oly)
 
-            overlay = omr_stimulus_vec(
-                coords_mm[:,:,0],
-                coords_mm[:,:,1],
-                p
-            )
-            stim = alpha_blend(image, overlay)
             imshow('display', stim)
-            waitKey(8)            
+            waitKey(1)            
 
 
 def main(args: argparse.Namespace) -> None:
 
-    overlay_stimulus(
+    overlay(
         root=args.root,
-        output_csv=args.bouts_csv,
-        output_megabout=args.megabout,
         metadata=args.metadata,
         stimuli=args.stimuli,
         tracking=args.tracking,
