@@ -420,6 +420,7 @@ overlay_funcs = {
     Stim.RAMP: ramp_overlay,
     Stim.TURING: turing_overlay,
 }
+
 def stim_to_param(stim: dict, time_sec: float) -> Param:
     """Convert stimulus dict to Param dataclass using Stim enum."""
     p = Param(u_time_s=time_sec)
