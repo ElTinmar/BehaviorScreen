@@ -3,7 +3,6 @@ import argparse
 from dataclasses import dataclass, field
 
 import numpy as np
-import pandas as pd
 from  tqdm import tqdm
 import cv2
 
@@ -17,6 +16,7 @@ from BehaviorScreen.load import (
 from BehaviorScreen.core import Stim
 
 from qt_widgets import imshow, waitKey, destroyAllWindows
+from video_tools import FFMPEG_VideoWriter_CPU
 
 PI = np.pi
 
@@ -527,6 +527,7 @@ def overlay(
 
     ## temp
     root = Path('/home/martin/Desktop/WT_dec_2025')
+    output_video = root / 'stim_overlay.mp4'
     metadata = 'results'
     stimuli = 'results'
     tracking = 'results'
@@ -557,6 +558,14 @@ def overlay(
 
         mm_per_pixel = 1/behavior_data.metadata['calibration']['pix_per_mm']
         timestamp_start = behavior_data.video_timestamps.loc[0, 'timestamp']
+
+        writer = FFMPEG_VideoWriter_CPU(
+            filename = output_video,
+            height = behavior_data.video.get_height(), 
+            width = behavior_data.video.get_width(), 
+            fps = behavior_data.video.get_fps(), 
+            q = 20,
+        )
         
         # TODO fix that in export
         fish_ID = behavior_data.metadata['export']['fish_ID']
@@ -590,6 +599,7 @@ def overlay(
             
             if current_stim is None:
                 stim = image
+                label = f'{exp_time_sec:.2f}'
             else:
                 parameters = stim_to_param(current_stim, time_sec)
                 oly = overlay_stimulus(
@@ -599,17 +609,17 @@ def overlay(
                 )
                 stim = alpha_blend(image, oly)
 
-            # TODO make a function
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 1
-            color = (255, 255, 255)
-            thickness = 2
-            position = (10,30)
-            label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
+                # TODO make a function
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 1
+                color = (255, 255, 255)
+                thickness = 2
+                position = (10,30)
+                label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
+            
             cv2.putText(stim, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
 
-            imshow('display', stim)
-            waitKey(1)            
+            writer.write_frame(stim)        
 
 
 def main(args: argparse.Namespace) -> None:
