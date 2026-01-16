@@ -14,6 +14,8 @@ from BehaviorScreen.load import (
     load_data
 )
 
+from qt_widgets import imshow, waitKey, destroyAllWindows
+
 PI = np.pi
 
 LINEAR = 0
@@ -52,8 +54,14 @@ TURING = 11
 
 MAX_PREY = 64
 
+# TODO save this in ZebVR metadata
+rollover_time_sec = 3600
+
 @dataclass
 class Param:
+    u_time_s: float = 0
+    u_start_time: float = 0
+
     # Colors
     u_foreground_color: list = field(default_factory=lambda: [1.0, 1.0, 1.0, 0.2])
     u_background_color: list = field(default_factory=lambda: [0.0, 0.0, 0.0, 0.2])
@@ -65,8 +73,8 @@ class Param:
 
     # OMR
     u_omr_spatial_period_mm: float = 10.0
-    u_omr_angle_deg: float = 0.0
-    u_omr_speed_mm_per_sec: float = 0.0
+    u_omr_angle_deg: float = 90.0
+    u_omr_speed_mm_per_sec: float = 10.0
 
     # Turing
     u_turing_spatial_period_mm: float = 10.0
@@ -424,8 +432,11 @@ def overlay_stimulus(
                 mm_per_pixel=mm_per_pixel
             )
             
-            p = Param(u_dot_center_mm=[0,2], u_dot_radius_mm=0.5)
-            overlay = dot_stimulus_vec(
+            timestamp = behavior_data.video_timestamps.loc[frame_idx, 'timestamp']
+            time_sec = (1e-9*timestamp) % rollover_time_sec  
+            p = Param(u_dot_center_mm=[0,2], u_dot_radius_mm=0.5, u_time_s=time_sec)
+
+            overlay = omr_stimulus_vec(
                 coords_mm[:,:,0],
                 coords_mm[:,:,1],
                 p
