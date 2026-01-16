@@ -146,7 +146,7 @@ def alpha_blend(background_rgb, overlay_rgba):
     bg = background_rgb.astype(np.float32) / 255.0
     fg = overlay_rgba.astype(np.float32)
     
-    alpha = fg[..., 3:4]  
+    alpha = 0.2*fg[..., 3:4]  
     blended = bg * (1 - alpha) + fg[..., :3] * alpha
     return (blended * 255).clip(0, 255).astype(np.uint8)
 
@@ -397,7 +397,6 @@ overlay_funcs = {
     Stim.RAMP: ramp_overlay,
     Stim.TURING: turing_overlay,
 }
-
 def stim_to_param(stim: dict, time_sec: float) -> Param:
     """Convert stimulus dict to Param dataclass using Stim enum."""
     p = Param(u_time_s=time_sec)
@@ -414,7 +413,7 @@ def stim_to_param(stim: dict, time_sec: float) -> Param:
     p.u_stim_select = stim_enum
     p.u_foreground_color = stim.get('foreground_color', p.u_foreground_color)
     p.u_background_color = stim.get('background_color', p.u_background_color)
-    p.u_coordinate_system = stim.get('coordinate_sytem', p.u_coordinate_system)
+    p.u_coordinate_system = stim.get('coordinate_system', p.u_coordinate_system)
 
     if stim_enum == Stim.DOT:
         p.u_dot_center_mm = stim.get('dot_center_mm', p.u_dot_center_mm)
@@ -447,7 +446,38 @@ def stim_to_param(stim: dict, time_sec: float) -> Param:
         p.u_looming_size_to_speed_ratio_ms = stim.get('looming_size_to_speed_ratio_ms', p.u_looming_size_to_speed_ratio_ms)
         p.u_looming_distance_to_screen_mm = stim.get('looming_distance_to_screen_mm', p.u_looming_distance_to_screen_mm)
 
-    # Add other Stim types (OKR, Prey, Image, Ramp, etc.) similarly
+    elif stim_enum == Stim.OKR:
+        p.u_okr_spatial_frequency_deg = stim.get('okr_spatial_frequency_deg', p.u_okr_spatial_frequency_deg)
+        p.u_okr_speed_deg_per_sec = stim.get('okr_speed_deg_per_sec', p.u_okr_speed_deg_per_sec)
+
+    elif stim_enum == Stim.PREY_CAPTURE:
+        p.u_prey_capture_type = stim.get('prey_capture_type', p.u_prey_capture_type)
+        p.u_prey_periodic_function = stim.get('prey_periodic_function', p.u_prey_periodic_function)
+        p.u_n_preys = stim.get('n_preys', p.u_n_preys)
+        p.u_prey_radius_mm = stim.get('prey_radius_mm', p.u_prey_radius_mm)
+        p.u_prey_trajectory_radius_mm = stim.get('prey_trajectory_radius_mm', p.u_prey_trajectory_radius_mm)
+        p.u_prey_speed_mm_s = stim.get('prey_speed_mm_s', p.u_prey_speed_mm_s)
+        p.u_prey_speed_deg_s = stim.get('prey_speed_deg_s', p.u_prey_speed_deg_s)
+        p.u_prey_arc_start_deg = stim.get('prey_arc_start_deg', p.u_prey_arc_start_deg)
+        p.u_prey_arc_stop_deg = stim.get('prey_arc_stop_deg', p.u_prey_arc_stop_deg)
+        p.u_prey_arc_phase_deg = stim.get('prey_arc_phase_deg', p.u_prey_arc_phase_deg)
+        p.u_prey_position = stim.get('prey_position', p.u_prey_position)
+        p.u_prey_trajectory_angle = stim.get('prey_trajectory_angle', p.u_prey_trajectory_angle)
+        p.u_pix_per_mm_proj = stim.get('pix_per_mm_proj', 1.0)  # Needed for RANDOM_CLOUD
+
+    elif stim_enum == Stim.IMAGE:
+        p.u_image_texture = stim.get('image_texture', p.u_image_texture)
+        p.u_image_size = stim.get('image_size', p.u_image_size)
+        p.u_image_res_px_per_mm = stim.get('image_res_px_per_mm', p.u_image_res_px_per_mm)
+        p.u_image_offset_mm = stim.get('image_offset_mm', p.u_image_offset_mm)
+
+    elif stim_enum == Stim.RAMP:
+        p.u_ramp_duration_sec = stim.get('ramp_duration_sec', p.u_ramp_duration_sec)
+        p.u_ramp_powerlaw_exponent = stim.get('ramp_powerlaw_exponent', p.u_ramp_powerlaw_exponent)
+        p.u_ramp_type = stim.get('ramp_type', p.u_ramp_type)
+
+    elif stim_enum == Stim.PHOTOTAXIS:
+        p.u_phototaxis_polarity = stim.get('phototaxis_polarity', p.u_phototaxis_polarity)
 
     return p
 
