@@ -586,7 +586,6 @@ def overlay(
         writer.close()
 
 def main(args: argparse.Namespace) -> None:
-    print('main', args.overlay_dir)
     overlay(
         root=args.root,
         overlay_dir = args.overlay_dir,
