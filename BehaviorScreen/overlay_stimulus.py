@@ -149,12 +149,6 @@ def alpha_blend(background_rgb, overlay_rgba, alpha_max = 0.5):
     blended = bg * (1 - alpha) + fg[..., :3] * alpha
     return (blended * 255).clip(0, 255).astype(np.uint8)
 
-def make_coords_mm(width_px, height_px, mm_per_pixel, center_mm=(0.0, 0.0)):
-    x = (np.arange(width_px) - width_px / 2) * mm_per_pixel + center_mm[0]
-    y = (height_px / 2 - np.arange(height_px)) * mm_per_pixel + center_mm[1]
-    X, Y = np.meshgrid(x, y)
-    return X, Y
-
 # TODO handle different coordinate system
 def fish_centered():
     pass
