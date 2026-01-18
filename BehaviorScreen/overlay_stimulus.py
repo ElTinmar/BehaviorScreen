@@ -530,6 +530,7 @@ def overlay(
 
         height_px = behavior_data.video.get_height()
         width_px = behavior_data.video.get_width()
+        fps = behavior_data.video.get_fps()
         
         grid = image_coord_grid(height_px, width_px)
 
@@ -537,7 +538,7 @@ def overlay(
             filename = output_video,
             height = height_px, 
             width = width_px, 
-            fps = behavior_data.video.get_fps(), 
+            fps = fps, 
             q = 20,
         )
 
