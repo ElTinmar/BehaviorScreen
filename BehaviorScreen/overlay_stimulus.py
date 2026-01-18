@@ -145,7 +145,7 @@ def alpha_blend(background_rgb, overlay_rgba, alpha_max = 0.5):
     bg = background_rgb.astype(np.float32) / 255.0
     fg = overlay_rgba.astype(np.float32)
     
-    alpha = alpha_max * fg[..., 3]  
+    alpha = alpha_max * fg[..., 3:4]  
     blended = bg * (1 - alpha) + fg[..., :3] * alpha
     return (blended * 255).clip(0, 255).astype(np.uint8)
 
