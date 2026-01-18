@@ -8,14 +8,11 @@ import cv2
 
 from BehaviorScreen.load import (
     Directories, 
-    BehaviorData,
-    BehaviorFiles,
     find_files, 
     load_data
 )
 from BehaviorScreen.core import Stim
 
-from qt_widgets import imshow, waitKey, destroyAllWindows
 from video_tools import FFMPEG_VideoWriter_CPU
 
 PI = np.pi
@@ -165,39 +162,14 @@ def fish_centered():
 def bbox_centered():
     pass
 
-def egocentric_coords_mm(image_shape, centroid, pc1, pc2, mm_per_pixel):
-    """
-    Generate a coordinate grid in mm, centered on centroid and aligned
-    such that:
-        pc1 defines the +y axis
-        pc2 defines the +x axis
-
-    Parameters
-    ----------
-    image_shape : tuple
-        (H, W) of the image.
-    centroid : array-like
-        (x, y) pixel coordinates of centroid.
-    pc1 : array-like
-        (x, y) pixel vector for principal component 1.
-    pc2 : array-like
-        (x, y) pixel vector for principal component 2.
-    mm_per_pixel : float
-        Conversion factor from pixels to millimeters.
-
-    Returns
-    -------
-    coords_mm : ndarray
-        Array of shape (H, W, 2), where coords_mm[..., 0] is x_mm
-        and coords_mm[..., 1] is y_mm.
-    """
-    H, W = image_shape[:2]
-
-    # Create pixel coordinate grid (x increases right, y increases down)
-    xs = np.arange(W)
-    ys = np.arange(H)
+def image_coord_grid(height_px, width_px):
+    xs = np.arange(width_px)
+    ys = np.arange(height_px)
     X, Y = np.meshgrid(xs, ys)
-    coords = np.stack([X, Y], axis=-1).astype(float)
+    coords = np.stack([X, Y], axis=-1).astype(np.float32)
+    return coords
+
+def egocentric_coords_mm(coords, centroid, pc1, pc2, mm_per_pixel):
 
     centroid = np.asarray(centroid, dtype=float)
     coords_centered = coords - centroid
@@ -511,67 +483,70 @@ def overlay_stimulus(X,Y,p):
     if fn is not None:
         return fn(X,Y,p)
 
+def add_label(
+        image: np.ndarray,
+        label: str,
+        font: int = cv2.FONT_HERSHEY_SIMPLEX,
+        font_scale = 1,
+        color = (255, 255, 255),
+        thickness = 2,
+        position = (10,30),
+    ) -> None:
+
+    cv2.putText(image, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
+
+    
 def overlay(       
         root: Path,
+        overlay_dir: str,
         metadata: str,
         stimuli: str,
         tracking: str,
-        lightning_pose: str,
-        temperature: str,
         video: str,
         video_timestamp: str,
-        results: str,
-        plots: str,
     ) -> None:
 
-    ## temp
-    root = Path('/home/martin/Desktop/WT_dec_2025/no_filter')
-    output_video = root / 'stim_overlay.mp4'
-    metadata = 'results'
-    stimuli = 'results'
-    tracking = 'results'
-    lightning_pose = 'results'
-    video =  'results'
-    video_timestamp = 'results'
-    temperature = 'results'
-    results = 'results'
-    plots = 'results'
-    ##
 
     directories = Directories(
         root,
         metadata=metadata,
         stimuli=stimuli,
         tracking=tracking,
-        full_tracking=lightning_pose,
-        temperature=temperature,
         video=video,
         video_timestamp=video_timestamp,
-        results=results,
-        plots=plots
     )
     behavior_files = find_files(directories)
 
+    output_dir = root / overlay_dir 
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     for behavior_file in tqdm(behavior_files):
+
+        output_video = output_dir / behavior_file.video.name
         behavior_data = load_data(behavior_file)
 
         mm_per_pixel = 1/behavior_data.metadata['calibration']['pix_per_mm']
         timestamp_start = behavior_data.video_timestamps.loc[0, 'timestamp']
 
+        height_px = behavior_data.video.get_height()
+        width_px = behavior_data.video.get_width()
+        
+        grid = image_coord_grid(height_px, width_px)
+
         writer = FFMPEG_VideoWriter_CPU(
             filename = output_video,
-            height = behavior_data.video.get_height(), 
-            width = behavior_data.video.get_width(), 
+            height = height_px, 
+            width = width_px, 
             fps = behavior_data.video.get_fps(), 
             q = 20,
         )
 
-        num_frames = behavior_data.video.get_number_of_frame()  
-        if num_frames != behavior_data.tracking.shape[0]:
-            print(num_frames, behavior_data.tracking.shape[0])
-            #raise RuntimeError(f'num frame mismatch: {behavior_file.video}')
-                
-        for frame_idx in tqdm(range(num_frames)):
+        num_frames = min(
+            behavior_data.video.get_number_of_frame(), 
+            behavior_data.tracking.shape[0]
+        )
+
+        for frame_idx in tqdm(range(num_frames), leave=False):
 
             ret, image = behavior_data.video.next_frame()
             
@@ -580,7 +555,7 @@ def overlay(
 
             # TODO write functions for the different coordinate systems
             coords_mm = egocentric_coords_mm(
-                image.shape,
+                grid,
                 centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values,
                 pc1 = behavior_data.tracking.loc[frame_idx, ['pc1_x', 'pc1_y']].values,
                 pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
@@ -605,35 +580,21 @@ def overlay(
                 stim = alpha_blend(image, oly)
                 label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
 
-            # TODO make a function
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 1
-            color = (255, 255, 255)
-            thickness = 2
-            position = (10,30)
-            cv2.putText(stim, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
-
-            writer.write_frame(stim)
-            imshow('overlay', cv2.cvtColor(stim, cv2.COLOR_RGB2BGR))
-            waitKey(1)        
+            add_label(stim, label)
+            writer.write_frame(stim)    
 
         writer.close()
-        destroyAllWindows()
 
 def main(args: argparse.Namespace) -> None:
-
+    print('main', args.overlay_dir)
     overlay(
         root=args.root,
+        overlay_dir = args.overlay_dir,
         metadata=args.metadata,
         stimuli=args.stimuli,
         tracking=args.tracking,
-        lightning_pose=args.lightning_pose,
-        temperature=args.temperature,
         video=args.video,
         video_timestamp=args.video_timestamp,
-        results=args.results,
-        plots=args.plots,
-        cpu=args.cpu
     )
 
 def build_parser() -> argparse.ArgumentParser:
@@ -649,70 +610,40 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--bouts-csv",
-        default='bouts.csv',
-        help="Output CSV file containing bout x visual stim",
-    )
-
-    parser.add_argument(
-        "--megabout",
-        default='megabout.pkl',
-        help="Output pickle file containing megabouts results",
+        "--overlay-dir",
+        default='overlay',
+        help="Directory to store overlay videos",
     )
 
     # Directory layout overrides
     parser.add_argument(
         "--metadata",
-        default="data",
+        default="",
         help="Subfolder containing metadata files (default: data)",
     )
 
     parser.add_argument(
         "--stimuli",
-        default="data",
+        default="",
         help="Subfolder containing stimulus log files (default: data)",
     )
 
     parser.add_argument(
         "--tracking",
-        default="data",
+        default="",
         help="Subfolder containing tracking CSV files (default: data)",
     )
 
     parser.add_argument(
-        "--lightning-pose",
-        default="lightning_pose",
-        help="Subfolder containing lightning pose tracking CSV files (default: lightning_pose)",
-    )
-
-    parser.add_argument(
-        "--temperature",
-        default="data",
-        help="Subfolder containing temperature logs (default: data)",
-    )
-
-    parser.add_argument(
         "--video",
-        default="video",
+        default="",
         help="Subfolder containing raw video files (default: video)",
     )
 
     parser.add_argument(
         "--video-timestamp",
-        default="video",
+        default="",
         help="Subfolder containing video timestamp files (default: video)",
-    )
-
-    parser.add_argument(
-        "--results",
-        default="results",
-        help="Subfolder where per-animal exports will be written (default: results)",
-    )
-
-    parser.add_argument(
-        "--plots",
-        default="plots",
-        help="Subfolder containing plots (default: plots)",
     )
 
     return parser
