@@ -133,8 +133,7 @@ def hash1(x):
 def alpha_blend(background_rgb, overlay_rgba):
 
     bg = background_rgb.astype(np.float32) / 255.0
-    fg = overlay_rgba
-    blended = bg + fg[..., 3:4] * (fg[..., :3] - bg)
+    blended = bg + overlay_rgba[..., 3:4] * (overlay_rgba[..., :3] - bg)
     return (blended * 255).astype(np.uint8)
 
 # TODO handle different coordinate system
