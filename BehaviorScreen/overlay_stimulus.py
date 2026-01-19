@@ -49,8 +49,12 @@ class Param:
     u_pix_per_mm_proj: float = 0 # TODO check that 
 
     # Colors
-    u_foreground_color: list = field(default_factory=lambda: [1.0, 1.0, 1.0, 1.0])
-    u_background_color: list = field(default_factory=lambda: [0.0, 0.0, 0.0, 1.0])
+    u_foreground_color: np.ndarray = field(
+        default_factory=lambda: np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+    )
+    u_background_color: np.ndarray = field(
+        default_factory=lambda: np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+    )
 
     # General
     u_coordinate_system: int = 0
@@ -129,7 +133,7 @@ def hash1(x):
 def alpha_blend(background_rgb, overlay_rgba):
 
     bg = background_rgb.astype(np.float32) / 255.0
-    fg = overlay_rgba.astype(np.float32)
+    fg = overlay_rgba
     blended = bg + fg[..., 3:4] * (fg[..., :3] - bg)
     return (blended * 255).astype(np.uint8)
 
@@ -385,8 +389,8 @@ def stim_to_param(stim: dict, time_sec: float, alpha_max: float = 0.5) -> Param:
 
     p.u_stim_select = stim_enum
     p.u_start_time_sec = stim.get('start_time_sec', p.u_start_time_sec)
-    p.u_foreground_color = stim.get('foreground_color', p.u_foreground_color)
-    p.u_background_color = stim.get('background_color', p.u_background_color)
+    p.u_foreground_color = np.asarray(stim.get('foreground_color', p.u_foreground_color), dtype=np.float32)
+    p.u_background_color = np.asarray(stim.get('background_color', p.u_background_color), dtype=np.float32)
     p.u_coordinate_system = stim.get('coordinate_system', p.u_coordinate_system)
 
     # restrict alpha range
