@@ -586,7 +586,7 @@ def overlay(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if multiprocessing:
-        with mp.Pool(mp.cpu_count()//2) as pool:
+        with mp.Pool(mp.cpu_count()//4) as pool:
             pool.starmap(do_overlay, [(output_dir, bf) for bf in behavior_files])
     else:
         for behavior_file in behavior_files:
