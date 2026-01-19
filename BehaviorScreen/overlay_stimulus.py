@@ -489,6 +489,10 @@ def do_overlay(output_dir: Path, behavior_file: BehaviorFiles) -> None:
     height_px = behavior_data.video.get_height()
     width_px = behavior_data.video.get_width()
     fps = behavior_data.video.get_fps()
+    num_frames = min(
+        behavior_data.video.get_number_of_frame(), 
+        behavior_data.tracking.shape[0]
+    )
     
     grid = image_coord_grid(height_px, width_px)
 
@@ -498,11 +502,6 @@ def do_overlay(output_dir: Path, behavior_file: BehaviorFiles) -> None:
         width = width_px, 
         fps = fps, 
         q = 20,
-    )
-
-    num_frames = min(
-        behavior_data.video.get_number_of_frame(), 
-        behavior_data.tracking.shape[0]
     )
 
     for frame_idx in range(num_frames):
@@ -518,11 +517,11 @@ def do_overlay(output_dir: Path, behavior_file: BehaviorFiles) -> None:
             centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values,
             pc1 = behavior_data.tracking.loc[frame_idx, ['pc1_x', 'pc1_y']].values,
             pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
-            mm_per_pixel=mm_per_pixel
+            mm_per_pixel = mm_per_pixel
         )
 
         timestamp = behavior_data.video_timestamps.loc[frame_idx, 'timestamp']
-        time_sec = (1e-9*timestamp) % rollover_time_sec  
+        shader_time_sec = (1e-9*timestamp) % rollover_time_sec  
         exp_time_sec = 1e-9*(timestamp-timestamp_start)
         current_stim = get_active_stimulus(behavior_data.stimuli, timestamp)
         
@@ -530,7 +529,7 @@ def do_overlay(output_dir: Path, behavior_file: BehaviorFiles) -> None:
             stim = image
             label = f'{exp_time_sec:.2f}'
         else:
-            parameters = stim_to_param(current_stim, time_sec)
+            parameters = stim_to_param(current_stim, shader_time_sec)
             oly = overlay_stimulus(
                 coords_mm[:,:,0],
                 coords_mm[:,:,1],
