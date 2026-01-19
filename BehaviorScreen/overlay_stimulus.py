@@ -137,6 +137,10 @@ def alpha_blend(background_rgb, overlay_rgba):
     blended = bg + overlay_rgba[..., 3:4] * (overlay_rgba[..., :3] - bg)
     return (blended * 255).astype(np.uint8)
 
+def egocentric_coords_mm(coords, centroid, pc1, pc2, mm_per_pixel):
+    transform = np.stack([pc2, pc1], axis=1) * mm_per_pixel
+    return (coords - centroid) @ transform
+
 # TODO handle different coordinate system
 def fish_centered():
     pass
@@ -151,9 +155,6 @@ def image_coord_grid(height_px, width_px):
     coords = np.stack([X, Y], axis=-1).astype(np.float32)
     return coords
 
-def egocentric_coords_mm(coords, centroid, pc1, pc2, mm_per_pixel):
-    transform = np.stack([pc2, pc1], axis=1) * mm_per_pixel
-    return (coords - centroid) @ transform
 
 def dark_overlay(X, Y, p):
     H, W = X.shape
