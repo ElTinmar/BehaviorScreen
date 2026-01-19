@@ -51,10 +51,10 @@ class Param:
 
     # Colors
     u_foreground_color: np.ndarray = field(
-        default_factory=lambda: np.array([1.0, 1.0, 1.0, 1.0], dtype=np.float32)
+        default_factory=lambda: np.array([255, 255, 255], dtype=np.uint8)
     )
     u_background_color: np.ndarray = field(
-        default_factory=lambda: np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float32)
+        default_factory=lambda: np.array([0, 0, 0], dtype=np.uint8)
     )
 
     # General
@@ -131,10 +131,12 @@ def mix(a, b, t):
 def hash1(x):
     return np.mod(np.sin(x * 127.1) * 43758.5453, 1.0)
 
-def alpha_blend(background_rgb, overlay_rgba):
-    bg = background_rgb.astype(np.float32) / 255.0
-    blended = bg + overlay_rgba[..., 3:4] * (overlay_rgba[..., :3] - bg)
-    return (blended * 255).astype(np.uint8)
+def alpha_blend(bg, fg, alpha = 128):
+    bg16 = bg.astype(np.uint16)
+    fg16 = fg.astype(np.uint16)
+    alpha16 = np.uint16(alpha)
+    out16 = bg16 + ((fg16 - bg16) * alpha16 >> 8)
+    return out16.astype(np.uint8)
 
 def egocentric_coords_mm(coords, centroid, pc1, pc2, mm_per_pixel):
     transform = np.stack([pc2, pc1], axis=1) * mm_per_pixel
@@ -156,11 +158,11 @@ def image_coord_grid(height_px, width_px, downsample: int = 1):
 
 def dark_overlay(X, Y, p):
     H, W = X.shape
-    return np.broadcast_to(p.u_background_color, (H, W, 4))
+    return np.broadcast_to(p.u_background_color, (H, W, 3))
 
 def bright_overlay(X, Y, p):
     H, W = X.shape
-    return np.broadcast_to(p.u_foreground_color, (H, W, 4))
+    return np.broadcast_to(p.u_foreground_color, (H, W, 3))
 
 def phototaxis_overlay(X, Y, p):
     mask = (p.u_phototaxis_polarity * X) > 0
@@ -267,7 +269,7 @@ def okr_overlay(X, Y, p):
 # TODO fix this 
 def image_overlay(X, Y, p):
     H, W = X.shape
-    overlay = np.broadcast_to(p.u_background_color, (H, W, 4)).copy()
+    overlay = np.broadcast_to(p.u_background_color, (H, W, 3)).copy()
 
     if p.u_image_texture is None:
         return overlay
@@ -364,7 +366,7 @@ overlay_funcs = {
     Stim.TURING: turing_overlay,
 }
 
-def stim_to_param(stim: dict, time_sec: float, alpha_max: float = 0.5) -> Param:
+def stim_to_param(stim: dict, time_sec: float) -> Param:
     """Convert stimulus dict to Param dataclass using Stim enum."""
     p = Param(u_time_s=time_sec)
 
@@ -379,13 +381,9 @@ def stim_to_param(stim: dict, time_sec: float, alpha_max: float = 0.5) -> Param:
 
     p.u_stim_select = stim_enum
     p.u_start_time_sec = stim.get('start_time_sec', p.u_start_time_sec)
-    p.u_foreground_color = np.asarray(stim.get('foreground_color', p.u_foreground_color), dtype=np.float32)
-    p.u_background_color = np.asarray(stim.get('background_color', p.u_background_color), dtype=np.float32)
+    p.u_foreground_color = (255*np.asarray(stim.get('foreground_color', p.u_foreground_color))[:3]).astype(np.uint8)
+    p.u_background_color = (255*np.asarray(stim.get('background_color', p.u_background_color))[:3]).astype(np.uint8)
     p.u_coordinate_system = stim.get('coordinate_system', p.u_coordinate_system)
-
-    # restrict alpha range
-    p.u_foreground_color[3] *= alpha_max
-    p.u_background_color[3] *= alpha_max
 
     if stim_enum == Stim.DOT:
         p.u_dot_center_mm = stim.get('dot_center_mm', p.u_dot_center_mm)
