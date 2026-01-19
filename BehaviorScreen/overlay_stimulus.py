@@ -1,13 +1,15 @@
+import multiprocessing as mp
+
 from pathlib import Path
 import argparse 
 from dataclasses import dataclass, field
 
 import numpy as np
-from  tqdm import tqdm
 import cv2
 
 from BehaviorScreen.load import (
     Directories, 
+    BehaviorFiles,
     find_files, 
     load_data
 )
@@ -473,7 +475,75 @@ def add_label(
 
     cv2.putText(image, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
 
+
+def do_overlay(output_dir: Path, behavior_file: BehaviorFiles) -> None:
+
+    print(behavior_file.metadata.stem)
+
+    output_video = output_dir / behavior_file.video.name
+    behavior_data = load_data(behavior_file)
+
+    mm_per_pixel = 1/behavior_data.metadata['calibration']['pix_per_mm']
+    timestamp_start = behavior_data.video_timestamps.loc[0, 'timestamp']
+
+    height_px = behavior_data.video.get_height()
+    width_px = behavior_data.video.get_width()
+    fps = behavior_data.video.get_fps()
     
+    grid = image_coord_grid(height_px, width_px)
+
+    writer = FFMPEG_VideoWriter_CPU(
+        filename = output_video,
+        height = height_px, 
+        width = width_px, 
+        fps = fps, 
+        q = 20,
+    )
+
+    num_frames = min(
+        behavior_data.video.get_number_of_frame(), 
+        behavior_data.tracking.shape[0]
+    )
+
+    for frame_idx in range(num_frames):
+
+        ret, image = behavior_data.video.next_frame()
+        
+        if not ret:
+            raise RuntimeError(f'failed to read image #{frame_idx}')
+
+        # TODO write functions for the different coordinate systems
+        coords_mm = egocentric_coords_mm(
+            grid,
+            centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values,
+            pc1 = behavior_data.tracking.loc[frame_idx, ['pc1_x', 'pc1_y']].values,
+            pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
+            mm_per_pixel=mm_per_pixel
+        )
+
+        timestamp = behavior_data.video_timestamps.loc[frame_idx, 'timestamp']
+        time_sec = (1e-9*timestamp) % rollover_time_sec  
+        exp_time_sec = 1e-9*(timestamp-timestamp_start)
+        current_stim = get_active_stimulus(behavior_data.stimuli, timestamp)
+        
+        if current_stim is None:
+            stim = image
+            label = f'{exp_time_sec:.2f}'
+        else:
+            parameters = stim_to_param(current_stim, time_sec)
+            oly = overlay_stimulus(
+                coords_mm[:,:,0],
+                coords_mm[:,:,1],
+                parameters
+            )
+            stim = alpha_blend(image, oly)
+            label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
+
+        add_label(stim, label)
+        writer.write_frame(stim)    
+
+    writer.close()
+
 def overlay(       
         root: Path,
         overlay_dir: str,
@@ -482,8 +552,8 @@ def overlay(
         tracking: str,
         video: str,
         video_timestamp: str,
+        multiprocessing: bool
     ) -> None:
-
 
     directories = Directories(
         root,
@@ -498,71 +568,12 @@ def overlay(
     output_dir = root / overlay_dir 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    for behavior_file in tqdm(behavior_files):
-
-        output_video = output_dir / behavior_file.video.name
-        behavior_data = load_data(behavior_file)
-
-        mm_per_pixel = 1/behavior_data.metadata['calibration']['pix_per_mm']
-        timestamp_start = behavior_data.video_timestamps.loc[0, 'timestamp']
-
-        height_px = behavior_data.video.get_height()
-        width_px = behavior_data.video.get_width()
-        fps = behavior_data.video.get_fps()
-        
-        grid = image_coord_grid(height_px, width_px)
-
-        writer = FFMPEG_VideoWriter_CPU(
-            filename = output_video,
-            height = height_px, 
-            width = width_px, 
-            fps = fps, 
-            q = 20,
-        )
-
-        num_frames = min(
-            behavior_data.video.get_number_of_frame(), 
-            behavior_data.tracking.shape[0]
-        )
-
-        for frame_idx in tqdm(range(num_frames), leave=False):
-
-            ret, image = behavior_data.video.next_frame()
-            
-            if not ret:
-                raise RuntimeError(f'failed to read image #{frame_idx}')
-
-            # TODO write functions for the different coordinate systems
-            coords_mm = egocentric_coords_mm(
-                grid,
-                centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values,
-                pc1 = behavior_data.tracking.loc[frame_idx, ['pc1_x', 'pc1_y']].values,
-                pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
-                mm_per_pixel=mm_per_pixel
-            )
-
-            timestamp = behavior_data.video_timestamps.loc[frame_idx, 'timestamp']
-            time_sec = (1e-9*timestamp) % rollover_time_sec  
-            exp_time_sec = 1e-9*(timestamp-timestamp_start)
-            current_stim = get_active_stimulus(behavior_data.stimuli, timestamp)
-            
-            if current_stim is None:
-                stim = image
-                label = f'{exp_time_sec:.2f}'
-            else:
-                parameters = stim_to_param(current_stim, time_sec)
-                oly = overlay_stimulus(
-                    coords_mm[:,:,0],
-                    coords_mm[:,:,1],
-                    parameters
-                )
-                stim = alpha_blend(image, oly)
-                label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
-
-            add_label(stim, label)
-            writer.write_frame(stim)    
-
-        writer.close()
+    if multiprocessing:
+        with mp.Pool(mp.cpu_count()) as pool:
+            pool.starmap(do_overlay, [(output_dir, bf) for bf in behavior_files])
+    else:
+        for behavior_file in behavior_files:
+            do_overlay(output_dir, behavior_file)
 
 def main(args: argparse.Namespace) -> None:
     overlay(
@@ -573,6 +584,7 @@ def main(args: argparse.Namespace) -> None:
         tracking=args.tracking,
         video=args.video,
         video_timestamp=args.video_timestamp,
+        multiprocessing=args.multiprocessing
     )
 
 def build_parser() -> argparse.ArgumentParser:
@@ -623,6 +635,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Subfolder containing video timestamp files (default: video)",
     )
+
+    parser.add_argument("--multiprocessing", action="store_true")
 
     return parser
 
