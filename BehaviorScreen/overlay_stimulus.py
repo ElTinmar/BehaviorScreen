@@ -126,14 +126,12 @@ def mix(a, b, t):
 def hash1(x):
     return np.mod(np.sin(x * 127.1) * 43758.5453, 1.0)
 
-def alpha_blend(background_rgb, overlay_rgba, alpha_max = 0.5):
+def alpha_blend(background_rgb, overlay_rgba):
 
     bg = background_rgb.astype(np.float32) / 255.0
     fg = overlay_rgba.astype(np.float32)
-    
-    alpha = alpha_max * fg[..., 3:4]  
-    blended = bg * (1 - alpha) + fg[..., :3] * alpha
-    return (blended * 255).clip(0, 255).astype(np.uint8)
+    blended = bg + fg[..., 3:4] * (fg[..., :3] - bg)
+    return (blended * 255).astype(np.uint8)
 
 # TODO handle different coordinate system
 def fish_centered():
@@ -372,7 +370,7 @@ overlay_funcs = {
     Stim.TURING: turing_overlay,
 }
 
-def stim_to_param(stim: dict, time_sec: float) -> Param:
+def stim_to_param(stim: dict, time_sec: float, alpha_max: float = 0.5) -> Param:
     """Convert stimulus dict to Param dataclass using Stim enum."""
     p = Param(u_time_s=time_sec)
 
@@ -390,6 +388,10 @@ def stim_to_param(stim: dict, time_sec: float) -> Param:
     p.u_foreground_color = stim.get('foreground_color', p.u_foreground_color)
     p.u_background_color = stim.get('background_color', p.u_background_color)
     p.u_coordinate_system = stim.get('coordinate_system', p.u_coordinate_system)
+
+    # restrict alpha range
+    p.u_foreground_color[3] *= alpha_max
+    p.u_background_color[3] *= alpha_max
 
     if stim_enum == Stim.DOT:
         p.u_dot_center_mm = stim.get('dot_center_mm', p.u_dot_center_mm)
