@@ -1,4 +1,5 @@
 import multiprocessing as mp
+import time
 
 from pathlib import Path
 import argparse 
@@ -483,9 +484,8 @@ def add_label(
 
 def do_overlay(output_dir: Path, behavior_file: BehaviorFiles) -> None:
 
-    print(behavior_file.metadata.stem)
-
     output_video = output_dir / behavior_file.video.name
+    progress_file = output_dir / f"{behavior_file.video.stem}.progress"
     behavior_data = load_data(behavior_file)
 
     mm_per_pixel = 1/behavior_data.metadata['calibration']['pix_per_mm']
@@ -508,45 +508,58 @@ def do_overlay(output_dir: Path, behavior_file: BehaviorFiles) -> None:
         fps = fps, 
         q = 20,
     )
+    file = open(progress_file, "w")
 
-    for frame_idx in range(num_frames):
+    try:
 
-        ret, image = behavior_data.video.next_frame()
-        
-        if not ret:
-            raise RuntimeError(f'failed to read image #{frame_idx}')
+        start_time = time.time()
 
-        # TODO write functions for the different coordinate systems
-        coords_mm = egocentric_coords_mm(
-            grid,
-            centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values,
-            pc1 = behavior_data.tracking.loc[frame_idx, ['pc1_x', 'pc1_y']].values,
-            pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
-            mm_per_pixel = mm_per_pixel
-        )
+        for frame_idx in range(num_frames):
 
-        timestamp = behavior_data.video_timestamps.loc[frame_idx, 'timestamp']
-        shader_time_sec = (1e-9*timestamp) % rollover_time_sec  
-        exp_time_sec = 1e-9*(timestamp-timestamp_start)
-        current_stim = get_active_stimulus(behavior_data.stimuli, timestamp)
-        
-        if current_stim is None:
-            stim = image
-            label = f'{exp_time_sec:.2f}'
-        else:
-            parameters = stim_to_param(current_stim, shader_time_sec)
-            oly = overlay_stimulus(
-                coords_mm[:,:,0],
-                coords_mm[:,:,1],
-                parameters
+            if frame_idx % 500 == 0:
+                elapsed = time.time() - start_time
+                file.write(f"frame: {frame_idx}, total: {num_frames}, frame/sec: {frame_idx/elapsed}\n")
+                file.flush()
+
+            ret, image = behavior_data.video.next_frame()
+            
+            if not ret:
+                raise RuntimeError(f'failed to read image #{frame_idx}')
+
+            # TODO write functions for the different coordinate systems
+            coords_mm = egocentric_coords_mm(
+                grid,
+                centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values,
+                pc1 = behavior_data.tracking.loc[frame_idx, ['pc1_x', 'pc1_y']].values,
+                pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
+                mm_per_pixel = mm_per_pixel
             )
-            stim = alpha_blend(image, oly)
-            label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
 
-        add_label(stim, label)
-        writer.write_frame(stim)    
+            timestamp = behavior_data.video_timestamps.loc[frame_idx, 'timestamp']
+            shader_time_sec = (1e-9*timestamp) % rollover_time_sec  
+            exp_time_sec = 1e-9*(timestamp-timestamp_start)
+            current_stim = get_active_stimulus(behavior_data.stimuli, timestamp)
+            
+            if current_stim is None:
+                stim = image
+                label = f'{exp_time_sec:.2f}'
+            else:
+                parameters = stim_to_param(current_stim, shader_time_sec)
+                oly = overlay_stimulus(
+                    coords_mm[:,:,0],
+                    coords_mm[:,:,1],
+                    parameters
+                )
+                stim = alpha_blend(image, oly)
+                label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
 
-    writer.close()
+            add_label(stim, label)
+            writer.write_frame(stim)    
+
+    finally:
+
+        writer.close()
+        file.close()
 
 def overlay(       
         root: Path,
@@ -573,7 +586,7 @@ def overlay(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if multiprocessing:
-        with mp.Pool(mp.cpu_count()) as pool:
+        with mp.Pool(mp.cpu_count()//2) as pool:
             pool.starmap(do_overlay, [(output_dir, bf) for bf in behavior_files])
     else:
         for behavior_file in behavior_files:
