@@ -152,18 +152,8 @@ def image_coord_grid(height_px, width_px):
     return coords
 
 def egocentric_coords_mm(coords, centroid, pc1, pc2, mm_per_pixel):
-
-    centroid = np.asarray(centroid, dtype=float)
-    coords_centered = coords - centroid
-
-    pc1 = np.asarray(pc1, dtype=float)
-    pc2 = np.asarray(pc2, dtype=float)
-    R = np.stack([pc2, pc1], axis=1)
-
-    coords_rot = coords_centered @ R
-    coords_mm = coords_rot * mm_per_pixel
-
-    return coords_mm
+    transform = np.stack([pc2, pc1], axis=1) * mm_per_pixel
+    return (coords - centroid) @ transform
 
 def dark_overlay(X, Y, p):
     H, W = X.shape
