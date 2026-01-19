@@ -132,7 +132,6 @@ def hash1(x):
     return np.mod(np.sin(x * 127.1) * 43758.5453, 1.0)
 
 def alpha_blend(background_rgb, overlay_rgba):
-
     bg = background_rgb.astype(np.float32) / 255.0
     blended = bg + overlay_rgba[..., 3:4] * (overlay_rgba[..., :3] - bg)
     return (blended * 255).astype(np.uint8)
@@ -148,13 +147,12 @@ def fish_centered():
 def bbox_centered():
     pass
 
-def image_coord_grid(height_px, width_px):
-    xs = np.arange(width_px)
-    ys = np.arange(height_px)
+def image_coord_grid(height_px, width_px, downsample: int = 1):
+    xs = np.arange(0, width_px, downsample)
+    ys = np.arange(0, height_px, downsample)
     X, Y = np.meshgrid(xs, ys)
     coords = np.stack([X, Y], axis=-1).astype(np.float32)
     return coords
-
 
 def dark_overlay(X, Y, p):
     H, W = X.shape
@@ -237,6 +235,7 @@ def ramp_overlay(X, Y, p):
     else:
         ramp_value = 0.0
 
+    ramp_value = np.full(X.shape[:2], ramp_value, dtype=np.float32)
     return mix(p.u_background_color, p.u_foreground_color, ramp_value)
 
 def turing_overlay(X, Y, p):
@@ -473,7 +472,7 @@ def add_label(
     cv2.putText(image, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
 
 
-def do_overlay(output_dir: Path, behavior_file: BehaviorFiles) -> None:
+def do_overlay(output_dir: Path, behavior_file: BehaviorFiles, downsample: int = 8) -> None:
 
     output_video = output_dir / behavior_file.video.name
     progress_file = output_dir / f"{behavior_file.video.stem}.progress"
@@ -490,14 +489,14 @@ def do_overlay(output_dir: Path, behavior_file: BehaviorFiles) -> None:
         behavior_data.tracking.shape[0]
     )
     
-    grid = image_coord_grid(height_px, width_px)
+    grid = image_coord_grid(height_px, width_px, downsample=downsample)
 
     writer = FFMPEG_VideoWriter_CPU(
         filename = output_video,
         height = height_px, 
         width = width_px, 
         fps = fps, 
-        q = 20,
+        q = 18,
     )
     file = open(progress_file, "w")
 
@@ -541,6 +540,8 @@ def do_overlay(output_dir: Path, behavior_file: BehaviorFiles) -> None:
                     coords_mm[:,:,1],
                     parameters
                 )
+                dest_size = image.shape[:2]
+                oly = cv2.resize(oly, dsize=dest_size[::-1], interpolation=cv2.INTER_LINEAR)
                 stim = alpha_blend(image, oly)
                 label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
 
