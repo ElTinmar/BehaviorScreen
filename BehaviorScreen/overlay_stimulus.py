@@ -470,7 +470,7 @@ def add_label(
     cv2.putText(image, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
 
 
-def do_overlay(output_dir: Path, behavior_file: BehaviorFiles, downsample: int = 8) -> None:
+def do_overlay(output_dir: Path, behavior_file: BehaviorFiles, downsample: int = 4) -> None:
 
     output_video = output_dir / behavior_file.video.name
     progress_file = output_dir / f"{behavior_file.video.stem}.progress"
@@ -506,7 +506,9 @@ def do_overlay(output_dir: Path, behavior_file: BehaviorFiles, downsample: int =
 
             if frame_idx % 500 == 0:
                 elapsed = time.time() - start_time
-                file.write(f"frame: {frame_idx}, total: {num_frames}, frame/sec: {frame_idx/elapsed}\n")
+                speed = frame_idx/elapsed
+                time_left = (num_frames - frame_idx)/speed if speed > 0 else 0
+                file.write(f"frame: {frame_idx}, total: {num_frames}, frame/sec: {speed}, time_left: {time_left}\n")
                 file.flush()
 
             ret, image = behavior_data.video.next_frame()
