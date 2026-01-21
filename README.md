@@ -36,4 +36,4 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 
 Quality control:
     - filter fish that do not move at the beginning?
-    - check if tracking error (online vs post-hoc tracking) and filter fish with tracking errors
+    - check if tracking error (online vs post-hoc tracking) and filter fish or bouts with tracking errors
