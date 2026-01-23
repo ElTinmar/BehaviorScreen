@@ -1,8 +1,7 @@
 #!/bin/bash -l
-#SBATCH -o /u/mapri/logs/job.out.%j
-#SBATCH -e /u/mapri/logs/job.err.%j
+#SBATCH -o /u/mapri/logs/%x.out.%j
+#SBATCH -e /u/mapri/logs/%x.err.%j
 #SBATCH -D /u/mapri/Code/BehaviorScreen
-#SBATCH -J bscreen_cort
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
 #SBATCH --constraint="gpu"
@@ -13,4 +12,8 @@
 module purge
 module load anaconda/3/2023.03 cuda/13.0
 
-srun conda run -n BehaviorScreen python -m BehaviorScreen /ptmp/mapri/cort/cort-vehicle 8Jan2026/model
+INPUT_PATH=$1
+JOB_NAME=$(basename "$INPUT_PATH")
+scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
+
+srun conda run -n BehaviorScreen python -m BehaviorScreen "$INPUT_PATH" 8Jan2026/model
