@@ -92,7 +92,6 @@ def estimate_pose(
             "predict",
             str(model_directory), 
             str(video),
-            f"--overrides data.data_dir={model_directory.parent}"
         ]
         subprocess.run(cmd, check=True)
 

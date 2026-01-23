@@ -16,6 +16,8 @@ conda activate BehaviorScreen
 python -m BehaviorScreen.lightning_pose
 ```
 
+Modify data_dir in config.yaml to point to the right location
+
 ## Usage
 
 ```
