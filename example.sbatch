@@ -1,6 +1,6 @@
 #!/bin/bash -l
-#SBATCH -o /u/mapri/logs/%x.out.%j
-#SBATCH -e /u/mapri/logs/%x.err.%j
+#SBATCH -o /u/mapri/logs/job.out.%j
+#SBATCH -e /u/mapri/logs/job.err.%j
 #SBATCH -D /u/mapri/Code/BehaviorScreen
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=18
