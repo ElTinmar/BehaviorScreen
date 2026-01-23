@@ -1,6 +1,6 @@
 #!/bin/bash -l
-#SBATCH -o ./job.out.%j
-#SBATCH -e ./job.err.%j
+#SBATCH -o /u/mapri/logs/job.out.%j
+#SBATCH -e /u/mapri/logs/job.err.%j
 #SBATCH -D /u/mapri/Code/BehaviorScreen
 #SBATCH -J bscreen_cort
 #SBATCH --nodes=1
