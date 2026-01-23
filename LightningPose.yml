@@ -6,6 +6,7 @@ dependencies:
 - ipython
 - pip
 - pip:
-  - git+https://github.com/paninski-lab/lightning-pose
+  - git+https://github.com/ElTinmar/lightning-pose@prediction_dir
+  #- git+https://github.com/paninski-lab/lightning-pose
 
   
