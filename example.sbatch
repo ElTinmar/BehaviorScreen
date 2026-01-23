@@ -3,8 +3,8 @@
 #SBATCH -e /u/mapri/logs/job.err.%j
 #SBATCH -D /u/mapri/Code/BehaviorScreen
 #SBATCH -J bscreen_cort
-#SBATCH --nodes=1
-#SBATCH --ntasks-per-node=18
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=18
 #SBATCH --constraint="gpu"
 #SBATCH --gres=gpu:a100:1
 #SBATCH --mem=32000
