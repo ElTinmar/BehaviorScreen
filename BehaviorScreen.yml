@@ -4,13 +4,13 @@ channels:
 dependencies:
 - python == 3.11
 - ipython
-- pyqt 
 - tqdm
 - pip
 - ffmpeg
 - seaborn
 - statsmodels
 - pip:
+  - pyyaml
   - megabouts
   - filetype
   - git+https://github.com/ElTinmar/video_tools.git@main
