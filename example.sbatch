@@ -3,10 +3,10 @@
 #SBATCH -e /u/mapri/logs/job.err.%j
 #SBATCH -D /u/mapri/Code/BehaviorScreen
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=18
+#SBATCH --cpus-per-task=12
 #SBATCH --constraint="gpu"
 #SBATCH --gres=gpu:a100:1
-#SBATCH --mem=32000
+#SBATCH --mem=16000
 #SBATCH --time=24:00:00
 
 module purge
