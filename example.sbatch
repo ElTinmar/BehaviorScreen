@@ -16,4 +16,4 @@ INPUT_PATH=$1
 JOB_NAME=$(basename "$INPUT_PATH")
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
-srun conda run -n BehaviorScreen python -m BehaviorScreen "$INPUT_PATH" 8Jan2026/model
+srun conda run -n BehaviorScreen python -u -m BehaviorScreen "$INPUT_PATH" 8Jan2026/model
