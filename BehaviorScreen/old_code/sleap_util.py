@@ -14,7 +14,7 @@ def export_csv(input_slp: Path | str) -> Path:
     video = Path(labels.video.filename).with_suffix('.csv')
     output_csv = parent / video.name
 
-    print(f'writing {output_csv}...')
+    print(f'writing {output_csv}...', flush=True)
     write_analysis(labels=labels, output_path=output_csv, csv=True)
     return output_csv
 
@@ -110,7 +110,7 @@ def overlay_video(
     out = cv2.VideoWriter(output_video, fourcc, fps_out, (w, h))
 
     total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-    print(f"Writing overlay to {output_video}  (fps={fps_out}, size={w}x{h}, frames={total})")
+    print(f"Writing overlay to {output_video}  (fps={fps_out}, size={w}x{h}, frames={total})", flush=True)
 
     def draw_instance(img, coord_array, color=(0, 255, 0)):
 

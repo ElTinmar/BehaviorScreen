@@ -292,7 +292,7 @@ def export_single_animals(
     behavior_files = find_files(directories)
 
     for file in behavior_files:
-        print(f'processing {file.metadata.stem}')
+        print(f'processing {file.metadata.stem}', flush=True)
         behavior_data = load_data(file)
         export(
             directories,

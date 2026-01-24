@@ -133,7 +133,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(args: argparse.Namespace) -> None:
 
-    print("1. export ROIs")
+    print("1. export ROIs", flush=True)
     export_single_animals(
         root=args.root,
         metadata=args.metadata,
@@ -152,14 +152,14 @@ def main(args: argparse.Namespace) -> None:
         videos_flag=not args.no_videos,
     )
 
-    print("2. pose estimation")
+    print("2. pose estimation", flush=True)
     estimate_pose(
         model_directory=args.model_dir,
         video_directory=args.root / args.results,
         output_directory=args.root / args.lightning_pose
     )
     
-    print("3. extract bout metrics")
+    print("3. extract bout metrics", flush=True)
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
@@ -176,7 +176,7 @@ def main(args: argparse.Namespace) -> None:
         cpu=args.cpu
     )
 
-    print("4. plot")
+    print("4. plot", flush=True)
     plot_heatmap(
         input_csv = args.root / args.bouts_csv,
         config_yaml = args.yaml,
