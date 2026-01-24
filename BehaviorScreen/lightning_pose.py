@@ -14,14 +14,14 @@ def download_model(
 
     destination.mkdir(parents=True, exist_ok=True)
     zip_file = destination / "model.zip"
-    print(f"Downloading {url}...")
+    print(f"Downloading {url}...", flush=True)
     urlretrieve(url, zip_file)
 
-    print("Extracting...")
+    print("Extracting...", flush=True)
     with ZipFile(zip_file, "r") as zip:
         zip.extractall(destination)
 
-    print("Cleaning up...")
+    print("Cleaning up...", flush=True)
     zip_file.unlink()
 
 
@@ -80,12 +80,12 @@ def estimate_pose(
 
     videos = [v for v in video_directory.iterdir() if v.suffix.lower() in video_extensions]
     if not videos:
-        print(f"No video files found in {video_directory}")
+        print(f"No video files found in {video_directory}", flush=True)
         return  
     
     # f"--overrides data.data_dir={model_directory.parent}"
     for video in videos:
-        print(f"Processing {video}...")
+        print(f"Processing {video}...", flush=True)
         cmd = [
             "conda", "run", "-n", lightning_pose_conda_env,
             "litpose",

@@ -113,7 +113,7 @@ def extract_frames_from_pkg_slp(file_path: str, base_output_dir: str) -> None:
                     frame_name = f"img{str(frame_number).zfill(8)}.png"
                     img.save(f"{output_dir}/{frame_name}")
                     frame_names.append(frame_name)
-                    print(f"Saved frame {frame_number} as {frame_name}")
+                    print(f"Saved frame {frame_number} as {frame_name}", flush=True)
 
 
 def extract_labels_from_pkg_slp(file_path: str, base_output_dir: str | None) -> pd.DataFrame:
@@ -172,7 +172,7 @@ def extract_labels_from_pkg_slp(file_path: str, base_output_dir: str | None) -> 
 
                         data.append([frame_idx] + keypoints_flat)
                     except Exception as e:
-                        print(f"Skipping invalid instance {idx}: {e}")
+                        print(f"Skipping invalid instance {idx}: {e}", flush=True)
 
                 if data:
                     metadata_json = hdf_file['metadata'].attrs['json']
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     slp_file = args.slp_file
     lp_dir = args.lp_dir
 
-    print(f"Converting SLEAP project located at {slp_file} to LP project located at {lp_dir}")
+    print(f"Converting SLEAP project located at {slp_file} to LP project located at {lp_dir}", flush=True)
 
     # Check provided SLEAP path exists
     if not os.path.exists(slp_file):
