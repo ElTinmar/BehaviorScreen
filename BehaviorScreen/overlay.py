@@ -1,7 +1,7 @@
 import multiprocessing as mp
 import time
 import pickle
-
+from typing import Dict
 from pathlib import Path
 import argparse 
 from dataclasses import dataclass, field
@@ -19,7 +19,7 @@ from BehaviorScreen.load import (
     load_data
 )
 from BehaviorScreen.core import Stim, BoutSign
-from BehaviorScreen.megabouts import MegaboutResults #required for pickle
+from BehaviorScreen.megabouts import MegaboutResults 
 
 from video_tools import FFMPEG_VideoWriter_CPU
 
@@ -593,7 +593,7 @@ def overlay(
     behavior_files = find_files(directories)
 
     with open(root / megabout, 'rb') as fp:
-        megabout_dict = pickle.load(fp)
+        megabout_dict: Dict[str, MegaboutResults] = pickle.load(fp)
 
     output_dir = root / overlay_dir 
     output_dir.mkdir(parents=True, exist_ok=True)
