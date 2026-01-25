@@ -19,7 +19,7 @@ from BehaviorScreen.load import (
     load_data
 )
 from BehaviorScreen.core import Stim, BoutSign
-from BehaviorScreen.megabouts import MegaboutResults
+from BehaviorScreen.megabouts import MegaboutResults #required for pickle
 
 from video_tools import FFMPEG_VideoWriter_CPU
 
