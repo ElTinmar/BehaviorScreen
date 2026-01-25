@@ -478,7 +478,7 @@ def add_label(
 def do_overlay(
         output_dir: Path, 
         behavior_file: BehaviorFiles, 
-        ethogram: EthogramFullTracking, 
+        megabout: MegaboutResults, 
         downsample: int = 4
     ) -> None:
 
@@ -558,9 +558,10 @@ def do_overlay(
             add_label(stim, label)
 
             # overlay ethogram
-            cat, sign = ethogram.df.bout[['cat', 'sign']].values[frame_idx]
+            idx, cat, sign = megabout.ethogram.df.bout[['id', 'cat', 'sign']].values[frame_idx]
+            proba = megabout.bouts.proba[idx]
             if cat >= 0:
-                bout_label = f"{bouts_category_name[cat]} {BoutSign(sign).name}" 
+                bout_label = f"{bouts_category_name[cat]}: {proba:.2f}, {BoutSign(sign).name}" 
                 add_label(stim, bout_label, position=(10, height_px-30))
 
             writer.write_frame(stim)    
@@ -600,10 +601,10 @@ def overlay(
 
     if multiprocessing:
         with mp.Pool(mp.cpu_count()//4) as pool:
-            pool.starmap(do_overlay, [(output_dir, bf, megabout_dict[bf.metadata.stem].ethogram) for bf in behavior_files])
+            pool.starmap(do_overlay, [(output_dir, bf, megabout_dict[bf.metadata.stem]) for bf in behavior_files])
     else:
         for behavior_file in behavior_files:
-            do_overlay(output_dir, behavior_file, megabout_dict[behavior_file.metadata.stem].ethogram)
+            do_overlay(output_dir, behavior_file, megabout_dict[behavior_file.metadata.stem])
 
 def main(args: argparse.Namespace) -> None:
     overlay(
