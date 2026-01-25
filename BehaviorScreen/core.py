@@ -1,10 +1,11 @@
 from enum import IntEnum
 from typing import TypedDict
 
-# NOTE: this depends wether you record the fish from above or below
+CAMERA_BOTTOM = True
+
 class BoutSign(IntEnum):
-    LEFT = -1
-    RIGHT = 1
+    LEFT = -1 if CAMERA_BOTTOM else 1
+    RIGHT = 1 if CAMERA_BOTTOM else -1
 
 class Stim(IntEnum):
     DARK = 0
