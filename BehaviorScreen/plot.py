@@ -10,7 +10,7 @@ from dataclasses import dataclass
 import matplotlib.pyplot as plt
 
 from megabouts.utils import bouts_category_name_short   
-from BehaviorScreen.core import Stim
+from BehaviorScreen.core import Stim, BoutSign
 
 def build_parser() -> argparse.ArgumentParser:
     
@@ -165,8 +165,8 @@ def add_heatmap_column(
 
     counts = []
     for idx, cat_name in enumerate(bouts_category_name_short):
-        left = df_sub[(df_sub.category == idx) & (df_sub.sign == -1)].shape[0]
-        right = df_sub[(df_sub.category == idx) & (df_sub.sign == 1)].shape[0]
+        left = df_sub[(df_sub.category == idx) & (df_sub.sign == BoutSign.LEFT)].shape[0]
+        right = df_sub[(df_sub.category == idx) & (df_sub.sign == BoutSign.RIGHT)].shape[0]
         counts.extend([left, right])
 
     counts = pd.Series(counts, index=row_labels)

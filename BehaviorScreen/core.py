@@ -1,8 +1,12 @@
 from enum import IntEnum
 from typing import TypedDict
 
-class Stim(IntEnum):
+# NOTE: this depends wether you record the fish from above or below
+class BoutSign(IntEnum):
+    LEFT = -1
+    RIGHT = 1
 
+class Stim(IntEnum):
     DARK = 0
     BRIGHT = 1
     PHOTOTAXIS = 2

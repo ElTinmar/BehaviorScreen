@@ -1,5 +1,6 @@
 import multiprocessing as mp
 import time
+import pickle
 
 from pathlib import Path
 import argparse 
@@ -8,13 +9,17 @@ from dataclasses import dataclass, field
 import numpy as np
 import cv2
 
+from megabouts.utils import bouts_category_name
+from megabouts.pipeline.freely_swimming_pipeline import EthogramFullTracking
+
 from BehaviorScreen.load import (
     Directories, 
     BehaviorFiles,
     find_files, 
     load_data
 )
-from BehaviorScreen.core import Stim
+from BehaviorScreen.core import Stim, BoutSign
+from BehaviorScreen.megabouts import MegaboutResults
 
 from video_tools import FFMPEG_VideoWriter_CPU
 
@@ -470,7 +475,12 @@ def add_label(
     cv2.putText(image, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
 
 
-def do_overlay(output_dir: Path, behavior_file: BehaviorFiles, downsample: int = 4) -> None:
+def do_overlay(
+        output_dir: Path, 
+        behavior_file: BehaviorFiles, 
+        ethogram: EthogramFullTracking, 
+        downsample: int = 4
+    ) -> None:
 
     output_video = output_dir / behavior_file.video.name
     progress_file = output_dir / f"{behavior_file.video.stem}.progress"
@@ -546,6 +556,13 @@ def do_overlay(output_dir: Path, behavior_file: BehaviorFiles, downsample: int =
                 label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
 
             add_label(stim, label)
+
+            # overlay ethogram
+            cat, sign = ethogram.df.bout[['cat', 'sign']].values[frame_idx]
+            if cat >= 0:
+                bout_label = f"{bouts_category_name[cat]} {BoutSign(sign).name}" 
+                add_label(stim, bout_label, position=(10, height_px-30))
+
             writer.write_frame(stim)    
 
     finally:
@@ -555,6 +572,7 @@ def do_overlay(output_dir: Path, behavior_file: BehaviorFiles, downsample: int =
 
 def overlay(       
         root: Path,
+        megabout: str,
         overlay_dir: str,
         metadata: str,
         stimuli: str,
@@ -574,20 +592,24 @@ def overlay(
     )
     behavior_files = find_files(directories)
 
+    with open(root / megabout, 'rb') as fp:
+        megabout_dict = pickle.load(fp)
+
     output_dir = root / overlay_dir 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if multiprocessing:
         with mp.Pool(mp.cpu_count()//4) as pool:
-            pool.starmap(do_overlay, [(output_dir, bf) for bf in behavior_files])
+            pool.starmap(do_overlay, [(output_dir, bf, megabout_dict[bf.metadata.stem].ethogram) for bf in behavior_files])
     else:
         for behavior_file in behavior_files:
-            do_overlay(output_dir, behavior_file)
+            do_overlay(output_dir, behavior_file, megabout_dict[behavior_file.metadata.stem].ethogram)
 
 def main(args: argparse.Namespace) -> None:
     overlay(
         root=args.root,
-        overlay_dir = args.overlay_dir,
+        megabout=args.megabout,
+        overlay_dir=args.overlay_dir,
         metadata=args.metadata,
         stimuli=args.stimuli,
         tracking=args.tracking,
@@ -599,7 +621,7 @@ def main(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
-        description="Run megabout pipeline on tracking data from Lightning Pose"
+        description="Overlay visual stimulus and bout classification on top of video"
     )
 
     parser.add_argument(
@@ -642,6 +664,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--video-timestamp",
         default="",
+        help="Subfolder containing video timestamp files (default: video)",
+    )
+
+    parser.add_argument(
+        "--megabout",
+        default="megabout.pkl",
         help="Subfolder containing video timestamp files (default: video)",
     )
 
