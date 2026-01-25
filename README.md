@@ -30,6 +30,7 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - overlay reconstructed stimulus on video
 
 - plot trajectories of bouts (loomings, phototaxis)
+- plot habituation (O-bends, loomings): % of fish doing it vs trial #
 
 - eye tracking: imbalance in the training data? might need to annotate more during OKR? might need another model altogether
 - prey capture: eye convergence, okr: saccades
