@@ -14,4 +14,4 @@ INPUT_PATH=$1
 JOB_NAME=$(basename "$INPUT_PATH")
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
-srun conda run -n BehaviorScreen python -m BehaviorScreen.overlay "$INPUT_PATH" --metadata='results' --stimuli='results' --tracking='results' --video='results' --video-timestamps='results'
+srun conda run -n BehaviorScreen python -m BehaviorScreen.overlay "$INPUT_PATH" --metadata='results' --stimuli='results' --tracking='results' --video='results' --video-timestamp='results'
