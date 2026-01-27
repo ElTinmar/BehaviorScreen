@@ -8,7 +8,7 @@
 #SBATCH --time=24:00:00
 
 module purge
-module load anaconda/3/2023.03 cuda/13.0
+module load anaconda/3/2023.03 
 
 INPUT_PATH=$1
 JOB_NAME=$(basename "$INPUT_PATH")
