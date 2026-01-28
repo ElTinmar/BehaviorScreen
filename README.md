@@ -26,9 +26,6 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 
 ## TODO
 
-- overlay bout classification on video
-- overlay reconstructed stimulus on video
-
 - plot trajectories of bouts (loomings, phototaxis)
 - plot habituation (O-bends, loomings): % of fish doing it vs trial #
 
@@ -40,6 +37,8 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - add filter in yaml like plot?
 
 - MAE? can I add to plot?
+
+- handle fish missing or not moving so much
 
 Quality control:
     - filter fish that do not move at the beginning?
