@@ -559,8 +559,8 @@ def do_overlay(
 
             # overlay ethogram
             idx, cat, sign = megabout.ethogram.df.bout[['id', 'cat', 'sign']].values[frame_idx]
-            proba = megabout.bouts.proba[idx]
             if cat >= 0:
+                proba = megabout.bouts.proba[idx]
                 bout_label = f"{bouts_category_name[cat]}: {proba:.2f}, {BoutSign(sign).name}" 
                 add_label(stim, bout_label, position=(10, height_px-30))
 
