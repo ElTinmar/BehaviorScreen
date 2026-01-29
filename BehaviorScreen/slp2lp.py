@@ -32,6 +32,9 @@ def keep_user_labeled_only(input_slp, output_slp):
 
 def slp2lp(slp_pkg_file: Path, base_output_dir: Path) -> pd.DataFrame:
 
+    slp_pkg_file = Path(slp_pkg_file)
+    base_output_dir = Path(base_output_dir)
+
     labels = sio.load_file(slp_pkg_file)
 
     rows = []
@@ -70,8 +73,8 @@ def slp2lp(slp_pkg_file: Path, base_output_dir: Path) -> pd.DataFrame:
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--slp_file", type=str)
-    parser.add_argument("--lp_dir", type=str)
+    parser.add_argument("--slp_file", type=Path)
+    parser.add_argument("--lp_dir", type=Path)
     args = parser.parse_args()
     slp_file = args.slp_file
     lp_dir = args.lp_dir
