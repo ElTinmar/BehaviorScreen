@@ -11,7 +11,10 @@ module purge
 module load anaconda/3/2023.03 
 
 INPUT_PATH=$1
+shift
+EXTRA_ARGS="$@"
+
 JOB_NAME=$(basename "$INPUT_PATH")
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
-srun conda run -n BehaviorScreen python -m BehaviorScreen.export "$INPUT_PATH"
+srun conda run -n BehaviorScreen python -m BehaviorScreen.export "$INPUT_PATH" $EXTRA_ARGS
