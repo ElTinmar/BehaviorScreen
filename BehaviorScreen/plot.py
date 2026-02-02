@@ -68,7 +68,7 @@ def load_bouts(bout_csv: Path) -> pd.DataFrame:
 
 def filter_bouts(bouts: pd.DataFrame) -> pd.DataFrame:
 
-    # TODO adapt this
+    # TODO adapt this (maybe put rules in yaml)
     return bouts
 
     # filtered_bouts = bouts.copy()
