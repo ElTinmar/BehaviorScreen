@@ -39,7 +39,7 @@ class Directories:
             plots: str = ''
         ) -> None:
 
-        self.root: Path = root
+        self.root: Path = Path(root)
         self.metadata: Path = self.root / metadata
         self.stimuli: Path = self.root / stimuli
         self.tracking: Path = self.root / tracking

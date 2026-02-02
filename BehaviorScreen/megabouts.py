@@ -134,10 +134,16 @@ def get_bout_metrics(
     stim_trials = get_trials(behavior_data)
     bout_start = megabout.timestamp[megabout.bouts.onset]
     bout_stop = megabout.timestamp[megabout.bouts.offset]
-    
-    rows = []
 
+    # these are needed for QC
+    online_tracking_centroid = behavior_data.tracking[['centroid_x','centroid_y']].values
+    posthoc_tracking_centroid = behavior_data.full_tracking.heatmap_tracker.Swim_Bladder[['x', 'y']].values
+    online_tracking_heading =  behavior_data.tracking[['pc1_x','pc1_y']].values
+    posthoc_tracking_heading = behavior_data.full_tracking.heatmap_tracker.Head[['x', 'y']].values - posthoc_tracking_centroid
+    posthoc_tracking_heading = posthoc_tracking_heading / np.linalg.norm(posthoc_tracking_heading, axis=1, keepdims=True)
+    
     cx,cy,_ = well_coords_mm[0,:]
+    rows = []
 
     for stim_select, stim_data in stim_trials.groupby('stim_select'):
         
@@ -202,6 +208,15 @@ def get_bout_metrics(
                             row.prey_speed_deg_s
                         )
 
+                    # Quality control: posthoc vs online tracking
+                    centroid_distance = np.linalg.norm(online_tracking_centroid[on:off,:] - posthoc_tracking_centroid[on:off,:], axis=1)
+                    centroid_mismatch = centroid_distance.sum() / (off-on)
+
+                    dot = np.sum(online_tracking_heading[on:off,:] * posthoc_tracking_heading[on:off,:], axis=1)
+                    dot = np.clip(dot, -1.0, 1.0)
+                    angular_distance = np.rad2deg(np.arccos(dot))
+                    heading_mismatch = angular_distance.sum() / (off-on)
+                    heading_flip = np.any(angular_distance > 160)
 
                     rows.append({
                         'file': behavior_files.metadata.stem,
@@ -224,6 +239,9 @@ def get_bout_metrics(
                         'interbout_duration': interbout_duration,
                         'peak_axial_speed': peak_axial_speed,
                         'peak_yaw_speed': peak_yaw_speed,
+                        'centroid_mismatch': centroid_mismatch,
+                        'heading_mismatch': heading_mismatch,
+                        'heading_flip': heading_flip,
                         'category': category,
                         'sign': sign,
                         'proba': proba
