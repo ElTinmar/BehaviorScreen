@@ -23,7 +23,7 @@ filters:
   file:
     op: not_in
     value: 
-     - "fish1"
+     - "fish_1"
      - "fish_2"
 
 time_bins:
