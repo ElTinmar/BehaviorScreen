@@ -206,7 +206,7 @@ def find_file(
         except ValueError:
             continue  
 
-        if info.matches(file_info, time_tolerance_s=10):
+        if info.matches(file_info, time_tolerance_s=40):
             return file
 
     if required:
