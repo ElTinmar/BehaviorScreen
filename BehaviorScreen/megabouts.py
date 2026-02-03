@@ -209,12 +209,14 @@ def get_bout_metrics(
 
                     # Quality control: posthoc vs online tracking during interbout + bout
                     centroid_distance = np.linalg.norm(online_tracking_centroid[off_previous:off,:] - posthoc_tracking_centroid[off_previous:off,:], axis=1)
-                    centroid_mismatch = centroid_distance.sum() / (off-off_previous)
+                    centroid_mismatch_avg = centroid_distance.sum() / (off-off_previous)
+                    centroid_mismatch_max = centroid_distance.max()
 
                     dot = np.sum(online_tracking_heading[off_previous:off,:] * posthoc_tracking_heading[off_previous:off,:], axis=1)
                     dot = np.clip(dot, -1.0, 1.0)
                     angular_distance = np.rad2deg(np.arccos(dot))
-                    heading_mismatch = angular_distance.sum() / (off-off_previous)
+                    heading_mismatch_avg = angular_distance.sum() / (off-off_previous)
+                    heading_mismatch_max = angular_distance.max() 
                     heading_flip = np.any(angular_distance > 160)
 
                     # prepare next iteration
@@ -241,8 +243,10 @@ def get_bout_metrics(
                         'interbout_duration': interbout_duration,
                         'peak_axial_speed': peak_axial_speed,
                         'peak_yaw_speed': peak_yaw_speed,
-                        'centroid_mismatch': centroid_mismatch,
-                        'heading_mismatch': heading_mismatch,
+                        'centroid_mismatch_avg': centroid_mismatch_avg,
+                        'heading_mismatch_avg': heading_mismatch_avg,
+                        'centroid_mismatch_max': centroid_mismatch_max,
+                        'heading_mismatch_max': heading_mismatch_max,
                         'heading_flip': heading_flip,
                         'category': category,
                         'sign': sign,
