@@ -157,7 +157,7 @@ def get_bout_metrics(
 
                 mask = (bout_start > row.start_timestamp) & (bout_stop < row.stop_timestamp) 
 
-                off_previous = np.nan
+                off_previous = 0
                 for on, off, category, sign, proba, bout_index in zip(
                     megabout.bouts.onset[mask], 
                     megabout.bouts.offset[mask],
@@ -181,7 +181,6 @@ def get_bout_metrics(
 
                     # interbout duration
                     interbout_duration = (on-off_previous)/fps
-                    off_previous = off
 
                     # peak axial speed
                     axial_speed = megabout.traj.axial_speed[on:off]
@@ -208,15 +207,18 @@ def get_bout_metrics(
                             row.prey_speed_deg_s
                         )
 
-                    # Quality control: posthoc vs online tracking
-                    centroid_distance = np.linalg.norm(online_tracking_centroid[on:off,:] - posthoc_tracking_centroid[on:off,:], axis=1)
-                    centroid_mismatch = centroid_distance.sum() / (off-on)
+                    # Quality control: posthoc vs online tracking during interbout + bout
+                    centroid_distance = np.linalg.norm(online_tracking_centroid[off_previous:off,:] - posthoc_tracking_centroid[off_previous:off,:], axis=1)
+                    centroid_mismatch = centroid_distance.sum() / (off-off_previous)
 
-                    dot = np.sum(online_tracking_heading[on:off,:] * posthoc_tracking_heading[on:off,:], axis=1)
+                    dot = np.sum(online_tracking_heading[off_previous:off,:] * posthoc_tracking_heading[off_previous:off,:], axis=1)
                     dot = np.clip(dot, -1.0, 1.0)
                     angular_distance = np.rad2deg(np.arccos(dot))
-                    heading_mismatch = angular_distance.sum() / (off-on)
+                    heading_mismatch = angular_distance.sum() / (off-off_previous)
                     heading_flip = np.any(angular_distance > 160)
+
+                    # prepare next iteration
+                    off_previous = off
 
                     rows.append({
                         'file': behavior_files.metadata.stem,
