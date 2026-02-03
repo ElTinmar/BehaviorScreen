@@ -1,9 +1,9 @@
 from enum import IntEnum
 from typing import TypedDict
 
-CAMERA_BOTTOM = True
-
 TIME_TOLERANCE_S: float = 40
+
+CAMERA_BOTTOM = True
 
 class BoutSign(IntEnum):
     LEFT = -1 if CAMERA_BOTTOM else 1
@@ -25,7 +25,7 @@ class Stim(IntEnum):
 
     def __str__(self):
         return self.name
-    
+
 class WellDimensions(TypedDict):
     well_radius_mm: float
     distance_between_well_centers_mm: float
