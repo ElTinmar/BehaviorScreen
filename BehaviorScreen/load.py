@@ -6,6 +6,7 @@ import re
 from re import Pattern
 from video_tools import OpenCV_VideoReader
 from datetime import datetime
+from BehaviorScreen.core import TIME_TOLERANCE_S
 
 class BehaviorData(NamedTuple):
     metadata: Dict
@@ -206,7 +207,7 @@ def find_file(
         except ValueError:
             continue  
 
-        if info.matches(file_info, time_tolerance_s=40):
+        if info.matches(file_info, time_tolerance_s=TIME_TOLERANCE_S):
             return file
 
     if required:

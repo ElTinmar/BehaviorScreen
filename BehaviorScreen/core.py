@@ -3,6 +3,8 @@ from typing import TypedDict
 
 CAMERA_BOTTOM = True
 
+TIME_TOLERANCE_S: float = 40
+
 class BoutSign(IntEnum):
     LEFT = -1 if CAMERA_BOTTOM else 1
     RIGHT = 1 if CAMERA_BOTTOM else -1
