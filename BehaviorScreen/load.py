@@ -5,6 +5,7 @@ from typing import List, Dict, NamedTuple, Optional
 import re
 from re import Pattern
 from video_tools import OpenCV_VideoReader
+from datetime import datetime
 
 class BehaviorData(NamedTuple):
     metadata: Dict
@@ -63,6 +64,32 @@ class FileNameInfo(NamedTuple):
     second: int
     extra: Optional[str]
 
+    def to_datetime(self) -> datetime:
+        return datetime.strptime(
+            f"{self.day} {self.month} {self.year} "
+            f"{self.hour}:{self.minute}:{self.second}",
+            "%d %b %Y %H:%M:%S",
+        )
+
+    def matches(self, other: "FileNameInfo", time_tolerance_s: Optional[float] = None) -> bool:
+
+        if not (
+            self.fish_id == other.fish_id and
+            self.age == other.age and
+            self.line == other.line and
+            self.day == other.day and
+            self.month == other.month and
+            self.year == other.year and
+            self.extra == other.extra
+        ):
+            return False
+        
+        if time_tolerance_s is None:
+            return True
+        
+        dt = (self.to_datetime() - other.to_datetime()).total_seconds()
+        return abs(dt) <= time_tolerance_s
+    
 def filename_regexp(prefix: str, extension: str) -> Pattern:
     regexp = re.compile(
         f"^{prefix}"
@@ -179,15 +206,7 @@ def find_file(
         except ValueError:
             continue  
 
-        if (
-            info.fish_id == file_info.fish_id and
-            info.age == file_info.age and
-            info.line == file_info.line and
-            info.day == file_info.day and
-            info.month == file_info.month and
-            info.year == file_info.year and
-            info.extra == file_info.extra
-        ):
+        if info.matches(file_info, time_tolerance_s=10):
             return file
 
     if required:
