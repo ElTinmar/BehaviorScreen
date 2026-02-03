@@ -1,4 +1,4 @@
-from typing import List, Tuple, Optional, NamedTuple, Generator
+from typing import List, Tuple, Optional, NamedTuple, Generator, Any
 import argparse
 from pathlib import Path
 import pandas as pd
@@ -6,11 +6,29 @@ import numpy as np
 import re
 import yaml
 from dataclasses import dataclass
+import operator
 
 import matplotlib.pyplot as plt
 
 from megabouts.utils import bouts_category_name_short   
 from BehaviorScreen.core import Stim, BoutSign
+
+def pd_series_in(s: pd.Series, v: Any) -> pd.Series:
+    return s.isin(v)
+
+def pd_series_not_in(s: pd.Series, v: Any) -> pd.Series:
+    return ~s.isin(v)
+
+_OPS = {
+    "lt": operator.lt,
+    "le": operator.le,
+    "gt": operator.gt,
+    "ge": operator.ge,
+    "eq": operator.eq,
+    "ne": operator.ne,
+    "in": pd_series_in,
+    "not_in": pd_series_not_in,
+}
 
 def build_parser() -> argparse.ArgumentParser:
     
@@ -66,19 +84,38 @@ def load_bouts(bout_csv: Path) -> pd.DataFrame:
 
     return bouts
 
-def filter_bouts(bouts: pd.DataFrame) -> pd.DataFrame:
+def filter_bouts(bouts: pd.DataFrame, cfg_path: Path) -> pd.DataFrame:
+    cfg = load_yaml_config(cfg_path)
 
-    # TODO adapt this (maybe put rules in yaml)
-    return bouts
+    filtered = bouts.copy()
+    n0 = len(filtered)
 
-    # filtered_bouts = bouts.copy()
-    # filtered_bouts = filtered_bouts[
-    #     (filtered_bouts['distance_center'] <= 9) &
-    #     (filtered_bouts['proba'] >= 0.80) &
-    #     (filtered_bouts['distance'] <= 25) &
-    #     (filtered_bouts['peak_axial_speed'] <= 300)
-    # ]
-    # return filtered_bouts
+    for col, rule in cfg["filters"].items():
+        op_name = rule["op"]
+        value = rule["value"]
+
+        if op_name not in _OPS:
+            raise ValueError(f"Unknown operator '{op_name}' for column '{col}'")
+
+        if col not in filtered.columns:
+            raise KeyError(f"Column '{col}' not found in bouts DataFrame")
+
+        op_func = _OPS[op_name]
+
+        before = len(filtered)
+        mask = op_func(filtered[col], value)
+        filtered = filtered[mask]
+        after = len(filtered)
+
+        removed = before - after
+        frac_total = removed / n0 if n0 else 0
+
+        print(
+            f"{col:25s} {op_name:>2} {value} "
+            f"→ removed {removed:6d} ({frac_total:6.2%} of total)"
+        )
+
+    return filtered
 
 class MaskResult(NamedTuple):
     name: str
@@ -195,7 +232,7 @@ def plot_heatmap(
     ) -> None:
 
     bouts = load_bouts(input_csv)
-    filtered_bouts = filter_bouts(bouts)
+    filtered_bouts = filter_bouts(bouts, config_yaml)
 
     heatmap_df = pd.DataFrame()
     for mask in construct_all_masks(filtered_bouts, config_yaml):
