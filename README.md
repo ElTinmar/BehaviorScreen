@@ -37,6 +37,8 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 ### pre-processing
 
 - eye tracking: imbalance in the training data? might need to annotate more during OKR? might need another model altogether
+- stats : permutation tests, internal comparison (dark) vs external (vehicle, WT)
+- estimate variability
 
 ### QC
 
