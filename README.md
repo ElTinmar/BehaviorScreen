@@ -26,19 +26,23 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 
 ## TODO
 
+### plots
+
 - plot trajectories of bouts (loomings, phototaxis)
-- plot habituation (O-bends, loomings): % of fish doing it vs trial #
+- plot habituation (O-bends, loomings, prey capture, ...): % of fish doing it vs trial #
 - try to export average video in egocentric coords (might be a mess, but who knows)
+- MAE? can I add to plot?
+- plot eye traces, prey capture: eye convergence, okr: saccades
+
+### pre-processing
 
 - eye tracking: imbalance in the training data? might need to annotate more during OKR? might need another model altogether
-- prey capture: eye convergence, okr: saccades
+
+### QC
+
+- handle fish missing 
+- filter fish that do not move at the beginning?
+
+### refactoring 
 
 - clean dead code in process.py
-
-- MAE? can I add to plot?
-
-- handle fish missing or not moving so much 
-
-Quality control:
-    - filter fish that do not move at the beginning?
-    - check if tracking error (online vs post-hoc tracking) and filter fish or bouts with tracking errors
