@@ -17,7 +17,7 @@ sbatch video_overlay.sbatch /ptmp/mapri/tbr1b/vehicle
 sbatch video_overlay.sbatch /ptmp/mapri/tbr1b/ronidazole
 sbatch video_overlay.sbatch /ptmp/mapri/WT/ronidazole
 sbatch video_overlay.sbatch /ptmp/mapri/WT/danieau
-sbatch video_overlay.sbatch /ptmp/mapri/itpr1b/danieau
-sbatch video_overlay.sbatch /ptmp/mapri/itpr1b/danieau
-sbatch video_overlay.sbatch /ptmp/mapri/pmch2/danieau
-sbatch video_overlay.sbatch /ptmp/mapri/pmch2/danieau
+sbatch video_overlay.sbatch /ptmp/mapri/itpr1b/ronidazole
+sbatch video_overlay.sbatch /ptmp/mapri/itpr1b/vehicle
+sbatch video_overlay.sbatch /ptmp/mapri/pmch2/ronidazole
+sbatch video_overlay.sbatch /ptmp/mapri/pmch2/vehicle
