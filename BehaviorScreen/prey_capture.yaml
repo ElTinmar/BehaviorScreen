@@ -1,3 +1,31 @@
+filters:
+  distance_center: 
+    op: le
+    value: 100
+  proba: 
+    op: ge
+    value: 0.0
+  distance: 
+    op: le
+    value: 100
+  peak_axial_speed: 
+    op: le
+    value: 1000
+  heading_mismatch_max: 
+    op: le
+    value: 180
+  centroid_mismatch_max: 
+    op: le
+    value: 10_000
+  trial_num:
+    op: le
+    value: 100
+  file:
+    op: not_in
+    value: 
+     - "fish_1"
+     - "fish_2"
+     
 time_bins:
   - [0, 2.5]
   - [2.5, 5]
