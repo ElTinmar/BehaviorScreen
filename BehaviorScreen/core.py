@@ -9,6 +9,9 @@ class BoutSign(IntEnum):
     LEFT = -1 if CAMERA_BOTTOM else 1
     RIGHT = 1 if CAMERA_BOTTOM else -1
 
+    def __str__(self):
+        return self.name
+    
 class Stim(IntEnum):
     DARK = 0
     BRIGHT = 1

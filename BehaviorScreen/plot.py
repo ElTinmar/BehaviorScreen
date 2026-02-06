@@ -84,8 +84,7 @@ def load_bouts(bout_csv: Path) -> pd.DataFrame:
 
     return bouts
 
-def filter_bouts(bouts: pd.DataFrame, cfg_path: Path) -> pd.DataFrame:
-    cfg = load_yaml_config(cfg_path)
+def filter_bouts(bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
     filtered = bouts.copy()
     n0 = len(filtered)
@@ -117,39 +116,32 @@ def filter_bouts(bouts: pd.DataFrame, cfg_path: Path) -> pd.DataFrame:
 
     return filtered
 
-class MaskResult(NamedTuple):
-    name: str
-    mask: pd.Series
-
 @dataclass
 class StimSpec:
     stim: Stim
+    trial_range: Tuple[int, int]
+    name: str
     time_range: Optional[Tuple[int, int]] = None
-    trial_range: Optional[Tuple[int, int]] = None
     param: Optional[str] = None
-
-def create_mask(bouts: pd.DataFrame, stim_spec: StimSpec) -> MaskResult:
     
-    name_parts = [str(stim_spec.stim)]
-    mask = (bouts.stim == stim_spec.stim)
+def create_mask(
+        bouts: pd.DataFrame, 
+        stim: Stim,
+        trial_num: int,
+        time_range: Optional[Tuple[int, int]] = None,
+        param: Optional[str] = None,
+    ) -> pd.Series:
+    
+    mask = (bouts.stim == stim) & (bouts.trial_num == trial_num)
 
-    if stim_spec.param is not None:
-        mask &= (bouts.stim_variable_value == stim_spec.param) 
-        name_parts.append(stim_spec.param)
+    if param is not None:
+        mask &= (bouts.stim_variable_value == param) 
 
-    if stim_spec.time_range is not None:
-        lo, hi = stim_spec.time_range
+    if time_range is not None:
+        lo, hi = time_range
         mask &= (bouts.trial_time >= lo) & (bouts.trial_time < hi)
-        name_parts.append(f"{lo}s-{hi}s")    
-    
-    if stim_spec.trial_range is not None:
-        lo, hi = stim_spec.trial_range
-        mask &= (bouts.trial_num >= lo) & (bouts.trial_num < hi)
-        name_parts.append(f"trial_#{lo}-trial_#{hi}")    
 
-    name = "_".join(name_parts)
-
-    return MaskResult(name, mask)
+    return mask
 
 def load_yaml_config(path: Path) -> dict:
     """Load YAML config from file"""
@@ -157,7 +149,7 @@ def load_yaml_config(path: Path) -> dict:
         cfg = yaml.safe_load(f)
     return cfg
 
-def expand_stimuli(cfg: dict) -> Generator[StimSpec, None, None]:
+def read_stim_specs(cfg: dict) -> Generator[StimSpec, None, None]:
 
     global_time_bins = cfg.get("time_bins", [])
 
@@ -174,56 +166,39 @@ def expand_stimuli(cfg: dict) -> Generator[StimSpec, None, None]:
                 yield StimSpec(
                     stim=Stim[entry["stim"]],
                     param=p,
+                    name=entry["name"],
                     time_range=(t_start, t_stop),
                     trial_range=trials,
                 )
 
-def construct_all_masks(bouts: pd.DataFrame, cfg_path: Path) -> List[MaskResult]:
-
-    cfg = load_yaml_config(cfg_path)
-
-    masks: List[MaskResult] = []
-    for spec in expand_stimuli(cfg):
-        masks.append(create_mask(bouts, spec))
-
-    return masks
-
-# side-effect mutate heatmap_df
-def add_heatmap_column(
-        bouts: pd.DataFrame, 
-        heatmap_df: pd.DataFrame,
-        name: str, 
-        mask: pd.Series
-    ) -> None:
+def count_bouts(df: pd.DataFrame, sides: Tuple[BoutSign, BoutSign]) -> np.ndarray:
     
-    sides = ['L', 'R']
-    row_labels = [f"{cat}_{side}" for cat in bouts_category_name_short for side in sides]
-    df_sub = bouts[mask]
-
     counts = []
-    for idx, cat_name in enumerate(bouts_category_name_short):
-        left = df_sub[(df_sub.category == idx) & (df_sub.sign == BoutSign.LEFT)].shape[0]
-        right = df_sub[(df_sub.category == idx) & (df_sub.sign == BoutSign.RIGHT)].shape[0]
-        counts.extend([left, right])
+    for idx, _ in enumerate(bouts_category_name_short):
+        side_0 = df[(df.category == idx) & (df.sign == sides[0])].shape[0]
+        side_1 = df[(df.category == idx) & (df.sign == sides[1])].shape[0]
+        counts.extend([side_0, side_1])
 
-    counts = pd.Series(counts, index=row_labels)
-    if counts.sum() > 0:
-        counts /= counts.sum()
-
-    heatmap_df[name] = counts
+    return np.asarray(counts)
     
+def plot_bout_heatmap(
+        fig: plt.Figure, 
+        ax: plt.Axes, 
+        data: np.ndarray, 
+        x_labels: list[str],
+        y_labels: list[str],
+        max_frequency: float = 0.35
+    ) -> None:
 
-def plot_bout_heatmap(fig, ax, heatmap_df, max_prob: float = 0.35) -> None:
-
-    im = ax.imshow(heatmap_df, aspect='auto', cmap='inferno')
-    im.set_clim(0, max_prob)
-    fig.colorbar(im, ax=ax, label='prob.')
-    ax.set_xticks(range(len(heatmap_df.columns)))
-    ax.set_xticklabels(heatmap_df.columns, rotation=90, ha='center')
-    ax.set_yticks(range(len(heatmap_df.index)))
-    ax.set_yticklabels(heatmap_df.index)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Category")
+    im = ax.imshow(data, aspect='auto', cmap='inferno')
+    im.set_clim(0, max_frequency)
+    fig.colorbar(im, ax=ax, label='bout frequency')
+    ax.set_xticks(range(data.shape[1]))
+    ax.set_xticklabels(x_labels, rotation=90, ha='center')
+    ax.set_yticks(range(data.shape[0]))
+    ax.set_yticklabels(y_labels)
+    ax.set_xlabel("epoch")
+    ax.set_ylabel("bout category")
 
 def plot_heatmap(
         input_csv: Path, 
@@ -232,16 +207,61 @@ def plot_heatmap(
     ) -> None:
 
     bouts = load_bouts(input_csv)
-    filtered_bouts = filter_bouts(bouts, config_yaml)
+    cfg = load_yaml_config(config_yaml)
+    output_npz = output_png.with_suffix('.npz')
+    sides = [BoutSign.LEFT, BoutSign.RIGHT]
 
-    heatmap_df = pd.DataFrame()
-    for mask in construct_all_masks(filtered_bouts, config_yaml):
-        add_heatmap_column(filtered_bouts, heatmap_df, mask.name, mask.mask)
+    filtered_bouts = filter_bouts(bouts, cfg)
+    stim_specs = list(read_stim_specs(cfg)) # maybe return list[list[StimSpec]] grouped by stim type
+    fish_names = filtered_bouts.file.unique()
+
+    N_fish = len(fish_names)
+    N_trials = max(filtered_bouts.trial_num)
+    N_epochs = len(stim_specs)
+    N_bouts = len(sides)*len(bouts_category_name_short)
+    bout_frequency = np.full((N_fish, N_trials, N_epochs, N_bouts), np.nan)
+    
+    # Do I need (N_fish, N_stim_type, N_stim_parameter, N_trials, N_trial_time, N_bouts) ?
+    # -> split everything into equally (or increasingly long) spaced time bins ?
+    
+    for fish_idx, fish in enumerate(fish_names):
+        fish_df = filtered_bouts[filtered_bouts.file == fish]
+        for epoch_num, spec in enumerate(stim_specs):
+            for trial_num in range(*spec.trial_range):
+                mask = create_mask(
+                    fish_df, 
+                    spec.stim,
+                    trial_num,
+                    spec.time_range,
+                    spec.param
+                )
+                counts = count_bouts(fish_df[mask], sides)
+                bout_frequency[fish_idx, trial_num, epoch_num, :] = counts / (spec.time_range[1] - spec.time_range[0])
+
+    # save bout frequency table
+    column_names = [f"{s.name}_{s.param}_{s.time_range[0]}s-{s.time_range[1]}s" for s in stim_specs]     
+    row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
+
+    with open(output_npz, 'wb') as fp:
+        np.savez(
+            fp, 
+            fish_names=fish_names, 
+            column_names=column_names, 
+            row_names=row_names, 
+            bout_frequency=bout_frequency
+        )
+
+    # TODO export (stim by stim?) variance structure table (ss_trial, ss_indiv, ss_time, ss_epoch, ss_total)
+    # ideally largest source of variance is the epoch aka visual stimulus
+    # stim with habituation should also display variance in time / trials
+    trial_avg = np.nanmean(bout_frequency, axis=1)
+    fish_avg =  np.nanmean(trial_avg, axis=0)
+    fish_std = np.nanstd(trial_avg, axis=0)
 
     # plot and save
-    fig = plt.figure(figsize=(20, 10))
+    fig = plt.figure(figsize=(22, 10))
     ax = fig.gca()
-    plot_bout_heatmap(fig, ax, heatmap_df)
+    plot_bout_heatmap(fig, ax, fish_avg.T, column_names, row_names)
     fig.tight_layout()
     plt.savefig(output_png)
     plt.show()

@@ -32,17 +32,23 @@ time_bins:
   - [5, 7.5]
   - [7.5, 10]
   - [10, 15]
-  - [15, 20]
-  - [20, 30]
+  - [15, 25]
 
 stimuli:
   - stim: DARK
     trial_range: [10, 20]
+    name: "dark"
+
   - stim: BRIGHT
     params: ["[0.2, 0.2, 0.0, 1.0]"]
     trial_range: [5, 15]
+    name: "bright"
+
   - stim: PREY_CAPTURE
     params: ["-20", "20"]
+    trial_range: [0, 5]
+    name: "prey capture"
+
   - stim: PHOTOTAXIS
     params: ["-1", "1"]
     time_bins:
@@ -52,6 +58,9 @@ stimuli:
       - [1.5, 2]
       - [2, 5]
       - [5, 10]
+    trial_range: [0, 10]
+    name: "phototaxis"
+
   - stim: OMR
     params: ["-90", "90"]
     time_bins:
@@ -59,6 +68,9 @@ stimuli:
       - [2.5, 5]
       - [5, 7.5]
       - [7.5, 10]
+    trial_range: [0, 5]
+    name: "OMR lateral"
+
   - stim: OMR
     params: ["0"]
     time_bins:
@@ -66,6 +78,9 @@ stimuli:
       - [2.5, 5]
       - [5, 7.5]
       - [7.5, 10]
+    trial_range: [0, 5]
+    name: "OMR forward"
+
   - stim: OKR
     params: ["-36", "36"]
     time_bins:
@@ -73,16 +88,24 @@ stimuli:
       - [2.5, 5]
       - [5, 7.5]
       - [7.5, 10]
+    trial_range: [0, 5]
+    name: "OKR"
+
   - stim: LOOMING
     params: ["-3", "3"]
     time_bins:
       - [2.5, 4.5]
       - [4.5, 6.5]
       - [6.5, 8.5]
+    trial_range: [0, 7]
+    name: "looming"
+
   - stim: DARK
     time_bins:
       - [0, 1]
       - [1, 2]
       - [2, 3]
     trial_range: [20, 25]
+    name: "bright -> dark"
+
 
