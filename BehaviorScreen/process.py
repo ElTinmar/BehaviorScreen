@@ -290,9 +290,9 @@ def compute_eye_angle_from_keypoints(
         mask
         ):
     
-    v1 = np.array([head_x - swimbladder_x, head_y - swimbladder_y])
-    v2 = np.array([front_x - back_x, front_y - back_y])
-    angle =  compute_angle_between_vectors(v1.T, v2.T)
+    v1 = np.column_stack([head_x - swimbladder_x, head_y - swimbladder_y])
+    v2 = np.column_stack([front_x - back_x, front_y - back_y])
+    angle =  compute_angle_between_vectors(v1, v2)
     if mask is not None:
         angle[~mask] = np.nan
     return angle
