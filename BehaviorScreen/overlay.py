@@ -484,6 +484,11 @@ def do_overlay(
 
     output_video = output_dir / behavior_file.video.name
     progress_file = output_dir / f"{behavior_file.video.stem}.progress"
+
+    if output_video.exists() and not progress_file.exists():
+        print(f'{output_video} already exists, skipping ...', flush=True)
+        return 
+
     behavior_data = load_data(behavior_file)
 
     mm_per_pixel = 1/behavior_data.metadata['calibration']['pix_per_mm']
@@ -570,6 +575,7 @@ def do_overlay(
 
         writer.close()
         file.close()
+        progress_file.unlink()
 
 def overlay(       
         root: Path,
