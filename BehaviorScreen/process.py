@@ -272,8 +272,9 @@ def extract_time_series(
 
     return rows
 
-def compute_angle_between_vectors(v1, v2):
-    cos_angle = np.einsum("ij,ij->i", v1, v2)
+def compute_angle_between_vectors(v1: np.ndarray, v2: np.ndarray):
+    # v1, v2: (N, 2)
+    cos_angle = np.sum(v1 * v2, axis=1)
     sin_angle = np.cross(v1, v2)
     angle = np.arctan2(sin_angle, cos_angle)
     return angle
