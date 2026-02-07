@@ -126,7 +126,7 @@ def get_well_coords_mm(
         AGAROSE_WELL_DIMENSIONS
     )
     save_detected_circles(directories, behavior_file, background_image, circles)
-    ind = circle_roi_index(circles, behavior_data.metadata['identity']['ROIs'])
+    ind = circle_roi_index(circles, behavior_data.metadata['identity']['ROIs']) # FIXME
     circles_mm = 1/pix_per_mm * circles[ind,:]
 
     return circles_mm
