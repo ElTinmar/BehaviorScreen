@@ -29,7 +29,9 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 ### plots
 
 - plot trajectories of bouts (loomings, phototaxis)
-- plot habituation (O-bends, loomings, prey capture, ...): % of fish doing it vs trial #
+- plot habituation (O-bends, loomings, prey capture, ...)
+    % of fish vs trial
+    % trial vs time
 - try to export average video in egocentric coords (might be a mess, but who knows)
 - MAE? can I add to plot?
 - plot eye traces, prey capture: eye convergence, okr: saccades
