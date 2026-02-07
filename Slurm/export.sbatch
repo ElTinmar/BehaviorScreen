@@ -6,7 +6,6 @@
 #SBATCH --cpus-per-task=12
 #SBATCH --mem=48000
 #SBATCH --time=24:00:00
-#SBATCH --unbuffered
 
 module purge
 module load anaconda/3/2023.03 
@@ -18,4 +17,4 @@ EXTRA_ARGS="$@"
 JOB_NAME=$(basename "$INPUT_PATH")
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
-srun conda run -n BehaviorScreen python -m BehaviorScreen.export "$INPUT_PATH" $EXTRA_ARGS
+srun --unbuffered conda run -n BehaviorScreen python -m BehaviorScreen.export "$INPUT_PATH" $EXTRA_ARGS
