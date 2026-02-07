@@ -33,6 +33,7 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - try to export average video in egocentric coords (might be a mess, but who knows)
 - MAE? can I add to plot?
 - plot eye traces, prey capture: eye convergence, okr: saccades
+- freezing
 
 ### pre-processing
 
