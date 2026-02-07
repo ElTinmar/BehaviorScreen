@@ -497,10 +497,7 @@ def do_overlay(
     height_px = behavior_data.video.get_height()
     width_px = behavior_data.video.get_width()
     fps = behavior_data.video.get_fps()
-    num_frames = min(
-        behavior_data.video.get_number_of_frame(), 
-        behavior_data.tracking.shape[0]
-    )
+    num_frames = behavior_data.tracking.shape[0]
     
     grid = image_coord_grid(height_px, width_px, downsample=downsample)
 
@@ -517,33 +514,32 @@ def do_overlay(
 
         start_time = time.time()
 
-        for frame_idx in range(num_frames):
+        for idx, row in behavior_data.tracking.iterrows():
 
-            if frame_idx % 500 == 0:
+            if idx % 500 == 0:
                 elapsed = time.time() - start_time
-                speed = frame_idx/elapsed
-                time_left = (num_frames - frame_idx)/speed if speed > 0 else 0
-                file.write(f"frame: {frame_idx}, total: {num_frames}, frame/sec: {speed}, time_left: {time_left}\n")
+                speed = idx/elapsed
+                time_left = (num_frames - idx)/speed if speed > 0 else 0
+                file.write(f"frame: {idx}, total: {num_frames}, frame/sec: {speed}, time_left: {time_left}\n")
                 file.flush()
 
             ret, image = behavior_data.video.next_frame()
             
             if not ret:
-                raise RuntimeError(f'failed to read image #{frame_idx}')
+                raise RuntimeError(f'failed to read image #{idx}')
 
             # TODO write functions for the different coordinate systems
             coords_mm = egocentric_coords_mm(
                 grid,
-                centroid = behavior_data.tracking.loc[frame_idx, ['centroid_x', 'centroid_y']].values,
-                pc1 = behavior_data.tracking.loc[frame_idx, ['pc1_x', 'pc1_y']].values,
-                pc2 = behavior_data.tracking.loc[frame_idx, ['pc2_x', 'pc2_y']].values, 
+                centroid = row[['centroid_x', 'centroid_y']].values,
+                pc1 = row[['pc1_x', 'pc1_y']].values,
+                pc2 = row[['pc2_x', 'pc2_y']].values, 
                 mm_per_pixel = mm_per_pixel
             )
 
-            timestamp = behavior_data.video_timestamps.loc[frame_idx, 'timestamp']
-            shader_time_sec = (1e-9*timestamp) % rollover_time_sec  
-            exp_time_sec = 1e-9*(timestamp-timestamp_start)
-            current_stim = get_active_stimulus(behavior_data.stimuli, timestamp)
+            shader_time_sec = (1e-9*row.timestamp) % rollover_time_sec  
+            exp_time_sec = 1e-9*(row.timestamp-timestamp_start)
+            current_stim = get_active_stimulus(behavior_data.stimuli, row.timestamp)
             
             if current_stim is None:
                 stim = image
@@ -563,10 +559,10 @@ def do_overlay(
             add_label(stim, label)
 
             # overlay ethogram
-            idx, cat, sign = megabout.ethogram.df.bout[['id', 'cat', 'sign']].values[frame_idx]
-            if cat >= 0:
-                proba = megabout.bouts.proba[idx]
-                bout_label = f"{bouts_category_name[cat]}: {proba:.2f}, {BoutSign(sign).name}" 
+            bout_idx, bout_cat, bout_sign = megabout.ethogram.df.bout[['id', 'cat', 'sign']].values[idx] 
+            if bout_cat >= 0:
+                proba = megabout.bouts.proba[bout_idx]
+                bout_label = f"{bouts_category_name[bout_cat]}: {proba:.2f}, {BoutSign(bout_sign).name}" 
                 add_label(stim, bout_label, position=(10, height_px-30))
 
             writer.write_frame(stim)    
