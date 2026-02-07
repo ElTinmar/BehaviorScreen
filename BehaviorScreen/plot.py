@@ -119,7 +119,7 @@ def filter_bouts(bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 @dataclass
 class StimSpec:
     stim: Stim
-    trial_range: Tuple[int, int]
+    trials: range
     name: str
     time_range: Optional[Tuple[int, int]] = None
     param: Optional[str] = None
@@ -157,9 +157,11 @@ def read_stim_specs(cfg: dict) -> Generator[StimSpec, None, None]:
         bins = entry.get("time_bins", global_time_bins)
         params = entry.get("params", [None])
 
-        trials = entry.get("trial_range", None)
-        if trials is not None:
-            trials = tuple(trials)
+        trials = range(
+            entry["trial_range"]["start"], 
+            entry["trial_range"]["stop"], 
+            entry["trial_range"]["step"]
+        )
 
         for t_start, t_stop in bins:
             for p in params:
@@ -168,7 +170,7 @@ def read_stim_specs(cfg: dict) -> Generator[StimSpec, None, None]:
                     param=p,
                     name=entry["name"],
                     time_range=(t_start, t_stop),
-                    trial_range=trials,
+                    trials=trials,
                 )
 
 def count_bouts(df: pd.DataFrame, sides: Tuple[BoutSign, BoutSign]) -> np.ndarray:
@@ -227,7 +229,7 @@ def plot_heatmap(
     for fish_idx, fish in enumerate(fish_names):
         fish_df = filtered_bouts[filtered_bouts.file == fish]
         for epoch_num, spec in enumerate(stim_specs):
-            for trial_num in range(*spec.trial_range):
+            for trial_num in spec.trials:
                 mask = create_mask(
                     fish_df, 
                     spec.stim,
