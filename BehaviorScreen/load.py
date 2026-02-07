@@ -13,7 +13,7 @@ class BehaviorData(NamedTuple):
     stimuli: List[Dict]
     tracking: pd.DataFrame
     full_tracking: pd.DataFrame
-    video: OpenCV_VideoReader #NOTE not sure yet about this
+    video: OpenCV_VideoReader 
     video_timestamps: pd.DataFrame
     temperature: pd.DataFrame
     
