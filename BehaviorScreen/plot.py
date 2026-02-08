@@ -224,6 +224,7 @@ def plot_heatmap(
     bout_frequency = np.full((N_fish, N_trials, N_epochs, N_bouts), np.nan)
     
     # Do I need (N_fish, N_stim_type, N_stim_parameter, N_trials, N_trial_time, N_bouts) ?
+    # Make a LM/GLM: bout frequency (cat x side) = b0 + b1*stim_type + b2*stim_parameter + b3*trial_num + b4*trial_time or something like that
     # -> split everything into equally (or increasingly long) spaced time bins ?
     
     for fish_idx, fish in enumerate(fish_names):
