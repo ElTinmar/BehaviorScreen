@@ -8,7 +8,8 @@ from BehaviorScreen.load import (
 from pathlib import Path
 from typing import List
 
-ROOT = Path('/media/martin/DATA1/Behavioral_screen/DATA/WT_dec_2025/chronus')
+#ROOT = Path('/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau')
+ROOT = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau')
 
 directories = Directories(
     root = ROOT,
@@ -22,5 +23,6 @@ directories = Directories(
     results='results',
     plots=''
 )
-behavior_files: List[BehaviorFiles] = find_files(directories)
-behavior_data: BehaviorData = load_data(behavior_files[0])
+files: List[BehaviorFiles] = find_files(directories)
+behavior_file = files[0]
+behavior_data: BehaviorData = load_data(behavior_file)
