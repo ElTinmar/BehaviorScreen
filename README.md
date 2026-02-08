@@ -51,3 +51,4 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 ### refactoring 
 
 - clean dead code in process.py
+- maybe decouple circle detection from megabouts / run circle detection as a separate step

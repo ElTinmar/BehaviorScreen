@@ -61,6 +61,7 @@ def get_circles(
     well_distance = pix_per_mm * well_dimensions['distance_between_well_centers_mm']
     min_distance = well_distance - tolerance
 
+    # TODO maybe adding a slight blurr to the images could help 
     circles = cv2.HoughCircles(
         image,
         cv2.HOUGH_GRADIENT,
