@@ -35,7 +35,7 @@ def export_metadata(
             # TODO fix the issue 
             background_img = get_background_image_safe(behavior_data)
 
-        metadata['background']['image_ROI'] = background_img[x:x+w, y:y+h].tolist()
+        metadata['background']['image_ROI'] = background_img[y:y+h, x:x+w].tolist()
         metadata['export'] = {}
         metadata['export']['fish_ID'] = i
 
