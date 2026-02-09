@@ -3,6 +3,7 @@ from BehaviorScreen.plot import plot_heatmap
 
 for f in FOLDERS:
     target = ROOT / f
+    print(f"processing {target}")
     input_csv = target / "bouts.csv"
     output_png = target / "bouts.png"
     plot_heatmap(input_csv, CONFIG_YAML, output_png)
