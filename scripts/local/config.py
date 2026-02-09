@@ -1,4 +1,8 @@
-ROOT = '/media/martin/DATA1/Behavioral_screen/DATA'
+from pathlib import Path
+
+ROOT = Path('/media/martin/DATA1/Behavioral_screen/DATA')
+
+CONFIG_YAML = 'BehaviorScreen/screen.yaml'
 
 FOLDERS = [
     '1010Kaede-X-81C/ronidazole',
