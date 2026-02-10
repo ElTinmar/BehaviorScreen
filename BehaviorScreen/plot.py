@@ -241,6 +241,8 @@ def plot_heatmap(
                 )
                 counts = count_bouts(fish_df[mask], sides)
                 bout_frequency[fish_idx, trial_num, epoch_num, :] = counts / (spec.time_range[1] - spec.time_range[0])
+    
+    # TODO export bout freq as flat table
 
     # save bout frequency table
     column_names = [f"{s.name}_{s.param}_{s.time_range[0]}s-{s.time_range[1]}s" for s in stim_specs]     
