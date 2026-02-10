@@ -255,6 +255,8 @@ def plot_heatmap(
             bout_frequency=bout_frequency
         )
 
+    # TODO: export flat table as well (csv?)
+
     # TODO export (stim by stim?) variance structure table (ss_trial, ss_indiv, ss_time, ss_epoch, ss_total)
     # ideally largest source of variance is the epoch aka visual stimulus
     # stim with habituation should also display variance in time / trials
