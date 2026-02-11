@@ -8,6 +8,36 @@ from video_tools import OpenCV_VideoReader
 from datetime import datetime
 from BehaviorScreen.core import TIME_TOLERANCE_S
 
+MONTH_MAP = {
+    # English
+    "jan": 1, "january": 1,
+    "feb": 2, "february": 2,
+    "mar": 3, "march": 3,
+    "apr": 4, "april": 4,
+    "may": 5,
+    "jun": 6, "june": 6,
+    "jul": 7, "july": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "sept": 9, "september": 9,
+    "oct": 10, "october": 10,
+    "nov": 11, "november": 11,
+    "dec": 12, "december": 12,
+
+    # German
+    "jan": 1, "januar": 1,
+    "feb": 2, "februar": 2,
+    "mär": 3, "maerz": 3, "märz": 3,
+    "apr": 4, "april": 4,
+    "mai": 5,
+    "jun": 6, "juni": 6,
+    "jul": 7, "juli": 7,
+    "aug": 8, "august": 8,
+    "sep": 9, "september": 9,
+    "okt": 10, "oktober": 10,
+    "nov": 11, "november": 11,
+    "dez": 12, "dezember": 12,
+}
+
 class BehaviorData(NamedTuple):
     metadata: Dict
     stimuli: List[Dict]
@@ -66,10 +96,14 @@ class FileNameInfo(NamedTuple):
     extra: Optional[str]
 
     def to_datetime(self) -> datetime:
-        return datetime.strptime(
-            f"{self.day} {self.month} {self.year} "
-            f"{self.hour}:{self.minute}:{self.second}",
-            "%d %b %Y %H:%M:%S",
+        month_str = self.month.strip().lower()
+        return datetime(
+            year=self.year,
+            month=MONTH_MAP[month_str],
+            day=self.day,
+            hour=self.hour,
+            minute=self.minute,
+            second=self.second,
         )
 
     def matches(self, other: "FileNameInfo", time_tolerance_s: Optional[float] = None) -> bool:
@@ -90,25 +124,26 @@ class FileNameInfo(NamedTuple):
         
         dt = (self.to_datetime() - other.to_datetime()).total_seconds()
         return abs(dt) <= time_tolerance_s
-    
-def filename_regexp(prefix: str, extension: str) -> Pattern:
-    regexp = re.compile(
-        f"^{prefix}"
-        r"(?P<fish_id>\d{2})_"
-        r"(?P<age>[0-9]+)dpf_"
-        r"(?P<line>[^_]+)_"
-        r"(?P<weekday>[A-Za-z]{3})_"
-        r"(?P<day>\d{2})_"
-        r"(?P<month>[A-Za-z]{3})_"
-        r"(?P<year>\d{4})_"
-        r"(?P<hour>\d{2})h"
-        r"(?P<minute>\d{2})min"
-        r"(?P<second>\d{2})sec"
-        r"(?:_(?P<extra>[^.]+))?\."
-        f"{extension}$"
-    )
-    return regexp
 
+base_regexp = (
+    r"(?P<fish_id>\d{2})_"
+    r"(?P<age>[0-9]+)dpf_"
+    r"(?P<line>[^_]+)_"
+    r"(?P<weekday>[A-Za-z]{3})_"
+    r"(?P<day>\d{2})_"
+    r"(?P<month>[A-Za-z]{3})_"
+    r"(?P<year>\d{4})_"
+    r"(?P<hour>\d{2})h"
+    r"(?P<minute>\d{2})min"
+    r"(?P<second>\d{2})sec"
+    r"(?:_(?P<extra>[^.]+))?"
+)
+
+def filename_regexp(prefix: str, extension: str | None = None) -> Pattern:
+    pattern = f"^{re.escape(prefix)}{base_regexp}"
+    if extension is not None:
+        pattern += f"\\.{extension}$"
+    return re.compile(pattern)
 
 metadata_filename_regexp = filename_regexp('','metadata')
 stimuli_filename_regexp = filename_regexp('stim_','json')
