@@ -1,4 +1,4 @@
-from typing import List, Tuple, Optional, NamedTuple, Generator, Any
+from typing import Tuple, Optional, Generator, Any
 import argparse
 from pathlib import Path
 import pandas as pd
@@ -13,6 +13,7 @@ from tqdm import tqdm
 
 from megabouts.utils import bouts_category_name_short   
 from BehaviorScreen.core import Stim, BoutSign
+from BehaviorScreen.load import base_regexp, FileNameInfo
 
 def pd_series_in(s: pd.Series, v: Any) -> pd.Series:
     return s.isin(v)
@@ -202,6 +203,33 @@ def plot_bout_heatmap(
     ax.set_xlabel("epoch")
     ax.set_ylabel("bout category")
 
+def parse_fish(fish: str) -> FileNameInfo:
+
+    fish_regexp = re.compile(base_regexp)
+    m = fish_regexp.match(fish)
+    if m is None:
+        raise RuntimeError(f"failed to parse: {fish}")
+    g = m.groupdict()
+
+    return FileNameInfo(
+        fish_id = int(g["fish_id"]),
+        age = int(g["age"]),
+        line = g["line"],
+        weekday = g["weekday"],
+        day = int(g["day"]),
+        month = g["month"],
+        year = int(g["year"]),
+        hour = int(g["hour"]),
+        minute = int(g["minute"]),
+        second = int(g["second"]),
+        extra = g["extra"]
+    )
+
+def cosinor(info: FileNameInfo) -> Tuple[float, float]:
+    seconds = info.hour*3600 + info.minute*60 + info.second
+    theta = 2 * np.pi * (seconds / (24 * 3600))
+    return (np.cos(theta), np.sin(theta))
+
 def plot_heatmap(
         input_csv: Path, 
         config_yaml: Path, 
@@ -229,6 +257,8 @@ def plot_heatmap(
     
     # 5 nested for loops ... but I dont really care how long it takes
     for fish_idx, fish in tqdm(enumerate(fish_names)):
+        fish_info = parse_fish(fish)
+        time_cos, time_sin = cosinor(fish_info)
         for epoch_num, spec in enumerate(stim_specs):
             for trial_idx, trial_num in enumerate(spec.trials):
                 for category, cat_name in enumerate(bouts_category_name_short):
@@ -252,6 +282,10 @@ def plot_heatmap(
                         # TODO parse fish to extract time?
                         rows.append({
                             "fish": fish,
+                            "line": fish_info.line.strip().lower(),
+                            "dpf": fish_info.age,
+                            "time_of_day_cos": time_cos,
+                            "time_of_day_sin": time_sin,
                             "epoch_name": spec.name,
                             "stim_param": spec.param,
                             "trial_num": trial_idx,
