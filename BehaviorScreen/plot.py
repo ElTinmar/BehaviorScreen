@@ -9,6 +9,7 @@ from dataclasses import dataclass
 import operator
 
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from megabouts.utils import bouts_category_name_short   
 from BehaviorScreen.core import Stim, BoutSign
@@ -121,25 +122,34 @@ class StimSpec:
     stim: Stim
     trials: range
     name: str
-    time_range: Optional[Tuple[int, int]] = None
+    time_range: Tuple[int, int]
     param: Optional[str] = None
     
 def create_mask(
         bouts: pd.DataFrame, 
+        fish: str,
+        category: int,
+        side: BoutSign,
         stim: Stim,
         trial_num: int,
-        time_range: Optional[Tuple[int, int]] = None,
+        time_range: Tuple[int, int],
         param: Optional[str] = None,
     ) -> pd.Series:
     
-    mask = (bouts.stim == stim) & (bouts.trial_num == trial_num)
+    lo, hi = time_range
+
+    mask = (
+        (bouts.stim == stim) & 
+        (bouts.trial_num == trial_num) &
+        (bouts.file == fish) &
+        (bouts.trial_time >= lo) & 
+        (bouts.trial_time < hi) &
+        (bouts.category == category) &
+        (bouts.sign == side)
+    )
 
     if param is not None:
         mask &= (bouts.stim_variable_value == param) 
-
-    if time_range is not None:
-        lo, hi = time_range
-        mask &= (bouts.trial_time >= lo) & (bouts.trial_time < hi)
 
     return mask
 
@@ -173,16 +183,6 @@ def read_stim_specs(cfg: dict) -> Generator[StimSpec, None, None]:
                     trials=trials,
                 )
 
-def count_bouts(df: pd.DataFrame, sides: Tuple[BoutSign, BoutSign]) -> np.ndarray:
-    
-    counts = []
-    for idx, _ in enumerate(bouts_category_name_short):
-        side_0 = df[(df.category == idx) & (df.sign == sides[0])].shape[0]
-        side_1 = df[(df.category == idx) & (df.sign == sides[1])].shape[0]
-        counts.extend([side_0, side_1])
-
-    return np.asarray(counts)
-    
 def plot_bout_heatmap(
         fig: plt.Figure, 
         ax: plt.Axes, 
@@ -208,66 +208,85 @@ def plot_heatmap(
         output_png: Path
     ) -> None:
 
-    bouts = load_bouts(input_csv)
-    cfg = load_yaml_config(config_yaml)
+    # TODO move the computation to megabouts and keep only the plotting here
     output_npz = output_png.with_suffix('.npz')
+    output_csv = output_png.parent / 'bout_frequency.csv'
+
+    cfg = load_yaml_config(config_yaml)
+    stim_specs = list(read_stim_specs(cfg)) 
+    bouts = load_bouts(input_csv)
+    filtered_bouts = filter_bouts(bouts, cfg)
     sides = [BoutSign.LEFT, BoutSign.RIGHT]
 
-    filtered_bouts = filter_bouts(bouts, cfg)
-    stim_specs = list(read_stim_specs(cfg)) # maybe return list[list[StimSpec]] grouped by stim type
     fish_names = filtered_bouts.file.unique()
-
     N_fish = len(fish_names)
     N_trials = max(filtered_bouts.trial_num)
     N_epochs = len(stim_specs)
-    N_bouts = len(sides)*len(bouts_category_name_short)
-    bout_frequency = np.full((N_fish, N_trials, N_epochs, N_bouts), np.nan)
+    N_bouts = len(bouts_category_name_short)
+    N_sides = len(sides)
+    bout_frequency = np.full((N_fish, N_trials, N_epochs, N_bouts, N_sides), np.nan)
+    rows = []
     
-    # Do I need (N_fish, N_stim_type, N_stim_parameter, N_trials, N_trial_time, N_bouts) ?
-    # Add time of day?
-    # Make a LM/GLM: bout frequency (cat x side) = b0 + b1*stim_type + b2*stim_parameter + b3*trial_num + b4*trial_time or something like that
-    # -> split everything into equally (or increasingly long) spaced time bins ?
-    
-    for fish_idx, fish in enumerate(fish_names):
-        fish_df = filtered_bouts[filtered_bouts.file == fish]
+    # 5 nested for loops ... but I dont really care how long it takes
+    for fish_idx, fish in tqdm(enumerate(fish_names)):
         for epoch_num, spec in enumerate(stim_specs):
-            for trial_num in spec.trials:
-                mask = create_mask(
-                    fish_df, 
-                    spec.stim,
-                    trial_num,
-                    spec.time_range,
-                    spec.param
-                )
-                counts = count_bouts(fish_df[mask], sides)
-                bout_frequency[fish_idx, trial_num, epoch_num, :] = counts / (spec.time_range[1] - spec.time_range[0])
+            for trial_idx, trial_num in enumerate(spec.trials):
+                for category, cat_name in enumerate(bouts_category_name_short):
+                    for side_idx, side in enumerate(sides):
+                    
+                        mask = create_mask(
+                            bouts = filtered_bouts, 
+                            fish = fish,
+                            category = category,
+                            side = side,
+                            stim = spec.stim,
+                            trial_num = trial_num,
+                            time_range = spec.time_range,
+                            param = spec.param
+                        )
+                        counts = mask.sum()
+                        duration = spec.time_range[1] - spec.time_range[0]
+                        freq = counts / duration
+
+                        bout_frequency[fish_idx, trial_idx, epoch_num, category, side_idx] = freq
+                        # TODO parse fish to extract time?
+                        rows.append({
+                            "fish": fish,
+                            "epoch_name": spec.name,
+                            "stim_param": spec.param,
+                            "trial_num": trial_idx,
+                            "trial_time": spec.time_range[0] + duration/2,
+                            "bout_category": cat_name,
+                            "bout_side": side,
+                            "bout_frequency": freq
+                        })
     
-    # TODO export bout freq as flat table
+    bout_frequency_tall = pd.DataFrame(rows)
+    bout_frequency_tall.to_csv(output_csv, index=False)
 
     # save bout frequency table
-    column_names = [f"{s.name}_{s.param}_{s.time_range[0]}s-{s.time_range[1]}s" for s in stim_specs]     
-    row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
+    bin_names = [f"{s.name}_{s.param}_{s.time_range[0]}s-{s.time_range[1]}s" for s in stim_specs]     
 
     with open(output_npz, 'wb') as fp:
         np.savez(
             fp, 
-            fish_names=fish_names, 
-            column_names=column_names, 
-            row_names=row_names, 
-            bout_frequency=bout_frequency
+            labels_0 = fish_names, 
+            labels_1 = [f'trial_{n:03d}' for n in range(N_trials)],
+            labels_2 = bin_names, 
+            labels_3 = bouts_category_name_short,
+            labels_4 = [str(s) for s in sides],
+            bout_frequency = bout_frequency
         )
 
-    # TODO export (stim by stim?) variance structure table (ss_trial, ss_indiv, ss_time, ss_epoch, ss_total)
-    # ideally largest source of variance is the epoch aka visual stimulus
-    # stim with habituation should also display variance in time / trials
-    trial_avg = np.nanmean(bout_frequency, axis=1)
+    bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
+    trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
     fish_avg =  np.nanmean(trial_avg, axis=0)
-    fish_std = np.nanstd(trial_avg, axis=0)
+    row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
 
     # plot and save
     fig = plt.figure(figsize=(22, 10))
     ax = fig.gca()
-    plot_bout_heatmap(fig, ax, fish_avg.T, column_names, row_names)
+    plot_bout_heatmap(fig, ax, fish_avg.T, bin_names, row_names)
     fig.tight_layout()
     plt.savefig(output_png)
     plt.show()
