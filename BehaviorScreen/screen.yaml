@@ -5,7 +5,6 @@ filters:
   peak_axial_speed: {'<=': 1000}
   heading_mismatch_max: {'<=': 180}
   centroid_mismatch_max: {'<=': 1_000}
-  trial_num: {'<=': 100}
   file: {'not_in': ["fish_1", "fish_2"]}
 
 time_bins:
