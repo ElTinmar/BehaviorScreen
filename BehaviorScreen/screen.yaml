@@ -1,10 +1,10 @@
 filters:
-  distance_center: {'<=': 100} 
-  proba: {'>=': 0.0}
+  distance_center: {'<=': 10} 
+  proba: {'>=': 0.5}
   distance: {'<=': 100}
-  peak_axial_speed: {'<=': 1000}
+  peak_axial_speed: {'<=': 300}
   heading_mismatch_max: {'<=': 180}
-  centroid_mismatch_max: {'<=': 1_000}
+  centroid_mismatch_max: {'<=': 1000}
   file: {'not_in': ["fish_1", "fish_2"]}
 
 time_bins:
@@ -34,6 +34,8 @@ stimuli:
   - stim: PREY_CAPTURE
     name: "prey capture"
     params: ["-20", "20"]
+      # - prey_arc_start_deg: {'==': "-20"}
+      # - prey_arc_start_deg: {'==': "20"}
     trial_range: 
       start: 0
       stop: 5
@@ -42,6 +44,10 @@ stimuli:
   - stim: PHOTOTAXIS
     name: "phototaxis"
     params: ["-1", "1"]
+      # - phototaxis_polarity: {'==': "-1"}
+      #   foreground_color: {'==': "[0.1, 0.1, 0.0, 1.0]"}
+      # - phototaxis_polarity: {'==': "1"}
+      #   foreground_color: {'==': "[0.1, 0.1, 0.0, 1.0]"}
     time_bins:
       - [0, 0.5]
       - [0.5, 1]
