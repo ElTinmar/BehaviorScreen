@@ -32,4 +32,4 @@ behavior_data: BehaviorData = load_data(behavior_file)
 with open(ROOT / 'megabout.pkl', 'rb') as fp:
     mb = pickle.load(fp) 
 
-megabout = mb[behavior_file.metadata]
+megabout = mb[behavior_file.metadata.stem]
