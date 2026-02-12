@@ -283,6 +283,7 @@ def plot_heatmap(
                         rows.append({
                             "fish": fish,
                             "dpf": fish_info.age,
+                            "day": f"{fish_info.day}.{fish_info.month}.{fish_info.year}",
                             "time_of_day_cos": time_cos,
                             "time_of_day_sin": time_sin,
                             "epoch_name": spec.name,
