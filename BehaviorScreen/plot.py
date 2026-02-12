@@ -149,6 +149,7 @@ def create_mask(
         (bouts.sign == side)
     )
 
+    # TODO: more complex stim variable masks
     if param is not None:
         mask &= (bouts.stim_variable_value == param) 
 
