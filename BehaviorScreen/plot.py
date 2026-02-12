@@ -279,10 +279,9 @@ def plot_heatmap(
                         freq = counts / duration
 
                         bout_frequency[fish_idx, trial_idx, epoch_num, category, side_idx] = freq
-                        # TODO parse fish to extract time?
+                        # TODO add setup (oceanus vs chronus)?
                         rows.append({
                             "fish": fish,
-                            "line": fish_info.line.strip().lower(),
                             "dpf": fish_info.age,
                             "time_of_day_cos": time_cos,
                             "time_of_day_sin": time_sin,
