@@ -90,6 +90,7 @@ def filter_bouts(bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
     filtered = bouts.copy()
     n0 = len(filtered)
+    print(f'TOTAL NUM BOUTS: {n0}')
 
     for col, rule in cfg["filters"].items():
         for op_name, value in rule.items():
@@ -263,7 +264,9 @@ def plot_heatmap(
             for trial_idx, trial_num in enumerate(spec.trials):
                 for category, cat_name in enumerate(bouts_category_name_short):
                     for side_idx, side in enumerate(sides):
-                    
+                        
+                        # TODO distinguish between 0 and NA?
+                        # if the stimulus x param is never presented ?
                         mask = create_mask(
                             bouts = filtered_bouts, 
                             fish = fish,
