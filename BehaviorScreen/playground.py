@@ -7,9 +7,11 @@ from BehaviorScreen.load import (
 )
 from pathlib import Path
 from typing import List
+import pickle
+from BehaviorScreen.megabouts import MegaboutResults
 
-#ROOT = Path('/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau')
-ROOT = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau')
+ROOT = Path('/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau')
+#ROOT = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau')
 
 directories = Directories(
     root = ROOT,
@@ -26,3 +28,8 @@ directories = Directories(
 files: List[BehaviorFiles] = find_files(directories)
 behavior_file = files[0]
 behavior_data: BehaviorData = load_data(behavior_file)
+
+with open(ROOT / 'megabout.pkl', 'rb') as fp:
+    mb = pickle.load(fp) 
+
+megabout = mb[behavior_file.metadata]
