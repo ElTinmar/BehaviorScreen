@@ -22,12 +22,12 @@ def pd_series_not_in(s: pd.Series, v: Any) -> pd.Series:
     return ~s.isin(v)
 
 _OPS = {
-    "lt": operator.lt,
-    "le": operator.le,
-    "gt": operator.gt,
-    "ge": operator.ge,
-    "eq": operator.eq,
-    "ne": operator.ne,
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+    "==": operator.eq,
+    "!=": operator.ne,
     "in": pd_series_in,
     "not_in": pd_series_not_in,
 }
@@ -92,29 +92,28 @@ def filter_bouts(bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     n0 = len(filtered)
 
     for col, rule in cfg["filters"].items():
-        op_name = rule["op"]
-        value = rule["value"]
+        for op_name, value in rule.items():
 
-        if op_name not in _OPS:
-            raise ValueError(f"Unknown operator '{op_name}' for column '{col}'")
+            if op_name not in _OPS:
+                raise ValueError(f"Unknown operator '{op_name}' for column '{col}'")
 
-        if col not in filtered.columns:
-            raise KeyError(f"Column '{col}' not found in bouts DataFrame")
+            if col not in filtered.columns:
+                raise KeyError(f"Column '{col}' not found in bouts DataFrame")
 
-        op_func = _OPS[op_name]
+            op_func = _OPS[op_name]
 
-        before = len(filtered)
-        mask = op_func(filtered[col], value)
-        filtered = filtered[mask]
-        after = len(filtered)
+            before = len(filtered)
+            mask = op_func(filtered[col], value)
+            filtered = filtered[mask]
+            after = len(filtered)
 
-        removed = before - after
-        frac_total = removed / n0 if n0 else 0
+            removed = before - after
+            frac_total = removed / n0 if n0 else 0
 
-        print(
-            f"{col:25s} {op_name:>2} {value} "
-            f"→ removed {removed:6d} ({frac_total:6.2%} of total)"
-        )
+            print(
+                f"{col:25s} {op_name:>2} {value} "
+                f"→ removed {removed:6d} ({frac_total:6.2%} of total)"
+            )
 
     return filtered
 
