@@ -153,6 +153,7 @@ def get_trials(
             "start_timestamp": start_timestamp,
             "stop_timestamp": stop_timestamp,
             "looming_center_mm_x": stim_dict.get("looming_center_mm", [pd.NA, pd.NA])[0],
+            "looming_center_mm_y": stim_dict.get("looming_center_mm", [pd.NA, pd.NA])[1],
             "foreground_color": str(stim_dict["foreground_color"]),
             "background_color": str(stim_dict["background_color"]),
         }
