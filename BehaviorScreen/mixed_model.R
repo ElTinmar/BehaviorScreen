@@ -13,11 +13,12 @@ data <- data %>%
     stim_param = factor(stim_param)
   )
 
+# TODO maybe mirror bouts side x stim params and get rid of them?
 model <- lmer(
-  bout_frequency ~ 
-    * bout_side + epoch_name + stim_param +
-    time_of_day_cos + time_of_day_sin + trial_num + trial_time +
-    (1 | fish)  + (1 | bout_category),
+  bout_frequency ~ time_of_day_cos + time_of_day_sin + trial_num + trial_time +
+    (1 | fish)  + 
+    (1 + trial_num | epoch_name) + 
+    (1 + trial_time | epoch_name) + (1 + trial_time | bout_category) + (1 + trial_time | bout_side),
   data = data
 )
 
