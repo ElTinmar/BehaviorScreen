@@ -284,6 +284,7 @@ def plot_heatmap(
                         bout_frequency[fish_idx, trial_idx, epoch_num, category, side_idx] = freq
                         # TODO add setup (oceanus vs chronus)?
                         # TODO measure and add fish length ?
+                        # if no fish has ANY bout for a given stim x param, it was not presented? 
                         rows.append({
                             "fish": fish,
                             "dpf": fish_info.age,
