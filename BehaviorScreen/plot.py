@@ -285,6 +285,9 @@ def plot_heatmap(
                         # TODO add setup (oceanus vs chronus)?
                         # TODO measure and add fish length ?
                         # if no fish has ANY bout for a given stim x param, it was not presented? 
+                        # NOTE I want each cell in the heatmap to be a slope + intercept (ideally reducing time dimension)? 
+                        # -> estimate number of parameters
+                        # maybe slope in time + intercept for each cell in the heatmap?
                         rows.append({
                             "fish": fish,
                             "dpf": fish_info.age,
