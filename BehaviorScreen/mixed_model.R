@@ -1,6 +1,7 @@
 library(lme4)
 library(readr)
 library(dplyr)
+library(ggplot2)
 
 data <- read_csv("/home/martin/Desktop/bouts/WT/danieau/bout_frequency.csv")
 data <- data %>%
@@ -13,11 +14,21 @@ data <- data %>%
     stim_param = factor(stim_param)
   )
 
+
+data_nonzero <- data %>%
+  filter(bout_frequency != 0)
+
 # TODO maybe mirror bouts side x stim params and get rid of them?
+# TODO maybe try to sketch what x/y plots you want to show 
+model <- lmer(
+  bout_frequency ~ trial_time + trial_num + (1 + trial_time | epoch_name) + (1 + trial_num | epoch_name) + (1 | fish),
+  data = data_nonzero
+)
+
 model <- lmer(
   bout_frequency ~ time_of_day_cos + time_of_day_sin + trial_num + trial_time +
     (1 | fish)  + 
-    (1 + trial_num | epoch_name) + 
+    (1 + trial_num | epoch_name / stim_param) + 
     (1 + trial_time | epoch_name) + (1 + trial_time | bout_category) + (1 + trial_time | bout_side),
   data = data
 )
@@ -25,7 +36,9 @@ model <- lmer(
 summary(model)
 anova(model)
 
+ggplot(data_nonzero, aes(x = trial_time, y = bout_frequency, color= bout_category)) +
+  geom_point() + facet_wrap(~ epoch_name)
 
-ggplot(data, aes(x = bout_category, y = bout_frequency)) +
-  geom_boxplot() +
-  theme_classic()
+
+ggplot(data_nonzero, aes(x = trial_num, y = bout_frequency, color= bout_category)) +
+  geom_point() + facet_wrap(~ epoch_name)
