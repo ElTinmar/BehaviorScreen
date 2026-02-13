@@ -4,7 +4,10 @@ from pathlib import Path
 
 def create_parser():
     
-    parser = argparse.ArgumentParser(description="Concatenate multiple CSV files.")
+    parser = argparse.ArgumentParser(description="""
+            Find recursively bout frequency data files and concatenate into a single file.
+            This program expects a directory structure with root/line/treatment/bout_frequency.csv                         
+    """)
     parser.add_argument("root", type=Path, help="root dorectory")
     parser.add_argument("-n", "--name", default='bout_frequency.csv', help="input CSV files")
     parser.add_argument("-o", "--output", required=True, help="Output CSV file")
