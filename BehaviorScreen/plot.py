@@ -265,8 +265,6 @@ def plot_heatmap(
                 for category, cat_name in enumerate(bouts_category_name_short):
                     for side_idx, side in enumerate(sides):
                         
-                        # TODO distinguish between 0 and NA?
-                        # if the stimulus x param is never presented ?
                         mask = create_mask(
                             bouts = filtered_bouts, 
                             fish = fish,
@@ -277,14 +275,13 @@ def plot_heatmap(
                             time_range = spec.time_range,
                             param = spec.param
                         )
-                        counts = mask.sum()
+                        counts = mask.sum() or np.nan # NOTE check that this is ok
                         duration = spec.time_range[1] - spec.time_range[0]
                         freq = counts / duration
 
                         bout_frequency[fish_idx, trial_idx, epoch_num, category, side_idx] = freq
                         # TODO add setup (oceanus vs chronus)?
                         # TODO measure and add fish length ?
-                        # if no fish has ANY bout for a given stim x param, it was not presented? 
                         # NOTE I want each cell in the heatmap to be a slope + intercept (ideally reducing time dimension)? 
                         # -> estimate number of parameters
                         # maybe slope in time + intercept for each cell in the heatmap?
@@ -301,7 +298,8 @@ def plot_heatmap(
                             "trial_time": spec.time_range[0] + duration/2,
                             "bout_category": cat_name,
                             "bout_side": side,
-                            "bout_frequency": freq
+                            "bout_frequency": freq,
+                            'bout_counts': counts
                         })
     
     bout_frequency_tall = pd.DataFrame(rows)
