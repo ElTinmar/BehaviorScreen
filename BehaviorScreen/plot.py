@@ -1,4 +1,4 @@
-from typing import Tuple, Optional, Generator, Any
+from typing import List, Tuple, Dict, Optional, Generator, Any
 import argparse
 from pathlib import Path
 import pandas as pd
@@ -31,6 +31,39 @@ _OPS = {
     "in": pd_series_in,
     "not_in": pd_series_not_in,
 }
+
+@dataclass
+class Rule:
+    column: str
+    operator: str
+    value: Any
+
+    def apply(self, df: pd.DataFrame) -> pd.Series:
+        op_func = _OPS[self.operator]
+        return op_func(df[self.column], self.value)
+
+@dataclass
+class RuleSet: 
+    rules: tuple[Rule, ...]
+
+    def apply(self, df: pd.DataFrame) -> pd.Series:
+        mask = pd.Series(True, index=df.index)
+
+        for rule in self.rules:
+            mask &= rule.apply(df)
+
+        return mask
+    
+    def __repr__(self):
+        return "_".join([f"{r.column}{r.operator}{r.value}" for r in self.rules])
+
+@dataclass
+class StimSpec:
+    stim: Stim
+    trials: range
+    name: str
+    time_range: Tuple[int, int]
+    parameters: Optional[RuleSet] = None
 
 def build_parser() -> argparse.ArgumentParser:
     
@@ -86,46 +119,33 @@ def load_bouts(bout_csv: Path) -> pd.DataFrame:
 
     return bouts
 
+def parse_rules(cfg: dict) -> RuleSet:
+    rules = []
+
+    for column, rule_dict in cfg.items():
+        for op_name, value in rule_dict.items():
+            rules.append(Rule(column, op_name, value))
+
+    return RuleSet(tuple(rules))
+
 def filter_bouts(bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
     filtered = bouts.copy()
     n0 = len(filtered)
     print(f'TOTAL NUM BOUTS: {n0}')
 
-    for col, rule in cfg["filters"].items():
-        for op_name, value in rule.items():
-
-            if op_name not in _OPS:
-                raise ValueError(f"Unknown operator '{op_name}' for column '{col}'")
-
-            if col not in filtered.columns:
-                raise KeyError(f"Column '{col}' not found in bouts DataFrame")
-
-            op_func = _OPS[op_name]
-
-            before = len(filtered)
-            mask = op_func(filtered[col], value)
-            filtered = filtered[mask]
-            after = len(filtered)
-
-            removed = before - after
-            frac_total = removed / n0 if n0 else 0
-
-            print(
-                f"{col:25s} {op_name:>2} {value} "
-                f"→ removed {removed:6d} ({frac_total:6.2%} of total)"
-            )
+    filters = parse_rules(cfg["filters"])
+    for rule in filters.rules:
+        before = len(filtered)
+        mask = rule.apply(filtered)
+        filtered = filtered[mask]
+        after = len(filtered)
+        removed = before - after
+        frac_total = removed / n0 if n0 else 0
+        print(f"{rule.column:25s} {rule.operator:>2} {rule.value} → removed {removed:6d} ({frac_total:6.2%})")
 
     return filtered
 
-@dataclass
-class StimSpec:
-    stim: Stim
-    trials: range
-    name: str
-    time_range: Tuple[int, int]
-    param: Optional[str] = None
-    
 def create_mask(
         bouts: pd.DataFrame, 
         fish: str,
@@ -134,7 +154,7 @@ def create_mask(
         stim: Stim,
         trial_num: int,
         time_range: Tuple[int, int],
-        param: Optional[str] = None,
+        parameters: Optional[RuleSet] = None
     ) -> pd.Series:
     
     lo, hi = time_range
@@ -149,9 +169,8 @@ def create_mask(
         (bouts.sign == side)
     )
 
-    # TODO: more complex stim variable masks
-    if param is not None:
-        mask &= (bouts.stim_variable_value == param) 
+    if parameters:
+        mask &= parameters.apply(bouts)
 
     return mask
 
@@ -161,13 +180,23 @@ def load_yaml_config(path: Path) -> dict:
         cfg = yaml.safe_load(f)
     return cfg
 
+
 def read_stim_specs(cfg: dict) -> Generator[StimSpec, None, None]:
 
     global_time_bins = cfg.get("time_bins", [])
 
     for entry in cfg["stimuli"]:
+
+        try:
+            stim = Stim[entry["stim"]]
+        except KeyError:
+            raise ValueError(f"Unknown stimulus: {entry['stim']}")
+
+        name = entry["name"]
+
         bins = entry.get("time_bins", global_time_bins)
-        params = entry.get("params", [None])
+        if not bins:
+            raise ValueError(f"No time_bins defined for stimulus '{name}'")
 
         trials = range(
             entry["trial_range"]["start"], 
@@ -175,14 +204,20 @@ def read_stim_specs(cfg: dict) -> Generator[StimSpec, None, None]:
             entry["trial_range"]["step"]
         )
 
+        raw_params = entry.get("parameters")
+        if raw_params is None:
+            parameters = [None]
+        else:
+            parameters = [parse_rules(p) for p in raw_params]
+
         for t_start, t_stop in bins:
-            for p in params:
+            for params in parameters:
                 yield StimSpec(
-                    stim=Stim[entry["stim"]],
-                    param=p,
-                    name=entry["name"],
-                    time_range=(t_start, t_stop),
+                    stim=stim,
+                    name=name,
                     trials=trials,
+                    time_range=(t_start, t_stop),
+                    parameters=params,
                 )
 
 def plot_bout_heatmap(
@@ -273,7 +308,7 @@ def plot_heatmap(
                             stim = spec.stim,
                             trial_num = trial_num,
                             time_range = spec.time_range,
-                            param = spec.param
+                            parameters = spec.parameters
                         )
                         counts = mask.sum() or np.nan # NOTE check that this is ok
                         duration = spec.time_range[1] - spec.time_range[0]
@@ -293,7 +328,7 @@ def plot_heatmap(
                             "time_of_day_cos": time_cos,
                             "time_of_day_sin": time_sin,
                             "epoch_name": spec.name,
-                            "stim_param": spec.param,
+                            "stim_param": str(spec.parameters),
                             "trial_num": trial_idx,
                             "trial_time": spec.time_range[0] + duration/2,
                             "bout_category": cat_name,
