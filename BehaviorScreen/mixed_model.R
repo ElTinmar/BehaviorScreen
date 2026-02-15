@@ -41,9 +41,19 @@ model <- lmer(
 summary(model)
 anova(model)
 
-ggplot(data_nonzero, aes(x = trial_time, y = bout_frequency, color= bout_category)) +
-  geom_point() + facet_wrap(~ epoch_name)
+## trial time
 
+ggplot(data_nonzero, aes(x = trial_time, y = bout_frequency, color= bout_category)) +
+  geom_point() + geom_jitter() + facet_wrap(~ epoch_name) 
+
+
+ggplot(data_nonzero %>% filter(bout_category == "JT"), aes(x = trial_time, y = bout_frequency, color= bout_category)) +
+  geom_point() + geom_jitter() + facet_wrap(~ epoch_name) 
+
+## trial num
 
 ggplot(data_nonzero, aes(x = trial_num, y = bout_frequency, color= bout_category)) +
-  geom_point() + facet_wrap(~ epoch_name)
+  geom_point() + geom_jitter() + facet_wrap(~ epoch_name)
+
+ggplot(data_nonzero %>% filter(bout_category == "JT"), aes(x = trial_num, y = bout_frequency, color= bout_category)) +
+  geom_point() + geom_jitter() + facet_wrap(~ epoch_name)
