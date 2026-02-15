@@ -20,6 +20,11 @@ data_nonzero <- data %>%
 
 # TODO maybe mirror bouts side x stim params and get rid of them?
 # TODO maybe try to sketch what x/y plots you want to show 
+
+# bout_freq vs trial time
+# bout_freq vs trial_num
+# % larva response vs trial num
+
 model <- lmer(
   bout_frequency ~ trial_time + trial_num + (1 + trial_time | epoch_name) + (1 + trial_num | epoch_name) + (1 | fish),
   data = data_nonzero
