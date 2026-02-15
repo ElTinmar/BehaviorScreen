@@ -59,3 +59,4 @@ ggplot(data_nonzero %>% filter(bout_category == "JT"), aes(x = trial_num, y = bo
   geom_point() + geom_jitter() + facet_wrap(~ epoch_name)
 
 ### NOTE bout frequency might be over estimated on shorter time bins
+### TODO Try zero-truncated Poisson / Quasi-Poisson / Negative binomial model?
