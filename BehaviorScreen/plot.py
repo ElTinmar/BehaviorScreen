@@ -288,6 +288,7 @@ def plot_heatmap(
                         # NOTE I want each cell in the heatmap to be a slope + intercept (ideally reducing time dimension)? 
                         # -> estimate number of parameters
                         # maybe slope in time + intercept for each cell in the heatmap?
+                        # mabe dont bin bouts in time for the linear model and use counts / poisson?
                         rows.append({
                             "fish": fish,
                             "dpf": fish_info.age,
