@@ -57,3 +57,5 @@ ggplot(data_nonzero, aes(x = trial_num, y = bout_frequency, color= bout_category
 
 ggplot(data_nonzero %>% filter(bout_category == "JT"), aes(x = trial_num, y = bout_frequency, color= bout_category)) +
   geom_point() + geom_jitter() + facet_wrap(~ epoch_name)
+
+### bout frequency might be over estimated on shorter time bins
