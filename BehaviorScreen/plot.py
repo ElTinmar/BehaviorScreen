@@ -97,27 +97,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
-
-def normalize_stim_values(x: str) -> str:
-
-    _int_float = re.compile(r'^(-?\d+)\.0+$')
-
-    m = _int_float.fullmatch(x)
-    if m:
-        return m.group(1)
-
-    return x
-
 def load_bouts(bout_csv: Path) -> pd.DataFrame:
-
-    bouts = pd.read_csv(
-        bout_csv,
-        converters={
-            "stim_variable_value": normalize_stim_values,
-        }
-    )
-
-    return bouts
+    return pd.read_csv(bout_csv)
 
 def parse_rules(cfg: dict) -> RuleSet:
     rules = []
@@ -260,6 +241,17 @@ def cosinor(info: FileNameInfo) -> Tuple[float, float]:
     theta = 2 * np.pi * (seconds / (24 * 3600))
     return (np.cos(theta), np.sin(theta))
 
+def has_no_bouts(
+        fish: str,
+        bouts: pd.DataFrame, 
+        spec: StimSpec
+    ) -> bool:
+
+    stim_mask = spec.parameters.get_mask(bouts)
+    stim_mask &= bouts.stim == spec.stime
+    stim_mask &= bouts.file == fish
+    return stim_mask.sum() == 0
+
 def plot_heatmap(
         input_csv: Path, 
         config_yaml: Path, 
@@ -291,9 +283,8 @@ def plot_heatmap(
         time_cos, time_sin = cosinor(fish_info)
         for epoch_num, spec in enumerate(stim_specs):
             
-            stim_mask = spec.parameters.get_mask(filtered_bouts)
-            stim_mask &= filtered_bouts.file == fish
-            if stim_mask.sum() == 0:
+            if has_no_bouts(fish, filtered_bouts, spec):
+                print(f"skipping {spec}, no bouts found for fish {fish}")
                 continue
 
             for trial_idx, trial_num in enumerate(spec.trials):
@@ -356,7 +347,7 @@ def plot_heatmap(
     row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
 
     # plot and save
-    fig = plt.figure(figsize=(22, 10))
+    fig = plt.figure(figsize=(22, 14))
     ax = fig.gca()
     plot_bout_heatmap(fig, ax, fish_avg.T, bin_names, row_names)
     fig.tight_layout()
