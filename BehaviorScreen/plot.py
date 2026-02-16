@@ -248,7 +248,7 @@ def has_no_bouts(
     ) -> bool:
 
     stim_mask = spec.parameters.get_mask(bouts)
-    stim_mask &= bouts.stim == spec.stime
+    stim_mask &= bouts.stim == spec.stim
     stim_mask &= bouts.file == fish
     return stim_mask.sum() == 0
 
