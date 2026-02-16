@@ -21,5 +21,5 @@ sbatch megabout.sbatch /ptmp/mapri/itpr1b/ronidazole
 sbatch megabout.sbatch /ptmp/mapri/itpr1b/vehicle
 sbatch megabout.sbatch /ptmp/mapri/pmch2/ronidazole
 sbatch megabout.sbatch /ptmp/mapri/pmch2/vehicle
-sbatch megabout.sbatch /ptmp/mapri/at5fb/ronidazole
+sbatch megabout.sbatch /ptmp/mapri/atf5b/ronidazole
 sbatch megabout.sbatch /ptmp/mapri/atf5b/vehicle
