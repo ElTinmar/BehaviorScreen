@@ -168,9 +168,7 @@ def create_mask(
         (bouts.category == category) &
         (bouts.sign == side)
     )
-
-    if parameters:
-        mask &= parameters.get_mask(bouts)
+    mask &= parameters.get_mask(bouts)
 
     return mask
 
@@ -293,10 +291,9 @@ def plot_heatmap(
         time_cos, time_sin = cosinor(fish_info)
         for epoch_num, spec in enumerate(stim_specs):
             
-            # Do I need to use the full stimulus data to figure out wether the stim was presented 
-            # or is this principled / good enough?
             stim_mask = spec.parameters.get_mask(filtered_bouts)
-            if stim_mask.sum() == 0: 
+            stim_mask &= filtered_bouts.file == fish
+            if stim_mask.sum() == 0:
                 continue
 
             for trial_idx, trial_num in enumerate(spec.trials):
@@ -320,10 +317,6 @@ def plot_heatmap(
                         bout_frequency[fish_idx, trial_idx, epoch_num, category, side_idx] = freq
                         # TODO add setup (oceanus vs chronus)?
                         # TODO measure and add fish length ?
-                        # NOTE I want each cell in the heatmap to be a slope + intercept (ideally reducing time dimension)? 
-                        # -> estimate number of parameters
-                        # maybe slope in time + intercept for each cell in the heatmap?
-                        # mabe dont bin bouts in time for the linear model and use counts / poisson?
                         rows.append({
                             "fish": fish,
                             "dpf": fish_info.age,
