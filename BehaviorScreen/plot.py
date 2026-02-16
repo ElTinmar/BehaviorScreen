@@ -63,7 +63,7 @@ class StimSpec:
     trials: range
     name: str
     time_range: Tuple[int, int]
-    parameters: Optional[RuleSet] = None
+    parameters: RuleSet
 
 def build_parser() -> argparse.ArgumentParser:
     
@@ -154,7 +154,7 @@ def create_mask(
         stim: Stim,
         trial_num: int,
         time_range: Tuple[int, int],
-        parameters: Optional[RuleSet] = None
+        parameters: RuleSet
     ) -> pd.Series:
     
     lo, hi = time_range
@@ -204,11 +204,7 @@ def read_stim_specs(cfg: dict) -> Generator[StimSpec, None, None]:
             entry["trial_range"]["step"]
         )
 
-        raw_params = entry.get("parameters")
-        if raw_params is None:
-            parameters = [None]
-        else:
-            parameters = [parse_rules(p) for p in raw_params]
+        parameters = [parse_rules(p) for p in entry.get("parameters")]
 
         for t_start, t_stop in bins:
             for params in parameters:
@@ -296,6 +292,13 @@ def plot_heatmap(
         fish_info = parse_fish(fish)
         time_cos, time_sin = cosinor(fish_info)
         for epoch_num, spec in enumerate(stim_specs):
+            
+            # Do I need to use the full stimulus data to figure out wether the stim was presented 
+            # or is this principled / good enough?
+            stim_mask = spec.parameters.get_mask(filtered_bouts)
+            if stim_mask.sum() == 0: 
+                continue
+
             for trial_idx, trial_num in enumerate(spec.trials):
                 for category, cat_name in enumerate(bouts_category_name_short):
                     for side_idx, side in enumerate(sides):
@@ -310,7 +313,7 @@ def plot_heatmap(
                             time_range = spec.time_range,
                             parameters = spec.parameters
                         )
-                        counts = mask.sum() or np.nan # NOTE check that this is ok
+                        counts = mask.sum() 
                         duration = spec.time_range[1] - spec.time_range[0]
                         freq = counts / duration
 
@@ -341,7 +344,7 @@ def plot_heatmap(
     bout_frequency_tall.to_csv(output_csv, index=False)
 
     # save bout frequency table
-    bin_names = [f"{s.name}_{s.param}_{s.time_range[0]}s-{s.time_range[1]}s" for s in stim_specs]     
+    bin_names = [f"{s.name}_{s.parameters}_{s.time_range[0]}s-{s.time_range[1]}s" for s in stim_specs]     
 
     with open(output_npz, 'wb') as fp:
         np.savez(

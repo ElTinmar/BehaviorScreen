@@ -18,6 +18,8 @@ time_bins:
 stimuli:
   - stim: DARK
     name: "dark"
+    parameters: 
+      - background_color: {'==': [0.0, 0.0, 0.0, 1.0]}
     trial_range: 
       start: 10
       stop: 20
@@ -121,6 +123,8 @@ stimuli:
 
   - stim: DARK
     name: "bright -> dark"
+    parameters: 
+      - background_color: {'==': [0.0, 0.0, 0.0, 1.0]}
     time_bins:
       - [0, 0.5]
       - [0.5, 1]
