@@ -16,6 +16,7 @@ from BehaviorScreen.core import (
     Stim, 
     WellDimensions, 
     AGAROSE_WELL_DIMENSIONS, 
+    GROUPING_PARAMETER,
     STIM_PARAMETERS
 )
 
@@ -164,6 +165,114 @@ def get_trials(
 
     return pd.DataFrame(rows)
 
+def get_tracking_between(
+        tracking_data: pd.DataFrame, 
+        start_timestamp: int, 
+        stop_timestamp: int
+    ) -> pd.DataFrame:
+    
+    df = tracking_data.sort_values('timestamp').reset_index(drop=True)
+    mask = (df['timestamp'] >= start_timestamp) & (df['timestamp'] <= stop_timestamp)
+    segment = df.loc[mask].copy()
+    return segment
+
+def get_relative_time_sec(tracking_data: pd.DataFrame) -> pd.Series:
+    relative_time = tracking_data['timestamp'] - tracking_data['timestamp'].iloc[0]
+    return relative_time*1e-9
+
+def get_theta(tracking_data: pd.DataFrame) -> Tuple[np.ndarray, pd.Series]:
+    angle = np.arctan2(tracking_data['pc1_y'], tracking_data['pc1_x'])
+    notna = ~np.isnan(angle)
+    angle_unwrapped = pd.Series(np.nan, index=tracking_data.index, dtype=float)
+    angle_unwrapped[notna] = np.unwrap(angle[notna]) 
+    return angle, angle_unwrapped - angle_unwrapped.iloc[0] 
+
+def get_distance_mm(tracking_data: pd.DataFrame, mm_per_pix: float) -> pd.Series:
+    x = tracking_data['centroid_x'].astype(float)
+    y = tracking_data['centroid_y'].astype(float)
+    x_diff = x.diff()
+    y_diff = y.diff()
+    distance = mm_per_pix * (x_diff**2 + y_diff**2)**0.5
+    return distance
+
+def dist_from_center(
+        tracking_data: pd.DataFrame, 
+        mm_per_pix: float,
+        cx: float,
+        cy: float,
+    ) -> pd.Series:
+
+    x = tracking_data['centroid_x'].astype(float)*mm_per_pix
+    y = tracking_data['centroid_y'].astype(float)*mm_per_pix
+    distance = ((x - cx)**2 + (y - cy)**2)**0.5 
+    return distance
+
+def get_speed_mm_per_sec(tracking_data: pd.DataFrame, mm_per_pix: float) -> pd.Series:
+    dx = get_distance_mm(tracking_data, mm_per_pix)
+    dt = get_relative_time_sec(tracking_data).diff()
+    return dx/dt
+
+def common_time(trial_duration, fps) -> np.ndarray:
+    num_points = int(fps * trial_duration)
+    return np.linspace(0, trial_duration, num_points, endpoint=False)
+
+def interpolate_ts(target_time, time, values) -> np.ndarray:
+    return np.interp(target_time, time, values)
+
+def extract_time_series(
+        directories: Directories,
+        behavior_data: BehaviorData, 
+        behavior_files: BehaviorFiles, 
+    ):
+    
+    well_coords_mm = get_well_coords_mm(directories, behavior_files, behavior_data)
+    stim_trials = get_trials(behavior_data)
+    mm_per_pix = 1/float(behavior_data.metadata['calibration']['pix_per_mm'])
+    fps = behavior_data.metadata['camera']['framerate_value']
+
+    rows = []
+    time_interp = common_time(30, fps)
+
+    for identity, data in behavior_data.tracking.groupby('identity'):
+        
+        cx,cy,_ = well_coords_mm[identity,:]
+
+        for stim_select, stim_data in stim_trials.groupby('stim_select'):
+            stim = Stim(stim_select)
+            if not stim in GROUPING_PARAMETER:
+                break
+            for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
+                for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
+                    segment = get_tracking_between(data, row.start_timestamp, row.stop_timestamp)
+                    
+                    relative_time = get_relative_time_sec(segment)
+                    distance = np.nancumsum(get_distance_mm(segment, mm_per_pix))
+                    distance_center = dist_from_center(segment, mm_per_pix, cx, cy)
+                    speed = get_speed_mm_per_sec(segment, mm_per_pix)
+                    _, theta_unwrapped = get_theta(segment)
+
+                    distance_interp = interpolate_ts(time_interp, relative_time, distance)
+                    distance_center_interp = interpolate_ts(time_interp, relative_time, distance_center)
+                    speed_interp = interpolate_ts(time_interp, relative_time, speed)
+                    angle_interp = interpolate_ts(time_interp, relative_time, theta_unwrapped)
+
+                    for t, d, dc, s, th in zip(time_interp, distance_interp, distance_center_interp, speed_interp, angle_interp):
+                        rows.append({
+                            'file': behavior_files.metadata.stem,
+                            'identity': identity,
+                            'stim': stim_select,
+                            'stim_variable_name': GROUPING_PARAMETER[stim],
+                            'stim_variable_value': str(condition),
+                            'stim_start_time': 1e-9*(row.start_timestamp - stim_trials.start_timestamp[0]),
+                            'trial_num': trial_idx,
+                            'time': t,
+                            'distance': d,
+                            'distance_center': dc,
+                            'speed': s,
+                            'theta': th
+                        })
+
+    return rows
 
 def compute_angle_between_vectors(v1: np.ndarray, v2: np.ndarray):
     # v1, v2: (N, 2)

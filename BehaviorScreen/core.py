@@ -38,16 +38,6 @@ AGAROSE_WELL_DIMENSIONS: WellDimensions = {
     'distance_between_well_centers_mm': 22
 }
 
-GROUPING_PARAMETER = {
-    Stim.DARK: 'background_color',
-    Stim.BRIGHT: 'foreground_color',
-    Stim.PHOTOTAXIS: 'phototaxis_polarity',
-    Stim.OMR: 'omr_angle_deg',
-    Stim.OKR: 'okr_speed_deg_per_sec',
-    Stim.LOOMING: 'looming_center_mm_x',
-    Stim.PREY_CAPTURE: 'prey_arc_start_deg'
-}
-
 STIM_PARAMETERS = [
     'looming_angle_start_deg',
     'looming_angle_stop_deg',
