@@ -38,7 +38,7 @@ class Rule:
     operator: str
     value: Any
 
-    def apply(self, df: pd.DataFrame) -> pd.Series:
+    def get_mask(self, df: pd.DataFrame) -> pd.Series:
         op_func = _OPS[self.operator]
         return op_func(df[self.column], self.value)
 
@@ -46,11 +46,11 @@ class Rule:
 class RuleSet: 
     rules: tuple[Rule, ...]
 
-    def apply(self, df: pd.DataFrame) -> pd.Series:
+    def get_mask(self, df: pd.DataFrame) -> pd.Series:
         mask = pd.Series(True, index=df.index)
 
         for rule in self.rules:
-            mask &= rule.apply(df)
+            mask &= rule.get_mask(df)
 
         return mask
     
@@ -137,7 +137,7 @@ def filter_bouts(bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     filters = parse_rules(cfg["filters"])
     for rule in filters.rules:
         before = len(filtered)
-        mask = rule.apply(filtered)
+        mask = rule.get_mask(filtered)
         filtered = filtered[mask]
         after = len(filtered)
         removed = before - after
@@ -170,7 +170,7 @@ def create_mask(
     )
 
     if parameters:
-        mask &= parameters.apply(bouts)
+        mask &= parameters.get_mask(bouts)
 
     return mask
 
