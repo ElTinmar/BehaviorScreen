@@ -44,36 +44,56 @@ data <- data %>%
 # % larva response vs trial num
 # % responsive trial  
 
-model <- lmer(
-  bout_frequency ~ trial_time  + trial_num + 
-  (trial_time + trial_num | epoch_name / stim_param + bout_category),
-  #+ (1 | fish),
+## Linear model
+
+model <- lm(
+  bout_frequency ~ trial_time * (epoch_name:stim_param:bout_category:bout_side),
   data = data
 )
 
-#control <- glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 5e5))
+# requires a bunch of RAM
+model <- lmer(
+  bout_frequency ~ trial_time * (epoch_name:stim_param:bout_category:bout_side) + (1 | fish),
+  data = data
+)
+
+data$pred_count <- predict(model)   
+data$pred_frequency <- data$pred_count / data$time_bin_duration
+
+## Poisson model
+
+model <- glm(
+  bout_counts ~ trial_time * (epoch_name:stim_param:bout_category:bout_side) + offset(log(time_bin_duration)),
+  family = poisson,
+  data = data
+)
+
 model <- glmer(
-  bout_counts ~ trial_time + offset(log(time_bin_duration)) + trial_num + 
-    (trial_time + trial_num | epoch_name / stim_param + bout_category),
-    #+ (1 | fish),
+  bout_counts ~ trial_time * (epoch_name:stim_param:bout_category:bout_side) + offset(log(time_bin_duration)) + (1 | fish),
   data = data,
   family = poisson,
-  #control = control
 )
+data$pred_log <- predict(model)  
+data$pred_count <- exp(data$pred_log)
+data$pred_frequency <- data$pred_count / data$time_bin_duration
 
 summary(model)
 coef(model)
 anova(model)
 
+# model predictions
+
 # trial time
-ggplot(data, aes(x = trial_time, y = bout_frequency, color = bout_category)) +
-  geom_point() + 
+ggplot(data, aes(x = trial_time, y = bout_frequency)) +
+  geom_point(alpha = 0.4) + 
   geom_jitter() + 
+  geom_line(aes(x = trial_time, y = pred_frequency, color = bout_category), size = 1.2) +
   facet_grid(epoch_name*stim_param ~ bout_category*bout_side) 
 
 # trial num
-ggplot(data, aes(x = trial_num, y = bout_frequency, color = bout_category)) +
-  geom_point() + 
+ggplot(data, aes(x = trial_num, y = bout_frequency)) +
+  geom_point(alpha = 0.4) +  
   geom_jitter() + 
+  geom_line(aes(x = trial_num, y = pred_frequency, color = bout_category), size = 1.2) +
   facet_grid(epoch_name*stim_param ~ bout_category*bout_side) 
 
