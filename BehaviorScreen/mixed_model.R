@@ -48,8 +48,6 @@ model <- lmer(
 )
 
 summary(model)
-ranef(model)
-fixef(model)
 coef(model)
 anova(model)
 
