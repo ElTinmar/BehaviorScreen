@@ -25,9 +25,12 @@ data <- data %>%
 # bout_freq vs trial time
 # bout_freq vs trial_num
 # % larva response vs trial num
+# % responsive trial  
 
 model <- lmer(
-  bout_frequency ~ trial_time  + trial_num + (trial_time + trial_num | epoch_name / stim_param) + (1 | fish) + (1 | bout_category),
+  bout_frequency ~ trial_time  + trial_num + 
+  (trial_time + trial_num | epoch_name / stim_param + bout_category) + 
+  (1 | fish),
   data = data
 )
 
@@ -39,14 +42,6 @@ model <- glmer(
   data = data,
   family = poisson,
   control = control
-)
-
-model <- lmer(
-  bout_frequency ~ time_of_day_cos + time_of_day_sin + trial_num + trial_time +
-    (1 | fish)  + 
-    (trial_num | epoch_name / stim_param) + 
-    (trial_time | epoch_name) + (trial_time | bout_category) + (trial_time | bout_side),
-  data = data
 )
 
 summary(model)
