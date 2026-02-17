@@ -318,6 +318,7 @@ def plot_heatmap(
                             "stim_param": str(spec.parameters),
                             "trial_num": trial_idx,
                             "trial_time": spec.time_range[0] + duration/2,
+                            "time_bin_duration": duration,
                             "bout_category": cat_name,
                             "bout_side": side,
                             "bout_frequency": freq,

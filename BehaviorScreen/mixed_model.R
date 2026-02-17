@@ -3,7 +3,9 @@ library(readr)
 library(dplyr)
 library(ggplot2)
 
-data <- read_csv("/home/martin/Desktop/bouts/WT/danieau/bout_frequency.csv")
+#data <- read_csv("/home/martin/Desktop/bouts/WT/danieau/bout_frequency.csv")
+data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
+
 data <- data %>%
   mutate(
     fish = factor(fish),
@@ -13,10 +15,10 @@ data <- data %>%
     epoch_name = factor(epoch_name),
     stim_param = factor(stim_param)
   )
+data$time_bin_duration = data$bout_counts / data&bout_frequency
 
-
-data_nonzero <- data %>%
-  filter(bout_frequency != 0)
+# data <- data %>%
+#   filter(bout_frequency != 0)
 
 # TODO maybe mirror bouts side x stim params and get rid of them?
 # TODO maybe try to sketch what x/y plots you want to show 
@@ -27,12 +29,12 @@ data_nonzero <- data %>%
 
 model <- lmer(
   bout_frequency ~ trial_time + trial_num + (trial_time + trial_num | epoch_name) + (1 | fish),
-  data = data_nonzero
+  data = data
 )
 
 model <- glmer(
   bout_frequency ~ trial_time + trial_num + (trial_time + trial_num | epoch_name) + (1 | fish),
-  data = data_nonzero,
+  data = data,
   family = poisson
 )
 
@@ -49,19 +51,19 @@ anova(model)
 
 ## trial time
 
-ggplot(data_nonzero, aes(x = trial_time, y = bout_frequency, color= bout_category)) +
+ggplot(data, aes(x = trial_time, y = bout_frequency, color= bout_category)) +
   geom_point() + geom_jitter() + facet_wrap(~ epoch_name) 
 
 
-ggplot(data_nonzero %>% filter(bout_category == "JT"), aes(x = trial_time, y = bout_frequency, color= bout_category)) +
+ggplot(data %>% filter(bout_category == "JT"), aes(x = trial_time, y = bout_frequency, color= bout_category)) +
   geom_point() + geom_jitter() + facet_wrap(~ epoch_name) 
 
 ## trial num
 
-ggplot(data_nonzero, aes(x = trial_num, y = bout_frequency, color= bout_category)) +
+ggplot(data, aes(x = trial_num, y = bout_frequency, color= bout_category)) +
   geom_point() + geom_jitter() + facet_wrap(~ epoch_name)
 
-ggplot(data_nonzero %>% filter(bout_category == "JT"), aes(x = trial_num, y = bout_frequency, color= bout_category)) +
+ggplot(data %>% filter(bout_category == "JT"), aes(x = trial_num, y = bout_frequency, color= bout_category)) +
   geom_point() + geom_jitter() + facet_wrap(~ epoch_name)
 
 ### NOTE bout frequency might be over estimated on shorter time bins
