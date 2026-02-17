@@ -32,6 +32,10 @@ data <- data %>%
     stim_param = factor(stim_param)
   )
 
+data <- data %>%
+  filter(!bout_category %in% c("SCS", "LCS")) %>%
+  droplevels()
+
 # TODO maybe mirror bouts side x stim params and get rid of them?
 # TODO maybe try to sketch what x/y plots you want to show 
 
@@ -47,14 +51,14 @@ model <- lmer(
   data = data
 )
 
-control <- glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 5e5))
+#control <- glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 5e5))
 model <- glmer(
   bout_counts ~ trial_time + offset(log(time_bin_duration)) + trial_num + 
     (trial_time + trial_num | epoch_name / stim_param + bout_category) + 
     (1 | fish),
   data = data,
   family = poisson,
-  control = control
+  #control = control
 )
 
 summary(model)
