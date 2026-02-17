@@ -27,14 +27,16 @@ data <- data %>%
 # % larva response vs trial num
 
 model <- lmer(
-  bout_frequency ~ trial_time  + trial_num + (trial_time + trial_num | epoch_name) + (1 | fish),
+  bout_frequency ~ trial_time  + trial_num + (trial_time + trial_num | epoch_name / stim_param) + (1 | fish) + (1 | bout_category),
   data = data
 )
 
+control <- glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 5e5))
 model <- glmer(
-  bout_counts ~ trial_time + offset(log(time_bin_duration)) + trial_num + (trial_time + trial_num | epoch_name) + (1 | fish),
+  bout_counts ~ trial_time + offset(log(time_bin_duration)) + trial_num + (trial_time + trial_num | epoch_name / stim_param + bout_category) + (1 | fish),
   data = data,
-  family = poisson
+  family = poisson,
+  control = control
 )
 
 model <- lmer(
@@ -46,6 +48,9 @@ model <- lmer(
 )
 
 summary(model)
+ranef(model)
+fixef(model)
+coef(model)
 anova(model)
 
 ## trial time
