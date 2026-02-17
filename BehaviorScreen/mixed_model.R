@@ -4,24 +4,23 @@ library(dplyr)
 library(ggplot2)
 
 bout_category_levels = c(
-    "AS",
-    "S1",
-    "S2",
-    "SCS",
-    "LCS",
-    "BS",
-    "JT",
-    "HAT",
-    "RT",
-    "SAT",
-    "O",
-    "LLC",
-    "SLC"
-  )
+  "AS",
+  "S1",
+  "S2",
+  "SCS",
+  "LCS",
+  "BS",
+  "JT",
+  "HAT",
+  "RT",
+  "SAT",
+  "O",
+  "LLC",
+  "SLC"
+)
 
 #data <- read_csv("/home/martin/Desktop/bouts/WT/danieau/bout_frequency.csv")
 data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
-
 data <- data %>%
   mutate(
     fish = factor(fish),
@@ -31,7 +30,6 @@ data <- data %>%
     epoch_name = factor(epoch_name),
     stim_param = factor(stim_param)
   )
-
 data <- data %>%
   filter(!bout_category %in% c("SCS", "LCS")) %>%
   droplevels()
@@ -45,7 +43,6 @@ data <- data %>%
 # % responsive trial  
 
 ## Linear model
-
 model <- lm(
   bout_frequency ~ trial_time * (epoch_name:stim_param:bout_category:bout_side),
   data = data
@@ -61,7 +58,6 @@ data$pred_count <- predict(model)
 data$pred_frequency <- data$pred_count / data$time_bin_duration
 
 ## Poisson model
-
 model <- glm(
   bout_counts ~ trial_time * (epoch_name:stim_param:bout_category:bout_side) + offset(log(time_bin_duration)),
   family = poisson,
