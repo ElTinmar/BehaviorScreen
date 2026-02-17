@@ -15,7 +15,6 @@ data <- data %>%
     epoch_name = factor(epoch_name),
     stim_param = factor(stim_param)
   )
-data$time_bin_duration = data$bout_counts / data&bout_frequency
 
 # data <- data %>%
 #   filter(bout_frequency != 0)
@@ -28,12 +27,12 @@ data$time_bin_duration = data$bout_counts / data&bout_frequency
 # % larva response vs trial num
 
 model <- lmer(
-  bout_frequency ~ trial_time + trial_num + (trial_time + trial_num | epoch_name) + (1 | fish),
+  bout_frequency ~ trial_time  + trial_num + (trial_time + trial_num | epoch_name) + (1 | fish),
   data = data
 )
 
 model <- glmer(
-  bout_frequency ~ trial_time + trial_num + (trial_time + trial_num | epoch_name) + (1 | fish),
+  bout_counts ~ trial_time + offset(log(time_bin_duration)) + trial_num + (trial_time + trial_num | epoch_name) + (1 | fish),
   data = data,
   family = poisson
 )
