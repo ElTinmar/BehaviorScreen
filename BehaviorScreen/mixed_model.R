@@ -3,7 +3,20 @@ library(readr)
 library(dplyr)
 library(ggplot2)
 
-bout_category_levels = c()
+bout_category_levels = c(
+    "AS",
+    "S1",
+    "S2",
+    "SCS",
+    "LCS",
+    "BS",
+    "JT",
+    "HAT",
+    "RT",
+    "SAT",
+    "O",
+    "LLC",
+    "SLC")
 
 #data <- read_csv("/home/martin/Desktop/bouts/WT/danieau/bout_frequency.csv")
 data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
