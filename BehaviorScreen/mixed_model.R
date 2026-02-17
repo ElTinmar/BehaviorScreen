@@ -33,7 +33,9 @@ model <- lmer(
 
 control <- glmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 5e5))
 model <- glmer(
-  bout_counts ~ trial_time + offset(log(time_bin_duration)) + trial_num + (trial_time + trial_num | epoch_name / stim_param + bout_category) + (1 | fish),
+  bout_counts ~ trial_time + offset(log(time_bin_duration)) + trial_num + 
+    (trial_time + trial_num | epoch_name / stim_param + bout_category) + 
+    (1 | fish),
   data = data,
   family = poisson,
   control = control
