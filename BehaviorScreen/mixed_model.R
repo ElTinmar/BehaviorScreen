@@ -16,9 +16,6 @@ data <- data %>%
     stim_param = factor(stim_param)
   )
 
-# data <- data %>%
-#   filter(bout_frequency != 0)
-
 # TODO maybe mirror bouts side x stim params and get rid of them?
 # TODO maybe try to sketch what x/y plots you want to show 
 
@@ -48,22 +45,11 @@ summary(model)
 coef(model)
 anova(model)
 
-## trial time
+# trial time
+ggplot(data, aes(x = trial_time, y = bout_frequency, color = bout_category)) +
+  geom_point() + geom_jitter() + facet_grid(epoch_name*stim_param~bout_category*bout_side) 
 
-ggplot(data, aes(x = trial_time, y = bout_frequency, color= bout_category)) +
-  geom_point() + geom_jitter() + facet_wrap(~ epoch_name) 
+# trial num
+ggplot(data, aes(x = trial_num, y = bout_frequency, color = bout_category)) +
+  geom_point() + geom_jitter() + facet_grid(epoch_name*stim_param~bout_category*bout_side) 
 
-
-ggplot(data %>% filter(bout_category == "JT"), aes(x = trial_time, y = bout_frequency, color= bout_category)) +
-  geom_point() + geom_jitter() + facet_wrap(~ epoch_name) 
-
-## trial num
-
-ggplot(data, aes(x = trial_num, y = bout_frequency, color= bout_category)) +
-  geom_point() + geom_jitter() + facet_wrap(~ epoch_name)
-
-ggplot(data %>% filter(bout_category == "JT"), aes(x = trial_num, y = bout_frequency, color= bout_category)) +
-  geom_point() + geom_jitter() + facet_wrap(~ epoch_name)
-
-### NOTE bout frequency might be over estimated on shorter time bins
-### TODO Try zero-truncated Poisson / Quasi-Poisson / Negative binomial model?
