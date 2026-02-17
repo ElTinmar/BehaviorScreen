@@ -46,8 +46,8 @@ data <- data %>%
 
 model <- lmer(
   bout_frequency ~ trial_time  + trial_num + 
-  (trial_time + trial_num | epoch_name / stim_param + bout_category) + 
-  (1 | fish),
+  (trial_time + trial_num | epoch_name / stim_param + bout_category),
+  #+ (1 | fish),
   data = data
 )
 
