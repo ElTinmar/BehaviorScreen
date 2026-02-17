@@ -51,11 +51,11 @@ anova(model)
 ggplot(data, aes(x = trial_time, y = bout_frequency, color = bout_category)) +
   geom_point() + 
   geom_jitter() + 
-  facet_grid(epoch_name*stim_param~bout_category*bout_side) 
+  facet_grid(epoch_name*stim_param ~ bout_category*bout_side) 
 
 # trial num
 ggplot(data, aes(x = trial_num, y = bout_frequency, color = bout_category)) +
   geom_point() + 
   geom_jitter() + 
-  facet_grid(epoch_name*stim_param~bout_category*bout_side) 
+  facet_grid(epoch_name*stim_param ~ bout_category*bout_side) 
 
