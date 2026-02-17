@@ -3,7 +3,6 @@ from pathlib import Path
 #ROOT = Path('/media/martin/DATA1/Behavioral_screen/DATA')
 ROOT = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA')
 
-
 CONFIG_YAML = Path('BehaviorScreen/screen.yaml')
 
 FOLDERS = [
