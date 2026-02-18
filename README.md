@@ -52,3 +52,4 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 
 - clean dead code in process.py
 - maybe decouple circle detection from megabouts / run circle detection as a separate step
+- "foreground_color": [0.10000000000000002, 0.10000000000000002, 0.0, 1.0] in json. Make sure to normalize columns
