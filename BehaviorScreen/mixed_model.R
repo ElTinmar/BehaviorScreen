@@ -20,7 +20,9 @@ bout_category_levels = c(
 )
 
 #data <- read_csv("/home/martin/Desktop/bouts/WT/danieau/bout_frequency.csv")
-data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
+#data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
+data <- read_csv("/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
+
 data <- data %>%
   mutate(
     fish = factor(fish),
