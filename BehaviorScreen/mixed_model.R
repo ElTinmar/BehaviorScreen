@@ -159,12 +159,12 @@ ggplot(data, aes(x = trial_time, y = bout_frequency)) +
   geom_point(alpha = 0.4) + 
   geom_jitter() + 
   geom_line(aes(x = trial_time, y = pred_frequency, color = bout_category), linewidth = 1.2) +
-  facet_grid(epoch_name*stim_param ~ bout_category*bout_side) 
+  facet_grid(bout_category*bout_side ~ epoch_name*stim_param)  
 
 # trial num
 ggplot(data, aes(x = trial_num, y = bout_frequency)) +
   geom_point(alpha = 0.4) +  
   geom_jitter() + 
   geom_line(aes(x = trial_num, y = pred_frequency, color = bout_category), linewidth = 1.2) +
-  facet_grid(epoch_name*stim_param ~ bout_category*bout_side) 
+  facet_grid(bout_category*bout_side ~ epoch_name*stim_param) 
 
