@@ -45,7 +45,8 @@ data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, 
 # % larva response vs trial num
 # % responsive trial  
 
-##### Linear models =====================================================================================
+##### LM =====================================================================================
+
 model <- lm(
   bout_frequency ~ groups,
   data = data
@@ -67,7 +68,7 @@ model <- lm(
   data = data
 )
 
-## mixed effect
+##### LMM =====================================================================================
 
 model <- lmer(
   bout_frequency ~ groups + (1 | fish),
@@ -84,9 +85,16 @@ model <- lmer(
   data = data
 )
 
-##### Poisson models =====================================================================================
+##### GLM =====================================================================================
+
 model <- glm(
   bout_counts ~ groups + offset(log(time_bin_duration)),
+  family = poisson,
+  data = data
+)
+
+model <- glm(
+  bout_counts ~ 0 + groups + trial_time:groups + offset(log(time_bin_duration)),
   family = poisson,
   data = data
 )
@@ -103,13 +111,14 @@ model <- glm(
   data = data
 )
 deviance(model) / df.residual(model)
-###
 
 model <- glm(
   bout_counts ~ (trial_time + trial_num) * groups + offset(log(time_bin_duration)),
   family = poisson,
   data = data
 )
+
+##### GLMM =====================================================================================
 
 model <- glmer(
   bout_counts ~ trial_time * groups + offset(log(time_bin_duration)) + (1 | fish),
