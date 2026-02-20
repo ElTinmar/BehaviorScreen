@@ -42,13 +42,8 @@ data <- data %>%
 data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, data$bout_side)
 
 # TODO maybe mirror bouts side x stim params and get rid of them?
-# TODO maybe try to sketch what x/y plots you want to show 
-
-# bout_freq vs trial time
-# bout_freq vs trial_num
 # % larva response vs trial num
 # % responsive trial  
-
 
 ##### Linear models =====================================================================================
 model <- lm(
@@ -89,9 +84,6 @@ model <- lmer(
   data = data
 )
 
-data$pred_count <- predict(model)   
-data$pred_frequency <- data$pred_count / data$time_bin_duration
-
 ##### Poisson models =====================================================================================
 model <- glm(
   bout_counts ~ groups + offset(log(time_bin_duration)),
@@ -124,6 +116,15 @@ model <- glmer(
   data = data,
   family = poisson,
 )
+
+#####  Coefficients, diagnostics =========================================================================
+
+# choose the right version depending on model:
+
+# frequency modelled directly
+data$pred_frequency <- fitted(model)
+
+# counts with poisson / quasipoisson / negative binomial
 data$pred_count <- fitted(model)
 data$pred_frequency <- data$pred_count / data$time_bin_duration
 
@@ -137,7 +138,7 @@ ggplot(data, aes(x = residuals(model, type="response"))) +
   labs(x = "Response residuals", y = "Count") +
   xlim(-2.5, 2.5)
 
-# model predictions
+##### plots ============================================================================================
 
 # trial time
 ggplot(data, aes(x = trial_time, y = bout_frequency)) +
