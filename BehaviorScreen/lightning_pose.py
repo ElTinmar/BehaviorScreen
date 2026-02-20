@@ -33,7 +33,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Subfolder where per-animal exports will be written (default: results)",
     )
 
-
     return parser
 
 def estimate_pose(
