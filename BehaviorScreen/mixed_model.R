@@ -126,7 +126,7 @@ model <- glmer(
   family = poisson,
 )
 
-#####  Coefficients, diagnostics =========================================================================
+#####  Coefficients, diagnostics ===============================================================
 # choose the right version depending on model:
 
 # frequency modelled directly
@@ -146,7 +146,7 @@ ggplot(data, aes(x = residuals(model, type="response"))) +
   labs(x = "Response residuals", y = "Count") +
   xlim(-2.5, 2.5)
 
-##### plots ============================================================================================
+##### plots ====================================================================================
 
 # trial time
 ggplot(data, aes(x = trial_time, y = bout_frequency)) +
