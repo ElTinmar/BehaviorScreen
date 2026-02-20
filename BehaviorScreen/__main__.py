@@ -26,13 +26,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "root",
         type=Path,
-        help="Root experiment folder (e.g. WT_oct_2025)",
+        help="Path to root experiment folder (e.g. WT_oct_2025)",
     )
 
     parser.add_argument(
         "model_dir",
         type=Path,
-        help="Root experiment folder (e.g. WT_oct_2025)",
+        help="Path to LightningPose trained model directory",
     )
 
     parser.add_argument(
