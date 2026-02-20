@@ -20,11 +20,14 @@ bout_category_levels = c(
 )
 
 #data <- read_csv("/home/martin/Desktop/bouts/WT/danieau/bout_frequency.csv")
-#data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
-data <- read_csv("/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
+data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/Screen/WT/danieau/bout_frequency.csv")
+#data <- read_csv("combined_bout_frequency.csv")
+#data <- read_csv("/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
 
 data <- data %>%
   mutate(
+    #line = factor(line),
+    #condition = factor(condition),
     fish = factor(fish),
     day = factor(day),
     bout_category = factor(bout_category, levels=bout_category_levels),
@@ -36,6 +39,8 @@ data <- data %>%
   filter(!bout_category %in% c("SCS", "LCS")) %>%
   droplevels()
 
+data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, data$bout_side)
+
 # TODO maybe mirror bouts side x stim params and get rid of them?
 # TODO maybe try to sketch what x/y plots you want to show 
 
@@ -44,7 +49,6 @@ data <- data %>%
 # % larva response vs trial num
 # % responsive trial  
 
-data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, data$bout_side)
 
 ## Linear model
 model <- lm(
@@ -78,6 +82,12 @@ model <- glm(
   data = data
 )
 
+model <- glm(
+  bout_counts ~ 0 + groups + trial_time:groups + offset(log(time_bin_duration)),
+  family = poisson,
+  data = data
+)
+
 ##### That's the best I got so far
 model <- glm(
   bout_counts ~ trial_time * groups + offset(log(time_bin_duration)),
@@ -98,13 +108,18 @@ model <- glmer(
   data = data,
   family = poisson,
 )
-data$pred_log <- predict(model)  
-data$pred_count <- exp(data$pred_log)
+data$pred_count <- fitted(model)
 data$pred_frequency <- data$pred_count / data$time_bin_duration
 
 summary(model)
 exp(coef(model))
 anova(model)
+
+# residuals 
+ggplot(data, aes(x = residuals(model, type="response"))) +
+  geom_histogram(binwidth = 0.1, alpha = 0.5) +
+  labs(x = "Response residuals", y = "Count") +
+  xlim(-2.5, 2.5)
 
 # model predictions
 
@@ -112,13 +127,13 @@ anova(model)
 ggplot(data, aes(x = trial_time, y = bout_frequency)) +
   geom_point(alpha = 0.4) + 
   geom_jitter() + 
-  geom_line(aes(x = trial_time, y = pred_frequency, color = bout_category), size = 1.2) +
+  geom_line(aes(x = trial_time, y = pred_frequency, color = bout_category), linewidth = 1.2) +
   facet_grid(epoch_name*stim_param ~ bout_category*bout_side) 
 
 # trial num
 ggplot(data, aes(x = trial_num, y = bout_frequency)) +
   geom_point(alpha = 0.4) +  
   geom_jitter() + 
-  geom_line(aes(x = trial_num, y = pred_frequency, color = bout_category), size = 1.2) +
+  geom_line(aes(x = trial_num, y = pred_frequency, color = bout_category), linewidth = 1.2) +
   facet_grid(epoch_name*stim_param ~ bout_category*bout_side) 
 
