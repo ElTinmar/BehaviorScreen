@@ -127,7 +127,6 @@ model <- glmer(
 )
 
 #####  Coefficients, diagnostics =========================================================================
-
 # choose the right version depending on model:
 
 # frequency modelled directly
