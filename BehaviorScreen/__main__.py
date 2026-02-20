@@ -3,7 +3,7 @@ from pathlib import Path
 
 from BehaviorScreen.export import export_single_animals
 from BehaviorScreen.megabouts import run_megabouts
-from BehaviorScreen.lightning_pose import estimate_pose
+from BehaviorScreen.pose_estimation import estimate_pose
 from BehaviorScreen.plot import plot_heatmap
 
 # TODO eye tracking OKR
