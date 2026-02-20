@@ -50,7 +50,7 @@ data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, 
 # % responsive trial  
 
 
-## Linear model
+##### Linear models =====================================================================================
 model <- lm(
   bout_frequency ~ groups,
   data = data
@@ -61,21 +61,38 @@ model <- lm(
   data = data
 )
 
-# requires a bunch of RAM
+# dont use first level of groups as reference
+model <- lm(
+  bout_frequency ~ 0 + groups + trial_time:groups,
+  data = data
+)
+
+model <- lm(
+  bout_frequency ~ 0 + groups + trial_time:groups + trial_num:groups,
+  data = data
+)
+
+## mixed effect
+
 model <- lmer(
   bout_frequency ~ groups + (1 | fish),
   data = data
 )
 
 model <- lmer(
-  bout_frequency ~ trial_time * (epoch_name:stim_param:bout_category:bout_side) + (1 | fish),
+  bout_frequency ~ trial_time * groups + (1 | fish),
+  data = data
+)
+
+model <- lmer(
+  bout_frequency ~ 0 + groups + trial_time:groups + (1 | fish),
   data = data
 )
 
 data$pred_count <- predict(model)   
 data$pred_frequency <- data$pred_count / data$time_bin_duration
 
-## Poisson model
+##### Poisson models =====================================================================================
 model <- glm(
   bout_counts ~ groups + offset(log(time_bin_duration)),
   family = poisson,
@@ -83,12 +100,11 @@ model <- glm(
 )
 
 model <- glm(
-  bout_counts ~ 0 + groups + trial_time:groups + offset(log(time_bin_duration)),
+  bout_counts ~ 0 + groups + trial_time:groups + trial_num:groups + offset(log(time_bin_duration)),
   family = poisson,
   data = data
 )
 
-##### That's the best I got so far
 model <- glm(
   bout_counts ~ trial_time * groups + offset(log(time_bin_duration)),
   family = poisson,
