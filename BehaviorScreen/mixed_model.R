@@ -24,14 +24,14 @@ data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/D
 #data <- read_csv("combined_bout_frequency.csv")
 #data <- read_csv("/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
 
-# Highly controversial
-data <- data %>%
-  filter(bout_counts > 0)
+# # Highly controversial
+# data <- data %>%
+#   filter(bout_counts > 0)
 
 data <- data %>%
   mutate(
-    #line = factor(line),
-    #condition = factor(condition),
+    line = factor(line),
+    condition = factor(condition),
     fish = factor(fish),
     day = factor(day),
     bout_category = factor(bout_category, levels=bout_category_levels),
@@ -44,6 +44,16 @@ data <- data %>%
   droplevels()
 
 data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, data$bout_side)
+
+## Averaging over trials 
+
+data_trial_avg <- data %>%
+  group_by(line, condition, fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
+  summarize(
+    bout_frequency = mean(bout_frequency, na.rm = TRUE),
+    bout_counts = mean(bout_counts, na.rm = TRUE),
+    .groups = "drop"
+  )
 
 # TODO maybe mirror bouts side x stim params and get rid of them?
 # % larva response vs trial num
@@ -61,10 +71,14 @@ model <- lm(
   data = data
 )
 
-# dont use first level of groups as reference
 model <- lm(
   bout_frequency ~ 0 + groups + trial_time:groups,
   data = data
+)
+
+model <- lm(
+  bout_frequency ~ 0 + groups + trial_time:groups,
+  data = data_trial_avg
 )
 
 model <- lm(
@@ -89,6 +103,11 @@ model <- lmer(
   data = data
 )
 
+model <- lmer(
+  bout_frequency ~ 0 + groups + trial_time:groups + (1 | fish),
+  data = data_trial_avg
+)
+
 ##### GLM =====================================================================================
 
 model <- glm(
@@ -99,6 +118,12 @@ model <- glm(
 
 model <- glm(
   bout_counts ~ 0 + groups + trial_time:groups + offset(log(time_bin_duration)),
+  family = poisson,
+  data = data
+)
+
+model <- glm(
+  bout_counts ~ 0 + groups + trial_num:groups + offset(log(time_bin_duration)),
   family = poisson,
   data = data
 )
@@ -147,6 +172,7 @@ model <- glmer(
 
 # frequency modelled directly
 data$pred_frequency <- fitted(model)
+data_trial_avg$pred_frequency <- fitted(model)
 
 # counts with poisson / quasipoisson / negative binomial
 data$pred_count <- fitted(model)
@@ -168,6 +194,12 @@ plot(fitted(model),  residuals(model, type="response"))
 
 # trial time
 ggplot(data, aes(x = trial_time, y = bout_frequency)) +
+  geom_point(alpha = 0.4) + 
+  geom_jitter() + 
+  geom_line(aes(x = trial_time, y = pred_frequency, color = bout_category), linewidth = 1.2) +
+  facet_grid(bout_category*bout_side ~ epoch_name*stim_param)  
+
+ggplot(data_trial_avg, aes(x = trial_time, y = bout_frequency)) +
   geom_point(alpha = 0.4) + 
   geom_jitter() + 
   geom_line(aes(x = trial_time, y = pred_frequency, color = bout_category), linewidth = 1.2) +
