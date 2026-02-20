@@ -24,6 +24,10 @@ data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/D
 #data <- read_csv("combined_bout_frequency.csv")
 #data <- read_csv("/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
 
+# Highly controversial
+data <- data %>%
+  filter(bout_counts > 0)
+
 data <- data %>%
   mutate(
     #line = factor(line),
@@ -100,12 +104,6 @@ model <- glm(
 )
 
 model <- glm(
-  bout_counts ~ 0 + groups + trial_time:groups + offset(log(time_bin_duration)),
-  family = quasipoisson,
-  data = data
-)
-
-model <- glm(
   bout_counts ~ 0 + groups + trial_time:groups + trial_num:groups + offset(log(time_bin_duration)),
   family = poisson,
   data = data
@@ -124,10 +122,22 @@ model <- glm(
   data = data
 )
 
+model <- glm(
+  bout_counts ~ 0 + groups + trial_time:groups + offset(log(time_bin_duration)),
+  family = quasipoisson,
+  data = data
+)
+
 ##### GLMM =====================================================================================
 
 model <- glmer(
   bout_counts ~ trial_time * groups + offset(log(time_bin_duration)) + (1 | fish),
+  data = data,
+  family = poisson,
+)
+
+model <- glmer(
+  bout_counts ~ 0 + groups + trial_time:groups + offset(log(time_bin_duration)) + (1 | fish),
   data = data,
   family = poisson,
 )
