@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import List
 from urllib.request import urlretrieve
 import subprocess
-import shutil
+#import shutil
 from zipfile import ZipFile
 
 LIGHTNING_POSE_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/cysLNkUMxr3emTn/download"
