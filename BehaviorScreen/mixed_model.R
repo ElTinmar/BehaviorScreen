@@ -100,6 +100,12 @@ model <- glm(
 )
 
 model <- glm(
+  bout_counts ~ 0 + groups + trial_time:groups + offset(log(time_bin_duration)),
+  family = quasipoisson,
+  data = data
+)
+
+model <- glm(
   bout_counts ~ 0 + groups + trial_time:groups + trial_num:groups + offset(log(time_bin_duration)),
   family = poisson,
   data = data
