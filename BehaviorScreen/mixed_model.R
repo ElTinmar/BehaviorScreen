@@ -162,6 +162,8 @@ ggplot(data, aes(x = residuals(model, type="response"))) +
   labs(x = "Response residuals", y = "Count") +
   xlim(-2.5, 2.5)
 
+plot(fitted(model),  residuals(model, type="response"))
+
 ##### plots ====================================================================================
 
 # trial time
