@@ -1,66 +1,54 @@
 filters:
-  distance_center: 
-    op: le
-    value: 100
-  proba: 
-    op: ge
-    value: 0.0
-  distance: 
-    op: le
-    value: 100
-  peak_axial_speed: 
-    op: le
-    value: 1000
-  heading_mismatch_max: 
-    op: le
-    value: 180
-  centroid_mismatch_max: 
-    op: le
-    value: 10_000
-  trial_num:
-    op: le
-    value: 100
-  file:
-    op: not_in
-    value: 
-     - "fish_1"
-     - "fish_2"
-     
+  distance_center: {'<=': 10} 
+  proba: {'>=': 0.5}
+  distance: {'<=': 100}
+  peak_axial_speed: {'<=': 300}
+  heading_mismatch_max: {'<=': 180}
+  centroid_mismatch_max: {'<=': 1000}
+  file: {'not_in': ["fish_1", "fish_2"]}
+
 time_bins:
   - [0, 2.5]
   - [2.5, 5]
   - [5, 7.5]
   - [7.5, 10]
   - [10, 15]
-  - [15, 20]
-  - [20, 30]
+  - [15, 25]
 
 stimuli:
 
   - stim: PREY_CAPTURE
-    params: ["-20", "20"]
+    name: "pc small"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.05}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.05}
+    trial_range: 
+      start: 0
+      stop: 5
+      step: 1
+
   - stim: PREY_CAPTURE
-    params: ["-20", "20"]
-    time_bins: 
-      - [0, 30]
-    trial_range: [0, 1]
+    name: "pc medium"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.15}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.15}
+    trial_range: 
+      start: 0
+      stop: 5
+      step: 1
+
   - stim: PREY_CAPTURE
-    params: ["-20", "20"]
-    time_bins: 
-      - [0, 5]
-    trial_range: [1, 2]
-  - stim: PREY_CAPTURE
-    params: ["-20", "20"]
-    time_bins: 
-      - [0, 5]
-    trial_range: [2, 3]
-  - stim: PREY_CAPTURE
-    params: ["-20", "20"]
-    time_bins: 
-      - [0, 5]
-    trial_range: [3, 4]
-  - stim: PREY_CAPTURE
-    params: ["-20", "20"]
-    time_bins: 
-      - [0, 5]
-    trial_range: [4, 5]
+    name: "pc large"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.50}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.50}
+    trial_range: 
+      start: 0
+      stop: 5
+      step: 1
