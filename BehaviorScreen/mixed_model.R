@@ -113,7 +113,7 @@ model <- glm(
 deviance(model) / df.residual(model)
 ###
 
-model2 <- glm(
+model <- glm(
   bout_counts ~ (trial_time + trial_num) * groups + offset(log(time_bin_duration)),
   family = poisson,
   data = data
