@@ -20,6 +20,7 @@ def export_metadata(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
+        overwrite: bool = True,
     ) -> None:
 
     ensure_results_dir(directories)
@@ -27,6 +28,10 @@ def export_metadata(
     for i, (x,y,w,h) in enumerate(behavior_data.metadata['identity']['ROIs']):
         metadata_file = behavior_file.metadata.stem + f"_fish_{i}.metadata"
         out_path = directories.results / metadata_file
+        
+        if out_path.exists() and not overwrite:
+            continue
+
         metadata = behavior_data.metadata.copy()
 
         try:
@@ -46,6 +51,7 @@ def export_tracking(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
+        overwrite: bool = True,
     ) -> None:
 
     ensure_results_dir(directories)
@@ -54,6 +60,10 @@ def export_tracking(
     for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
         tracking_file = behavior_file.tracking.stem + f"_fish_{i}.csv"
         out_path = directories.results / tracking_file
+
+        if out_path.exists() and not overwrite:
+            continue
+
         current_df = df[df.identity == i].set_index('index').copy()
 
         offset_x, offset_y, _, _ = behavior_data.metadata['identity']['ROIs'][i]
@@ -76,6 +86,7 @@ def export_timestamps(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
+        overwrite: bool = True,
     ) -> None:
 
     ensure_results_dir(directories)
@@ -83,12 +94,17 @@ def export_timestamps(
     for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
         timestamp_file = behavior_file.video_timestamps.stem + f"_fish_{i}.csv"
         out_path = directories.results / timestamp_file 
+
+        if out_path.exists() and not overwrite:
+            continue
+
         behavior_data.video_timestamps.to_csv(out_path, index=False)
 
 def export_stimuli(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
+        overwrite: bool = True,
     ) -> None:
     # NOTE: not using JSON properly
 
@@ -97,6 +113,10 @@ def export_stimuli(
     for i, _ in enumerate(behavior_data.metadata['identity']['ROIs']):
         stim_file = behavior_file.stimuli.stem + f"_fish_{i}.json"
         out_path = directories.results / stim_file 
+        
+        if out_path.exists() and not overwrite:
+            continue
+
         with open(out_path, 'w') as fp:
             for line in behavior_data.stimuli:
                 fp.write(json.dumps(line) + '\n')
@@ -106,6 +126,7 @@ def export_videos(
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
         quality: int = 18,
+        overwrite: bool = True,
     ) -> None:
 
     ensure_results_dir(directories)
@@ -114,14 +135,20 @@ def export_videos(
         str(behavior_file.video),
         quality=quality,
     )
+    dest_folder = str(directories.results)
 
     for i, (x, y, w, h) in enumerate(
         behavior_data.metadata['identity']['ROIs']
     ):
+        suffix = f"fish_{i}"
+        out_path = Path(video_cropper.make_output_path(suffix, dest_folder))
+        if out_path.exists() and not overwrite:
+            continue
+
         video_cropper.crop(
             x, y, w, h,
-            suffix=f"fish_{i}",
-            dest_folder=str(directories.results),
+            suffix=suffix,
+            dest_folder=dest_folder,
         )
 
 def export(
@@ -135,31 +162,32 @@ def export(
         metadata_flag: bool = True,
         videos_flag: bool = True,
         quality: int = 18,
+        overwrite: bool = True,
     ) -> None:
 
     if tracking_flag:
         export_tracking(
-            directories, behavior_file, behavior_data
+            directories, behavior_file, behavior_data, overwrite
         )
 
     if timestamps_flag:
         export_timestamps(
-            directories, behavior_file, behavior_data
+            directories, behavior_file, behavior_data, overwrite
         )
 
     if stimuli_flag:
         export_stimuli(
-            directories, behavior_file, behavior_data
+            directories, behavior_file, behavior_data, overwrite
         )
 
     if metadata_flag:
         export_metadata(
-            directories, behavior_file, behavior_data
+            directories, behavior_file, behavior_data, overwrite
         )
 
     if videos_flag:
         export_videos(
-            directories, behavior_file, behavior_data, quality
+            directories, behavior_file, behavior_data, quality, overwrite
         )
 
 def build_parser() -> argparse.ArgumentParser:
@@ -231,6 +259,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     # Feature toggles
+    parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-tracking", action="store_true")
     parser.add_argument("--no-timestamps", action="store_true")
     parser.add_argument("--no-stimuli", action="store_true")
@@ -256,6 +285,7 @@ def main(args: argparse.Namespace) -> None:
         stimuli_flag=not args.no_stimuli,
         metadata_flag=not args.no_metadata,
         videos_flag=not args.no_videos,
+        overwrite=args.overwrite
     )
 
 def export_single_animals(
@@ -275,6 +305,7 @@ def export_single_animals(
         stimuli_flag: bool = True,
         metadata_flag: bool = True,
         videos_flag: bool = True,
+        overwrite: bool = True
     ) -> None:
 
     directories = Directories(
@@ -304,6 +335,7 @@ def export_single_animals(
             metadata_flag = metadata_flag,
             videos_flag = videos_flag,
             quality = quality,
+            overwrite = overwrite
         )
     
 if __name__ == '__main__':
