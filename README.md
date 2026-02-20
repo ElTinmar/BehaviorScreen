@@ -13,7 +13,7 @@ conda env create -f LightningPose.yml
 
 ```
 conda activate BehaviorScreen
-python -m BehaviorScreen.lightning_pose
+python -m BehaviorScreen.download_model
 ```
 
 Modify data_dir in config.yaml to point to the right location

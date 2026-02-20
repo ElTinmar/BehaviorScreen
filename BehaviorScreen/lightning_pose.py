@@ -1,69 +1,40 @@
 from pathlib import Path
 from typing import List
-from urllib.request import urlretrieve
 import subprocess
-#import shutil
-from zipfile import ZipFile
+import argparse
 
-LIGHTNING_POSE_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/cysLNkUMxr3emTn/download"
+def build_parser() -> argparse.ArgumentParser:
 
-def download_model(
-        url: str = LIGHTNING_POSE_MODEL_URL, 
-        destination: Path = Path('')
-    ):
+    parser = argparse.ArgumentParser(
+        description="Estimate pose with LightningPose"
+    )
 
-    destination.mkdir(parents=True, exist_ok=True)
-    zip_file = destination / "model.zip"
-    print(f"Downloading {url}...", flush=True)
-    urlretrieve(url, zip_file)
+    parser.add_argument(
+        "root",
+        type=Path,
+        help="Root experiment folder (e.g. WT_oct_2025)",
+    )
 
-    print("Extracting...", flush=True)
-    with ZipFile(zip_file, "r") as zip:
-        zip.extractall(destination)
+    parser.add_argument(
+        "model_dir",
+        type=Path,
+        help="Root experiment folder (e.g. WT_oct_2025)",
+    )
 
-    print("Cleaning up...", flush=True)
-    zip_file.unlink()
+    parser.add_argument(
+        "--lightning-pose",
+        default="lightning_pose",
+        help="Subfolder containing lightning pose tracking CSV files (default: lightning_pose)",
+    )
+
+    parser.add_argument(
+        "--results",
+        default="results",
+        help="Subfolder where per-animal exports will be written (default: results)",
+    )
 
 
-# def move_directory_contents(src: Path, dst: Path, overwrite: bool = True) -> None:
-#     """
-#     Move the contents of src into dst
-
-#     Parameters
-#     ----------
-#     src : Path
-#         Source directory whose contents will be moved.
-#     dst : Path
-#         Destination directory.
-#     overwrite : bool
-#         Whether to overwrite existing files/directories in dst.
-#     """
-#     src = Path(src)
-#     dst = Path(dst)
-
-#     if not src.is_dir():
-#         raise NotADirectoryError(f"Source directory does not exist: {src}")
-
-#     dst.mkdir(parents=True, exist_ok=True)
-
-#     for item in src.iterdir():
-#         target = dst / item.name
-
-#         if target.exists():
-#             if not overwrite:
-#                 raise FileExistsError(f"Target already exists: {target}")
-#             if target.is_dir():
-#                 shutil.rmtree(target)
-#             else:
-#                 target.unlink()
-
-#         shutil.move(str(item), str(target))
-
-#     # Remove src if it's empty after moving
-#     try:
-#         src.rmdir()
-#     except OSError:
-#         pass
+    return parser
 
 def estimate_pose(
         model_directory: Path,
@@ -83,7 +54,6 @@ def estimate_pose(
         print(f"No video files found in {video_directory}", flush=True)
         return  
     
-    # f"--overrides data.data_dir={model_directory.parent}"
     for video in videos:
         print(f"Processing {video}...", flush=True)
         cmd = [
@@ -96,11 +66,14 @@ def estimate_pose(
         ]
         subprocess.run(cmd, check=True)
 
-    # move_directory_contents(
-    #     model_directory / "video_preds",
-    #     output_directory
-    # )
+def main(args: argparse.Namespace):
 
+    estimate_pose(
+        model_directory=args.model_dir,
+        video_directory=args.root / args.results,
+        output_directory=args.root / args.lightning_pose
+    )
+    
 if __name__ == '__main__':
     
-    download_model()
+    main(build_parser().parse_args())
