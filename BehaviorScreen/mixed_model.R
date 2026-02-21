@@ -30,8 +30,8 @@ data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/D
 
 data <- data %>%
   mutate(
-    line = factor(line),
-    condition = factor(condition),
+    #line = factor(line),
+    #condition = factor(condition),
     fish = factor(fish),
     day = factor(day),
     bout_category = factor(bout_category, levels=bout_category_levels),
@@ -48,7 +48,8 @@ data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, 
 ## Averaging over trials 
 
 data_trial_avg <- data %>%
-  group_by(line, condition, fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
+  #group_by(line, condition, fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
+  group_by(fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
   summarize(
     bout_frequency = mean(bout_frequency, na.rm = TRUE),
     bout_counts = mean(bout_counts, na.rm = TRUE),
@@ -64,6 +65,11 @@ data_trial_avg <- data %>%
 model <- lm(
   bout_frequency ~ groups,
   data = data
+)
+
+model <- lm(
+  bout_frequency ~ groups,
+  data = data_trial_avg
 )
 
 model <- lm(
@@ -187,6 +193,10 @@ ggplot(data, aes(x = residuals(model, type="response"))) +
   geom_histogram(binwidth = 0.1, alpha = 0.5) +
   labs(x = "Response residuals", y = "Count") +
   xlim(-2.5, 2.5)
+
+ggplot(data_trial_avg, aes(x = residuals(model, type="response"))) +
+  geom_histogram(binwidth = 0.1, alpha = 0.5) +
+  labs(x = "Response residuals", y = "Count") 
 
 plot(fitted(model),  residuals(model, type="response"))
 
