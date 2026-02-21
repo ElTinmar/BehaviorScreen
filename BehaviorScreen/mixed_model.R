@@ -95,12 +95,12 @@ model <- lm(
 )
 
 ##### GAM =====================================================================================
-# Need RAM
 
-model <- gam(
-  bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=4), 
-  method = "REML", 
-  data = data_trial_avg
+model <- bam(
+  bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=10), 
+  method = "fREML", 
+  data = data_trial_avg,
+  discrete = TRUE
 )
  
 ##### LMM =====================================================================================
