@@ -2,6 +2,7 @@ library(lme4)
 library(readr)
 library(dplyr)
 library(ggplot2)
+library(mgcv)
 
 bout_category_levels = c(
   "AS",
@@ -91,6 +92,10 @@ model <- lm(
   bout_frequency ~ 0 + groups + trial_time:groups + trial_num:groups,
   data = data
 )
+
+##### GAM =====================================================================================
+
+model <- gam(bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=4), method = "REML", data = data_trial_avg)
 
 ##### LMM =====================================================================================
 
