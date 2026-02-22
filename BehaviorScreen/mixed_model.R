@@ -162,7 +162,16 @@ model <- bam(
 )
 
 model <- bam(
-  bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=10), 
+  bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=4), 
+  method = "fREML", 
+  data = data_trial_avg,
+  discrete = TRUE,
+  nthreads = 20,
+)
+
+# does not improve hugely deviance / R2
+model <- bam(
+  bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=4) + s(fish, bs = "re"),
   method = "fREML", 
   data = data_trial_avg,
   discrete = TRUE,
@@ -170,19 +179,12 @@ model <- bam(
 )
 
 model <- bam(
-  bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=10) + s(fish, bs = "re"),
-  method = "fREML", 
-  data = data_trial_avg,
-  discrete = TRUE,
-  nthreads = 20,
-)
-
-model <- bam(
-  delta_bout_frequency ~ 0 + groups + s(trial_time, by=groups), 
+  delta_bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=3, bs='cr'), 
   method = "fREML", 
   data = data_comp,
   discrete = TRUE,
   nthreads = 20,
+  chunk.size = 5000
 )
 
 ##### LMM =====================================================================================
