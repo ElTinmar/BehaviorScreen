@@ -95,7 +95,8 @@ wt_avg <- data_trial_avg %>%
 data_comp <- data_trial_avg %>%
   left_join(wt_avg, by = c("epoch_name", "stim_param", "bout_category", "bout_side", "trial_time")) %>%
   mutate(delta_bout_frequency = bout_frequency - wt_bout_frequency) %>%
-  filter(!(line == "WT" & condition == "danieau"))
+  filter(!(line == "WT" & condition == "danieau")) %>%
+  droplevels()
 
 ## Checking distributions
 # data_comp <- data_comp %>% filter(!line=="1010Kaede-X-81C")
@@ -172,6 +173,14 @@ model <- bam(
   bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=10) + s(fish, bs = "re"),
   method = "fREML", 
   data = data_trial_avg,
+  discrete = TRUE,
+  nthreads = 20,
+)
+
+model <- bam(
+  delta_bout_frequency ~ 0 + groups + s(trial_time, by=groups), 
+  method = "fREML", 
+  data = data_comp,
   discrete = TRUE,
   nthreads = 20,
 )
