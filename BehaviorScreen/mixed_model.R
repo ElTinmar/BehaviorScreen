@@ -22,8 +22,8 @@ bout_category_levels = c(
 
 #data <- read_csv("/home/martin/Desktop/bouts/WT/danieau/bout_frequency.csv")
 #data <- read_csv("/home/martin/Downloads/Screen/WT/danieau/bout_frequency.csv")
-data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/Screen/WT/danieau/bout_frequency.csv")
-#data <- read_csv("combined_bout_frequency.csv")
+#data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/Screen/WT/danieau/bout_frequency.csv")
+data <- read_csv("combined_bout_frequency.csv")
 #data <- read_csv("/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
 
 # # Highly controversial
@@ -32,8 +32,8 @@ data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/D
 
 data <- data %>%
   mutate(
-    #line = factor(line),
-    #condition = factor(condition),
+    line = factor(line),
+    condition = factor(condition),
     fish = factor(fish),
     day = factor(day),
     bout_category = factor(bout_category, levels=bout_category_levels),
@@ -45,13 +45,14 @@ data <- data %>%
   filter(!bout_category %in% c("SCS", "LCS")) %>%
   droplevels()
 
-data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, data$bout_side)
+#data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, data$bout_side, drop=TRUE)
+data$groups = interaction(data$line, data$condition, data$epoch_name, data$stim_param, data$bout_category, data$bout_side, drop=TRUE)
 
 ## Averaging over trials 
 
 data_trial_avg <- data %>%
-  #group_by(line, condition, fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
-  group_by(fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
+  group_by(line, condition, fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
+  #group_by(fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
   summarize(
     bout_frequency = mean(bout_frequency, na.rm = TRUE),
     bout_counts = mean(bout_counts, na.rm = TRUE),
@@ -94,15 +95,32 @@ model <- lm(
   data = data
 )
 
-##### GAM =====================================================================================
+##### GAM / GAMM ===============================================================================
+
+model <- bam(
+  bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=10), 
+  method = "fREML", 
+  data = data,
+  discrete = TRUE,
+  nthreads = 20,
+)
 
 model <- bam(
   bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=10), 
   method = "fREML", 
   data = data_trial_avg,
-  discrete = TRUE
+  discrete = TRUE,
+  nthreads = 20,
 )
- 
+
+model <- bam(
+  bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=10) + s(fish, bs = "re"),
+  method = "fREML", 
+  data = data_trial_avg,
+  discrete = TRUE,
+  nthreads = 20,
+)
+
 ##### LMM =====================================================================================
 
 model <- lmer(
@@ -190,6 +208,7 @@ model <- glmer(
 # frequency modelled directly
 data$pred_frequency <- fitted(model)
 data_trial_avg$pred_frequency <- fitted(model)
+data_trial_avg$pred_frequency <- predict(model, newdata = data_trial_avg)
 
 # counts with poisson / quasipoisson / negative binomial
 data$pred_count <- fitted(model)
