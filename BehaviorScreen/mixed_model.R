@@ -2,6 +2,8 @@
 # % larva response vs trial num
 # % responsive trial  
 
+# TODO cross validation?
+
 library(lme4)
 library(readr)
 library(dplyr)
