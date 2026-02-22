@@ -86,6 +86,26 @@ data_trial_avg <- data %>%
     .groups = "drop"
   )
 
+## subtract WT mean across trial x fish to get the proper baseline 
+
+wt_avg <- data_trial_avg %>%
+  filter(line == "WT", condition == "danieau") %>%
+  group_by(epoch_name, stim_param, bout_category, bout_side, trial_time) %>%
+  summarize(wt_bout_frequency = mean(bout_frequency), .groups = "drop")
+
+data_comp <- data_trial_avg %>%
+  left_join(wt_avg, by = c("epoch_name", "stim_param", "bout_category", "bout_side", "trial_time")) %>%
+  mutate(delta_bout_frequency = bout_frequency - wt_bout_frequency) %>%
+  filter(!(line == "WT" & condition == "danieau"))
+
+# NOTE: delta_bout_frequency has a nicer distribution. 
+# data_comp <- data_comp %>% filter(!line=="1010Kaede-X-81C")
+data_comp_treated <- data_comp %>% filter(condition=="ronidazole")
+data_comp_untreated <- data_comp %>% filter(!condition=="ronidazole")
+hist(data_comp$delta_bout_frequency, breaks= 200)
+hist(data_comp_treated$delta_bout_frequency, breaks= 200, prob = TRUE, col = rgb(1,0,0,0.5))
+hist(data_comp_untreated$delta_bout_frequency, breaks= 200, prob = TRUE, col = rgb(0,0,1,0.5), add=TRUE)
+
 ##### LM =====================================================================================
 
 model <- lm(
