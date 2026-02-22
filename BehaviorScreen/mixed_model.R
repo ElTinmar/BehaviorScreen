@@ -1,3 +1,7 @@
+# TODO maybe mirror bouts side x stim params and get rid of them?
+# % larva response vs trial num
+# % responsive trial  
+
 library(lme4)
 library(readr)
 library(dplyr)
@@ -20,15 +24,40 @@ bout_category_levels = c(
   "SLC"
 )
 
+## WT dataset ==============================================================================
+
 #data <- read_csv("/home/martin/Desktop/bouts/WT/danieau/bout_frequency.csv")
 #data <- read_csv("/home/martin/Downloads/Screen/WT/danieau/bout_frequency.csv")
-#data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/Screen/WT/danieau/bout_frequency.csv")
-data <- read_csv("combined_bout_frequency.csv")
 #data <- read_csv("/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau/bout_frequency.csv")
+data <- read_csv("/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/Screen/WT/danieau/bout_frequency.csv")
 
-# # Highly controversial
-# data <- data %>%
-#   filter(bout_counts > 0)
+data <- data %>%
+  mutate(
+    fish = factor(fish),
+    day = factor(day),
+    bout_category = factor(bout_category, levels=bout_category_levels),
+    bout_side = factor(bout_side),
+    epoch_name = factor(epoch_name),
+    stim_param = factor(stim_param)
+  )
+
+data <- data %>%
+  filter(!bout_category %in% c("SCS", "LCS")) %>%
+  droplevels()
+
+data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, data$bout_side, drop=TRUE)
+
+data_trial_avg <- data %>%
+  group_by(fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
+  summarize(
+    bout_frequency = mean(bout_frequency, na.rm = TRUE),
+    bout_counts = mean(bout_counts, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+## combined dataset ========================================================================
+
+data <- read_csv("combined_bout_frequency.csv")
 
 data <- data %>%
   mutate(
@@ -45,23 +74,15 @@ data <- data %>%
   filter(!bout_category %in% c("SCS", "LCS")) %>%
   droplevels()
 
-#data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, data$bout_side, drop=TRUE)
 data$groups = interaction(data$line, data$condition, data$epoch_name, data$stim_param, data$bout_category, data$bout_side, drop=TRUE)
-
-## Averaging over trials 
 
 data_trial_avg <- data %>%
   group_by(line, condition, fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
-  #group_by(fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
   summarize(
     bout_frequency = mean(bout_frequency, na.rm = TRUE),
     bout_counts = mean(bout_counts, na.rm = TRUE),
     .groups = "drop"
   )
-
-# TODO maybe mirror bouts side x stim params and get rid of them?
-# % larva response vs trial num
-# % responsive trial  
 
 ##### LM =====================================================================================
 
@@ -99,6 +120,14 @@ model <- lm(
 
 model <- bam(
   bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=10), 
+  method = "fREML", 
+  data = data,
+  discrete = TRUE,
+  nthreads = 20,
+)
+
+model <- bam(
+  bout_frequency ~ 0 + groups + s(trial_time, by=groups) + s(trial_num, by=groups), 
   method = "fREML", 
   data = data,
   discrete = TRUE,
@@ -207,6 +236,8 @@ model <- glmer(
 
 # frequency modelled directly
 data$pred_frequency <- fitted(model)
+data$pred_frequency <- predict(model, newdata = data)
+
 data_trial_avg$pred_frequency <- fitted(model)
 data_trial_avg$pred_frequency <- predict(model, newdata = data_trial_avg)
 
