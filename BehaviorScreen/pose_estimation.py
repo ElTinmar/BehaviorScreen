@@ -113,7 +113,6 @@ def export_eyes_video(
     finally:
         writer.close()
     
-
 def estimate_pose(
         full_model_directory: Path,
         full_video_directory: Path,
