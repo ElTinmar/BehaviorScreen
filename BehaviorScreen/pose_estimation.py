@@ -3,6 +3,8 @@ from typing import List
 import subprocess
 import argparse
 
+# TODO eyes: export cropped videos and run predictions
+
 def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
