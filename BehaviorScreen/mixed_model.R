@@ -178,12 +178,13 @@ model <- bam(
   nthreads = 20,
 )
 
+#!!!!!!!!!!!!!!!! THIS IS THE CURRENT VERSION !!!!!!!!!!!!!!!!!!!
 model <- bam(
   delta_bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=3, bs='cr'), 
   method = "fREML", 
   data = data_comp,
   discrete = TRUE,
-  nthreads = 20,
+  nthreads = 30,
   chunk.size = 5000
 )
 
