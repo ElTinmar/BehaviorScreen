@@ -8,8 +8,6 @@ import cv2
 from video_tools import FFMPEG_VideoWriter_CPU
 from tqdm import tqdm
 
-# TODO eyes: export cropped videos and run predictions
-
 def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
@@ -32,6 +30,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--eyes_model_dir",
         type=Path,
         help="Path to LightningPose trained eyes model directory",
+    )
+
+    parser.add_argument(
+        "--eyes_video_dir",
+        default="eyes",
+        help="Directory to store cropped eyes video",
     )
 
     parser.add_argument(
@@ -76,7 +80,7 @@ def export_eyes_video(
         fps = fps,
         q = 18,
         filename = output_video,
-        preset='veryslow'
+        preset = 'veryslow'
     )
     
     try:
@@ -99,7 +103,7 @@ def export_eyes_video(
                 frame,
                 M,
                 (crop_size, crop_size),
-                flags = cv2.INTER_LINEAR,
+                flags = cv2.INTER_CUBIC,
                 borderMode = cv2.BORDER_CONSTANT,
                 borderValue = (0, 0, 0),
             )
@@ -112,22 +116,20 @@ def export_eyes_video(
 
 def estimate_pose(
         full_model_directory: Path,
-        eyes_model_directory: Path,
-        video_directory: Path,
+        full_video_directory: Path,
         output_directory: Path,
         video_extensions: List[str] = [".mp4", ".avi"],
         lightning_pose_conda_env: str = "LightningPose"
     ) -> None: 
 
-    video_directory = Path(video_directory)
+    full_video_directory = Path(full_video_directory)
     full_model_directory = Path(full_model_directory)
-    eyes_model_directory = Path(eyes_model_directory)
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
 
-    videos = [v for v in video_directory.iterdir() if v.suffix.lower() in video_extensions]
+    videos = [v for v in full_video_directory.iterdir() if v.suffix.lower() in video_extensions]
     if not videos:
-        print(f"No video files found in {video_directory}", flush=True)
+        print(f"No video files found in {full_video_directory}", flush=True)
         return  
     
     for video in videos:
@@ -145,9 +147,34 @@ def estimate_pose(
         ]
         subprocess.run(cmd, check=True)
 
-        # export rotated / cropped videos
-        eyes_video = video.with_stem(video.stem + '_eyes')
+def estimate_pose_eyes(
+        eyes_model_directory: Path,
+        full_video_directory: Path,
+        eye_video_directory: Path,
+        output_directory: Path,
+        video_extensions: List[str] = [".mp4", ".avi"],
+        lightning_pose_conda_env: str = "LightningPose"
+    ) -> None: 
+
+    full_video_directory = Path(full_video_directory)
+    eyes_model_directory = Path(eyes_model_directory)
+    output_directory = Path(output_directory)
+    output_directory.mkdir(parents=True, exist_ok=True)
+    eye_video_directory.mkdir(parents=True, exist_ok=True)
+
+    videos = [v for v in full_video_directory.iterdir() if v.suffix.lower() in video_extensions]
+    if not videos:
+        print(f"No video files found in {full_video_directory}", flush=True)
+        return  
+
+    for video in videos:
+        
+        eyes_video = eye_video_directory / (video.stem + '_eyes' + video.suffix)
         lightningpose_csv = output_directory / (video.stem + '.csv')
+
+        if not lightningpose_csv.exists():
+            raise FileNotFoundError(f'{lightningpose_csv} does not exist')
+
         export_eyes_video(
             video, 
             eyes_video, 
@@ -155,7 +182,6 @@ def estimate_pose(
             px_per_mm = 40.0 # TODO get this from metadata
         )
 
-        # separate pose estimation for the eyes
         cmd = [
             "conda", "run", "-n", lightning_pose_conda_env,
             "litpose",
@@ -169,11 +195,17 @@ def estimate_pose(
 def main(args: argparse.Namespace):
 
     estimate_pose(
-        full_model_directory=args.full_model_dir,
-        eyes_model_directory=args.eyes_model_dir,
-        video_directory=args.root / args.results,
-        output_directory=args.root / args.lightning_pose
+        full_model_directory = args.full_model_dir,
+        full_video_directory = args.root / args.results,
+        output_directory = args.root / args.lightning_pose
     )
+
+    # estimate_pose_eyes(
+    #     eyes_model_directory = args.eyes_model_dir,
+    #     full_video_directory = args.root / args.results,
+    #     eye_video_directory = args.root / args.eyes_video_dir,
+    #     output_directory = args.root / args.lightning_pose
+    # )
     
 if __name__ == '__main__':
     
