@@ -2,6 +2,11 @@ from pathlib import Path
 from typing import List
 import subprocess
 import argparse
+import pandas as pd
+import numpy as np
+import cv2
+from video_tools import FFMPEG_VideoWriter_CPU
+from tqdm import tqdm
 
 # TODO eyes: export cropped videos and run predictions
 
@@ -18,9 +23,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "model_dir",
+        "full_model_dir",
         type=Path,
-        help="Path to LightningPose trained model directory",
+        help="Path to LightningPose trained full model directory",
+    )
+
+    parser.add_argument(
+        "--eyes_model_dir",
+        type=Path,
+        help="Path to LightningPose trained eyes model directory",
     )
 
     parser.add_argument(
@@ -37,8 +48,71 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
+def export_eyes_video(
+        input_video: Path,
+        output_video: Path,
+        lightningpose_csv: Path,
+        crop_size_mm: float = 1.0,
+        px_per_mm: float = 40
+    ):
+    
+    crop_size = 2 * int(crop_size_mm * px_per_mm) // 2
+
+    lp_data = pd.read_csv(lightningpose_csv, header=[0,1,2])
+
+    swimbladder = lp_data.heatmap_tracker.Swim_Bladder[['x', 'y']].to_numpy()
+    head =  lp_data.heatmap_tracker.Head[['x', 'y']].to_numpy()
+    heading = head - swimbladder
+    theta_rad = np.arctan2(heading[:,1], heading[:,0]) 
+
+    cap = cv2.VideoCapture(str(input_video))
+    if not cap.isOpened():
+        raise RuntimeError(f"Could not open {input_video}")
+    fps = cap.get(cv2.CAP_PROP_FPS)
+
+    writer = FFMPEG_VideoWriter_CPU(
+        height = crop_size,
+        width = crop_size,
+        fps = fps,
+        q = 18,
+        filename = output_video,
+        preset='veryslow'
+    )
+    
+    try:
+
+        for x, y, th in tqdm(zip(head[:,0], head[:,1], theta_rad)):
+            
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            M = cv2.getRotationMatrix2D(
+                center = (x, y),
+                angle = np.rad2deg(th) + 90,
+                scale = 1.0,
+            )
+            M[0, 2] += crop_size // 2 - x
+            M[1, 2] += crop_size // 2 - y
+
+            warped = cv2.warpAffine(
+                frame,
+                M,
+                (crop_size, crop_size),
+                flags = cv2.INTER_LINEAR,
+                borderMode = cv2.BORDER_CONSTANT,
+                borderValue = (0, 0, 0),
+            )
+
+            writer.write_frame(warped)
+    
+    finally:
+        writer.close()
+    
+
 def estimate_pose(
-        model_directory: Path,
+        full_model_directory: Path,
+        eyes_model_directory: Path,
         video_directory: Path,
         output_directory: Path,
         video_extensions: List[str] = [".mp4", ".avi"],
@@ -46,7 +120,8 @@ def estimate_pose(
     ) -> None: 
 
     video_directory = Path(video_directory)
-    model_directory = Path(model_directory)
+    full_model_directory = Path(full_model_directory)
+    eyes_model_directory = Path(eyes_model_directory)
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
 
@@ -56,13 +131,37 @@ def estimate_pose(
         return  
     
     for video in videos:
+
         print(f"Processing {video}...", flush=True)
+
+        # pose estimation for the full fish
         cmd = [
             "conda", "run", "-n", lightning_pose_conda_env,
             "litpose",
             "predict",
-            str(model_directory), 
+            str(full_model_directory), 
             str(video),
+            '--prediction_dir', output_directory 
+        ]
+        subprocess.run(cmd, check=True)
+
+        # export rotated / cropped videos
+        eyes_video = video.with_stem(video.stem + '_eyes')
+        lightningpose_csv = output_directory / (video.stem + '.csv')
+        export_eyes_video(
+            video, 
+            eyes_video, 
+            lightningpose_csv,
+            px_per_mm = 40.0 # TODO get this from metadata
+        )
+
+        # separate pose estimation for the eyes
+        cmd = [
+            "conda", "run", "-n", lightning_pose_conda_env,
+            "litpose",
+            "predict",
+            str(eyes_model_directory), 
+            str(eyes_video),
             '--prediction_dir', output_directory 
         ]
         subprocess.run(cmd, check=True)
@@ -70,7 +169,8 @@ def estimate_pose(
 def main(args: argparse.Namespace):
 
     estimate_pose(
-        model_directory=args.model_dir,
+        full_model_directory=args.full_model_dir,
+        eyes_model_directory=args.eyes_model_dir,
         video_directory=args.root / args.results,
         output_directory=args.root / args.lightning_pose
     )
