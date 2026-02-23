@@ -52,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
-def export_eyes_video(
+def crop_around_eyes(
         input_video: Path,
         output_video: Path,
         lightningpose_csv: Path,
@@ -167,20 +167,7 @@ def estimate_pose_eyes(
         return  
 
     for video in videos:
-        
         eyes_video = eye_video_directory / (video.stem + '_eyes' + video.suffix)
-        lightningpose_csv = output_directory / (video.stem + '.csv')
-
-        if not lightningpose_csv.exists():
-            raise FileNotFoundError(f'{lightningpose_csv} does not exist')
-
-        export_eyes_video(
-            video, 
-            eyes_video, 
-            lightningpose_csv,
-            px_per_mm = 40.0 # TODO get this from metadata
-        )
-
         cmd = [
             "conda", "run", "-n", lightning_pose_conda_env,
             "litpose",
@@ -191,11 +178,49 @@ def estimate_pose_eyes(
         ]
         subprocess.run(cmd, check=True)
 
+def export_eyes_video(
+        full_video_directory: Path,
+        eye_video_directory: Path,
+        output_directory: Path,
+        video_extensions: List[str] = [".mp4", ".avi"],
+    ) -> None: 
+
+    full_video_directory = Path(full_video_directory)
+    output_directory = Path(output_directory)
+    output_directory.mkdir(parents=True, exist_ok=True)
+    eye_video_directory.mkdir(parents=True, exist_ok=True)
+
+    videos = [v for v in full_video_directory.iterdir() if v.suffix.lower() in video_extensions]
+    if not videos:
+        print(f"No video files found in {full_video_directory}", flush=True)
+        return  
+
+    for video in videos:
+        
+        eyes_video = eye_video_directory / (video.stem + '_eyes' + video.suffix)
+        lightningpose_csv = output_directory / (video.stem + '.csv')
+
+        if not lightningpose_csv.exists():
+            raise FileNotFoundError(f'{lightningpose_csv} does not exist')
+
+        crop_around_eyes(
+            video, 
+            eyes_video, 
+            lightningpose_csv,
+            px_per_mm = 40.0 # TODO get this from metadata
+        )
+
 def main(args: argparse.Namespace):
 
     estimate_pose(
         full_model_directory = args.full_model_dir,
         full_video_directory = args.root / args.results,
+        output_directory = args.root / args.lightning_pose
+    )
+
+    export_eyes_video(
+        full_video_directory = args.root / args.results,
+        eye_video_directory = args.root / args.eyes_video_dir,
         output_directory = args.root / args.lightning_pose
     )
 
