@@ -143,6 +143,13 @@ model <- lm(
   data = data
 )
 
+# also lots of RAM
+model <- lm(
+  delta_bout_frequency ~ 0 + groups + trial_time:groups, 
+  data = data_comp,
+)
+
+
 ##### GAM / GAMM ===============================================================================
 
 model <- bam(
