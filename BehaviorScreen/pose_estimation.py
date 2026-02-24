@@ -133,7 +133,7 @@ def estimate_pose(
     
     for video in videos:
 
-        print(f"Processing {video}...", flush=True)
+        print(f"Pose estimation (Full): {video}...", flush=True)
 
         # pose estimation for the full fish
         cmd = [
@@ -167,6 +167,9 @@ def estimate_pose_eyes(
         return  
 
     for video in videos:
+        
+        print(f"Pose estimation (Eyes): {video}...", flush=True)
+
         eyes_video = eye_video_directory / (video.stem + '_eyes' + video.suffix)
         cmd = [
             "conda", "run", "-n", lightning_pose_conda_env,
@@ -183,6 +186,7 @@ def export_eyes_video(
         eye_video_directory: Path,
         output_directory: Path,
         video_extensions: List[str] = [".mp4", ".avi"],
+        overwrite: bool = False
     ) -> None: 
 
     full_video_directory = Path(full_video_directory)
@@ -196,8 +200,15 @@ def export_eyes_video(
         return  
 
     for video in videos:
+
+        print(f"Export eye video: {video}...", flush=True)
         
         eyes_video = eye_video_directory / (video.stem + '_eyes' + video.suffix)
+
+        if eyes_video.exists() and not overwrite:
+            print(f"{eyes_video} already exists, skipping ...")
+            continue
+
         lightningpose_csv = output_directory / (video.stem + '.csv')
 
         if not lightningpose_csv.exists():
