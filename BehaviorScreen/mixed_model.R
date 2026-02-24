@@ -4,11 +4,15 @@
 
 # TODO cross validation?
 
+# TODO keep data split across lines ? After all right now they are independent
+
 library(lme4)
 library(readr)
 library(dplyr)
 library(ggplot2)
 library(mgcv)
+library(tidyr)
+library(tibble)
 
 bout_category_levels = c(
   "AS",
@@ -76,7 +80,7 @@ data <- data %>%
   filter(!bout_category %in% c("SCS", "LCS")) %>%
   droplevels()
 
-data$groups = interaction(data$line, data$condition, data$epoch_name, data$stim_param, data$bout_category, data$bout_side, drop=TRUE)
+data$groups = interaction(data$line, data$condition, data$epoch_name, data$stim_param, data$bout_category, data$bout_side, sep= ' | ', drop=TRUE)
 
 data_trial_avg <- data %>%
   group_by(line, condition, fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
@@ -286,6 +290,8 @@ data$pred_frequency <- predict(model, newdata = data)
 data_trial_avg$pred_frequency <- fitted(model)
 data_trial_avg$pred_frequency <- predict(model, newdata = data_trial_avg)
 
+data_comp$predicted_delta_bout_frequency <- predict(model, newdata = data_comp)
+
 # counts with poisson / quasipoisson / negative binomial
 data$pred_count <- fitted(model)
 data$pred_frequency <- data$pred_count / data$time_bin_duration
@@ -321,6 +327,12 @@ ggplot(data_trial_avg, aes(x = trial_time, y = bout_frequency)) +
   geom_line(aes(x = trial_time, y = pred_frequency, color = bout_category), linewidth = 1.2) +
   facet_grid(bout_category*bout_side ~ epoch_name*stim_param)  
 
+ggplot(data_comp, aes(x = trial_time, y = delta_bout_frequency)) +
+  geom_point(alpha = 0.4) + 
+  geom_jitter() + 
+  geom_line(aes(x = trial_time, y = predicted_delta_bout_frequency, color = bout_category), linewidth = 1.2) +
+  facet_grid(bout_category*bout_side ~ epoch_name*stim_param)  
+
 # trial num
 ggplot(data, aes(x = trial_num, y = bout_frequency)) +
   geom_point(alpha = 0.4) +  
@@ -328,3 +340,32 @@ ggplot(data, aes(x = trial_num, y = bout_frequency)) +
   geom_line(aes(x = trial_num, y = pred_frequency, color = bout_category), linewidth = 1.2) +
   facet_grid(bout_category*bout_side ~ epoch_name*stim_param) 
 
+### 
+
+param_df <- as.data.frame(sm$p.table) %>%
+  rownames_to_column("term") %>%
+  filter(grepl("^groups", term)) %>%
+  rename(
+    estimate = Estimate,
+    se = `Std. Error`,
+    t = `t value`,
+    p = `Pr(>|t|)`
+  )
+param_df$term <- sub("^groups", "", param_df$term)
+write_csv(param_df, "param_intercepts.csv")
+hist(param_df$p)
+
+smooth_df <- as.data.frame(sm$s.table) %>%
+  rownames_to_column("term") %>%
+  filter(grepl("trial_time", term)) %>%
+  rename(
+    edf = edf,
+    F = F,
+    p = `p-value`
+  )
+
+# remove s(trial_time):
+smooth_df$term <- sub("s\\(trial_time\\):", "", smooth_df$term)
+smooth_df$term <- sub("^groups", "", smooth_df$term)
+write_csv(smooth_df, "param_smooth.csv")
+hist(smooth_df$p)
