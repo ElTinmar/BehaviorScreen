@@ -342,6 +342,8 @@ ggplot(data, aes(x = trial_num, y = bout_frequency)) +
 
 ### 
 
+sm <- summary(model)
+
 param_df <- as.data.frame(sm$p.table) %>%
   rownames_to_column("term") %>%
   filter(grepl("^groups", term)) %>%
