@@ -51,7 +51,7 @@ data <- data %>%
   filter(!bout_category %in% c("SCS", "LCS")) %>%
   droplevels()
 
-data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, data$bout_side, drop=TRUE)
+data$groups = interaction(data$epoch_name, data$stim_param, data$bout_category, data$bout_side, drop=TRUE, sep = " | ")
 
 data_trial_avg <- data %>%
   group_by(fish, dpf, day, time_of_day_cos, time_of_day_sin, epoch_name, stim_param, trial_time, bout_category, bout_side, groups) %>%
