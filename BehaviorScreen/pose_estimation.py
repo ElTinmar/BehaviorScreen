@@ -218,6 +218,7 @@ def export_eyes_video(
             video, 
             eyes_video, 
             lightningpose_csv,
+            crop_size_mm = 1.6,
             px_per_mm = 40.0 # TODO get this from metadata
         )
 
