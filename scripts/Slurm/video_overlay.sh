@@ -23,3 +23,5 @@ sbatch video_overlay.sbatch /ptmp/mapri/Screen/pmch2/ronidazole
 sbatch video_overlay.sbatch /ptmp/mapri/Screen/pmch2/vehicle
 sbatch video_overlay.sbatch /ptmp/mapri/Screen/atf5b/ronidazole
 sbatch video_overlay.sbatch /ptmp/mapri/Screen/atf5b/vehicle
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/pcbp3/ronidazole
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/pcbp3/vehicle

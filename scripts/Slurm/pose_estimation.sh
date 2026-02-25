@@ -23,3 +23,5 @@ sbatch pose_estimation.sbatch /ptmp/mapri/Screen/pmch2/ronidazole
 sbatch pose_estimation.sbatch /ptmp/mapri/Screen/pmch2/vehicle
 sbatch pose_estimation.sbatch /ptmp/mapri/Screen/atf5b/ronidazole
 sbatch pose_estimation.sbatch /ptmp/mapri/Screen/atf5b/vehicle
+sbatch pose_estimation.sbatch /ptmp/mapri/Screen/pcbp3/ronidazole
+sbatch pose_estimation.sbatch /ptmp/mapri/Screen/pcbp3/vehicle

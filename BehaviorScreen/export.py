@@ -20,7 +20,7 @@ def export_metadata(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
-        overwrite: bool = True,
+        overwrite: bool = False,
     ) -> None:
 
     ensure_results_dir(directories)
@@ -51,7 +51,7 @@ def export_tracking(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
-        overwrite: bool = True,
+        overwrite: bool = False,
     ) -> None:
 
     ensure_results_dir(directories)
@@ -86,7 +86,7 @@ def export_timestamps(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
-        overwrite: bool = True,
+        overwrite: bool = False,
     ) -> None:
 
     ensure_results_dir(directories)
@@ -104,7 +104,7 @@ def export_stimuli(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
-        overwrite: bool = True,
+        overwrite: bool = False,
     ) -> None:
     # NOTE: not using JSON properly
 
@@ -126,7 +126,7 @@ def export_videos(
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
         quality: int = 18,
-        overwrite: bool = True,
+        overwrite: bool = False,
     ) -> None:
 
     ensure_results_dir(directories)
@@ -162,7 +162,7 @@ def export(
         metadata_flag: bool = True,
         videos_flag: bool = True,
         quality: int = 18,
-        overwrite: bool = True,
+        overwrite: bool = False,
     ) -> None:
 
     if tracking_flag:
@@ -305,7 +305,7 @@ def export_single_animals(
         stimuli_flag: bool = True,
         metadata_flag: bool = True,
         videos_flag: bool = True,
-        overwrite: bool = True
+        overwrite: bool = False
     ) -> None:
 
     directories = Directories(

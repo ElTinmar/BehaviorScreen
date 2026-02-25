@@ -349,7 +349,7 @@ def plot_heatmap(
     row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
 
     # plot and save
-    fig = plt.figure(figsize=(22, 14))
+    fig = plt.figure(figsize=(26, 14))
     ax = fig.gca()
     plot_bout_heatmap(fig, ax, fish_avg.T, bin_names, row_names)
     fig.tight_layout()

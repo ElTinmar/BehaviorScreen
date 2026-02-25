@@ -23,3 +23,5 @@ sbatch plot.sbatch /ptmp/mapri/Screen/pmch2/ronidazole BehaviorScreen/screen.yam
 sbatch plot.sbatch /ptmp/mapri/Screen/pmch2/vehicle BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/atf5b/ronidazole BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/atf5b/vehicle BehaviorScreen/screen.yaml
+sbatch plot.sbatch /ptmp/mapri/Screen/pcbp3/ronidazole BehaviorScreen/screen.yaml
+sbatch plot.sbatch /ptmp/mapri/Screen/pcbp3/vehicle BehaviorScreen/screen.yaml

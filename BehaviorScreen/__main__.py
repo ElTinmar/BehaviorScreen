@@ -150,7 +150,6 @@ def main(args: argparse.Namespace) -> None:
         stimuli_flag=not args.no_stimuli,
         metadata_flag=not args.no_metadata,
         videos_flag=not args.no_videos,
-        overwrite=True,
     )
 
     print("2. pose estimation", flush=True)
