@@ -154,8 +154,8 @@ def main(args: argparse.Namespace) -> None:
 
     print("2. pose estimation", flush=True)
     estimate_pose(
-        model_directory=args.model_dir,
-        video_directory=args.root / args.results,
+        full_model_directory=args.model_dir,
+        full_video_directory=args.root / args.results,
         output_directory=args.root / args.lightning_pose
     )
     

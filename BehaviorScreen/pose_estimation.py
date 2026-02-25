@@ -230,11 +230,11 @@ def main(args: argparse.Namespace):
         output_directory = args.root / args.lightning_pose
     )
 
-    export_eyes_video(
-        full_video_directory = args.root / args.results,
-        eye_video_directory = args.root / args.eyes_video_dir,
-        output_directory = args.root / args.lightning_pose
-    )
+    # export_eyes_video(
+    #     full_video_directory = args.root / args.results,
+    #     eye_video_directory = args.root / args.eyes_video_dir,
+    #     output_directory = args.root / args.lightning_pose
+    # )
 
     # estimate_pose_eyes(
     #     eyes_model_directory = args.eyes_model_dir,
