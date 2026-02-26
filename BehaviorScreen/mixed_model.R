@@ -61,6 +61,8 @@ data_trial_avg <- data %>%
     .groups = "drop"
   )
 
+hist(data_trial_avg$bout_frequency, breaks = 50)
+
 ## combined dataset ========================================================================
 
 data <- read_csv("combined_bout_frequency.csv")
@@ -178,6 +180,15 @@ model <- bam(
   data = data_trial_avg,
   discrete = TRUE,
   nthreads = 20,
+)
+
+model <- bam(
+  bout_frequency ~ 0 + groups + s(trial_time, by=groups, k=4), 
+  method = "fREML", 
+  family = gamma,
+  data = data_trial_avg,
+  discrete = TRUE,
+  nthreads = 4,
 )
 
 # does not improve hugely deviance / R2
@@ -310,7 +321,11 @@ ggplot(data_trial_avg, aes(x = residuals(model, type="response"))) +
   geom_histogram(binwidth = 0.1, alpha = 0.5) +
   labs(x = "Response residuals", y = "Count") 
 
-plot(fitted(model),  residuals(model, type="response"))
+# heteroskedasticity
+plot(data_trial_avg$pred_frequency,  residuals(model, type="response"))
+
+# distribution of residuals 
+hist(residuals(model, type="response"), breaks = 50)
 
 ##### plots ====================================================================================
 
