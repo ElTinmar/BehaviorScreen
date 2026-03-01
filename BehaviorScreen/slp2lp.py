@@ -75,9 +75,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--slp_file", type=Path)
     parser.add_argument("--lp_dir", type=Path)
+    parser.add_argument("--filter_user_labeled", action="store_true")
     args = parser.parse_args()
     slp_file = args.slp_file
     lp_dir = args.lp_dir
+    user_labels_only = args.filter_user_labeled
 
     print(f"Converting SLEAP project located at {slp_file} to LP project located at {lp_dir}", flush=True)
 
@@ -89,9 +91,14 @@ if __name__ == "__main__":
     if slp_file == lp_dir:
         raise NameError("slp_file and lp_dir cannot be the same")
     
-    tmp_slp_file = Path('tmp.slp')
-    keep_user_labeled_only(slp_file, tmp_slp_file)
+    tmp_slp_file = slp_file
+    if user_labels_only:
+        tmp_slp_file = Path('tmp.slp')
+        keep_user_labeled_only(slp_file, tmp_slp_file)
+
     slp2lp(tmp_slp_file, lp_dir)
-    tmp_slp_file.unlink()
+
+    if user_labels_only:
+        tmp_slp_file.unlink()
 
     
