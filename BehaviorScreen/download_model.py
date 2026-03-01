@@ -2,24 +2,29 @@ from pathlib import Path
 from urllib.request import urlretrieve
 from zipfile import ZipFile
 
-LIGHTNING_POSE_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/cysLNkUMxr3emTn/download"
+TAIL_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/cysLNkUMxr3emTn/download"
+EYES_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/TaJQANXWsOE2Fqr/download"
 
 def download_model(
-        url: str = LIGHTNING_POSE_MODEL_URL, 
+        urls: list[str] = [TAIL_MODEL_URL, EYES_MODEL_URL], 
         destination: Path = Path('')
     ):
 
     destination.mkdir(parents=True, exist_ok=True)
-    zip_file = destination / "model.zip"
-    print(f"Downloading {url}...", flush=True)
-    urlretrieve(url, zip_file)
+    
+    for url in urls:
 
-    print("Extracting...", flush=True)
-    with ZipFile(zip_file, "r") as zip:
-        zip.extractall(destination)
+        zip_file = destination / "model.zip"
+        
+        print(f"Downloading {url}...", flush=True)
+        urlretrieve(url, zip_file)
 
-    print("Cleaning up...", flush=True)
-    zip_file.unlink()
+        print("Extracting...", flush=True)
+        with ZipFile(zip_file, "r") as zip:
+            zip.extractall(destination)
+
+        print("Cleaning up...", flush=True)
+        zip_file.unlink()
 
 if __name__ == '__main__':
     
