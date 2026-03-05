@@ -25,3 +25,11 @@ sbatch video_overlay.sbatch /ptmp/mapri/Screen/atf5b/ronidazole
 sbatch video_overlay.sbatch /ptmp/mapri/Screen/atf5b/vehicle
 sbatch video_overlay.sbatch /ptmp/mapri/Screen/pcbp3/ronidazole
 sbatch video_overlay.sbatch /ptmp/mapri/Screen/pcbp3/vehicle
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/chata/ronidazole 
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/chata/vehicle 
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/id2b/ronidazole 
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/id2b/vehicle 
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/lhx9/ronidazole 
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/lhx9/vehicle 
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/ronidazole 
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/vehicle 

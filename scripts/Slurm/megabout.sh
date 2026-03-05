@@ -25,3 +25,11 @@ sbatch megabout.sbatch /ptmp/mapri/Screen/atf5b/ronidazole
 sbatch megabout.sbatch /ptmp/mapri/Screen/atf5b/vehicle
 sbatch megabout.sbatch /ptmp/mapri/Screen/pcbp3/ronidazole
 sbatch megabout.sbatch /ptmp/mapri/Screen/pcbp3/vehicle
+sbatch megabout.sbatch /ptmp/mapri/Screen/chata/ronidazole 
+sbatch megabout.sbatch /ptmp/mapri/Screen/chata/vehicle 
+sbatch megabout.sbatch /ptmp/mapri/Screen/id2b/ronidazole 
+sbatch megabout.sbatch /ptmp/mapri/Screen/id2b/vehicle 
+sbatch megabout.sbatch /ptmp/mapri/Screen/lhx9/ronidazole 
+sbatch megabout.sbatch /ptmp/mapri/Screen/lhx9/vehicle 
+sbatch megabout.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/ronidazole 
+sbatch megabout.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/vehicle 

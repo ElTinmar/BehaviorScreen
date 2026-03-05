@@ -25,3 +25,11 @@ sbatch full_pipeline.sbatch /ptmp/mapri/Screen/atf5b/ronidazole
 sbatch full_pipeline.sbatch /ptmp/mapri/Screen/atf5b/vehicle
 sbatch full_pipeline.sbatch /ptmp/mapri/Screen/pcbp3/ronidazole
 sbatch full_pipeline.sbatch /ptmp/mapri/Screen/pcbp3/vehicle
+sbatch full_pipeline.sbatch /ptmp/mapri/Screen/chata/ronidazole 
+sbatch full_pipeline.sbatch /ptmp/mapri/Screen/chata/vehicle 
+sbatch full_pipeline.sbatch /ptmp/mapri/Screen/id2b/ronidazole 
+sbatch full_pipeline.sbatch /ptmp/mapri/Screen/id2b/vehicle 
+sbatch full_pipeline.sbatch /ptmp/mapri/Screen/lhx9/ronidazole 
+sbatch full_pipeline.sbatch /ptmp/mapri/Screen/lhx9/vehicle 
+sbatch full_pipeline.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/ronidazole 
+sbatch full_pipeline.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/vehicle 
