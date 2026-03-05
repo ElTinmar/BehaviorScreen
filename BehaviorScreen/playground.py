@@ -42,18 +42,20 @@ import matplotlib.pyplot as plt
 from BehaviorScreen.process import compute_angle_between_vectors
 from scipy.signal import savgol_filter
 
-filename = '/home/martin/Downloads/11-44-00/video_preds/01_07dpf_WT_Thu_11_Dec_2025_13h15min29sec_fish_3_eyes.csv'
+
+filename = '/media/martin/DATA/Behavioral_screen/eye_models/current/01_07dpf_WT_Thu_11_Dec_2025_13h15min29sec_fish_3_eyes.csv'
+
 fs = 120
 
 df = pd.read_csv(filename, header=[0,1,2])
 
-left_front = np.array([0, 64]) - df.heatmap_tracker.eye_left_front[['x', 'y']].to_numpy()
-left_back = np.array([0, 64]) - df.heatmap_tracker.eye_left_back[['x', 'y']].to_numpy()
-right_front = np.array([0, 64]) - df.heatmap_tracker.eye_right_front[['x', 'y']].to_numpy()
-right_back = np.array([0, 64]) - df.heatmap_tracker.eye_right_back[['x', 'y']].to_numpy()
+left_front = df.heatmap_tracker.eye_left_front[['x', 'y']].to_numpy()
+left_back = df.heatmap_tracker.eye_left_back[['x', 'y']].to_numpy()
+right_front = df.heatmap_tracker.eye_right_front[['x', 'y']].to_numpy()
+right_back = df.heatmap_tracker.eye_right_back[['x', 'y']].to_numpy()
 
-left_vector = left_front - left_back
-right_vector = right_front - right_back
+left_vector = left_back - left_front
+right_vector = right_back - right_front
 
 likelihood = df.heatmap_tracker.xs('likelihood', axis=1, level=1).prod(axis=1)
 remove = likelihood < 0.95
@@ -62,13 +64,25 @@ t = np.arange(len(df))/fs
 L = compute_angle_between_vectors(left_vector, np.array([0,1]))
 R = compute_angle_between_vectors(right_vector, np.array([0,1]))
 
-L_s = savgol_filter(L, window_length=11, polyorder=2)
-dL_s = savgol_filter(L, window_length=11, polyorder=2, deriv=1)
-ddL_s = savgol_filter(L, window_length=11, polyorder=2, deriv=2)
+L_s = savgol_filter(L, window_length=41, polyorder=2)
+dL_s = savgol_filter(L, window_length=41, polyorder=2, deriv=1, delta=1/fs)
+ddL_s = savgol_filter(L, window_length=41, polyorder=2, deriv=2, delta=1/fs)
 
-R_s = savgol_filter(R, window_length=11, polyorder=2)
-dR_s = savgol_filter(R, window_length=11, polyorder=2, deriv=1)
-ddR_s = savgol_filter(R, window_length=11, polyorder=2, deriv=2)
+R_s = savgol_filter(R, window_length=41, polyorder=2)
+dR_s = savgol_filter(R, window_length=41, polyorder=2, deriv=1, delta=1/fs)
+ddR_s = savgol_filter(R, window_length=41, polyorder=2, deriv=2, delta=1/fs)
+
+Vs = (L_s + R_s)/2 # version
+Vg = R_s - L_s     # vergence
+dVs = np.gradient(Vs, 1/fs)
+dVg = np.gradient(Vg, 1/fs)
+
+X = np.column_stack([Vs, Vg, dVs, dVg])
+
+from hmmlearn import hmm
+model = hmm.GaussianHMM(n_components=4, covariance_type="full")
+model.fit(X)
+states = model.predict(X)
 
 dt = 1 / fs
 
