@@ -40,9 +40,9 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from BehaviorScreen.process import compute_angle_between_vectors
-from scipy.signal import savgol_filter
+from scipy.signal import savgol_filter, find_peaks
 
-
+filename = '/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/eye_models/current/01_07dpf_WT_Thu_11_Dec_2025_13h15min29sec_fish_3_eyes.csv'
 filename = '/media/martin/DATA/Behavioral_screen/eye_models/current/01_07dpf_WT_Thu_11_Dec_2025_13h15min29sec_fish_3_eyes.csv'
 
 fs = 120
@@ -79,7 +79,6 @@ Vg = R_s - L_s     # vergence
 dVs = np.gradient(Vs, 1/fs)
 dVg = np.gradient(Vg, 1/fs)
 
-from scipy.signal import find_peaks
 
 # TODO write a GUI to visualize thresholds in real time
 
