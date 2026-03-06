@@ -81,6 +81,8 @@ dVg = np.gradient(Vg, 1/fs)
 
 from scipy.signal import find_peaks
 
+# TODO write a GUI to visualize thresholds in real time
+
 peak_convergence, props_convergence = find_peaks(
     dVg, 
     prominence=10,
