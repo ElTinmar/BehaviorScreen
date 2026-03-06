@@ -61,8 +61,10 @@ likelihood = df.heatmap_tracker.xs('likelihood', axis=1, level=1).prod(axis=1)
 remove = likelihood < 0.95
 
 t = np.arange(len(df))/fs
-L = compute_angle_between_vectors(left_vector, np.array([0,1]))
-R = compute_angle_between_vectors(right_vector, np.array([0,1]))
+L_rad = compute_angle_between_vectors(left_vector, np.array([0,1]))
+R_rad = compute_angle_between_vectors(right_vector, np.array([0,1]))
+L = np.rad2deg(L_rad)
+R = np.rad2deg(R_rad)
 
 L_s = savgol_filter(L, window_length=41, polyorder=2)
 dL_s = savgol_filter(L, window_length=41, polyorder=2, deriv=1, delta=1/fs)
@@ -77,9 +79,65 @@ Vg = R_s - L_s     # vergence
 dVs = np.gradient(Vs, 1/fs)
 dVg = np.gradient(Vg, 1/fs)
 
-X = np.column_stack([Vs, Vg, dVs, dVg])
+from scipy.signal import find_peaks
+
+peak_convergence, props_convergence = find_peaks(
+    dVg, 
+    prominence=10,
+    width=3,
+    distance=int(fs*0.3)
+) 
+peak_divergence, props_divergence = find_peaks(
+    -dVg, 
+    prominence=10,
+    width=3,
+    distance=int(fs*0.3)
+)
+peak_cw_saccades, props_cw_saccades = find_peaks(
+    dVs, 
+    prominence=10,
+    width=3,
+    distance=int(fs*0.3)
+) 
+peak_ccw_saccades, props_ccw_saccades = find_peaks(
+    -dVs, 
+    prominence=10,
+    width=3,
+    distance=int(fs*0.3)
+) 
+
+def get_amplitude(
+        peaks: np.ndarray, 
+        signal: np.ndarray, 
+        fs: float, 
+        window_s: float
+    ) -> np.ndarray:
+
+    amplitude = np.zeros_like(peaks, dtype=np.float32)
+    n = len(signal)
+    half_win = int(fs*window_s/2)
+
+    for i, p in enumerate(peaks):
+        win_start = max(0, p-half_win)
+        win_stop = min(n, p+half_win)
+        amplitude[i] = signal[win_start:win_stop].ptp()
+
+    return amplitude
+
+convergence_amplitude = get_amplitude(peak_convergence, Vg, 120, 0.3)
+divergence_amplitude = get_amplitude(peak_divergence, Vg, 120, 0.3)
+cw_saccade_amplitude = get_amplitude(peak_cw_saccades, Vs, 120, 0.3)
+ccw_saccade_amplitude = get_amplitude(peak_ccw_saccades, Vs, 120, 0.3)
+
+plt.plot(t, L_s)
+plt.plot(t, R_s)
+plt.plot(t[peak_convergence[(convergence_amplitude>40) & (convergence_amplitude<80)]], L_s[peak_convergence[(convergence_amplitude>40) & (convergence_amplitude<80)]], 'ro')
+plt.show()
+
+
 
 from hmmlearn import hmm
+X = np.column_stack([Vs, Vg, dVs, dVg])
 model = hmm.GaussianHMM(n_components=4, covariance_type="full")
 model.fit(X)
 states = model.predict(X)
