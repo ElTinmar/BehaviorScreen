@@ -39,6 +39,7 @@ megabout = mb[behavior_file.metadata.stem]
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.widgets import Slider
 from BehaviorScreen.process import compute_angle_between_vectors
 from scipy.signal import savgol_filter, find_peaks
 
@@ -136,6 +137,52 @@ plt.plot(t[peak_convergence[(convergence_amplitude>40) & (convergence_amplitude<
 plt.show()
 
 
+fig, ax = plt.subplots()
+plt.subplots_adjust(bottom=0.25)
+
+lineL, = ax.plot(t, L_s, label="Left")
+lineR, = ax.plot(t, R_s, label="Right")
+points, = ax.plot([], [], 'ro')
+
+# Slider axes
+ax_prom = plt.axes([0.2, 0.15, 0.6, 0.03])
+ax_minamp = plt.axes([0.2, 0.10, 0.6, 0.03])
+ax_maxamp = plt.axes([0.2, 0.05, 0.6, 0.03])
+
+slider_prom = Slider(ax_prom, "Prominence", 1, 50, valinit=10)
+slider_minamp = Slider(ax_minamp, "Min Amp", 0, 100, valinit=40)
+slider_maxamp = Slider(ax_maxamp, "Max Amp", 0, 100, valinit=80)
+
+
+def update(val):
+
+    prom = slider_prom.val
+    amin = slider_minamp.val
+    amax = slider_maxamp.val
+
+    peaks, _ = find_peaks(
+        dVg,
+        prominence=prom,
+        width=3,
+        distance=int(fs*0.3)
+    )
+
+    amp = get_amplitude(peaks, Vg, fs, 0.3)
+
+    valid = peaks[(amp > amin) & (amp < amax)]
+
+    points.set_data(t[valid], L_s[valid])
+
+    fig.canvas.draw_idle()
+
+
+slider_prom.on_changed(update)
+slider_minamp.on_changed(update)
+slider_maxamp.on_changed(update)
+
+update(None)
+
+plt.show()
 
 from hmmlearn import hmm
 X = np.column_stack([Vs, Vg, dVs, dVg])
