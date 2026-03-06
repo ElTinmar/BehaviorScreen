@@ -134,7 +134,7 @@ def export_videos(
     video_cropper = CPU_VideoProcessor(
         str(behavior_file.video),
         quality=quality,
-        preset='slow'
+        preset='medium'
     )
     dest_folder = str(directories.results)
 
