@@ -149,20 +149,19 @@ ax_prom = plt.axes([0.2, 0.15, 0.6, 0.03])
 ax_minamp = plt.axes([0.2, 0.10, 0.6, 0.03])
 ax_maxamp = plt.axes([0.2, 0.05, 0.6, 0.03])
 
-slider_prom = Slider(ax_prom, "Prominence", 1, 50, valinit=10)
+slider_height = Slider(ax_prom, "Height", 1, 200, valinit=10)
 slider_minamp = Slider(ax_minamp, "Min Amp", 0, 100, valinit=40)
 slider_maxamp = Slider(ax_maxamp, "Max Amp", 0, 100, valinit=80)
 
-
 def update(val):
 
-    prom = slider_prom.val
+    height = slider_height.val
     amin = slider_minamp.val
     amax = slider_maxamp.val
 
     peaks, _ = find_peaks(
         dVg,
-        prominence=prom,
+        height=height,
         width=3,
         distance=int(fs*0.3)
     )
@@ -171,12 +170,12 @@ def update(val):
 
     valid = peaks[(amp > amin) & (amp < amax)]
 
-    points.set_data(t[valid], L_s[valid])
+    points.set_data([t[valid], t[valid]], [L_s[valid], R_s[valid]])
 
     fig.canvas.draw_idle()
 
 
-slider_prom.on_changed(update)
+slider_height.on_changed(update)
 slider_minamp.on_changed(update)
 slider_maxamp.on_changed(update)
 
