@@ -13,7 +13,9 @@ module purge
 module load anaconda/3/2023.03 cuda/13.0
 
 INPUT_PATH=$1
-JOB_NAME=$(basename "$INPUT_PATH")
+FILE_NAME=$(basename "$INPUT_PATH")
+PARENT_DIR=$(basename "$(dirname "$INPUT_PATH")")
+JOB_NAME="${PARENT_DIR}/${FILE_NAME}"
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
 srun --unbuffered conda run -n BehaviorScreen python -u -m BehaviorScreen "$INPUT_PATH" 8Jan2026/model
