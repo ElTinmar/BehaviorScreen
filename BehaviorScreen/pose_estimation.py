@@ -80,7 +80,7 @@ def crop_around_eyes(
         fps = fps,
         q = 18,
         filename = output_video,
-        preset = 'veryslow'
+        preset = 'fast'
     )
     
     try:
