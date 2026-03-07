@@ -30,14 +30,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "model_dir",
-        type=Path,
+        "--full_model_dir",
+        type=str,
+        default='Martin_Jan2026_Full/model',
         help="Path to LightningPose trained full model directory",
     )
 
     parser.add_argument(
-        "eyes_model_dir",
-        type=Path,
+        "--eyes_model_dir",
+        type=str,
+        default='Martin_Mar2026_Eyes/model',
         help="Path to LightningPose trained eyes model directory",
     )
 
@@ -166,7 +168,7 @@ def main(args: argparse.Namespace) -> None:
 
     print("2. pose estimation", flush=True)
     estimate_pose(
-        model_directory=args.model_dir,
+        model_directory=args.full_model_dir,
         video_directory=args.root / args.results,
         output_directory=args.root / args.lightning_pose
     )
