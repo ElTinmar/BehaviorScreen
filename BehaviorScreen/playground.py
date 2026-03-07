@@ -90,11 +90,11 @@ gmm = GaussianMixture(
 )
 gmm.fit(X)
 labels = gmm.predict(X)
-probs = gmm.predict_proba(X)
+proba = gmm.predict_proba(X)
 
 plt.plot(t, L_s)
 plt.plot(t, R_s)
-plt.plot(t, 40*probs)
+plt.plot(t, 40*proba)
 plt.show()
 
 
