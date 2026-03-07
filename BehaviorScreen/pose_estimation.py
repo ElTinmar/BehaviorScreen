@@ -146,7 +146,7 @@ def estimate_pose(
             str(model_directory), 
             str(video),
             '--prediction_dir', output_directory,
-            '--overrides', f"data.data_dir={model_directory.parent()}" # FileNotFoundError: Could not find csv file at /path/CollectedData.csv!
+            '--overrides', f"data.data_dir={model_directory.parent}" # FileNotFoundError: Could not find csv file at /path/CollectedData.csv!
         ]
         subprocess.run(cmd, check=True)
 
