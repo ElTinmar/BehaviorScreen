@@ -3,7 +3,8 @@ from urllib.request import urlretrieve
 from zipfile import ZipFile
 
 TAIL_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/cysLNkUMxr3emTn/download"
-EYES_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/TaJQANXWsOE2Fqr/download"
+EYES_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/l5xbLSfATCCydEx/download"
+
 
 def download_model(
         urls: list[str] = [TAIL_MODEL_URL, EYES_MODEL_URL], 

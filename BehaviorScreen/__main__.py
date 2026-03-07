@@ -41,7 +41,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Path to LightningPose trained eyes model directory",
     )
 
-
     parser.add_argument(
         "--yaml",
         default = 'BehaviorScreen/screen.yaml',
