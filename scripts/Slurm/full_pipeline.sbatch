@@ -15,7 +15,7 @@ module load anaconda/3/2023.03 cuda/13.0
 INPUT_PATH=$1
 FILE_NAME=$(basename "$INPUT_PATH")
 PARENT_DIR=$(basename "$(dirname "$INPUT_PATH")")
-JOB_NAME="${PARENT_DIR}/${FILE_NAME}"
+JOB_NAME="full_pipeline ${PARENT_DIR}/${FILE_NAME}"
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
 srun --unbuffered conda run -n BehaviorScreen python -u -m BehaviorScreen "$INPUT_PATH"
