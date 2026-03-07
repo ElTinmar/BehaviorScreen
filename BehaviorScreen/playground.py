@@ -81,6 +81,8 @@ dVs = np.gradient(Vs, 1/fs)
 dVg = np.gradient(Vg, 1/fs)
 
 from sklearn.mixture import GaussianMixture
+
+# convergence detection
 X = Vg.reshape(-1, 1)
 
 gmm = GaussianMixture(
@@ -98,7 +100,8 @@ plt.plot(t, R_s)
 plt.plot(t, 40*proba[:,idx])
 plt.show()
 
-X = np.column_stack([L_s, R_s])
+# saccade detector
+X = np.column_stack([dVg, dVs])
 
 gmm = GaussianMixture(
     n_components=2,
@@ -108,13 +111,11 @@ gmm = GaussianMixture(
 gmm.fit(X)
 labels = gmm.predict(X)
 proba = gmm.predict_proba(X)
-idx = np.argmax(gmm.means_)
 
 plt.plot(t, L_s)
 plt.plot(t, R_s)
 plt.plot(t, 40*proba)
 plt.show()
-
 
 # find peaks 
 peak_convergence, props_convergence = find_peaks(
