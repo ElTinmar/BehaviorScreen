@@ -102,6 +102,7 @@ plt.show()
 
 # saccade detector
 X = np.column_stack([dVg, dVs])
+X = np.column_stack([dVg**2, dVs**2])
 
 gmm = GaussianMixture(
     n_components=2,
