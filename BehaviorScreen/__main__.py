@@ -3,7 +3,7 @@ from pathlib import Path
 
 from BehaviorScreen.export import export_single_animals
 from BehaviorScreen.megabouts import run_megabouts
-from BehaviorScreen.pose_estimation import estimate_pose
+from BehaviorScreen.pose_estimation import estimate_pose, export_cropped_eyes_video
 from BehaviorScreen.plot import plot_heatmap
 
 # TODO eye tracking OKR
@@ -32,8 +32,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "model_dir",
         type=Path,
-        help="Path to LightningPose trained model directory",
+        help="Path to LightningPose trained full model directory",
     )
+
+    parser.add_argument(
+        "eyes_model_dir",
+        type=Path,
+        help="Path to LightningPose trained eyes model directory",
+    )
+
 
     parser.add_argument(
         "--yaml",
@@ -104,6 +111,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--eyes-video-dir",
+        default="eyes",
+        help="Subfolder where cropped eyes video will be written (default: eyes)",
+    )
+
+    parser.add_argument(
         "--video-timestamp",
         default="video",
         help="Subfolder containing video timestamp files (default: video)",
@@ -154,8 +167,18 @@ def main(args: argparse.Namespace) -> None:
 
     print("2. pose estimation", flush=True)
     estimate_pose(
-        full_model_directory=args.model_dir,
+        model_directory=args.model_dir,
+        video_directory=args.root / args.results,
+        output_directory=args.root / args.lightning_pose
+    )
+    export_cropped_eyes_video(
         full_video_directory=args.root / args.results,
+        eye_video_directory=args.root / args.eyes_video_dir,
+        full_tracking_directory=args.root / args.lightning_pose
+    )
+    estimate_pose(
+        model_directory=args.eyes_model_dir,
+        video_directory=args.root / args.eyes_video_dir,
         output_directory=args.root / args.lightning_pose
     )
     
