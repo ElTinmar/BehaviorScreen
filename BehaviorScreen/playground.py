@@ -107,11 +107,17 @@ for idx, filename in enumerate(filenames):
 
 # TODO average first over trials then over fish
 plt.figure()
-plt.plot(np.arange(500_000)/fs, np.nanmean(pooled_vergence, axis=0))    
+plt.title('WT')
+plt.plot(np.arange(500_000)/fs, np.nanmean(pooled_vergence, axis=0)) 
+plt.xlabel('time')
+plt.ylabel('<vergence angle [deg]>')
 plt.show()
 
 plt.figure()
+plt.title('WT')
 plt.plot(np.arange(500_000)/fs, np.nanmean(pooled_version, axis=0))    
+plt.xlabel('time')
+plt.ylabel('<version angle [deg]>')
 plt.show()
 
 
