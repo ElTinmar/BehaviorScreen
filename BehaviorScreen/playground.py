@@ -42,335 +42,78 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 from BehaviorScreen.process import compute_angle_between_vectors
 from scipy.signal import savgol_filter, find_peaks
-
-filename = '/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/eye_models/current/01_07dpf_WT_Thu_11_Dec_2025_13h15min29sec_fish_3_eyes.csv'
-filename = '/media/martin/DATA/Behavioral_screen/eye_models/current/01_07dpf_WT_Thu_11_Dec_2025_13h15min29sec_fish_3_eyes.csv'
-
-fs = 120
-
-df = pd.read_csv(filename, header=[0,1,2])
-
-left_front = df.heatmap_tracker.eye_left_front[['x', 'y']].to_numpy()
-left_back = df.heatmap_tracker.eye_left_back[['x', 'y']].to_numpy()
-right_front = df.heatmap_tracker.eye_right_front[['x', 'y']].to_numpy()
-right_back = df.heatmap_tracker.eye_right_back[['x', 'y']].to_numpy()
-
-left_vector = left_back - left_front
-right_vector = right_back - right_front
-
-likelihood = df.heatmap_tracker.xs('likelihood', axis=1, level=1).prod(axis=1)
-remove = likelihood < 0.95
-
-t = np.arange(len(df))/fs
-L_rad = compute_angle_between_vectors(left_vector, np.array([0,1]))
-R_rad = compute_angle_between_vectors(right_vector, np.array([0,1]))
-L = np.rad2deg(L_rad)
-R = np.rad2deg(R_rad)
-
-L_s = savgol_filter(L, window_length=41, polyorder=2)
-dL_s = savgol_filter(L, window_length=41, polyorder=2, deriv=1, delta=1/fs)
-ddL_s = savgol_filter(L, window_length=41, polyorder=2, deriv=2, delta=1/fs)
-
-R_s = savgol_filter(R, window_length=41, polyorder=2)
-dR_s = savgol_filter(R, window_length=41, polyorder=2, deriv=1, delta=1/fs)
-ddR_s = savgol_filter(R, window_length=41, polyorder=2, deriv=2, delta=1/fs)
-
-Vs = (L_s + R_s)/2 # version
-Vg = R_s - L_s     # vergence
-dVs = np.gradient(Vs, 1/fs)
-dVg = np.gradient(Vg, 1/fs)
-
+from pathlib import Path
 from sklearn.mixture import GaussianMixture
 
-# convergence detection
-X = Vg.reshape(-1, 1)
+#filename = '/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/eye_models/current/01_07dpf_WT_Thu_11_Dec_2025_13h15min29sec_fish_3_eyes.csv'
 
-gmm = GaussianMixture(
-    n_components=2,
-    covariance_type="full",
-    random_state=0
-)
-gmm.fit(X)
-labels = gmm.predict(X)
-proba = gmm.predict_proba(X)
-idx = np.argmax(gmm.means_)
+def get_eye_traces(
+        data: pd.DataFrame, 
+        likelihood_threshold: float = 0.9,
+        divergence_threshold_deg: float = -10,
+        convergence_threshold_deg: float = 60
+    ) -> tuple[np.ndarray, np.ndarray]:
 
-plt.plot(t, L_s)
-plt.plot(t, R_s)
-plt.plot(t, 40*proba[:,idx])
-plt.show()
+    # extract data
+    left_front_keypoint = data.heatmap_tracker.eye_left_front[['x', 'y']].to_numpy()
+    left_front_likelihood = data.heatmap_tracker.eye_left_front.likelihood.to_numpy()
 
-# saccade detector
-X = np.column_stack([dVg, dVs])
-X = np.column_stack([dVg**2, dVs**2])
+    left_back_keypoint = data.heatmap_tracker.eye_left_back[['x', 'y']].to_numpy()
+    left_back_likelihood = data.heatmap_tracker.eye_left_back.likelihood.to_numpy()
 
-gmm = GaussianMixture(
-    n_components=2,
-    covariance_type="full",
-    random_state=0
-)
-gmm.fit(X)
-labels = gmm.predict(X)
-proba = gmm.predict_proba(X)
+    right_front_keypoint = data.heatmap_tracker.eye_right_front[['x', 'y']].to_numpy()
+    right_front_likelihood = data.heatmap_tracker.eye_right_front.likelihood.to_numpy()
 
-plt.plot(t, L_s)
-plt.plot(t, R_s)
-plt.plot(t, 40*proba)
-plt.show()
+    right_back_keypoint = data.heatmap_tracker.eye_right_back[['x', 'y']].to_numpy()
+    right_back_likelihood = data.heatmap_tracker.eye_right_back.likelihood.to_numpy()
 
-# find peaks 
-peak_convergence, props_convergence = find_peaks(
-    dVg, 
-    prominence=10,
-    width=3,
-    distance=int(fs*0.3)
-) 
-peak_divergence, props_divergence = find_peaks(
-    -dVg, 
-    prominence=10,
-    width=3,
-    distance=int(fs*0.3)
-)
-peak_cw_saccades, props_cw_saccades = find_peaks(
-    dVs, 
-    prominence=10,
-    width=3,
-    distance=int(fs*0.3)
-) 
-peak_ccw_saccades, props_ccw_saccades = find_peaks(
-    -dVs, 
-    prominence=10,
-    width=3,
-    distance=int(fs*0.3)
-) 
+    left_vector = left_back_keypoint - left_front_keypoint
+    right_vector = right_back_keypoint - right_front_keypoint
 
-def get_amplitude(
-        peaks: np.ndarray, 
-        signal: np.ndarray, 
-        fs: float, 
-        window_s: float
-    ) -> np.ndarray:
+    L_rad = compute_angle_between_vectors(left_vector, np.array([0,1]))
+    R_rad = compute_angle_between_vectors(right_vector, np.array([0,1]))
+    L = np.rad2deg(L_rad)
+    R = np.rad2deg(R_rad)
 
-    amplitude = np.zeros_like(peaks, dtype=np.float32)
-    n = len(signal)
-    half_win = int(fs*window_s/2)
+    L[(left_front_likelihood < likelihood_threshold) | (left_back_likelihood < likelihood_threshold)] = np.nan
+    R[(right_front_likelihood < likelihood_threshold) | (right_back_likelihood < likelihood_threshold)] = np.nan
+    L[(-L<divergence_threshold_deg) & (-L>convergence_threshold_deg)] = np.nan
+    R[(R<divergence_threshold_deg) & (R>convergence_threshold_deg)] = np.nan
 
-    for i, p in enumerate(peaks):
-        win_start = max(0, p-half_win)
-        win_stop = min(n, p+half_win)
-        amplitude[i] = signal[win_start:win_stop].ptp()
+    L = pd.Series(L).interpolate(limit_direction="both").to_numpy()
+    R = pd.Series(R).interpolate(limit_direction="both").to_numpy()
 
-    return amplitude
+    return L, R
 
-convergence_amplitude = get_amplitude(peak_convergence, Vg, 120, 0.3)
-divergence_amplitude = get_amplitude(peak_divergence, Vg, 120, 0.3)
-cw_saccade_amplitude = get_amplitude(peak_cw_saccades, Vs, 120, 0.3)
-ccw_saccade_amplitude = get_amplitude(peak_ccw_saccades, Vs, 120, 0.3)
+fs = 120
+BASE_DIR = '/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/eye_models/current'
+filenames = [f for f in Path(BASE_DIR).glob('*_eyes.csv')]
 
-plt.plot(t, L_s)
-plt.plot(t, R_s)
-plt.plot(t[peak_convergence[(convergence_amplitude>40) & (convergence_amplitude<80)]], L_s[peak_convergence[(convergence_amplitude>40) & (convergence_amplitude<80)]], 'ro')
-plt.show()
+pooled_vergence = np.full((len(filenames), 500_000), np.nan)
+pooled_version = np.full((len(filenames), 500_000), np.nan)
 
+for idx, filename in enumerate(filenames):
 
-fig, ax = plt.subplots()
-plt.subplots_adjust(bottom=0.25)
+    df = pd.read_csv(filename, header=[0,1,2])
+    n = len(df)
+    t = np.arange(n)/fs
+    L, R = get_eye_traces(df, likelihood_threshold=0.9)
 
-lineL, = ax.plot(t, L_s, label="Left")
-lineR, = ax.plot(t, R_s, label="Right")
-points, = ax.plot([], [], 'ro')
+    L_s = savgol_filter(L, window_length=41, polyorder=2)
+    R_s = savgol_filter(R, window_length=41, polyorder=2)
 
-# Slider axes
-ax_prom = plt.axes([0.2, 0.15, 0.6, 0.03])
-ax_minamp = plt.axes([0.2, 0.10, 0.6, 0.03])
-ax_maxamp = plt.axes([0.2, 0.05, 0.6, 0.03])
+    version_angle = (L_s + R_s)/2
+    vergence_angle = R_s - L_s
+    pooled_vergence[idx, 0:n] = vergence_angle
+    pooled_version[idx, 0:n] = version_angle
 
-slider_height = Slider(ax_prom, "Height", 1, 200, valinit=10)
-slider_minamp = Slider(ax_minamp, "Min Amp", 0, 100, valinit=40)
-slider_maxamp = Slider(ax_maxamp, "Max Amp", 0, 100, valinit=80)
-
-def update(val):
-
-    height = slider_height.val
-    amin = slider_minamp.val
-    amax = slider_maxamp.val
-
-    peaks, _ = find_peaks(
-        dVg,
-        height=height,
-        width=3,
-        distance=int(fs*0.3)
-    )
-
-    amp = get_amplitude(peaks, Vg, fs, 0.3)
-
-    valid = peaks[(amp > amin) & (amp < amax)]
-
-    points.set_data([t[valid], t[valid]], [L_s[valid], R_s[valid]])
-
-    fig.canvas.draw_idle()
-
-
-slider_height.on_changed(update)
-slider_minamp.on_changed(update)
-slider_maxamp.on_changed(update)
-
-update(None)
-
-plt.show()
-
-from hmmlearn import hmm
-X = np.column_stack([Vs, Vg, dVs, dVg])
-model = hmm.GaussianHMM(n_components=4, covariance_type="full")
-model.fit(X)
-states = model.predict(X)
-
-dt = 1 / fs
-
-dL = np.gradient(L_s, dt)
-dR = np.gradient(R_s, dt)
-
-H = savgol_filter((L+R)/(2*dt), window_length=11, polyorder=2)
-dH = savgol_filter((L+R)/(2*dt), window_length=11, polyorder=2, deriv=1)
-
-V = R_s - L_s
-
-dV = np.gradient(V, dt)
-
-dH[remove] = np.nan
-mask = abs(dH) > 3
-
-#angle_left[remove] = np.nan
-#angle_right[remove] = np.nan
-
-plt.plot(t, np.rad2deg(L_s))
-plt.plot(t, np.rad2deg(R_s))
-plt.show()
-
-def sliding_corr(x, y, window):
-    n = len(x)
-    rho = np.zeros(n)
-    half = window // 2
-    
-    for i in range(half, n-half):
-        xs = x[i-half:i+half]
-        ys = y[i-half:i+half]
-        rho[i] = np.corrcoef(xs, ys)[0,1]
-        
-    return rho
-
-rho_slow = sliding_corr(dL, dR, window=int(5*fs))  
-rho = sliding_corr(dL, dR, window=int(2*fs))  
-
-congruent = (rho_slow + rho) > 1.2
-uncongruent = (rho < -0.5) 
-vergent = V > 1.2
-
-def mask_to_intervals(mask):
-    """Convert boolean mask to list of (start, end) index intervals."""
-    intervals = []
-    in_block = False
-    start = 0
-    
-    for i, val in enumerate(mask):
-        if val and not in_block:
-            in_block = True
-            start = i
-        elif not val and in_block:
-            in_block = False
-            intervals.append((start, i))
-    
-    if in_block:
-        intervals.append((start, len(mask)))
-    
-    return intervals
-
-
-cong_intervals = mask_to_intervals(congruent)
-div_intervals = mask_to_intervals(uncongruent)
-ver_intervals = mask_to_intervals(vergent)
-
-
-# --- Plot Left Eye ---
+# TODO average first over trials then over fish
 plt.figure()
-plt.plot(t, L_s)
-plt.plot(t, R_s)
-
-for start, end in ver_intervals:
-    plt.axvspan(t[start], t[end-1], alpha=0.2, color='blue')
-
-for start, end in cong_intervals:
-    plt.axvspan(t[start], t[end-1], alpha=0.2, color='green')
-
-for start, end in div_intervals:
-    plt.axvspan(t[start], t[end-1], alpha=0.2, color='red')
-
-plt.xlabel("Time (s)")
-plt.ylabel("Left Eye Angle")
-plt.title("Left Eye with Congruent / Divergent Patches")
+plt.plot(np.arange(500_000)/fs, np.nanmean(pooled_vergence, axis=0))    
 plt.show()
 
-### 
-
-import numpy as np
-from scipy.signal import butter, filtfilt, hilbert
-from scipy.signal import welch
-
-def rolling_psd(signal, fs, fmin, fmax, window_sec=10.0):
-    n = len(signal)
-    window_samples = int(window_sec * fs)
-    half_win = window_samples // 2
-    
-    power_full = np.zeros(n)
-    
-    for center in range(half_win, n - half_win):
-        start = center - half_win
-        end = center + half_win
-        seg = signal[start:end]
-        
-        f, Pxx = welch(seg, fs=fs, nperseg=window_samples)
-        band_power = Pxx[(f >= fmin) & (f <= fmax)].sum()
-        
-        power_full[center] = band_power
-    
-    # Optionally, pad start/end with first/last computed power
-    power_full[:half_win] = power_full[half_win]
-    power_full[-half_win:] = power_full[-half_win-1]
-    
-    return power_full
-
-
-def bandpower_continuous(signal, fs, fmin, fmax):
-    # Bandpass filter
-    b, a = butter(3, [fmin/(fs/2), fmax/(fs/2)], btype='band')
-    filtered = filtfilt(b, a, signal)
-
-    # Analytic signal
-    analytic = hilbert(filtered)
-    
-    # Instantaneous power
-    amplitude = np.abs(analytic)
-    power = amplitude**2
-    phase = np.angle(analytic)
-    return power, phase
-
-from scipy.signal import spectrogram
-
-# Spectrogram parameters
-nperseg = int(1.0 * fs)  # 1-second window
-noverlap = int(0.9 * nperseg)  # 90% overlap for smooth time resolution
-fmin, fmax = 0, 30  # frequency range to display (Hz)
-
-# Compute spectrogram
-f, t_spec, Sxx = spectrogram(H, fs=fs, nperseg=nperseg, noverlap=noverlap)
-
-# Limit frequency range for plotting
-freq_mask = (f >= fmin) & (f <= fmax)
-
-plt.figure(figsize=(10,4))
-plt.pcolormesh(t_spec, f, 10*np.log10(Sxx), shading='gouraud')
-plt.colorbar(label='Power (dB)')
-plt.ylabel('Frequency [Hz]')
-plt.xlabel('Time [s]')
-plt.title('Spectrogram of Conjugate Eye Signal')
+plt.figure()
+plt.plot(np.arange(500_000)/fs, np.nanmean(pooled_version, axis=0))    
 plt.show()
+
+
