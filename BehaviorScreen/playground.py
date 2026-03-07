@@ -106,6 +106,7 @@ for idx, filename in enumerate(filenames):
     pooled_version[idx, 0:n] = version_angle
 
 # TODO average first over trials then over fish
+
 plt.figure()
 plt.title('WT')
 plt.plot(np.arange(500_000)/fs, np.nanmean(pooled_vergence, axis=0)) 
