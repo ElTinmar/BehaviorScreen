@@ -91,6 +91,24 @@ gmm = GaussianMixture(
 gmm.fit(X)
 labels = gmm.predict(X)
 proba = gmm.predict_proba(X)
+idx = np.argmax(gmm.means_)
+
+plt.plot(t, L_s)
+plt.plot(t, R_s)
+plt.plot(t, 40*proba[:,idx])
+plt.show()
+
+X = np.column_stack([L_s, R_s])
+
+gmm = GaussianMixture(
+    n_components=2,
+    covariance_type="full",
+    random_state=0
+)
+gmm.fit(X)
+labels = gmm.predict(X)
+proba = gmm.predict_proba(X)
+idx = np.argmax(gmm.means_)
 
 plt.plot(t, L_s)
 plt.plot(t, R_s)
