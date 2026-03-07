@@ -39,11 +39,9 @@ megabout = mb[behavior_file.metadata.stem]
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.widgets import Slider
 from BehaviorScreen.process import compute_angle_between_vectors
-from scipy.signal import savgol_filter, find_peaks
+from scipy.signal import savgol_filter
 from pathlib import Path
-from sklearn.mixture import GaussianMixture
 
 #filename = '/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/eye_models/current/01_07dpf_WT_Thu_11_Dec_2025_13h15min29sec_fish_3_eyes.csv'
 
