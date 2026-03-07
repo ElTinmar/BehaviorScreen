@@ -80,9 +80,25 @@ Vg = R_s - L_s     # vergence
 dVs = np.gradient(Vs, 1/fs)
 dVg = np.gradient(Vg, 1/fs)
 
+from sklearn.mixture import GaussianMixture
+X = Vg.reshape(-1, 1)
 
-# TODO write a GUI to visualize thresholds in real time
+gmm = GaussianMixture(
+    n_components=2,
+    covariance_type="full",
+    random_state=0
+)
+gmm.fit(X)
+labels = gmm.predict(X)
+probs = gmm.predict_proba(X)
 
+plt.plot(t, L_s)
+plt.plot(t, R_s)
+plt.plot(t, 40*probs)
+plt.show()
+
+
+# find peaks 
 peak_convergence, props_convergence = find_peaks(
     dVg, 
     prominence=10,
