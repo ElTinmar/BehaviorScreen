@@ -16,7 +16,7 @@ EXTRA_ARGS="$@"
 
 FILE_NAME=$(basename "$INPUT_PATH")
 PARENT_DIR=$(basename "$(dirname "$INPUT_PATH")")
-JOB_NAME="export ${PARENT_DIR}/${FILE_NAME}"
+JOB_NAME="export_${PARENT_DIR}/${FILE_NAME}"
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
 srun --unbuffered conda run -n BehaviorScreen python -m BehaviorScreen.export "$INPUT_PATH" $EXTRA_ARGS
