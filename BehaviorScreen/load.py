@@ -38,6 +38,7 @@ MONTH_MAP = {
     "dez": 12, "dezember": 12,
 }
 
+# TODO add eyes
 class BehaviorData(NamedTuple):
     metadata: Dict
     stimuli: List[Dict]
