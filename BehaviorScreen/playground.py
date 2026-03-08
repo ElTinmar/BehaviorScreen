@@ -38,8 +38,16 @@ megabout = mb[behavior_file.metadata.stem]
 
 # --------------------------------------------------------------------------------
 # TODO add tracking eyes to BehaviorFiles and BehaviorData + regexp in load
+
 timestamps = behavior_data.tracking.timestamp.values
 stim_trials = get_trials(behavior_data)
+
+L, R = get_eye_traces(behavior_data.eye_tracking, likelihood_threshold=0.9)
+L_s = savgol_filter(L, window_length=41, polyorder=2)
+R_s = savgol_filter(R, window_length=41, polyorder=2)
+version_angle = (L_s + R_s)/2
+vergence_angle = R_s - L_s
+
 for stim_select, stim_data in stim_trials.groupby('stim_select'):
 
     stim = Stim(stim_select)
@@ -48,8 +56,9 @@ for stim_select, stim_data in stim_trials.groupby('stim_select'):
 
     for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
         for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
-
-
+            mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
+            version_angle[mask]
+            vergence_angle[mask]
 
 # =============================================================================
 
