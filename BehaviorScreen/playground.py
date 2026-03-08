@@ -9,8 +9,10 @@ from pathlib import Path
 from typing import List
 import pickle
 from BehaviorScreen.megabouts import MegaboutResults
+from BehaviorScreen.process import get_trials
+from BehaviorScreen.core import Stim, GROUPING_PARAMETER
 
-ROOT = Path('/media/martin/DATA1/Behavioral_screen/DATA/WT/danieau')
+ROOT = Path('/media/martin/DATA_18TB/Screen/WT/danieau')
 #ROOT = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau')
 
 directories = Directories(
@@ -34,8 +36,23 @@ with open(ROOT / 'megabout.pkl', 'rb') as fp:
 
 megabout = mb[behavior_file.metadata.stem]
 
+# --------------------------------------------------------------------------------
+# TODO add tracking eyes to BehaviorFiles and BehaviorData + regexp in load
+timestamps = behavior_data.tracking.timestamp.values
+stim_trials = get_trials(behavior_data)
+for stim_select, stim_data in stim_trials.groupby('stim_select'):
 
-###
+    stim = Stim(stim_select)
+    if not stim in GROUPING_PARAMETER:
+        continue
+
+    for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
+        for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
+
+
+
+# =============================================================================
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
