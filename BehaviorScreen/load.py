@@ -66,25 +66,14 @@ class Directories:
             metadata: str = 'data',
             stimuli: str = 'data',
             tracking: str = 'data',
-            full_tracking: str = 'lightning_pose_full',
-            eyes_tracking: str = 'lightning_pose_eyes',
+            full_tracking: str = 'lightning_pose',
+            eyes_tracking: str = 'lightning_pose',
             temperature: str = 'data',
             video: str = 'video',
             video_timestamp: str = 'video',
             results: str = 'results',
             plots: str = 'plots'
         ) -> None:
-
-        unique_dirs = {
-            full_tracking,
-            eyes_tracking,
-            video_timestamp,
-        }
-
-        if len(unique_dirs) != 3:
-            raise ValueError(
-                "`eyes_tracking`, `full_tracking`, and `video_timestamps` must be different directories."
-            )
 
         self.root: Path = Path(root)
         self.metadata: Path = self.root / metadata
@@ -166,17 +155,8 @@ stimuli_filename_regexp = filename_regexp('stim_','json')
 tracking_filename_regexp = filename_regexp('tracking_','csv')
 temperature_filename_regexp = filename_regexp('temperature_','csv')
 video_filename_regexp = filename_regexp('','mp4')
-
-# NOTE: the following files have the same names. They need to be in different directories to be recognized
-# TODO: rename them so that confusion is no longer possible:
-#
-#   - patch lightning_pose.api.model.predict_on_video_file to accept a prefix
-#     prediction_csv_file = output_dir / f"{prefix}_{video_file.stem}.csv"
-#     labeled_mp4_file = str(self.labeled_videos_dir() / f"{prefix}_{video_file.stem}_labeled.mp4")
-#
-#   - add "timestamp_' prefix to video timestamps? (not necessary if you do the other)
-
-lightningpose_filename_regexp = filename_regexp('','csv')
+lightningpose_full_filename_regexp = filename_regexp('','csv')
+lightningpose_eyes_filename_regexp = filename_regexp('eyes_','csv')
 video_timestamps_filename_regexp = filename_regexp('','csv')
 
 def parse_filename(path: Path, regexp: Pattern) -> FileNameInfo:
@@ -218,7 +198,7 @@ def load_lightning_pose(tracking_file: Optional[Path]) -> pd.DataFrame:
         return pd.DataFrame()
     df = pd.read_csv(tracking_file, header=[0,1,2])
     pose_df = df["heatmap_tracker"] # get rid off the first header level
-    return pose_df
+    return pose_df # type: ignore
 
 def load_video(video_file: Path) -> OpenCV_VideoReader:
     reader = OpenCV_VideoReader()
@@ -283,8 +263,8 @@ def find_files(dir: Directories) -> List[BehaviorFiles]:
             metadata = metadata_file,
             stimuli = find_file(file_info, dir.stimuli, stimuli_filename_regexp), # type: ignore
             tracking = find_file(file_info, dir.tracking, tracking_filename_regexp), # type: ignore
-            full_tracking = find_file(file_info, dir.full_tracking, lightningpose_filename_regexp, required=False), # type: ignore
-            eyes_tracking = find_file(file_info, dir.eyes_tracking, lightningpose_filename_regexp, required=False), # type: ignore
+            full_tracking = find_file(file_info, dir.full_tracking, lightningpose_full_filename_regexp, required=False), # type: ignore
+            eyes_tracking = find_file(file_info, dir.eyes_tracking, lightningpose_eyes_filename_regexp, required=False), # type: ignore
             video = find_file(file_info, dir.video, video_filename_regexp, required=False), # type: ignore
             video_timestamps = find_file(file_info, dir.video_timestamps, video_timestamps_filename_regexp, required=False), # type: ignore
             temperature = find_file(file_info, dir.temperature, temperature_filename_regexp, required=False)
