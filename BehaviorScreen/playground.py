@@ -79,17 +79,17 @@ def get_eye_traces(
     ) -> tuple[np.ndarray, np.ndarray]:
 
     # extract data
-    left_front_keypoint = data.heatmap_tracker.eye_left_front[['x', 'y']].to_numpy()
-    left_front_likelihood = data.heatmap_tracker.eye_left_front.likelihood.to_numpy()
+    left_front_keypoint = data.eye_left_front[['x', 'y']].to_numpy()
+    left_front_likelihood = data.eye_left_front.likelihood.to_numpy()
 
-    left_back_keypoint = data.heatmap_tracker.eye_left_back[['x', 'y']].to_numpy()
-    left_back_likelihood = data.heatmap_tracker.eye_left_back.likelihood.to_numpy()
+    left_back_keypoint = data.eye_left_back[['x', 'y']].to_numpy()
+    left_back_likelihood = data.eye_left_back.likelihood.to_numpy()
 
-    right_front_keypoint = data.heatmap_tracker.eye_right_front[['x', 'y']].to_numpy()
-    right_front_likelihood = data.heatmap_tracker.eye_right_front.likelihood.to_numpy()
+    right_front_keypoint = data.eye_right_front[['x', 'y']].to_numpy()
+    right_front_likelihood = data.eye_right_front.likelihood.to_numpy()
 
-    right_back_keypoint = data.heatmap_tracker.eye_right_back[['x', 'y']].to_numpy()
-    right_back_likelihood = data.heatmap_tracker.eye_right_back.likelihood.to_numpy()
+    right_back_keypoint = data.eye_right_back[['x', 'y']].to_numpy()
+    right_back_likelihood = data.eye_right_back.likelihood.to_numpy()
 
     left_vector = left_back_keypoint - left_front_keypoint
     right_vector = right_back_keypoint - right_front_keypoint
@@ -121,7 +121,7 @@ for idx, filename in enumerate(filenames):
     df = pd.read_csv(filename, header=[0,1,2])
     n = len(df)
     t = np.arange(n)/fs
-    L, R = get_eye_traces(df, likelihood_threshold=0.9)
+    L, R = get_eye_traces(df.heatmap_tracker, likelihood_threshold=0.9)
 
     L_s = savgol_filter(L, window_length=41, polyorder=2)
     R_s = savgol_filter(R, window_length=41, polyorder=2)

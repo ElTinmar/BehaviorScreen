@@ -67,8 +67,8 @@ def crop_around_eyes(
 
     lp_data = pd.read_csv(lightningpose_csv, header=[0,1,2])
 
-    swimbladder = lp_data.heatmap_tracker.Swim_Bladder[['x', 'y']].to_numpy()
-    head =  lp_data.heatmap_tracker.Head[['x', 'y']].to_numpy()
+    swimbladder = lp_data.Swim_Bladder[['x', 'y']].to_numpy()
+    head =  lp_data.Head[['x', 'y']].to_numpy()
     heading = head - swimbladder
     theta_rad = np.arctan2(heading[:,1], heading[:,0]) 
 

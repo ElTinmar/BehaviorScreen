@@ -24,8 +24,7 @@ from BehaviorScreen.load import (
 )
 from BehaviorScreen.process import (
     get_trials, 
-    get_well_coords_mm, 
-    compute_eye_angle_from_keypoints
+    get_well_coords_mm
 )
 from BehaviorScreen.stimulus import prey_capture_arc_stimulus_cosine
 
@@ -37,39 +36,13 @@ class MegaboutResults(NamedTuple):
     tail: TailPreprocessingResult
     traj: TrajPreprocessingResult
 
-def EyeData_from_lp(lp_csv: str, threshold: float = 0.95) -> pd.DataFrame:
-
-    df = pd.read_csv(lp_csv, header=[0,1,2])
-
-    def eye_angles(side):
-        
-        keep = ((df.heatmap_tracker[f"Eye_{side}_Front"].likelihood > threshold) &
-                (df.heatmap_tracker[f"Eye_{side}_Back"].likelihood > threshold))
-        
-        return compute_eye_angle_from_keypoints(
-            front_x = df.heatmap_tracker[f"Eye_{side}_Front"].x,
-            front_y = df.heatmap_tracker[f"Eye_{side}_Front"].y,
-            back_x = df.heatmap_tracker[f"Eye_{side}_Back"].x,
-            back_y = df.heatmap_tracker[f"Eye_{side}_Back"].y,
-            head_x = df.heatmap_tracker.Head.x,
-            head_y = df.heatmap_tracker.Head.y,
-            swimbladder_x = df.heatmap_tracker.Swim_Bladder.x,
-            swimbladder_y = df.heatmap_tracker.Swim_Bladder.y,
-            mask = keep
-        )
-
-    return pd.DataFrame({
-        "left_eye_angle": eye_angles("Left"),
-        "right_eye_angle": eye_angles("Right")
-    })
-
 def FullTrackingData_from_lp(df: pd.DataFrame, mm_per_pix: float) -> FullTrackingData:
         
-    head_x = df.heatmap_tracker.Head.x.values * mm_per_pix
-    head_y = df.heatmap_tracker.Head.y.values * mm_per_pix
+    head_x = df.Head.x.values * mm_per_pix
+    head_y = df.Head.y.values * mm_per_pix
     tail_parts = [f"Tail_{i}" for i in range(9)] # exclude last tail point
-    tail_x = df.loc[:, ("heatmap_tracker", tail_parts, "x")].values * mm_per_pix
-    tail_y = df.loc[:, ("heatmap_tracker", tail_parts, "y")].values * mm_per_pix
+    tail_x = df.loc[:, (tail_parts, "x")].values * mm_per_pix
+    tail_y = df.loc[:, (tail_parts, "y")].values * mm_per_pix
     tracking_data = FullTrackingData.from_keypoints(
         head_x=head_x, head_y=head_y, tail_x=tail_x, tail_y=tail_y
     )
@@ -128,9 +101,9 @@ def get_bout_metrics(
 
     # these are needed for QC
     online_tracking_centroid = behavior_data.tracking[['centroid_x','centroid_y']].values
-    posthoc_tracking_centroid = behavior_data.full_tracking.heatmap_tracker.Swim_Bladder[['x', 'y']].values
+    posthoc_tracking_centroid = behavior_data.full_tracking.Swim_Bladder[['x', 'y']].values
     online_tracking_heading =  behavior_data.tracking[['pc1_x','pc1_y']].values
-    posthoc_tracking_heading = behavior_data.full_tracking.heatmap_tracker.Head[['x', 'y']].values - posthoc_tracking_centroid
+    posthoc_tracking_heading = behavior_data.full_tracking.Head[['x', 'y']].values - posthoc_tracking_centroid
     posthoc_tracking_heading = posthoc_tracking_heading / np.linalg.norm(posthoc_tracking_heading, axis=1, keepdims=True)
     
     cx,cy,_ = well_coords_mm[0,:]
