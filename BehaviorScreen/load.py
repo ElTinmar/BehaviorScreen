@@ -75,6 +75,17 @@ class Directories:
             plots: str = 'plots'
         ) -> None:
 
+        unique_dirs = {
+            full_tracking,
+            eyes_tracking,
+            video_timestamp,
+        }
+
+        if len(unique_dirs) != 3:
+            raise ValueError(
+                "`eyes_tracking`, `full_tracking`, and `video_timestamps` must be different directories."
+            )
+
         self.root: Path = Path(root)
         self.metadata: Path = self.root / metadata
         self.stimuli: Path = self.root / stimuli
@@ -153,10 +164,19 @@ def filename_regexp(prefix: str, extension: str | None = None) -> Pattern:
 metadata_filename_regexp = filename_regexp('','metadata')
 stimuli_filename_regexp = filename_regexp('stim_','json')
 tracking_filename_regexp = filename_regexp('tracking_','csv')
-lightningpose_filename_regexp = filename_regexp('','csv')
-video_timestamps_filename_regexp = filename_regexp('','csv')
 temperature_filename_regexp = filename_regexp('temperature_','csv')
 video_filename_regexp = filename_regexp('','mp4')
+
+# NOTE: the following files have the same names. They need to be in different directories to be recognized
+# TODO: rename them so that confusion is no longer possible:
+#
+#   - patch lightning_pose.api.model.predict_on_video_file to accept a prefix
+#     prediction_csv_file = output_dir / f"{prefix}_{video_file.stem}.csv"
+#     labeled_mp4_file = str(self.labeled_videos_dir() / f"{prefix}_{video_file.stem}_labeled.mp4")
+#
+#   - add "timestamp_' prefix to video timestamps? (not necessary if you do the other)
+
+lightningpose_filename_regexp = filename_regexp('','csv')
 video_timestamps_filename_regexp = filename_regexp('','csv')
 
 def parse_filename(path: Path, regexp: Pattern) -> FileNameInfo:
