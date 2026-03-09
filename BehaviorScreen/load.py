@@ -40,14 +40,14 @@ MONTH_MAP = {
 
 # TODO add eyes
 class BehaviorData(NamedTuple):
-    metadata: Dict
-    stimuli: List[Dict]
-    tracking: pd.DataFrame
-    full_tracking: pd.DataFrame
-    eyes_tracking: pd.DataFrame
-    video: OpenCV_VideoReader 
-    video_timestamps: pd.DataFrame
-    temperature: pd.DataFrame
+    metadata: Dict                  # contains parameters for an experiment
+    stimuli: List[Dict]             # contains parameters for each stimulus applied during the experiment
+    tracking: pd.DataFrame          # on-line tracking 
+    full_tracking: pd.DataFrame     # post-hoc tracking from pose estimation pipeline 
+    eyes_tracking: pd.DataFrame     # post-hoc tracking from pose estimation pipeline for the eyes
+    video: OpenCV_VideoReader       # behavioral recording
+    video_timestamps: pd.DataFrame  # timing information for each frame of the recording
+    temperature: pd.DataFrame       # temperature monitoring 
     
 class BehaviorFiles(NamedTuple):
     metadata: Path
