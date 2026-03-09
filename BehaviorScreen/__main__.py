@@ -6,14 +6,9 @@ from BehaviorScreen.megabouts import run_megabouts
 from BehaviorScreen.pose_estimation import estimate_pose, export_cropped_eyes_video
 from BehaviorScreen.plot import plot_heatmap
 
-# TODO eye tracking OKR
-# TODO eye tracking + tail tracking and classification J-turn PREY_CAPTURE
-# TODO separate analysis and plotting. Use multiprocessing for analysis here
+# TODO separate analysis and plotting
 # TODO linear mixed effects analysis to get within and between individual variability
 # TODO indentify the main source of variability within/between individuals
-# TODO overlay reconstructed stimulus on top of video 
-# TODO overlay video with ethogram
-# TODO megabout segmentation sanity checks
 # TODO permutation tests with DARK? 
 # TODO plot trajectories loomings 
 
@@ -200,14 +195,18 @@ def main(args: argparse.Namespace) -> None:
         cpu=args.cpu
     )
 
-    print("4. plot", flush=True)
+    print("4. extract eye metrics", flush=True)
+    # TODO
+
+    print("5. plot", flush=True)
     plot_heatmap(
         input_csv = args.root / args.bouts_csv,
         config_yaml = args.yaml,
         output_png = args.root / args.bouts_png,
     )
 
-    #print("5. overlay ethogram videos + reconstructed stim")
+    print("6. overlay")
+    # TODO
 
 if __name__ == '__main__':
 
