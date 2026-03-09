@@ -44,7 +44,7 @@ class BehaviorData(NamedTuple):
     stimuli: List[Dict]
     tracking: pd.DataFrame
     full_tracking: pd.DataFrame
-    eye_tracking: pd.DataFrame
+    eyes_tracking: pd.DataFrame
     video: OpenCV_VideoReader 
     video_timestamps: pd.DataFrame
     temperature: pd.DataFrame
@@ -54,7 +54,7 @@ class BehaviorFiles(NamedTuple):
     stimuli: Path
     tracking: Path
     full_tracking: Path
-    eye_tracking: Path
+    eyes_tracking: Path
     video: Path
     video_timestamps: Path
     temperature: Optional[Path]
@@ -67,7 +67,7 @@ class Directories:
             stimuli: str = '',
             tracking: str = '',
             full_tracking: str = '',
-            eye_tracking: str = '',
+            eyes_tracking: str = '',
             temperature: str = '',
             video: str = '',
             video_timestamp: str = '',
@@ -80,7 +80,7 @@ class Directories:
         self.stimuli: Path = self.root / stimuli
         self.tracking: Path = self.root / tracking
         self.full_tracking: Path = self.root / full_tracking
-        self.eye_tracking: Path = self.root / full_tracking
+        self.eyes_tracking: Path = self.root / eyes_tracking
         self.temperature: Path = self.root / temperature 
         self.video: Path = self.root / video
         self.video_timestamps: Path = self.root / video_timestamp
@@ -153,8 +153,7 @@ def filename_regexp(prefix: str, extension: str | None = None) -> Pattern:
 metadata_filename_regexp = filename_regexp('','metadata')
 stimuli_filename_regexp = filename_regexp('stim_','json')
 tracking_filename_regexp = filename_regexp('tracking_','csv')
-full_tracking_filename_regexp = filename_regexp('','csv')
-eye_tracking_filename_regexp = filename_regexp('','csv')
+lightningpose_filename_regexp = filename_regexp('','csv')
 video_timestamps_filename_regexp = filename_regexp('','csv')
 temperature_filename_regexp = filename_regexp('temperature_','csv')
 video_filename_regexp = filename_regexp('','mp4')
@@ -194,14 +193,12 @@ def load_stimuli(stim_file: Path) -> List[Dict]:
 def load_tracking(tracking_file: Path) -> pd.DataFrame:
     return pd.read_csv(tracking_file)
 
-def load_lightning_pose(tracking_file: Path) -> pd.DataFrame:
-    df = pd.read_csv(tracking_file, header=[0,1,2])
-    return df.heatmap_tracker
-
-def load_tracking(tracking_file: Optional[Path]) -> pd.DataFrame:
+def load_lightning_pose(tracking_file: Optional[Path]) -> pd.DataFrame:
     if tracking_file is None:
         return pd.DataFrame()
-    return load_lightning_pose(tracking_file)
+    df = pd.read_csv(tracking_file, header=[0,1,2])
+    pose_df = df["heatmap_tracker"] # get rid off the first header level
+    return pose_df
 
 def load_video(video_file: Path) -> OpenCV_VideoReader:
     reader = OpenCV_VideoReader()
@@ -223,7 +220,8 @@ def load_data(files: BehaviorFiles) -> BehaviorData:
         metadata = load_metadata(files.metadata),
         stimuli = load_stimuli(files.stimuli),
         tracking = load_tracking(files.tracking),
-        full_tracking = load_full_tracking(files.full_tracking),
+        full_tracking = load_lightning_pose(files.full_tracking),
+        eyes_tracking = load_lightning_pose(files.eyes_tracking),
         video = load_video(files.video),
         video_timestamps = load_video_timestamps(files.video_timestamps),
         temperature = load_temperature(files.temperature)
@@ -265,7 +263,8 @@ def find_files(dir: Directories) -> List[BehaviorFiles]:
             metadata = metadata_file,
             stimuli = find_file(file_info, dir.stimuli, stimuli_filename_regexp), # type: ignore
             tracking = find_file(file_info, dir.tracking, tracking_filename_regexp), # type: ignore
-            full_tracking = find_file(file_info, dir.full_tracking, full_tracking_filename_regexp, required=False), # type: ignore
+            full_tracking = find_file(file_info, dir.full_tracking, lightningpose_filename_regexp, required=False), # type: ignore
+            eyes_tracking = find_file(file_info, dir.eyes_tracking, lightningpose_filename_regexp, required=False), # type: ignore
             video = find_file(file_info, dir.video, video_filename_regexp, required=False), # type: ignore
             video_timestamps = find_file(file_info, dir.video_timestamps, video_timestamps_filename_regexp, required=False), # type: ignore
             temperature = find_file(file_info, dir.temperature, temperature_filename_regexp, required=False)
