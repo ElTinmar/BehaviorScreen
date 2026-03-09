@@ -171,7 +171,7 @@ def export_cropped_eyes_video(
 
         print(f"Export eye video: {video}...", flush=True)
         
-        eyes_video = eye_video_directory / (video.stem + '_eyes' + video.suffix)
+        eyes_video = eye_video_directory / ("eyes_" + video.name)
 
         if eyes_video.exists() and not overwrite:
             print(f"{eyes_video} already exists, skipping ...")
