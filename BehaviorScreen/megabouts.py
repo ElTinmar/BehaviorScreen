@@ -38,11 +38,11 @@ class MegaboutResults(NamedTuple):
 
 def FullTrackingData_from_lp(df: pd.DataFrame, mm_per_pix: float) -> FullTrackingData:
         
-    head_x = df.Head.x.values * mm_per_pix
-    head_y = df.Head.y.values * mm_per_pix
+    head_x = df.Head.x.to_numpy() * mm_per_pix
+    head_y = df.Head.y.to_numpy() * mm_per_pix
     tail_parts = [f"Tail_{i}" for i in range(9)] # exclude last tail point
-    tail_x = df.loc[:, (tail_parts, "x")].values * mm_per_pix
-    tail_y = df.loc[:, (tail_parts, "y")].values * mm_per_pix
+    tail_x = df.loc[:, (tail_parts, "x")].to_numpy() * mm_per_pix
+    tail_y = df.loc[:, (tail_parts, "y")].to_numpy() * mm_per_pix
     tracking_data = FullTrackingData.from_keypoints(
         head_x=head_x, head_y=head_y, tail_x=tail_x, tail_y=tail_y
     )
@@ -58,8 +58,8 @@ def megabout_fulltracking_pipeline(
 
     mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
     fps = behavior_data.metadata['camera']['framerate_value']
-    timestamps = behavior_data.tracking.timestamp.values
-    # timestamps = behavior_data.video_timestamps.timestamp.values
+    timestamps = behavior_data.tracking.timestamp.to_numpy()
+    # timestamps = behavior_data.video_timestamps.timestamp.to_numpy()
 
     # configure pipeline
     tracking_cfg = TrackingConfig(fps=fps, tracking="full_tracking")
@@ -100,10 +100,10 @@ def get_bout_metrics(
     bout_stop = megabout.timestamp[megabout.bouts.offset]
 
     # these are needed for QC
-    online_tracking_centroid = behavior_data.tracking[['centroid_x','centroid_y']].values
-    posthoc_tracking_centroid = behavior_data.full_tracking.Swim_Bladder[['x', 'y']].values
-    online_tracking_heading =  behavior_data.tracking[['pc1_x','pc1_y']].values
-    posthoc_tracking_heading = behavior_data.full_tracking.Head[['x', 'y']].values - posthoc_tracking_centroid
+    online_tracking_centroid = behavior_data.tracking[['centroid_x','centroid_y']].to_numpy()
+    posthoc_tracking_centroid = behavior_data.full_tracking.Swim_Bladder[['x', 'y']].to_numpy()
+    online_tracking_heading =  behavior_data.tracking[['pc1_x','pc1_y']].to_numpy()
+    posthoc_tracking_heading = behavior_data.full_tracking.Head[['x', 'y']].to_numpy() - posthoc_tracking_centroid
     posthoc_tracking_heading = posthoc_tracking_heading / np.linalg.norm(posthoc_tracking_heading, axis=1, keepdims=True)
     
     cx,cy,_ = well_coords_mm[0,:]

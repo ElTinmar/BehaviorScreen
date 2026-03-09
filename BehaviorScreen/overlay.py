@@ -531,9 +531,9 @@ def do_overlay(
             # TODO write functions for the different coordinate systems
             coords_mm = egocentric_coords_mm(
                 grid,
-                centroid = row[['centroid_x', 'centroid_y']].values,
-                pc1 = row[['pc1_x', 'pc1_y']].values,
-                pc2 = row[['pc2_x', 'pc2_y']].values, 
+                centroid = row[['centroid_x', 'centroid_y']].to_numpy(),
+                pc1 = row[['pc1_x', 'pc1_y']].to_numpy(),
+                pc2 = row[['pc2_x', 'pc2_y']].to_numpy(), 
                 mm_per_pixel = mm_per_pixel
             )
 

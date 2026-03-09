@@ -39,7 +39,7 @@ megabout = mb[behavior_file.metadata.stem]
 # --------------------------------------------------------------------------------
 # TODO add tracking eyes to BehaviorFiles and BehaviorData + regexp in load
 
-timestamps = behavior_data.tracking.timestamp.values
+timestamps = behavior_data.tracking.timestamp.to_numpy()
 stim_trials = get_trials(behavior_data)
 
 L, R = get_eye_traces(behavior_data.eye_tracking, likelihood_threshold=0.9)
