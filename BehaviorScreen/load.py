@@ -63,16 +63,16 @@ class Directories:
     def __init__(
             self, 
             root: Path,
-            metadata: str = '',
-            stimuli: str = '',
-            tracking: str = '',
-            full_tracking: str = '',
-            eyes_tracking: str = '',
-            temperature: str = '',
-            video: str = '',
-            video_timestamp: str = '',
-            results: str = '',
-            plots: str = ''
+            metadata: str = 'data',
+            stimuli: str = 'data',
+            tracking: str = 'data',
+            full_tracking: str = 'lightning_pose_full',
+            eyes_tracking: str = 'lightning_pose_eyes',
+            temperature: str = 'data',
+            video: str = 'video',
+            video_timestamp: str = 'video',
+            results: str = 'results',
+            plots: str = 'plots'
         ) -> None:
 
         self.root: Path = Path(root)
