@@ -113,7 +113,7 @@ def get_eye_traces(
 
 fs = 120
 BASE_DIR = '/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/eye_models/current'
-filenames = [f for f in Path(BASE_DIR).glob('*_eyes.csv')]
+filenames = [f for f in Path(BASE_DIR).glob('eyes_*.csv')]
 
 pooled_vergence = np.full((len(filenames), 500_000), np.nan)
 pooled_version = np.full((len(filenames), 500_000), np.nan)
