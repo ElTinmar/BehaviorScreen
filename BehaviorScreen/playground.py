@@ -44,7 +44,7 @@ megabout = mb[behavior_file.metadata.stem]
 timestamps = behavior_data.tracking.timestamp.to_numpy()
 stim_trials = get_trials(behavior_data)
 
-L, R = get_eye_traces(behavior_data.eye_tracking, likelihood_threshold=0.9)
+L, R = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
 L_s = savgol_filter(L, window_length=41, polyorder=2)
 R_s = savgol_filter(R, window_length=41, polyorder=2)
 version_angle = (L_s + R_s)/2
