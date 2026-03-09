@@ -13,6 +13,7 @@ from BehaviorScreen.process import get_trials
 from BehaviorScreen.core import Stim, GROUPING_PARAMETER
 
 ROOT = Path('/media/martin/DATA_18TB/Screen/WT/danieau')
+ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen/WT/danieau')
 #ROOT = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau')
 
 directories = Directories(
@@ -21,6 +22,7 @@ directories = Directories(
     stimuli='results',
     tracking='results',
     full_tracking='lightning_pose',
+    eyes_tracking='lightning_pose',
     temperature='results',
     video='results',
     video_timestamp='results',
