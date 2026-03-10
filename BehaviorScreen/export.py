@@ -315,6 +315,8 @@ def export_single_animals(
         stimuli=stimuli,
         tracking=tracking,
         temperature=temperature,
+        full_tracking='',
+        eyes_tracking='',
         video=video,
         video_timestamp=video_timestamp,
         results=results,
