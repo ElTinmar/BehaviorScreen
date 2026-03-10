@@ -233,6 +233,12 @@ def find_file(
     regexp: Pattern,
     required: bool = True,
 ) -> Optional[Path]:
+    
+    if not dir.exists():
+        if required:
+            raise FileNotFoundError(f"Directory does not exist: {dir}")
+        else:
+            return None
 
     for file in dir.iterdir():
 
