@@ -65,8 +65,9 @@ def crop_around_eyes(
     
     crop_size = 2 * int(crop_size_mm * px_per_mm) // 2
 
-    lp_data = pd.read_csv(lightningpose_csv, header=[0,1,2])
-
+    df = pd.read_csv(lightningpose_csv, header=[0,1,2])
+    lp_data = df["heatmap_tracker"]
+    
     swimbladder = lp_data.Swim_Bladder[['x', 'y']].to_numpy()
     head =  lp_data.Head[['x', 'y']].to_numpy()
     heading = head - swimbladder
