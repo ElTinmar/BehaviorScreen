@@ -33,23 +33,22 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
     % of fish vs trial
     % of trial vs time
 - try to export average video in egocentric coords (might be a mess, but who knows)
-- MAE 
-- plot eye traces, prey capture: eye convergence, okr: saccades
+- MAE
 - freezing after loomings
 
 ### pre-processing
 
-- eye tracking: imbalance in the training data? might need to annotate more during OKR? might need another model altogether
 - stats : permutation tests, internal comparison (dark) vs external (vehicle, WT)
 - estimate variability
 
 ### QC
 
-- handle fish missing 
+- handle fish missing
 - filter fish that do not move at the beginning?
 
-### refactoring 
+### refactoring
 
 - clean dead code in process.py
 - maybe decouple circle detection from megabouts / run circle detection as a separate step
 - "foreground_color": [0.10000000000000002, 0.10000000000000002, 0.0, 1.0] in json. Make sure to normalize columns
+- multiprocessing: send a single folder to multiple Slurm nodes?
