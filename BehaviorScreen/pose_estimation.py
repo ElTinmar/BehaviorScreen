@@ -7,6 +7,7 @@ import numpy as np
 import cv2
 from video_tools import FFMPEG_VideoWriter_CPU
 from tqdm import tqdm
+from BehaviorScreen.load import load_lightning_pose
 
 def build_parser() -> argparse.ArgumentParser:
 
@@ -65,9 +66,10 @@ def crop_around_eyes(
     
     crop_size = 2 * int(crop_size_mm * px_per_mm) // 2
 
-    df = pd.read_csv(lightningpose_csv, header=[0,1,2])
-    lp_data = df["heatmap_tracker"]
-    
+    lp_data = load_lightning_pose(lightningpose_csv)
+    if lp_data is None:
+        raise RuntimeError(f'could not load: {lightningpose_csv}')
+
     swimbladder = lp_data.Swim_Bladder[['x', 'y']].to_numpy()
     head =  lp_data.Head[['x', 'y']].to_numpy()
     heading = head - swimbladder
