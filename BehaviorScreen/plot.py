@@ -63,7 +63,7 @@ class StimSpec:
     stim: Stim
     trials: range
     name: str
-    time_range: Tuple[int, int]
+    time_range: Tuple[int, int] | None
     parameters: RuleSet
 
 def build_parser() -> argparse.ArgumentParser:
