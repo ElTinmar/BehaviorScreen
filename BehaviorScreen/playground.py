@@ -135,7 +135,7 @@ plt.ylabel('<version angle [deg]>')
 plt.show()
 
 # --------------------------------------------------------------------------------
-config_yaml = 'BehaviorScreen/screen.yaml'
+config_yaml = Path('BehaviorScreen/screen.yaml')
 cfg = load_yaml_config(config_yaml)
 stim_specs = list(read_stim_specs(cfg, ignore_time_bins=True))
 
