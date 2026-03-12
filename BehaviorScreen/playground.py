@@ -159,7 +159,7 @@ for idx, behavior_file in enumerate(files):
     for spec_idx, spec in enumerate(stim_specs):
         spec_mask = (
             spec.parameters.get_mask(stim_trials) &
-            stim_trials.stim_select == spec.stim
+            (stim_trials.stim_select == spec.stim)
         )
         data = stim_trials[spec_mask].iloc[spec.trials]
         for trial_idx, (trial, row) in enumerate(data.iterrows()):
