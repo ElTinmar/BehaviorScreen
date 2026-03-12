@@ -161,8 +161,13 @@ for idx, behavior_file in enumerate(files):
             spec.parameters.get_mask(stim_trials) &
             (stim_trials.stim_select == spec.stim)
         )
-        data = stim_trials[spec_mask].iloc[spec.trials]
-        for trial_idx, (trial, row) in enumerate(data.iterrows()):
+        spec_data = stim_trials[spec_mask]
+        if spec_data.empty: 
+            continue
+
+        trial_data = spec_data.iloc[spec.trials]
+        
+        for trial_idx, (trial, row) in enumerate(trial_data.iterrows()):
             mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
             n = sum(mask)
             version_angle[idx, trial_idx, spec_idx, 0:n] = eyes.version_angle_deg[mask]
