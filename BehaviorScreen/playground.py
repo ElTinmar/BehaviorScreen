@@ -134,20 +134,35 @@ plt.show()
 
 # --------------------------------------------------------------------------------
 
-timestamps = behavior_data.tracking.timestamp.to_numpy()
-stim_trials = get_trials(behavior_data)
+N_fish = len(files)
+N_trials = 100
+N_epochs = 30
+N_samples = 30 * 120
 
-eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
+vergence_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
+version_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
 
-for stim_select, stim_data in stim_trials.groupby('stim_select'):
+for idx, behavior_file in enumerate(files):
 
-    stim = Stim(stim_select)
-    if not stim in GROUPING_PARAMETER:
-        continue
+    behavior_data: BehaviorData = load_data(behavior_file)
+    timestamps = behavior_data.tracking.timestamp.to_numpy()
+    stim_trials = get_trials(behavior_data)
+    eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
 
-    for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
-        for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
-            mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
-            eyes.version_angle_deg[mask]
-            eyes.vergence_angle_deg[mask]
+    idx_epoch = 0 # you can do better probably?
 
+    for stim_select, stim_data in stim_trials.groupby('stim_select'):
+
+        stim = Stim(stim_select)
+        if not stim in GROUPING_PARAMETER:
+            continue
+
+        for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
+
+            for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
+                mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
+                n = sum(mask)
+                version_angle[idx, trial_idx, idx_epoch, 0:n] = eyes.version_angle_deg[mask]
+                vergence_angle[idx, trial_idx, idx_epoch, 0:n] = eyes.vergence_angle_deg[mask]
+
+            idx_epoch += 1
