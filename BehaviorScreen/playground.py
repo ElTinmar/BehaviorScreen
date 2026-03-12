@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
+from typing import NamedTuple
 from BehaviorScreen.load import (
     Directories, 
     BehaviorData,
@@ -16,12 +17,23 @@ from BehaviorScreen.megabouts import MegaboutResults
 from BehaviorScreen.process import get_trials, compute_angle_between_vectors
 from BehaviorScreen.core import Stim, GROUPING_PARAMETER
 
+class EyesTimeseries(NamedTuple):
+    angle_left_deg: np.ndarray
+    angle_right_deg: np.ndarray
+    angle_left_smooth_deg: np.ndarray
+    angle_right_smooth_deg: np.ndarray
+    version_angle_deg: np.ndarray
+    vergence_angle_deg: np.ndarray
+
 def get_eye_traces(
         data: pd.DataFrame, 
         likelihood_threshold: float = 0.9,
         divergence_threshold_deg: float = -10,
-        convergence_threshold_deg: float = 60
-    ) -> tuple[np.ndarray, np.ndarray]:
+        convergence_threshold_deg: float = 60,
+        window_length: int = 41
+    ) -> EyesTimeseries:
+
+    assert window_length % 2 == 1
 
     # extract data
     left_front_keypoint = data.eye_left_front[['x', 'y']].to_numpy()
@@ -44,16 +56,29 @@ def get_eye_traces(
     L = np.rad2deg(L_rad)
     R = np.rad2deg(R_rad)
 
+    # remove outliers
     L[(left_front_likelihood < likelihood_threshold) | (left_back_likelihood < likelihood_threshold)] = np.nan
     R[(right_front_likelihood < likelihood_threshold) | (right_back_likelihood < likelihood_threshold)] = np.nan
-    L[(-L<divergence_threshold_deg) & (-L>convergence_threshold_deg)] = np.nan
-    R[(R<divergence_threshold_deg) & (R>convergence_threshold_deg)] = np.nan
+    L[(-L<divergence_threshold_deg) | (-L>convergence_threshold_deg)] = np.nan 
+    R[(R<divergence_threshold_deg) | (R>convergence_threshold_deg)] = np.nan
 
+    # interpolate and smooth
     L = pd.Series(L).interpolate(limit_direction="both").to_numpy()
     R = pd.Series(R).interpolate(limit_direction="both").to_numpy()
+    L_s = savgol_filter(L, window_length, polyorder=2)
+    R_s = savgol_filter(R, window_length, polyorder=2)
+    version_angle = (L_s + R_s)/2
+    vergence_angle = R_s - L_s
 
-    return L, R
-
+    res = EyesTimeseries(
+        angle_left_deg=L,
+        angle_right_deg=R,
+        angle_left_smooth_deg=L_s,
+        angle_right_smooth_deg=R_s,
+        version_angle_deg=version_angle,
+        vergence_angle_deg=vergence_angle
+    )
+    return res
 
 ROOT = Path('/media/martin/DATA_18TB/Screen/WT/danieau')
 ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen/WT/danieau')
@@ -81,58 +106,17 @@ with open(ROOT / 'megabout.pkl', 'rb') as fp:
 
 megabout = mb[behavior_file.metadata.stem]
 
-# --------------------------------------------------------------------------------
-# TODO add tracking eyes to BehaviorFiles and BehaviorData + regexp in load
-
-timestamps = behavior_data.tracking.timestamp.to_numpy()
-stim_trials = get_trials(behavior_data)
-
-L, R = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
-L_s = savgol_filter(L, window_length=41, polyorder=2)
-R_s = savgol_filter(R, window_length=41, polyorder=2)
-version_angle = (L_s + R_s)/2
-vergence_angle = R_s - L_s
-
-for stim_select, stim_data in stim_trials.groupby('stim_select'):
-
-    stim = Stim(stim_select)
-    if not stim in GROUPING_PARAMETER:
-        continue
-
-    for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
-        for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
-            mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
-            version_angle[mask]
-            vergence_angle[mask]
-
-# =============================================================================
-
-#filename = '/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/eye_models/current/01_07dpf_WT_Thu_11_Dec_2025_13h15min29sec_fish_3_eyes.csv'
-
-
+# ----------------------------
 fs = 120
-BASE_DIR = '/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/eye_models/current'
-filenames = [f for f in Path(BASE_DIR).glob('eyes_*.csv')]
+pooled_vergence = np.full((len(files), 500_000), np.nan)
+pooled_version = np.full((len(files), 500_000), np.nan)
+for idx, behavior_file in enumerate(files):
+    behavior_data: BehaviorData = load_data(behavior_file)
+    eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
+    n = len(eyes.version_angle_deg)
+    pooled_vergence[idx, 0:n] = eyes.vergence_angle_deg
+    pooled_version[idx, 0:n] = eyes.version_angle_deg
 
-pooled_vergence = np.full((len(filenames), 500_000), np.nan)
-pooled_version = np.full((len(filenames), 500_000), np.nan)
-
-for idx, filename in enumerate(filenames):
-
-    df = pd.read_csv(filename, header=[0,1,2])
-    n = len(df)
-    t = np.arange(n)/fs
-    L, R = get_eye_traces(df.heatmap_tracker, likelihood_threshold=0.9)
-
-    L_s = savgol_filter(L, window_length=41, polyorder=2)
-    R_s = savgol_filter(R, window_length=41, polyorder=2)
-
-    version_angle = (L_s + R_s)/2
-    vergence_angle = R_s - L_s
-    pooled_vergence[idx, 0:n] = vergence_angle
-    pooled_version[idx, 0:n] = version_angle
-
-# TODO average first over trials then over fish
 
 plt.figure()
 plt.title('WT')
@@ -148,4 +132,22 @@ plt.xlabel('time')
 plt.ylabel('<version angle [deg]>')
 plt.show()
 
+# --------------------------------------------------------------------------------
+
+timestamps = behavior_data.tracking.timestamp.to_numpy()
+stim_trials = get_trials(behavior_data)
+
+eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
+
+for stim_select, stim_data in stim_trials.groupby('stim_select'):
+
+    stim = Stim(stim_select)
+    if not stim in GROUPING_PARAMETER:
+        continue
+
+    for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
+        for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
+            mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
+            eyes.version_angle_deg[mask]
+            eyes.vergence_angle_deg[mask]
 
