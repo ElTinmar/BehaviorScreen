@@ -187,7 +187,7 @@ def load_stimuli(stim_file: Path) -> List[Dict]:
     stimuli = []
     with open(stim_file) as f:
         for line in f:
-            stimuli.append(json.loads(line))
+            stimuli.append(json.loads(line, parse_float=lambda x: round(float(x), 6)))
     return stimuli
 
 def load_tracking(tracking_file: Path) -> pd.DataFrame:
