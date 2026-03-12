@@ -257,14 +257,40 @@ plot_bout_heatmap(fig, ax, ci_low.T, bin_names, row_names, (-0.3, 0.3))
 fig.tight_layout()
 plt.show()
 
-boot_wt = bootstrap_wt(wt_trial_avg, exp_trial_avg.shape[0])
 
-p_low  = np.nanmean(boot_wt <= np.nanmean(exp_trial_avg, axis=0), axis=0)
-p_high = np.nanmean(boot_wt >= np.nanmean(exp_trial_avg, axis=0), axis=0)
+boot_wt = bootstrap_wt(wt_trial_avg, exp_trial_avg.shape[0], n_boot=10_000)
+ci_low, ci_high = np.percentile(boot_wt, [2.5, 97.5], axis=0)
+p_low  = np.mean(boot_wt <= np.nanmean(exp_trial_avg, axis=0), axis=0)
+p_high = np.mean(boot_wt >= np.nanmean(exp_trial_avg, axis=0), axis=0)
 p = 2 * np.minimum(p_low, p_high)
 
 fig = plt.figure(figsize=(26, 14))
 ax = fig.gca()
-plot_bout_heatmap(fig, ax, p.T, bin_names, row_names, (-1, 1))
+plot_bout_heatmap(fig, ax, p.T <=0.0001, bin_names, row_names, (-1, 1))
 fig.tight_layout()
+plt.show()
+
+
+###
+from statsmodels.stats.multitest import multipletests
+
+p_flat = p.ravel()
+reject, p_fdr, _, _ = multipletests(p_flat, alpha=0.05, method='fdr_bh')
+p_corrected = p_fdr.reshape(p.shape)
+sig_mask = reject.reshape(p.shape)
+
+fig, ax = plt.subplots(figsize=(26, 14))
+cmap = plt.get_cmap("bwr")
+im = ax.imshow(diff.T, cmap=cmap, aspect='auto')
+cbar = fig.colorbar(im, ax=ax)
+cbar.set_label("Mutant - WT bout frequency")
+asterisk_y, asterisk_x = np.where(sig_mask.T)
+ax.scatter(asterisk_x, asterisk_y, s=20, color='black', marker='o', zorder=2)
+ax.set_xlabel("Bout type")
+ax.set_ylabel("Epoch")
+ax.set_xticks(range(diff.shape[0]))
+ax.set_xticklabels(bin_names, rotation=90, ha='center')
+ax.set_yticks(range(diff.shape[1]))
+ax.set_yticklabels(row_names)
+plt.tight_layout()
 plt.show()
