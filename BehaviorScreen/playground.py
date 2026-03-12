@@ -187,6 +187,8 @@ version_fish_trial_avg = np.nanmean(version_trial_avg, axis=0)
 
 plt.plot(vergence_fish_trial_avg.reshape(-1,))
 plt.plot(version_fish_trial_avg.reshape(-1,))
+plt.hlines(0,0,np.prod(vergence_fish_trial_avg.shape))
+plt.hlines(46,0,np.prod(vergence_fish_trial_avg.shape))
 plt.show()
 
 ## plots
