@@ -205,11 +205,11 @@ def plot_bout_heatmap(
         data: np.ndarray, 
         x_labels: list[str],
         y_labels: list[str],
-        max_frequency: float = 0.35
+        clim: Tuple[float, float] = (0, 0.35)
     ) -> None:
 
     im = ax.imshow(data, aspect='auto', cmap='inferno')
-    im.set_clim(0, max_frequency)
+    im.set_clim(*clim)
     fig.colorbar(im, ax=ax, label='bout frequency')
     ax.set_xticks(range(data.shape[1]))
     ax.set_xticklabels(x_labels, rotation=90, ha='center')

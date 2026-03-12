@@ -195,3 +195,76 @@ plt.show()
 # average over trials
 # average over fish
 # average over trials then over fish
+
+## Bootstraping bout freq
+bouts_npz = '/media/martin/DATA/Behavioral_screen/DATA/Screen/WT/danieau/bouts.npz'
+with np.load(bouts_npz, allow_pickle=True) as data:
+    fish_names = data["labels_0"]
+    trial_labels = data["labels_1"]
+    bin_names = data["labels_2"]
+    bout_categories = data["labels_3"]
+    sides = data["labels_4"]
+    bout_frequency = data["bout_frequency"]
+bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
+wt_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
+
+bouts_npz = '/media/martin/DATA/Behavioral_screen/DATA/Screen/WT/ronidazole/bouts.npz'
+with np.load(bouts_npz, allow_pickle=True) as data:
+    fish_names = data["labels_0"]
+    trial_labels = data["labels_1"]
+    bin_names = data["labels_2"]
+    bout_categories = data["labels_3"]
+    sides = data["labels_4"]
+    bout_frequency = data["bout_frequency"]
+bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
+exp_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
+
+def bootstrap_wt(wt, n_mut, n_boot=2000, rng=None):
+    rng = np.random.default_rng(rng)
+
+    n_wt = wt.shape[0]
+
+    idx = rng.integers(0, n_wt, size=(n_boot, n_mut))
+    boot = np.nanmean(wt[idx], axis=1)
+
+    return boot
+
+def bootstrap_difference(a, b, n_boot=2000, rng=None):
+    rng = np.random.default_rng(rng)
+
+    na = a.shape[0]
+    nb = b.shape[0]
+
+    idx_a = rng.integers(0, na, size=(n_boot, na))
+    idx_b = rng.integers(0, nb, size=(n_boot, nb))
+
+    boot_a = np.nanmean(a[idx_a],axis=1)
+    boot_b = np.nanmean(b[idx_b],axis=1)
+
+    return boot_b - boot_a
+
+boot_diff = bootstrap_difference(wt_trial_avg, exp_trial_avg)
+diff = np.nanmean(wt_trial_avg, axis=0) - np.nanmean(exp_trial_avg, axis=0)
+ci_low, ci_high = np.percentile(boot_diff, [2.5, 97.5], axis=0)
+
+from megabouts.utils import bouts_category_name_short
+from BehaviorScreen.plot import plot_bout_heatmap
+row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
+
+fig = plt.figure(figsize=(26, 14))
+ax = fig.gca()
+plot_bout_heatmap(fig, ax, ci_low.T, bin_names, row_names, (-0.3, 0.3))
+fig.tight_layout()
+plt.show()
+
+boot_wt = bootstrap_wt(wt_trial_avg, exp_trial_avg.shape[0])
+
+p_low  = np.nanmean(boot_wt <= np.nanmean(exp_trial_avg, axis=0), axis=0)
+p_high = np.nanmean(boot_wt >= np.nanmean(exp_trial_avg, axis=0), axis=0)
+p = 2 * np.minimum(p_low, p_high)
+
+fig = plt.figure(figsize=(26, 14))
+ax = fig.gca()
+plot_bout_heatmap(fig, ax, p.T, bin_names, row_names, (-1, 1))
+fig.tight_layout()
+plt.show()
