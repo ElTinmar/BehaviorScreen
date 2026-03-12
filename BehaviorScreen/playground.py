@@ -16,6 +16,7 @@ from BehaviorScreen.load import (
 from BehaviorScreen.megabouts import MegaboutResults
 from BehaviorScreen.process import get_trials, compute_angle_between_vectors
 from BehaviorScreen.core import Stim, GROUPING_PARAMETER
+from BehaviorScreen.plot import load_yaml_config, read_stim_specs
 
 class EyesTimeseries(NamedTuple):
     angle_left_deg: np.ndarray
@@ -134,14 +135,13 @@ plt.ylabel('<version angle [deg]>')
 plt.show()
 
 # --------------------------------------------------------------------------------
-from BehaviorScreen.plot import load_yaml_config, read_stim_specs
 config_yaml = 'BehaviorScreen/screen.yaml'
 cfg = load_yaml_config(config_yaml)
 stim_specs = list(read_stim_specs(cfg))
 
 N_fish = len(files)
-N_trials = 100
-N_epochs = 30
+N_trials = max([len(spec.trials) for spec in stim_specs])
+N_epochs = len(stim_specs)
 N_samples = 30 * 120
 
 vergence_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
@@ -164,15 +164,30 @@ for idx, behavior_file in enumerate(files):
         spec_data = stim_trials[spec_mask]
         if spec_data.empty: 
             continue
-
-        trial_data = spec_data.iloc[spec.trials]
         
+        valid_trials = [i for i in spec.trials if i < len(spec_data)]
+        trial_data = spec_data.iloc[valid_trials]
+
         for trial_idx, (trial, row) in enumerate(trial_data.iterrows()):
             mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
             n = sum(mask)
             version_angle[idx, trial_idx, spec_idx, 0:n] = eyes.version_angle_deg[mask]
             vergence_angle[idx, trial_idx, spec_idx, 0:n] = eyes.vergence_angle_deg[mask]
 
+with open('wt_eyes.npz', 'wb') as fp:
+    np.savez(fp, version_angle, vergence_angle)
+
+vergence_trial_avg = np.nanmean(vergence_angle, axis=1)
+vergence_fish_avg = np.nanmean(vergence_angle, axis=0)
+vergence_fish_trial_avg = np.nanmean(vergence_trial_avg, axis=0)
+
+version_trial_avg = np.nanmean(version_angle, axis=1)
+version_fish_avg = np.nanmean(version_angle, axis=0)
+version_fish_trial_avg = np.nanmean(version_trial_avg, axis=0)
+
+plt.plot(vergence_fish_trial_avg.reshape(-1,))
+plt.plot(version_fish_trial_avg.reshape(-1,))
+plt.show()
 
 ## plots
 # average over trials
