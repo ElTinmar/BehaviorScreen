@@ -134,6 +134,10 @@ plt.ylabel('<version angle [deg]>')
 plt.show()
 
 # --------------------------------------------------------------------------------
+from BehaviorScreen.plot import load_yaml_config, read_stim_specs
+config_yaml = 'BehaviorScreen/screen.yaml'
+cfg = load_yaml_config(config_yaml)
+stim_specs = list(read_stim_specs(cfg))
 
 N_fish = len(files)
 N_trials = 100
@@ -144,33 +148,26 @@ vergence_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
 version_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
 
 for idx, behavior_file in enumerate(files):
-    
-    if '11_Dec' in str(behavior_file.metadata): # FIXME this is just a hack
-        
-        print(idx)
-        behavior_data: BehaviorData = load_data(behavior_file)
-        #timestamps = behavior_data.tracking.timestamp.to_numpy()
-        timestamps = behavior_data.video_timestamps.timestamp.to_numpy()
-        stim_trials = get_trials(behavior_data)
-        eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
 
-        idx_epoch = 0 # you can do better probably?
+    print(idx)
+    behavior_data: BehaviorData = load_data(behavior_file)
+    #timestamps = behavior_data.tracking.timestamp.to_numpy()
+    timestamps = behavior_data.video_timestamps.timestamp.to_numpy()
+    stim_trials = get_trials(behavior_data)
+    eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
 
-        for stim_select, stim_data in stim_trials.groupby('stim_select'):
+    for spec_idx, spec in enumerate(stim_specs):
+        spec_mask = (
+            spec.parameters.get_mask(stim_trials) &
+            stim_trials.stim_select == spec.stim
+        )
+        data = stim_trials[spec_mask].iloc[spec.trials]
+        for trial_idx, (trial, row) in enumerate(data.iterrows()):
+            mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
+            n = sum(mask)
+            version_angle[idx, trial_idx, spec_idx, 0:n] = eyes.version_angle_deg[mask]
+            vergence_angle[idx, trial_idx, spec_idx, 0:n] = eyes.vergence_angle_deg[mask]
 
-            stim = Stim(stim_select)
-            if not stim in GROUPING_PARAMETER:
-                continue
-
-            for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
-
-                for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
-                    mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
-                    n = sum(mask)
-                    version_angle[idx, trial_idx, idx_epoch, 0:n] = eyes.version_angle_deg[mask]
-                    vergence_angle[idx, trial_idx, idx_epoch, 0:n] = eyes.vergence_angle_deg[mask]
-
-                idx_epoch += 1
 
 ## plots
 # average over trials
