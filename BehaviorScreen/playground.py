@@ -110,12 +110,13 @@ megabout = mb[behavior_file.metadata.stem]
 fs = 120
 pooled_vergence = np.full((len(files), 500_000), np.nan)
 pooled_version = np.full((len(files), 500_000), np.nan)
-for idx, behavior_file in enumerate(files):
-    behavior_data: BehaviorData = load_data(behavior_file)
-    eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
-    n = len(eyes.version_angle_deg)
-    pooled_vergence[idx, 0:n] = eyes.vergence_angle_deg
-    pooled_version[idx, 0:n] = eyes.version_angle_deg
+for idx, behavior_file in enumerate(files): 
+    if '11_Dec' in str(behavior_file.metadata): # FIXME this is just a hack
+        behavior_data: BehaviorData = load_data(behavior_file)
+        eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
+        n = len(eyes.version_angle_deg)
+        pooled_vergence[idx, 0:n] = eyes.vergence_angle_deg
+        pooled_version[idx, 0:n] = eyes.version_angle_deg
 
 
 plt.figure()
@@ -143,29 +144,33 @@ vergence_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
 version_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
 
 for idx, behavior_file in enumerate(files):
+    
+    if '11_Dec' in str(behavior_file.metadata): # FIXME this is just a hack
+        
+        print(idx)
+        behavior_data: BehaviorData = load_data(behavior_file)
+        #timestamps = behavior_data.tracking.timestamp.to_numpy()
+        timestamps = behavior_data.video_timestamps.timestamp.to_numpy()
+        stim_trials = get_trials(behavior_data)
+        eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
 
-    behavior_data: BehaviorData = load_data(behavior_file)
-    timestamps = behavior_data.tracking.timestamp.to_numpy()
-    stim_trials = get_trials(behavior_data)
-    eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
+        idx_epoch = 0 # you can do better probably?
 
-    idx_epoch = 0 # you can do better probably?
+        for stim_select, stim_data in stim_trials.groupby('stim_select'):
 
-    for stim_select, stim_data in stim_trials.groupby('stim_select'):
+            stim = Stim(stim_select)
+            if not stim in GROUPING_PARAMETER:
+                continue
 
-        stim = Stim(stim_select)
-        if not stim in GROUPING_PARAMETER:
-            continue
+            for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
 
-        for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
+                for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
+                    mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
+                    n = sum(mask)
+                    version_angle[idx, trial_idx, idx_epoch, 0:n] = eyes.version_angle_deg[mask]
+                    vergence_angle[idx, trial_idx, idx_epoch, 0:n] = eyes.vergence_angle_deg[mask]
 
-            for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
-                mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
-                n = sum(mask)
-                version_angle[idx, trial_idx, idx_epoch, 0:n] = eyes.version_angle_deg[mask]
-                vergence_angle[idx, trial_idx, idx_epoch, 0:n] = eyes.vergence_angle_deg[mask]
-
-            idx_epoch += 1
+                idx_epoch += 1
 
 ## plots
 # average over trials
