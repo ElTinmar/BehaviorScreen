@@ -73,7 +73,7 @@ def megabout_fulltracking_pipeline(
     tracking_data = FullTrackingData_from_lp(behavior_data.full_tracking, mm_per_pix)
     ethogram, bouts, segments, tail, traj = pipeline.run(tracking_data)
 
-    # TODO, full tracking is one frame longer ???
+    # TODO, full tracking is one frame longer ??? Or rather behavior_data.tracking is one frame shorter
     megabout_results = MegaboutResults(
             timestamps, 
             ethogram, 
