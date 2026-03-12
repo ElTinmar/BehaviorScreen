@@ -7,6 +7,7 @@ import re
 import yaml
 from dataclasses import dataclass
 import operator
+from itertools import product
 
 import matplotlib.pyplot as plt
 from tqdm import tqdm
@@ -160,7 +161,10 @@ def load_yaml_config(path: Path) -> dict:
     return cfg
 
 
-def read_stim_specs(cfg: dict) -> Generator[StimSpec, None, None]:
+def read_stim_specs(
+        cfg: dict,
+        ignore_time_bins: bool = False
+    ) -> Generator[StimSpec, None, None]:
 
     global_time_bins = cfg.get("time_bins", [])
 
@@ -183,17 +187,17 @@ def read_stim_specs(cfg: dict) -> Generator[StimSpec, None, None]:
             entry["trial_range"]["step"]
         )
 
-        parameters = [parse_rules(p) for p in entry.get("parameters")]
+        parameters = [parse_rules(p) for p in entry.get("parameters", [None])]
+        time_ranges = [None] if ignore_time_bins else bins
 
-        for t_start, t_stop in bins:
-            for params in parameters:
-                yield StimSpec(
-                    stim=stim,
-                    name=name,
-                    trials=trials,
-                    time_range=(t_start, t_stop),
-                    parameters=params,
-                )
+        for time_range, params in product(time_ranges, parameters):
+            yield StimSpec(
+                stim=stim,
+                name=name,
+                trials=trials,
+                time_range=time_range,
+                parameters=params,
+            )
 
 def plot_bout_heatmap(
         fig: plt.Figure, 
