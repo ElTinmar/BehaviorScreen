@@ -263,6 +263,7 @@ ci_low, ci_high = np.percentile(boot_wt, [2.5, 97.5], axis=0)
 p_low  = np.mean(boot_wt <= np.nanmean(exp_trial_avg, axis=0), axis=0)
 p_high = np.mean(boot_wt >= np.nanmean(exp_trial_avg, axis=0), axis=0)
 p = 2 * np.minimum(p_low, p_high)
+p = np.minimum(p, 1.0)
 
 fig = plt.figure(figsize=(26, 14))
 ax = fig.gca()
@@ -274,10 +275,11 @@ plt.show()
 ###
 from statsmodels.stats.multitest import multipletests
 
-p_flat = p.ravel()
-reject, p_fdr, _, _ = multipletests(p_flat, alpha=0.05, method='fdr_bh')
-p_corrected = p_fdr.reshape(p.shape)
-sig_mask = reject.reshape(p.shape)
+# p_flat = p.ravel()
+# reject, p_fdr, _, _ = multipletests(p_flat, alpha=0.05, method='fdr_bh')
+# p_corrected = p_fdr.reshape(p.shape)
+# sig_mask = reject.reshape(p.shape)
+sig_mask = p <= 0.0000001
 
 fig, ax = plt.subplots(figsize=(26, 14))
 cmap = plt.get_cmap("bwr")
