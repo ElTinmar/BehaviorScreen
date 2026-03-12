@@ -166,3 +166,8 @@ for idx, behavior_file in enumerate(files):
                 vergence_angle[idx, trial_idx, idx_epoch, 0:n] = eyes.vergence_angle_deg[mask]
 
             idx_epoch += 1
+
+## plots
+# average over trials
+# average over fish
+# average over trials then over fish
