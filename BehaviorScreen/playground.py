@@ -289,7 +289,7 @@ for ref, comp_list in comparisons.items():
     
         exp_trial_avg, _ = load_bouts(p)
         cohen_d_boot = bootstrap_effect_size(ref_trial_avg, exp_trial_avg)
-        ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [0.5, 50, 99.5], axis=0)
+        ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [2.5, 50, 97.5], axis=0)
         data = cohen_d_median.T
         sigmask = (ci_low.T > 0) | (ci_high.T < 0)
         data[~sigmask] = 0
