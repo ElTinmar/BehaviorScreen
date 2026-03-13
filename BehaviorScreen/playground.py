@@ -264,7 +264,8 @@ def plot_heatmap(
         data, 
         title,
         row_names,
-        col_names):
+        col_names
+    ):
     
     fig = plt.figure(figsize=(26, 14))
     ax = fig.gca()
