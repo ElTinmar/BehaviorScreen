@@ -201,7 +201,7 @@ plt.show()
 
 ## Bootstraping bout freq
 ROOT = Path('/home/martin/Desktop/DATA')
-bouts_npz = ROOT / 'WT/danieau/bouts.npz'
+bouts_npz = ROOT / 'WT/ronidazole/bouts.npz'
 with np.load(bouts_npz, allow_pickle=True) as data:
     fish_names = data["labels_0"]
     trial_labels = data["labels_1"]
@@ -210,9 +210,9 @@ with np.load(bouts_npz, allow_pickle=True) as data:
     sides = data["labels_4"]
     bout_frequency = data["bout_frequency"]
 bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
-wt_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
+ref_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
 
-bouts_npz = ROOT / 'WT/ronidazole/bouts.npz'
+bouts_npz = ROOT / 'cort/ronidazole/bouts.npz'
 with np.load(bouts_npz, allow_pickle=True) as data:
     fish_names = data["labels_0"]
     trial_labels = data["labels_1"]
@@ -274,16 +274,16 @@ def bootstrap_effect_size(a, b, n_boot=2000, rng=None):
     # Cohen's d distribution
     return (means_b - means_a) / pooled_stds
 
-d_dist = bootstrap_effect_size(wt_trial_avg, exp_trial_avg)
+d_dist = bootstrap_effect_size(ref_trial_avg, exp_trial_avg)
 fig = plt.figure(figsize=(26, 14))
 ax = fig.gca()
-plot_bout_heatmap(fig, ax, np.median(d_dist, axis=0).T, bin_names, row_names, 'bwr', (-10, 10))
+plot_bout_heatmap(fig, ax, np.median(d_dist, axis=0).T, bin_names, row_names, 'bwr', (-5, 5))
 fig.tight_layout()
 plt.show()
 
 
-boot_diff = bootstrap_difference(wt_trial_avg, exp_trial_avg)
-diff = np.nanmean(wt_trial_avg, axis=0) - np.nanmean(exp_trial_avg, axis=0)
+boot_diff = bootstrap_difference(ref_trial_avg, exp_trial_avg)
+diff = np.nanmean(ref_trial_avg, axis=0) - np.nanmean(exp_trial_avg, axis=0)
 ci_low, boot_med,  ci_high = np.percentile(boot_diff, [2.5, 50, 97.5], axis=0)
 
 
