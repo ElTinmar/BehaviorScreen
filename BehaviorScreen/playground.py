@@ -17,9 +17,7 @@ from BehaviorScreen.megabouts import MegaboutResults
 from BehaviorScreen.process import get_trials, compute_angle_between_vectors
 from BehaviorScreen.core import Stim, GROUPING_PARAMETER
 from BehaviorScreen.plot import load_yaml_config, read_stim_specs
-
 from megabouts.utils import bouts_category_name_short
-from BehaviorScreen.plot import plot_bout_heatmap
 
 class EyesTimeseries(NamedTuple):
     angle_left_deg: np.ndarray
@@ -201,6 +199,7 @@ plt.show()
 
 ## Bootstraping bout freq
 
+sides = ['L', 'R']
 row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
 
 def bootstrap_wt(wt, n_mut, n_boot=2000, rng=None):
@@ -270,7 +269,6 @@ comparisons = {
     ],
 }
 
-
 def load_bouts(file):
 
     with np.load(file, allow_pickle=True) as data:
@@ -286,34 +284,42 @@ def load_bouts(file):
 
     return trial_avg, bin_names
 
+def plot_heatmap(
+        data, 
+        title,
+        row_names,
+        col_names):
+    
+    fig = plt.figure(figsize=(26, 14))
+    ax = fig.gca()
+    im = ax.imshow(data, aspect='auto', cmap='bwr')
+    im.set_clim(-3,3)
+    fig.colorbar(im, ax=ax, label="effect size (cohen's d)")
+    ax.set_xticks(range(data.shape[1]))
+    ax.set_xticklabels(col_names, rotation=90, ha='center')
+    ax.set_yticks(range(data.shape[0]))
+    ax.set_yticklabels(row_names)
+    ax.set_xlabel("epoch")
+    ax.set_ylabel("bout category")
+    ax.set_title(title)
+    fig.tight_layout()
+
 for ref, comp_list in comparisons.items():
 
     ref_trial_avg, bin_names = load_bouts(ref)
-
+    
     for p in comp_list:
-
+    
         exp_trial_avg, _ = load_bouts(p)
-
         cohen_d_boot = bootstrap_effect_size(ref_trial_avg, exp_trial_avg)
-        ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [2.5, 50, 97.5], axis=0)
+        ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [0.5, 50, 99.5], axis=0)
         data = cohen_d_median.T
         sigmask = (ci_low.T > 0) | (ci_high.T < 0)
         data[~sigmask] = 0
 
-        fig = plt.figure(figsize=(26, 14))
-        ax = fig.gca()
-        im = ax.imshow(data, aspect='auto', cmap='bwr')
-        im.set_clim(-3,3)
-        fig.colorbar(im, ax=ax, label="effect size (cohen's d)")
-        ax.set_xticks(range(data.shape[1]))
-        ax.set_xticklabels(bin_names, rotation=90, ha='center')
-        ax.set_yticks(range(data.shape[0]))
-        ax.set_yticklabels(row_names)
-        ax.set_xlabel("epoch")
-        ax.set_ylabel("bout category")
-        ax.set_title(f"{ref}-{p}")
-        fig.tight_layout()
-        plt.savefig(f"{ref}_{p.parents[1].stem}.png")
+        title = f"{p.relative_to(ROOT).parent} - {ref.relative_to(ROOT).parent}".replace('/',':')
+        plot_heatmap(data, title, row_names, bin_names)
+        plt.savefig(f"{title}.png")
 
 
 boot_diff = bootstrap_difference(ref_trial_avg, exp_trial_avg)
