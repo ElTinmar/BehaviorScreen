@@ -202,30 +202,6 @@ plt.show()
 sides = ['L', 'R']
 row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
 
-def bootstrap_wt(wt, n_mut, n_boot=2000, rng=None):
-    rng = np.random.default_rng(rng)
-
-    n_wt = wt.shape[0]
-
-    idx = rng.integers(0, n_wt, size=(n_boot, n_mut))
-    boot = np.nanmean(wt[idx], axis=1)
-
-    return boot
-
-def bootstrap_difference(a, b, n_boot=2000, rng=None):
-    rng = np.random.default_rng(rng)
-
-    na = a.shape[0]
-    nb = b.shape[0]
-
-    idx_a = rng.integers(0, na, size=(n_boot, na))
-    idx_b = rng.integers(0, nb, size=(n_boot, nb))
-
-    boot_a = np.nanmean(a[idx_a],axis=1)
-    boot_b = np.nanmean(b[idx_b],axis=1)
-
-    return boot_b - boot_a
-
 def bootstrap_effect_size(a, b, n_boot=2000, rng=None):
     rng = np.random.default_rng(rng)
     
@@ -321,58 +297,3 @@ for ref, comp_list in comparisons.items():
         plot_heatmap(data, title, row_names, bin_names)
         plt.savefig(f"{title}.png")
 
-
-boot_diff = bootstrap_difference(ref_trial_avg, exp_trial_avg)
-diff = np.nanmean(ref_trial_avg, axis=0) - np.nanmean(exp_trial_avg, axis=0)
-ci_low, boot_med,  ci_high = np.percentile(boot_diff, [2.5, 50, 97.5], axis=0)
-
-fig = plt.figure(figsize=(26, 14))
-ax = fig.gca()
-plot_bout_heatmap(fig, ax, boot_med.T, bin_names, row_names, 'bwr', (-0.3, 0.3))
-asterisk_y, asterisk_x = np.where(ci_low.T >= 0)
-ax.scatter(asterisk_x, asterisk_y, s=20, color='black', marker='o', zorder=2)
-asterisk_y, asterisk_x = np.where(ci_high.T <= 0)
-ax.scatter(asterisk_x, asterisk_y, s=20, color='black', marker='x', zorder=2)
-fig.tight_layout()
-plt.show()
-
-#######
-
-boot_wt = bootstrap_wt(wt_trial_avg, exp_trial_avg.shape[0], n_boot=10_000)
-ci_low, ci_high = np.percentile(boot_wt, [2.5, 97.5], axis=0)
-p_low  = np.mean(boot_wt <= np.nanmean(exp_trial_avg, axis=0), axis=0)
-p_high = np.mean(boot_wt >= np.nanmean(exp_trial_avg, axis=0), axis=0)
-p = 2 * np.minimum(p_low, p_high)
-p = np.minimum(p, 1.0)
-
-fig = plt.figure(figsize=(26, 14))
-ax = fig.gca()
-plot_bout_heatmap(fig, ax, p.T <=0.0001, bin_names, row_names, (-1, 1))
-fig.tight_layout()
-plt.show()
-
-
-###
-from statsmodels.stats.multitest import multipletests
-
-# p_flat = p.ravel()
-# reject, p_fdr, _, _ = multipletests(p_flat, alpha=0.05, method='fdr_bh')
-# p_corrected = p_fdr.reshape(p.shape)
-# sig_mask = reject.reshape(p.shape)
-sig_mask = p <= 0.0000001
-
-fig, ax = plt.subplots(figsize=(26, 14))
-cmap = plt.get_cmap("bwr")
-im = ax.imshow(diff.T, cmap=cmap, aspect='auto')
-cbar = fig.colorbar(im, ax=ax)
-cbar.set_label("Mutant - WT bout frequency")
-asterisk_y, asterisk_x = np.where(sig_mask.T)
-ax.scatter(asterisk_x, asterisk_y, s=20, color='black', marker='o', zorder=2)
-ax.set_xlabel("Bout type")
-ax.set_ylabel("Epoch")
-ax.set_xticks(range(diff.shape[0]))
-ax.set_xticklabels(bin_names, rotation=90, ha='center')
-ax.set_yticks(range(diff.shape[1]))
-ax.set_yticklabels(row_names)
-plt.tight_layout()
-plt.show()
