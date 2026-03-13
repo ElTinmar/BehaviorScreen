@@ -18,6 +18,9 @@ from BehaviorScreen.process import get_trials, compute_angle_between_vectors
 from BehaviorScreen.core import Stim, GROUPING_PARAMETER
 from BehaviorScreen.plot import load_yaml_config, read_stim_specs
 
+from megabouts.utils import bouts_category_name_short
+from BehaviorScreen.plot import plot_bout_heatmap
+
 class EyesTimeseries(NamedTuple):
     angle_left_deg: np.ndarray
     angle_right_deg: np.ndarray
@@ -197,7 +200,8 @@ plt.show()
 # average over trials then over fish
 
 ## Bootstraping bout freq
-bouts_npz = '/media/martin/DATA/Behavioral_screen/DATA/Screen/WT/danieau/bouts.npz'
+ROOT = Path('/home/martin/Desktop/DATA')
+bouts_npz = ROOT / 'WT/danieau/bouts.npz'
 with np.load(bouts_npz, allow_pickle=True) as data:
     fish_names = data["labels_0"]
     trial_labels = data["labels_1"]
@@ -208,7 +212,7 @@ with np.load(bouts_npz, allow_pickle=True) as data:
 bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
 wt_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
 
-bouts_npz = '/media/martin/DATA/Behavioral_screen/DATA/Screen/WT/ronidazole/bouts.npz'
+bouts_npz = ROOT / 'WT/ronidazole/bouts.npz'
 with np.load(bouts_npz, allow_pickle=True) as data:
     fish_names = data["labels_0"]
     trial_labels = data["labels_1"]
@@ -218,6 +222,8 @@ with np.load(bouts_npz, allow_pickle=True) as data:
     bout_frequency = data["bout_frequency"]
 bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
 exp_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
+
+row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
 
 def bootstrap_wt(wt, n_mut, n_boot=2000, rng=None):
     rng = np.random.default_rng(rng)
@@ -243,20 +249,55 @@ def bootstrap_difference(a, b, n_boot=2000, rng=None):
 
     return boot_b - boot_a
 
-boot_diff = bootstrap_difference(wt_trial_avg, exp_trial_avg)
-diff = np.nanmean(wt_trial_avg, axis=0) - np.nanmean(exp_trial_avg, axis=0)
-ci_low, ci_high = np.percentile(boot_diff, [2.5, 97.5], axis=0)
+def bootstrap_effect_size(a, b, n_boot=2000, rng=None):
+    rng = np.random.default_rng(rng)
+    
+    # Resample indices
+    idx_a = rng.integers(0, len(a), size=(n_boot, len(a)))
+    idx_b = rng.integers(0, len(b), size=(n_boot, len(b)))
+    
+    # Get bootstrap samples
+    boot_samples_a = a[idx_a]
+    boot_samples_b = b[idx_b]
+    
+    # Calculate means for each bootstrap iteration
+    means_a = np.nanmean(boot_samples_a, axis=1)
+    means_b = np.nanmean(boot_samples_b, axis=1)
+    
+    # Calculate pooled std for EACH bootstrap iteration
+    var_a = np.nanvar(boot_samples_a, axis=1)
+    var_b = np.nanvar(boot_samples_b, axis=1)
+    
+    na, nb = len(a), len(b)
+    pooled_stds = np.sqrt(((na - 1) * var_a + (nb - 1) * var_b) / (na + nb - 2))
+    
+    # Cohen's d distribution
+    return (means_b - means_a) / pooled_stds
 
-from megabouts.utils import bouts_category_name_short
-from BehaviorScreen.plot import plot_bout_heatmap
-row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
-
+d_dist = bootstrap_effect_size(wt_trial_avg, exp_trial_avg)
 fig = plt.figure(figsize=(26, 14))
 ax = fig.gca()
-plot_bout_heatmap(fig, ax, ci_low.T, bin_names, row_names, (-0.3, 0.3))
+plot_bout_heatmap(fig, ax, np.median(d_dist, axis=0).T, bin_names, row_names, 'bwr', (-10, 10))
 fig.tight_layout()
 plt.show()
 
+
+boot_diff = bootstrap_difference(wt_trial_avg, exp_trial_avg)
+diff = np.nanmean(wt_trial_avg, axis=0) - np.nanmean(exp_trial_avg, axis=0)
+ci_low, boot_med,  ci_high = np.percentile(boot_diff, [2.5, 50, 97.5], axis=0)
+
+
+fig = plt.figure(figsize=(26, 14))
+ax = fig.gca()
+plot_bout_heatmap(fig, ax, boot_med.T, bin_names, row_names, 'bwr', (-0.3, 0.3))
+asterisk_y, asterisk_x = np.where(ci_low.T >= 0)
+ax.scatter(asterisk_x, asterisk_y, s=20, color='black', marker='o', zorder=2)
+asterisk_y, asterisk_x = np.where(ci_high.T <= 0)
+ax.scatter(asterisk_x, asterisk_y, s=20, color='black', marker='x', zorder=2)
+fig.tight_layout()
+plt.show()
+
+#######
 
 boot_wt = bootstrap_wt(wt_trial_avg, exp_trial_avg.shape[0], n_boot=10_000)
 ci_low, ci_high = np.percentile(boot_wt, [2.5, 97.5], axis=0)
