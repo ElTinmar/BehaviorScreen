@@ -255,26 +255,24 @@ def bootstrap_effect_size(a, b, n_boot=2000, rng=None):
 
 ROOT = Path('/home/martin/Desktop/DATA')
 
-bouts_npz = ROOT / 'WT/ronidazole/bouts.npz'
-with np.load(bouts_npz, allow_pickle=True) as data:
-    fish_names = data["labels_0"]
-    trial_labels = data["labels_1"]
-    bin_names = data["labels_2"]
-    bout_categories = data["labels_3"]
-    sides = data["labels_4"]
-    bout_frequency = data["bout_frequency"]
-bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
-ref_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
+comparisons = {
+    ROOT / 'WT/ronidazole/bouts.npz': [
+        p for f in ROOT.iterdir() 
+        if f.is_dir() and 'WT' not in f.parts
+        for p in [f / 'ronidazole/bouts.npz'] 
+        if p.exists()
+    ],
+    ROOT / 'WT/danieau/bouts.npz': [
+        p for f in ROOT.iterdir() 
+        if f.is_dir() and 'WT' not in f.parts
+        for p in [f / 'vehicle/bouts.npz', f / 'danieau/bouts.npz']
+        if p.exists()
+    ],
+}
 
+for ref, comp_list in comparisons.items():
 
-exp = [f / 'ronidazole/bouts.npz' for f in ROOT.iterdir() if f.is_dir()]
-
-for p in exp:
-
-    if not p.exists():
-        continue
-
-    with np.load(p, allow_pickle=True) as data:
+    with np.load(ref, allow_pickle=True) as data:
         fish_names = data["labels_0"]
         trial_labels = data["labels_1"]
         bin_names = data["labels_2"]
@@ -282,29 +280,44 @@ for p in exp:
         sides = data["labels_4"]
         bout_frequency = data["bout_frequency"]
     bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
-    exp_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
+    ref_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
 
-    cohen_d_boot = bootstrap_effect_size(ref_trial_avg, exp_trial_avg)
-    ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [2.5, 50, 97.5], axis=0)
-    data = cohen_d_median.T
-    sigmask = (ci_low.T > 0) | (ci_high.T < 0)
-    data[~sigmask] = 0
+    for p in comp_list:
 
-    fig = plt.figure(figsize=(26, 14))
-    ax = fig.gca()
-    im = ax.imshow(data, aspect='auto', cmap='bwr')
-    im.set_clim(-3,3)
-    fig.colorbar(im, ax=ax, label="effect size (cohen's d)")
-    ax.set_xticks(range(data.shape[1]))
-    ax.set_xticklabels(bin_names, rotation=90, ha='center')
-    ax.set_yticks(range(data.shape[0]))
-    ax.set_yticklabels(row_names)
-    ax.set_xlabel("epoch")
-    ax.set_ylabel("bout category")
-    ax.set_title(p)
-    fig.tight_layout()
-    plt.savefig(p.parents[1].stem + '.png')
-    #plt.show()
+        if not p.exists():
+            continue
+
+        with np.load(p, allow_pickle=True) as data:
+            fish_names = data["labels_0"]
+            trial_labels = data["labels_1"]
+            bin_names = data["labels_2"]
+            bout_categories = data["labels_3"]
+            sides = data["labels_4"]
+            bout_frequency = data["bout_frequency"]
+
+        bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
+        exp_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
+
+        cohen_d_boot = bootstrap_effect_size(ref_trial_avg, exp_trial_avg)
+        ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [2.5, 50, 97.5], axis=0)
+        data = cohen_d_median.T
+        sigmask = (ci_low.T > 0) | (ci_high.T < 0)
+        data[~sigmask] = 0
+
+        fig = plt.figure(figsize=(26, 14))
+        ax = fig.gca()
+        im = ax.imshow(data, aspect='auto', cmap='bwr')
+        im.set_clim(-3,3)
+        fig.colorbar(im, ax=ax, label="effect size (cohen's d)")
+        ax.set_xticks(range(data.shape[1]))
+        ax.set_xticklabels(bin_names, rotation=90, ha='center')
+        ax.set_yticks(range(data.shape[0]))
+        ax.set_yticklabels(row_names)
+        ax.set_xlabel("epoch")
+        ax.set_ylabel("bout category")
+        ax.set_title(f"{ref}-{p}")
+        fig.tight_layout()
+        plt.savefig(f"{ref}_{p.parents[1].stem}.png")
 
 
 boot_diff = bootstrap_difference(ref_trial_avg, exp_trial_avg)
