@@ -270,33 +270,29 @@ comparisons = {
     ],
 }
 
-for ref, comp_list in comparisons.items():
 
-    with np.load(ref, allow_pickle=True) as data:
+def load_bouts(file):
+
+    with np.load(file, allow_pickle=True) as data:
         fish_names = data["labels_0"]
         trial_labels = data["labels_1"]
         bin_names = data["labels_2"]
         bout_categories = data["labels_3"]
         sides = data["labels_4"]
         bout_frequency = data["bout_frequency"]
-    bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
-    ref_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
+
+        bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
+        trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
+
+    return trial_avg, bin_names
+
+for ref, comp_list in comparisons.items():
+
+    ref_trial_avg, bin_names = load_bouts(ref)
 
     for p in comp_list:
 
-        if not p.exists():
-            continue
-
-        with np.load(p, allow_pickle=True) as data:
-            fish_names = data["labels_0"]
-            trial_labels = data["labels_1"]
-            bin_names = data["labels_2"]
-            bout_categories = data["labels_3"]
-            sides = data["labels_4"]
-            bout_frequency = data["bout_frequency"]
-
-        bout_frequency_interleaved = bout_frequency.reshape(*bout_frequency.shape[:-2], -1)
-        exp_trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
+        exp_trial_avg, _ = load_bouts(p)
 
         cohen_d_boot = bootstrap_effect_size(ref_trial_avg, exp_trial_avg)
         ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [2.5, 50, 97.5], axis=0)
