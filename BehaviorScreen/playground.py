@@ -113,13 +113,14 @@ fs = 120
 pooled_vergence = np.full((len(files), 500_000), np.nan)
 pooled_version = np.full((len(files), 500_000), np.nan)
 for idx, behavior_file in enumerate(files): 
-    if '11_Dec' in str(behavior_file.metadata): # FIXME this is just a hack
         behavior_data: BehaviorData = load_data(behavior_file)
+        if len(behavior_data.stimuli) < 80: #check nthreshold
+            # phototaxis only, skip
+            continue
         eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
         n = len(eyes.version_angle_deg)
         pooled_vergence[idx, 0:n] = eyes.vergence_angle_deg
         pooled_version[idx, 0:n] = eyes.version_angle_deg
-
 
 plt.figure()
 plt.title('WT')
@@ -133,6 +134,35 @@ plt.title('WT')
 plt.plot(np.arange(500_000)/fs, np.nanmean(pooled_version, axis=0))    
 plt.xlabel('time')
 plt.ylabel('<version angle [deg]>')
+plt.show()
+
+from BehaviorScreen.load import load_lightning_pose
+files = [f for f in Path('/home/martin/Desktop/DATA/mecp2/danieau/lightning_pose').glob('*.csv') if 'temporal' not in str(f)]
+fs = 120
+pooled_vergence = np.full((len(files), 600_000), np.nan)
+pooled_version = np.full((len(files), 600_000), np.nan)
+for idx, behavior_file in enumerate(files): 
+        print(behavior_file)
+        tracking = load_lightning_pose(behavior_file)
+        eyes = get_eye_traces(tracking, likelihood_threshold=0.9)
+        n = len(eyes.version_angle_deg)
+        pooled_vergence[idx, 0:n] = eyes.vergence_angle_deg
+        pooled_version[idx, 0:n] = eyes.version_angle_deg
+
+plt.figure(figsize=(26, 4))
+plt.title('mecp2')
+plt.plot(np.arange(600_000)/fs, np.nanmean(pooled_vergence, axis=0)) 
+plt.xlabel('time')
+plt.ylabel('<vergence angle [deg]>')
+plt.savefig('mecp2_vergence.png')
+plt.show()
+
+plt.figure(figsize=(26,4))
+plt.title('mecp2')
+plt.plot(np.arange(600_000)/fs, np.nanmean(pooled_version, axis=0))    
+plt.xlabel('time')
+plt.ylabel('<version angle [deg]>')
+plt.savefig('mecp2_version.png')
 plt.show()
 
 # --------------------------------------------------------------------------------
