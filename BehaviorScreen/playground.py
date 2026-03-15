@@ -232,7 +232,7 @@ plt.show()
 sides = ['L', 'R']
 row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
 
-def bootstrap_effect_size(a, b, n_boot=2000, rng=None):
+def bootstrap_cohen_d(a, b, n_boot=2000, rng=None):
     rng = np.random.default_rng(rng)
     
     # Resample indices
@@ -321,7 +321,7 @@ for ref, comp_list in comparisons.items():
         exp_trial_avg, _ = load_bouts(p)
         exp_fish_trial_avg = np.nanmean(exp_trial_avg, axis=0).T
 
-        cohen_d_boot = bootstrap_effect_size(ref_trial_avg, exp_trial_avg)
+        cohen_d_boot = bootstrap_cohen_d(ref_trial_avg, exp_trial_avg)
         ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [2.5, 50, 97.5], axis=0)
         data = cohen_d_median.T
         ci_mask = (ci_low.T > 0) | (ci_high.T < 0) # also cut off bout with very low freq)
