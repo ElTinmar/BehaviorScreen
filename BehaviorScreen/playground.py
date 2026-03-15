@@ -314,17 +314,23 @@ def plot_heatmap(
 for ref, comp_list in comparisons.items():
 
     ref_trial_avg, bin_names = load_bouts(ref)
+    ref_fish_trial_avg = np.nanmean(ref_trial_avg, axis=0).T
     
     for p in comp_list:
     
         exp_trial_avg, _ = load_bouts(p)
+        exp_fish_trial_avg = np.nanmean(exp_trial_avg, axis=0).T
+
         cohen_d_boot = bootstrap_effect_size(ref_trial_avg, exp_trial_avg)
         ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [2.5, 50, 97.5], axis=0)
         data = cohen_d_median.T
-        sigmask = (ci_low.T > 0) | (ci_high.T < 0)
-        data[~sigmask] = 0
+        ci_mask = (ci_low.T > 0) | (ci_high.T < 0) # also cut off bout with very low freq)
+        val_mask = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) < 0.1 # should I bootstrap this too ?
+        data[~ci_mask] = 0
+        data[val_mask] = 0
 
         title = f"{p.relative_to(ROOT).parent} - {ref.relative_to(ROOT).parent}".replace('/',':')
         plot_heatmap(data, title, row_names, bin_names)
         plt.savefig(f"{title}.png")
+        plt.close()
 
