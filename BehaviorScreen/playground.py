@@ -3,6 +3,7 @@ from typing import List
 import pickle
 import pandas as pd
 import numpy as np
+import textwrap
 import matplotlib.pyplot as plt
 from scipy.signal import savgol_filter
 from typing import NamedTuple
@@ -216,10 +217,47 @@ version_trial_avg = np.nanmean(version_angle, axis=1)
 version_fish_avg = np.nanmean(version_angle, axis=0)
 version_fish_trial_avg = np.nanmean(version_trial_avg, axis=0)
 
-plt.plot(vergence_fish_trial_avg.reshape(-1,))
-plt.plot(version_fish_trial_avg.reshape(-1,))
-plt.hlines(0,0,np.prod(vergence_fish_trial_avg.shape))
-plt.hlines(46,0,np.prod(vergence_fish_trial_avg.shape))
+
+fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(24, 6), 
+                         sharex=True, 
+                         gridspec_kw={'height_ratios': [1, 1, 0.5]},
+                         layout='constrained')
+
+total_samples = np.prod(vergence_fish_trial_avg.shape)
+
+axes[0].plot(vergence_fish_trial_avg.reshape(-1,))
+axes[0].set_title('WT - Vergence')
+axes[0].set_ylabel('<vergence [deg]>')
+
+axes[1].plot(version_fish_trial_avg.reshape(-1,))
+axes[1].set_ylabel('<version [deg]>')
+axes[1].axhline(0, linestyle='--', color='gray', alpha=0.7)
+
+axes[2].set_axis_off() 
+for idx, stim in enumerate(stim_specs):
+    label = f"{stim.name} : {stim.parameters}" 
+    label_wrapped = textwrap.fill(label, width=25)
+    x_pos = idx * N_samples + N_samples // 2
+    axes[2].text(x_pos, 1.0, label_wrapped, 
+                 ha='right', va='top', 
+                 rotation=45, 
+                 fontsize=10,
+                 clip_on=False)
+
+scale_duration_sec = 10 
+scale_width_samples = scale_duration_sec * fs 
+scalebar = AnchoredSizeBar(axes[1].transData,
+                           scale_width_samples, 
+                           f'{scale_duration_sec} s', 
+                           'lower right', 
+                           pad=0.5,
+                           color='black',
+                           frameon=False,
+                           size_vertical=0.2)
+
+axes[1].add_artist(scalebar)
+
+plt.savefig('organized_vergence_plot.png', bbox_inches='tight')
 plt.show()
 
 ## plots
