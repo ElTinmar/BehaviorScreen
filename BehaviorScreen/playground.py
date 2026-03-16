@@ -110,30 +110,30 @@ megabout = mb[behavior_file.metadata.stem]
 
 # ----------------------------
 fs = 120
-pooled_vergence = np.full((len(files), 500_000), np.nan)
-pooled_version = np.full((len(files), 500_000), np.nan)
+nsamp = 600_000
+t = np.arange(nsamp) / fs
+pooled_vergence = np.full((len(files), nsamp), np.nan)
+pooled_version = np.full((len(files), nsamp), np.nan)
 for idx, behavior_file in enumerate(files): 
         behavior_data: BehaviorData = load_data(behavior_file)
-        if len(behavior_data.stimuli) < 80: #check nthreshold
-            # phototaxis only, skip
+        print(idx, len(behavior_data.stimuli))
+        if len(behavior_data.stimuli) < 180: 
             continue
         eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
         n = len(eyes.version_angle_deg)
         pooled_vergence[idx, 0:n] = eyes.vergence_angle_deg
         pooled_version[idx, 0:n] = eyes.version_angle_deg
 
-plt.figure()
-plt.title('WT')
-plt.plot(np.arange(500_000)/fs, np.nanmean(pooled_vergence, axis=0)) 
-plt.xlabel('time')
-plt.ylabel('<vergence angle [deg]>')
-plt.show()
-
-plt.figure()
-plt.title('WT')
-plt.plot(np.arange(500_000)/fs, np.nanmean(pooled_version, axis=0))    
-plt.xlabel('time')
-plt.ylabel('<version angle [deg]>')
+fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(24, 8), sharex=True)
+axes[0].plot(t, np.nanmean(pooled_vergence, axis=0))
+axes[0].set_title('WT - Vergence')
+axes[0].set_ylabel(r'$\langle \text{vergence angle [deg]} \rangle$')
+axes[1].plot(t, np.nanmean(pooled_version, axis=0))
+axes[1].set_title('WT - Version')
+axes[1].set_xlabel(r'$\text{time [s]}$')
+axes[1].set_ylabel(r'$\langle \text{version angle [deg]} \rangle$')
+plt.tight_layout()
+plt.savefig('vergence_version_wt.png')
 plt.show()
 
 from BehaviorScreen.load import load_lightning_pose
