@@ -66,38 +66,6 @@ class StimSpec:
     time_range: Tuple[int, int] | None
     parameters: RuleSet
 
-def build_parser() -> argparse.ArgumentParser:
-    
-    parser = argparse.ArgumentParser(
-        description="Collect bout.csv and plot results"
-    )
-
-    parser.add_argument(
-        "root",
-        type=Path,
-        help="Root experiment folder (e.g. WT_oct_2025)",
-    )
-
-    parser.add_argument(
-        "yaml",
-        type=Path,
-        help="plot config file",
-    )
-
-    parser.add_argument(
-        "--bouts-csv",
-        default='bouts.csv',
-        help="input CSV file",
-    )
-
-    parser.add_argument(
-        "--bouts-png",
-        default='bouts.png',
-        help="output PNG file",
-    )
-
-    return parser
-
 def load_bouts(bout_csv: Path) -> pd.DataFrame:
     return pd.read_csv(bout_csv)
 
@@ -360,6 +328,38 @@ def plot_heatmap(
     fig.tight_layout()
     plt.savefig(output_png)
     plt.show()
+
+def build_parser() -> argparse.ArgumentParser:
+    
+    parser = argparse.ArgumentParser(
+        description="Collect bout.csv and plot results"
+    )
+
+    parser.add_argument(
+        "root",
+        type=Path,
+        help="Root experiment folder (e.g. WT_oct_2025)",
+    )
+
+    parser.add_argument(
+        "yaml",
+        type=Path,
+        help="plot config file",
+    )
+
+    parser.add_argument(
+        "--bouts-csv",
+        default='bouts.csv',
+        help="input CSV file",
+    )
+
+    parser.add_argument(
+        "--bouts-png",
+        default='bouts.png',
+        help="output PNG file",
+    )
+
+    return parser
 
 def main(args: argparse.Namespace) -> None:
 
