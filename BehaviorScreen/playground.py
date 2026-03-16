@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import textwrap
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from scipy.signal import savgol_filter
 from typing import NamedTuple
 from BehaviorScreen.load import (
