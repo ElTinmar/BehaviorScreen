@@ -170,7 +170,7 @@ plt.savefig('mecp2_version.png')
 plt.show()
 
 # --------------------------------------------------------------------------------
-config_yaml = Path('BehaviorScreen/screen.yaml')
+config_yaml = Path('BehaviorScreen/mecp2.yaml')
 cfg = load_yaml_config(config_yaml)
 stim_specs = list(read_stim_specs(cfg, ignore_time_bins=True))
 
@@ -209,7 +209,7 @@ for fish_idx, behavior_file in enumerate(files):
             version_angle[fish_idx, trial_idx, spec_idx, 0:n] = eyes.version_angle_deg[mask]
             vergence_angle[fish_idx, trial_idx, spec_idx, 0:n] = eyes.vergence_angle_deg[mask]
 
-with open('mecp2_eyes.npz', 'wb') as fp:
+with open('wt_eyes.npz', 'wb') as fp:
     np.savez(fp, 
              version=version_angle, 
              vergence=vergence_angle)
@@ -291,7 +291,7 @@ def process_eye_data(file_path):
     }
 
 def plot_comparative_eyes(datasets, labels, stim_specs, fs):
-    
+
     fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(15, 8), 
                              sharex=True, gridspec_kw={'height_ratios': [1, 1, 0.5]},
                              layout='constrained')
@@ -339,8 +339,8 @@ def plot_comparative_eyes(datasets, labels, stim_specs, fs):
 
     plt.show()
 
-wt_data = process_eye_data('wt_eyes.npz')
-mutant_data = process_eye_data('mecp2_eyes.npz')
+wt_data = process_eye_data('/media/martin/DATA_18TB/Screen/WT/danieau/bouts_WT_mecp2.npz')
+mutant_data = process_eye_data('/media/martin/DATA_18TB/Screen/mecp2/danieau/bouts_mecp2.npz')
 
 plot_comparative_eyes(
     datasets=[wt_data, mutant_data],
