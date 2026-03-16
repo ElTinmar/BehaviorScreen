@@ -272,7 +272,6 @@ plt.savefig('eyes_wt.png', bbox_inches='tight')
 plt.show()
 
 
-
 ###
 
 def process_eye_data(file_path):
@@ -292,6 +291,7 @@ def process_eye_data(file_path):
     }
 
 def plot_comparative_eyes(datasets, labels, stim_specs, fs):
+    
     fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(15, 8), 
                              sharex=True, gridspec_kw={'height_ratios': [1, 1, 0.5]},
                              layout='constrained')
