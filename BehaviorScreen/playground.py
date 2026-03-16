@@ -178,9 +178,9 @@ N_samples = 30 * 120
 vergence_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
 version_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
 
-for idx, behavior_file in enumerate(files):
+for fish_idx, behavior_file in enumerate(files):
 
-    print(idx)
+    print(fish_idx)
     behavior_data: BehaviorData = load_data(behavior_file)
     #timestamps = behavior_data.tracking.timestamp.to_numpy()
     timestamps = behavior_data.video_timestamps.timestamp.to_numpy()
@@ -202,8 +202,8 @@ for idx, behavior_file in enumerate(files):
         for trial_idx, (trial, row) in enumerate(trial_data.iterrows()):
             mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
             n = sum(mask)
-            version_angle[idx, trial_idx, spec_idx, 0:n] = eyes.version_angle_deg[mask]
-            vergence_angle[idx, trial_idx, spec_idx, 0:n] = eyes.vergence_angle_deg[mask]
+            version_angle[fish_idx, trial_idx, spec_idx, 0:n] = eyes.version_angle_deg[mask]
+            vergence_angle[fish_idx, trial_idx, spec_idx, 0:n] = eyes.vergence_angle_deg[mask]
 
 with open('wt_eyes.npz', 'wb') as fp:
     np.savez(fp, version_angle, vergence_angle)
