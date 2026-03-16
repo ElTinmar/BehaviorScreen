@@ -210,11 +210,13 @@ for fish_idx, behavior_file in enumerate(files):
             vergence_angle[fish_idx, trial_idx, spec_idx, 0:n] = eyes.vergence_angle_deg[mask]
 
 with open('mecp2_eyes.npz', 'wb') as fp:
-    np.savez(fp, version_angle, vergence_angle)
+    np.savez(fp, 
+             version=version_angle, 
+             vergence=vergence_angle)
 
-with np.load('wt_eyes.npz', allow_pickle=True) as data:
-    version_angle = data['arr_0']
-    vergence_angle = data['arr_1']
+with np.load('mecp2_eyes.npz') as data:
+    version = data['version']
+    vergence = data['vergence']
 
 vergence_trial_avg = np.nanmean(vergence_angle, axis=1)
 vergence_fish_avg = np.nanmean(vergence_angle, axis=0)
@@ -269,10 +271,72 @@ axes[1].add_artist(scalebar)
 plt.savefig('eyes_wt.png', bbox_inches='tight')
 plt.show()
 
-## plots
-# average over trials
-# average over fish
-# average over trials then over fish
+
+
+###
+
+def process_eye_data(file_path):
+
+    with np.load(file_path) as data:
+        version = data['version']
+        vergence = data['vergence']
+
+    return {
+        'vergence': np.nanmean(np.nanmean(vergence_angle, axis=1), axis=0),
+        'version': np.nanmean(np.nanmean(version_angle, axis=1), axis=0)
+    }
+
+def plot_comparative_eyes(datasets, labels, stim_specs, fs, save_path='comparison.png'):
+    """
+    datasets: List of dicts from process_eye_data
+    labels: List of strings for the legend (e.g., ['WT', 'Mutant'])
+    """
+    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(15, 8), 
+                             sharex=True, 
+                             gridspec_kw={'height_ratios': [1, 1, 0.5]},
+                             layout='constrained')
+    
+    colors = ['#1f77b4', '#ff7f0e']
+    
+    for i, (data, label) in enumerate(zip(datasets, labels)):
+        axes[0].plot(data['vergence'].flatten(), label=label, color=colors[i], alpha=0.8)
+        axes[1].plot(data['version'].flatten(), label=label, color=colors[i], alpha=0.8)
+
+    axes[0].set_ylabel('<vergence [deg]>')
+    axes[0].set_ylim((20, 60))
+    axes[0].legend(loc='upper right')
+
+    axes[1].set_ylabel('<version [deg]>')
+    axes[1].axhline(0, linestyle='--', color='gray', alpha=0.5)
+    axes[1].set_ylim((-10, 10))
+
+    axes[2].set_axis_off()
+    N_samples = len(datasets[0]['vergence']) // len(stim_specs)
+    for idx, stim in enumerate(stim_specs):
+        text_label = textwrap.fill(f"{stim.name}: {stim.parameters}", width=20)
+        x_pos = idx * N_samples + N_samples // 2
+        axes[2].text(x_pos, 1.0, text_label, ha='right', va='top', rotation=45, fontsize=9)
+
+    # Scale Bar
+    scale_duration_sec = 10 
+    scale_width_samples = scale_duration_sec * fs 
+    scalebar = AnchoredSizeBar(axes[1].transData, scale_width_samples, 
+                               f'{scale_duration_sec} s', 'lower right', 
+                               pad=0.5, color='black', frameon=False, size_vertical=0.2)
+    axes[1].add_artist(scalebar)
+
+    plt.savefig(save_path, bbox_inches='tight')
+    plt.show()
+
+wt_data = process_eye_data('wt_eyes.npz')
+mutant_data = process_eye_data('mecp2_eyes.npz')
+
+plot_comparative_eyes(
+    datasets=[wt_data, mutant_data],
+    labels=['WT', 'mecp2-null'],
+    stim_specs=stim_specs, 
+    fs=fs                   
+)
 
 ## Bootstraping bout freq
 
