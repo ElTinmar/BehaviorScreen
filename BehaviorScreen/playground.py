@@ -276,39 +276,51 @@ plt.show()
 ###
 
 def process_eye_data(file_path):
+    
+    with np.load(file_path, allow_pickle=True) as data:
+        version_angle = data['version']
+        vergence_angle = data['vergence']
 
-    with np.load(file_path) as data:
-        version = data['version']
-        vergence = data['vergence']
+    vergence_per_fish = np.nanmean(vergence_angle, axis=1)
+    version_per_fish = np.nanmean(version_angle, axis=1)
 
     return {
-        'vergence': np.nanmean(np.nanmean(vergence_angle, axis=1), axis=0),
-        'version': np.nanmean(np.nanmean(version_angle, axis=1), axis=0)
+        'vergence_mean': np.nanmean(vergence_per_fish, axis=0),
+        'vergence_std': np.nanstd(vergence_per_fish, axis=0),
+        'version_mean': np.nanmean(version_per_fish, axis=0),
+        'version_std': np.nanstd(version_per_fish, axis=0)
     }
 
-def plot_comparative_eyes(datasets, labels, stim_specs, fs, save_path='comparison.png'):
-    """
-    datasets: List of dicts from process_eye_data
-    labels: List of strings for the legend (e.g., ['WT', 'Mutant'])
-    """
+def plot_comparative_eyes(datasets, labels, stim_specs, fs):
     fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(15, 8), 
-                             sharex=True, 
-                             gridspec_kw={'height_ratios': [1, 1, 0.5]},
+                             sharex=True, gridspec_kw={'height_ratios': [1, 1, 0.5]},
                              layout='constrained')
     
-    colors = ['#1f77b4', '#ff7f0e']
+    colors = plt.rcParams['axes.prop_cycle'].by_key()['color']
     
     for i, (data, label) in enumerate(zip(datasets, labels)):
-        axes[0].plot(data['vergence'].flatten(), label=label, color=colors[i], alpha=0.8)
-        axes[1].plot(data['version'].flatten(), label=label, color=colors[i], alpha=0.8)
+        color = colors[i % len(colors)]
+        x_axis = np.arange(len(data['vergence_mean']))
+        
+        axes[0].plot(x_axis, data['vergence_mean'], label=label, color=color, lw=2)
+        axes[0].fill_between(x_axis, 
+                             data['vergence_mean'] - data['vergence_std'], 
+                             data['vergence_mean'] + data['vergence_std'], 
+                             color=color, alpha=0.2, edgecolor='none')
+        
+        axes[1].plot(x_axis, data['version_mean'], label=label, color=color, lw=2)
+        axes[1].fill_between(x_axis, 
+                             data['version_mean'] - data['version_std'], 
+                             data['version_mean'] + data['version_std'], 
+                             color=color, alpha=0.2, edgecolor='none')
 
     axes[0].set_ylabel('<vergence [deg]>')
     axes[0].set_ylim((20, 60))
-    axes[0].legend(loc='upper right')
+    axes[0].legend(loc='upper right', frameon=False)
 
     axes[1].set_ylabel('<version [deg]>')
     axes[1].axhline(0, linestyle='--', color='gray', alpha=0.5)
-    axes[1].set_ylim((-10, 10))
+    axes[1].set_ylim((-15, 15))
 
     axes[2].set_axis_off()
     N_samples = len(datasets[0]['vergence']) // len(stim_specs)
@@ -325,7 +337,6 @@ def plot_comparative_eyes(datasets, labels, stim_specs, fs, save_path='compariso
                                pad=0.5, color='black', frameon=False, size_vertical=0.2)
     axes[1].add_artist(scalebar)
 
-    plt.savefig(save_path, bbox_inches='tight')
     plt.show()
 
 wt_data = process_eye_data('wt_eyes.npz')
