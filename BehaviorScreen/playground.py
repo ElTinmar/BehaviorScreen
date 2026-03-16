@@ -86,6 +86,8 @@ def get_eye_traces(
 
 ROOT = Path('/media/martin/DATA_18TB/Screen/WT/danieau')
 ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen/WT/danieau')
+ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen/mecp2/danieau')
+
 #ROOT = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau')
 
 directories = Directories(
@@ -207,8 +209,12 @@ for fish_idx, behavior_file in enumerate(files):
             version_angle[fish_idx, trial_idx, spec_idx, 0:n] = eyes.version_angle_deg[mask]
             vergence_angle[fish_idx, trial_idx, spec_idx, 0:n] = eyes.vergence_angle_deg[mask]
 
-with open('wt_eyes.npz', 'wb') as fp:
+with open('mecp2_eyes.npz', 'wb') as fp:
     np.savez(fp, version_angle, vergence_angle)
+
+with np.load('wt_eyes.npz', allow_pickle=True) as data:
+    version_angle = data['arr_0']
+    vergence_angle = data['arr_1']
 
 vergence_trial_avg = np.nanmean(vergence_angle, axis=1)
 vergence_fish_avg = np.nanmean(vergence_angle, axis=0)
@@ -229,10 +235,12 @@ total_samples = np.prod(vergence_fish_trial_avg.shape)
 axes[0].plot(vergence_fish_trial_avg.reshape(-1,))
 axes[0].set_title('WT - Vergence')
 axes[0].set_ylabel('<vergence [deg]>')
+axes[0].set_ylim((20,60))
 
 axes[1].plot(version_fish_trial_avg.reshape(-1,))
 axes[1].set_ylabel('<version [deg]>')
 axes[1].axhline(0, linestyle='--', color='gray', alpha=0.7)
+axes[1].set_ylim((-10,10))
 
 axes[2].set_axis_off() 
 for idx, stim in enumerate(stim_specs):
@@ -258,7 +266,7 @@ scalebar = AnchoredSizeBar(axes[1].transData,
 
 axes[1].add_artist(scalebar)
 
-plt.savefig('organized_vergence_plot.png', bbox_inches='tight')
+plt.savefig('eyes_wt.png', bbox_inches='tight')
 plt.show()
 
 ## plots
