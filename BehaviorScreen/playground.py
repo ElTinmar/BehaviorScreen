@@ -19,7 +19,6 @@ from BehaviorScreen.load import (
 )
 from BehaviorScreen.megabouts import MegaboutResults
 from BehaviorScreen.process import get_trials, compute_angle_between_vectors
-from BehaviorScreen.core import Stim, GROUPING_PARAMETER
 from BehaviorScreen.plot import load_yaml_config, read_stim_specs
 from megabouts.utils import bouts_category_name_short
 
