@@ -209,7 +209,7 @@ for fish_idx, behavior_file in enumerate(files):
             version_angle[fish_idx, trial_idx, spec_idx, 0:n] = eyes.version_angle_deg[mask]
             vergence_angle[fish_idx, trial_idx, spec_idx, 0:n] = eyes.vergence_angle_deg[mask]
 
-with open('wt_eyes.npz', 'wb') as fp:
+with open('mecp2_eyes.npz', 'wb') as fp:
     np.savez(fp, 
              version=version_angle, 
              vergence=vergence_angle)
@@ -284,15 +284,15 @@ def process_eye_data(file_path):
     version_per_fish = np.nanmean(version_angle, axis=1)
 
     return {
-        'vergence_mean': np.nanmean(vergence_per_fish, axis=0),
-        'vergence_std': np.nanstd(vergence_per_fish, axis=0),
-        'version_mean': np.nanmean(version_per_fish, axis=0),
-        'version_std': np.nanstd(version_per_fish, axis=0)
+        'vergence_mean': np.nanmean(vergence_per_fish, axis=0).flatten(),
+        'vergence_std': np.nanstd(vergence_per_fish, axis=0).flatten(),
+        'version_mean': np.nanmean(version_per_fish, axis=0).flatten(),
+        'version_std': np.nanstd(version_per_fish, axis=0).flatten()
     }
 
-def plot_comparative_eyes(datasets, labels, stim_specs, fs):
+def plot_comparative_eyes(datasets, labels, stim_specs, fs, save_path='comparison.png'):
 
-    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(15, 8), 
+    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(24, 8), 
                              sharex=True, gridspec_kw={'height_ratios': [1, 1, 0.5]},
                              layout='constrained')
     
@@ -315,7 +315,7 @@ def plot_comparative_eyes(datasets, labels, stim_specs, fs):
                              color=color, alpha=0.2, edgecolor='none')
 
     axes[0].set_ylabel('<vergence [deg]>')
-    axes[0].set_ylim((20, 60))
+    axes[0].set_ylim((15, 65))
     axes[0].legend(loc='upper right', frameon=False)
 
     axes[1].set_ylabel('<version [deg]>')
@@ -323,7 +323,7 @@ def plot_comparative_eyes(datasets, labels, stim_specs, fs):
     axes[1].set_ylim((-15, 15))
 
     axes[2].set_axis_off()
-    N_samples = len(datasets[0]['vergence']) // len(stim_specs)
+    N_samples = len(datasets[0]['vergence_mean']) // len(stim_specs)
     for idx, stim in enumerate(stim_specs):
         text_label = textwrap.fill(f"{stim.name}: {stim.parameters}", width=20)
         x_pos = idx * N_samples + N_samples // 2
@@ -337,10 +337,11 @@ def plot_comparative_eyes(datasets, labels, stim_specs, fs):
                                pad=0.5, color='black', frameon=False, size_vertical=0.2)
     axes[1].add_artist(scalebar)
 
+    plt.savefig(save_path, bbox_inches='tight')
     plt.show()
 
-wt_data = process_eye_data('/media/martin/DATA_18TB/Screen/WT/danieau/bouts_WT_mecp2.npz')
-mutant_data = process_eye_data('/media/martin/DATA_18TB/Screen/mecp2/danieau/bouts_mecp2.npz')
+wt_data = process_eye_data('wt_eyes.npz')
+mutant_data = process_eye_data('mecp2_eyes.npz')
 
 plot_comparative_eyes(
     datasets=[wt_data, mutant_data],
@@ -381,6 +382,7 @@ def bootstrap_cohen_d(a, b, n_boot=2000, rng=None):
 
 
 ROOT = Path('/home/martin/Desktop/DATA')
+
 
 comparisons = {
     ROOT / 'WT/ronidazole/bouts.npz': [
