@@ -5,12 +5,14 @@ import re
 from dataclasses import dataclass
 import operator
 from itertools import product
+import textwrap
 
 import yaml
 import pandas as pd
 import numpy as np
 from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from tqdm import tqdm
 from megabouts.utils import bouts_category_name_short   
 
@@ -308,6 +310,7 @@ def plot_eyes(
         target_fps: float = 120,
         max_trial_duration_s: float = 25
     ):
+    # TODO split processing and plotting
 
     output_npz = output_png.with_suffix('.npz')
 
@@ -344,7 +347,6 @@ def plot_eyes(
 
             for trial_idx, (trial, row) in enumerate(trial_data.iterrows()):
                 mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
-                n = sum(mask)
                 trial_time = 1e-9 * (timestamps[mask] - row.start_timestamp)
                 version_angle[fish_idx, trial_idx, spec_idx, :] = interpolate_ts(target_time, trial_time, eyes.version_angle_deg[mask])
                 vergence_angle[fish_idx, trial_idx, spec_idx, :] = interpolate_ts(target_time, trial_time, eyes.vergence_angle_deg[mask])
@@ -353,15 +355,69 @@ def plot_eyes(
         np.savez(fp, 
                 version=version_angle, 
                 vergence=vergence_angle)
+
+    vergence_per_fish = np.nanmean(vergence_angle, axis=1)
+    version_per_fish = np.nanmean(version_angle, axis=1)
+    data = {
+        'vergence_mean': np.nanmean(vergence_per_fish, axis=0).flatten(),
+        'vergence_std': np.nanstd(vergence_per_fish, axis=0).flatten(),
+        'version_mean': np.nanmean(version_per_fish, axis=0).flatten(),
+        'version_std': np.nanstd(version_per_fish, axis=0).flatten()
+    }
+
+    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(24, 6), 
+                            sharex=True, 
+                            gridspec_kw={'height_ratios': [1, 1, 0.5]},
+                            layout='constrained')
+
+    x_axis = np.arange(len(data['vergence_mean']))
     
+    axes[0].plot(x_axis, data['vergence_mean'], color='black', lw=2)
+    axes[0].fill_between(x_axis, 
+                            data['vergence_mean'] - data['vergence_std'], 
+                            data['vergence_mean'] + data['vergence_std'], 
+                            color='black', alpha=0.2, edgecolor='none')
+    
+    axes[1].plot(x_axis, data['version_mean'], color='black', lw=2)
+    axes[1].fill_between(x_axis, 
+                            data['version_mean'] - data['version_std'], 
+                            data['version_mean'] + data['version_std'], 
+                            color='black', alpha=0.2, edgecolor='none')
+        
+    axes[0].set_ylabel('<vergence [deg]>')
+    axes[0].set_ylim((15, 65))
+    axes[0].legend(loc='upper right', frameon=False)
+
+    axes[1].set_ylabel('<version [deg]>')
+    axes[1].axhline(0, linestyle='--', color='gray', alpha=0.5)
+    axes[1].set_ylim((-15, 15))
+
+    axes[2].set_axis_off()
+    N_samples = len(data['vergence_mean']) // len(stim_specs)
+    for idx, stim in enumerate(stim_specs):
+        text_label = textwrap.fill(f"{stim.name}: {stim.parameters}", width=20)
+        x_pos = idx * N_samples + N_samples // 2
+        axes[2].text(x_pos, 1.0, text_label, ha='right', va='top', rotation=45, fontsize=9)
+
+    # Scale Bar
+    scale_duration_sec = 10 
+    scale_width_samples = scale_duration_sec * target_fps 
+    scalebar = AnchoredSizeBar(axes[1].transData, scale_width_samples, 
+                               f'{scale_duration_sec} s', 'lower right', 
+                               pad=0.5, color='black', frameon=False, size_vertical=0.2)
+    axes[1].add_artist(scalebar)
+
+    plt.savefig(output_png, bbox_inches='tight')
+    plt.show()
+
 def plot_heatmap(
         input_csv: Path, 
         config_yaml: Path, 
         output_png: Path,
         behavior_files: List[BehaviorFiles]
     ) -> None:
+    # TODO split processing and plotting
 
-    # TODO move the computation to megabouts and keep only the plotting here
     output_npz = output_png.with_suffix('.npz')
     output_csv = output_png.parent / 'bout_frequency.csv'
 
