@@ -564,7 +564,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bouts-png",
         default='bouts.png',
-        help="output PNG file",
+        help="output bout PNG file",
+    )
+
+    parser.add_argument(
+        "--eyes-png",
+        default='eyes.png',
+        help="output eye PNG file",
     )
 
     # Directory layout overrides
@@ -627,6 +633,7 @@ def build_parser() -> argparse.ArgumentParser:
 def run_plot(
         bouts_csv: str,
         bouts_png: str,
+        eyes_png: str,
         config_yaml: Path,
         root: Path,
         metadata: str,
@@ -641,7 +648,8 @@ def run_plot(
     ) -> None:
 
     input_csv = root / bouts_csv
-    output_png = root / bouts_png
+    output_bouts_png = root / bouts_png
+    output_eyes_png = root / eyes_png
 
     directories = Directories(
         root,
@@ -660,18 +668,17 @@ def run_plot(
     plot_heatmap(
         input_csv, 
         config_yaml, 
-        output_png, 
+        output_bouts_png, 
         behavior_files
     )
 
-    # TODO add parameters to parser
-    # plot_eyes(
-    #     config_yaml, 
-    #     output_png, 
-    #     behavior_files, 
-    #     max_trial_duration_s=25, 
-    #     target_fps=120
-    # )
+    plot_eyes(
+        config_yaml, 
+        output_eyes_png, 
+        behavior_files, 
+        max_trial_duration_s=30, 
+        target_fps=120
+    )
 
 def main(args: argparse.Namespace) -> None:
 

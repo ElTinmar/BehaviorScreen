@@ -63,6 +63,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--eyes-png",
+        default='eyes.png',
+        help="output eye PNG file",
+    )
+
+    parser.add_argument(
         "--quality",
         type=int,
         default=18,
@@ -202,6 +208,7 @@ def main(args: argparse.Namespace) -> None:
     run_plot(
         bouts_csv=args.bouts_csv,
         bouts_png = args.bouts_png,
+        eyes_png = args.eyes_png,
         config_yaml = args.yaml,
         root = args.root,
         metadata=args.results,
