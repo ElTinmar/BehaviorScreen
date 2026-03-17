@@ -182,6 +182,7 @@ N_samples = 30 * 120
 vergence_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
 version_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
 
+# TODO: interpolate time series to common time frame
 for fish_idx, behavior_file in enumerate(files):
 
     print(fish_idx)
