@@ -509,8 +509,3 @@ for ref, comp_list in comparisons.items():
         plot_heatmap(data, title, row_names, bin_names)
         plt.savefig(f"{title}.png")
         plt.close()
-
-
-
-#### 
-
