@@ -14,7 +14,8 @@ from tqdm import tqdm
 
 from megabouts.utils import bouts_category_name_short   
 from BehaviorScreen.core import Stim, BoutSign
-from BehaviorScreen.load import base_regexp, FileNameInfo
+from BehaviorScreen.load import base_regexp, FileNameInfo, BehaviorData
+from BehaviorScreen.process import get_trials
 
 def pd_series_in(s: pd.Series, v: Any) -> pd.Series:
     return s.isin(v)
@@ -225,6 +226,38 @@ def has_no_bouts(
     stim_mask &= bouts.file == fish
     return stim_mask.sum() == 0
 
+def stim_presented(behavior_data: BehaviorData, spec: StimSpec) -> bool:
+
+    stim_trials = get_trials(behavior_data)
+    
+    if stim_trials.empty:
+        return False
+    
+    spec_mask = (
+        spec.parameters.get_mask(stim_trials) &
+        (stim_trials.stim_select == spec.stim)
+    )
+    spec_data = stim_trials[spec_mask]
+    if spec_data.empty: 
+        return False
+    
+    # NOTE: this can miss the intent if the protocol has the given trial number but  
+    # the protocol is different
+    # TODO: check that O-bends are valid before / after protocol change
+    # if not, maybe find another way to select dark->bright transitions
+    valid_trials = [i for i in spec.trials if i < len(spec_data)]
+    if not valid_trials:
+        return False
+    
+    if spec.time_range is not None:
+        trial_data = spec_data.iloc[valid_trials]
+        trial_duration = 1e-9 * (trial_data.stop_timestamp - trial_data.start_timestamp)
+        valid_time_range = spec.time_range[1] < trial_duration 
+        if not valid_time_range.any():
+            return False
+
+    return True
+
 def plot_heatmap(
         input_csv: Path, 
         config_yaml: Path, 
@@ -250,7 +283,9 @@ def plot_heatmap(
     bout_frequency = np.full((N_fish, N_trials, N_epochs, N_bouts, N_sides), np.nan)
     rows = []
     
-    # 5 nested for loops ... but I dont really care how long it takes
+    # TODO put zeros if there was no bouts, 
+    # put NaN if the stimulus epoch was not presented at all 
+    # otherwise low frequency noise might be amplified it not weighted with zeros
     for fish_idx, fish in tqdm(enumerate(fish_names)):
         fish_info = parse_fish(fish)
         time_cos, time_sin = cosinor(fish_info)
@@ -281,7 +316,6 @@ def plot_heatmap(
                         bout_frequency[fish_idx, trial_idx, epoch_num, category, side_idx] = freq
                         # TODO add setup (oceanus vs chronus)?
                         # TODO measure and add fish length ?
-                        # TODO derive fraction resp trials ?
                         rows.append({
                             "fish": fish,
                             "dpf": fish_info.age,
