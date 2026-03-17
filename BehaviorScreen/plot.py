@@ -308,7 +308,7 @@ def plot_eyes(
         output_png: Path,
         behavior_files: List[BehaviorFiles],
         target_fps: float = 120,
-        max_trial_duration_s: float = 25
+        max_trial_duration_s: float = 30
     ):
     # TODO split processing and plotting
 
@@ -347,9 +347,11 @@ def plot_eyes(
 
             for trial_idx, (trial, row) in enumerate(trial_data.iterrows()):
                 mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
+                trial_duration = 1e-9 * (row.stop_timestamp - row.start_timestamp)
                 trial_time = 1e-9 * (timestamps[mask] - row.start_timestamp)
-                version_angle[fish_idx, trial_idx, spec_idx, :] = interpolate_ts(target_time, trial_time, eyes.version_angle_deg[mask])
-                vergence_angle[fish_idx, trial_idx, spec_idx, :] = interpolate_ts(target_time, trial_time, eyes.vergence_angle_deg[mask])
+                n = np.searchsorted(target_time, trial_duration)
+                version_angle[fish_idx, trial_idx, spec_idx, :n] = interpolate_ts(target_time[:n], trial_time, eyes.version_angle_deg[mask])
+                vergence_angle[fish_idx, trial_idx, spec_idx, :n] = interpolate_ts(target_time[:n], trial_time, eyes.vergence_angle_deg[mask])
 
     with open(output_npz, 'wb') as fp:
         np.savez(fp, 
@@ -655,7 +657,21 @@ def run_plot(
     )
     behavior_files = find_files(directories)
 
-    plot_heatmap(input_csv, config_yaml, output_png, behavior_files)
+    plot_heatmap(
+        input_csv, 
+        config_yaml, 
+        output_png, 
+        behavior_files
+    )
+
+    # TODO add parameters to parser
+    # plot_eyes(
+    #     config_yaml, 
+    #     output_png, 
+    #     behavior_files, 
+    #     max_trial_duration_s=25, 
+    #     target_fps=120
+    # )
 
 def main(args: argparse.Namespace) -> None:
 
