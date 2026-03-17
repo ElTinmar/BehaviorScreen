@@ -1,18 +1,19 @@
-from typing import List, Tuple, Generator, Any
+from typing import List, Tuple, Generator, Any, NamedTuple
 import argparse
 from pathlib import Path
-import pandas as pd
-import numpy as np
 import re
-import yaml
 from dataclasses import dataclass
 import operator
 from itertools import product
 
+import yaml
+import pandas as pd
+import numpy as np
+from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-
 from megabouts.utils import bouts_category_name_short   
+
 from BehaviorScreen.core import Stim, BoutSign
 from BehaviorScreen.load import (
     base_regexp, 
@@ -23,7 +24,12 @@ from BehaviorScreen.load import (
     load_data,
     find_files
 )
-from BehaviorScreen.process import get_trials
+from BehaviorScreen.process import (
+    get_trials, 
+    compute_angle_between_vectors,
+    get_target_time,
+    interpolate_ts
+)
 
 def pd_series_in(s: pd.Series, v: Any) -> pd.Series:
     return s.isin(v)
@@ -74,6 +80,14 @@ class StimSpec:
     name: str
     time_range: Tuple[int, int] | None
     parameters: RuleSet
+
+class EyesTimeseries(NamedTuple):
+    angle_left_deg: np.ndarray
+    angle_right_deg: np.ndarray
+    angle_left_smooth_deg: np.ndarray
+    angle_right_smooth_deg: np.ndarray
+    version_angle_deg: np.ndarray
+    vergence_angle_deg: np.ndarray
 
 def load_bouts(bout_csv: Path) -> pd.DataFrame:
     return pd.read_csv(bout_csv)
@@ -232,6 +246,114 @@ def stim_presented(behavior_data: BehaviorData, spec: StimSpec) -> bool:
 
     return True
 
+def get_eye_traces(
+        data: pd.DataFrame, 
+        likelihood_threshold: float = 0.9,
+        divergence_threshold_deg: float = -10,
+        convergence_threshold_deg: float = 60,
+        window_length: int = 41
+    ) -> EyesTimeseries:
+
+    assert window_length % 2 == 1
+
+    # extract data
+    left_front_keypoint = data.eye_left_front[['x', 'y']].to_numpy()
+    left_front_likelihood = data.eye_left_front.likelihood.to_numpy()
+
+    left_back_keypoint = data.eye_left_back[['x', 'y']].to_numpy()
+    left_back_likelihood = data.eye_left_back.likelihood.to_numpy()
+
+    right_front_keypoint = data.eye_right_front[['x', 'y']].to_numpy()
+    right_front_likelihood = data.eye_right_front.likelihood.to_numpy()
+
+    right_back_keypoint = data.eye_right_back[['x', 'y']].to_numpy()
+    right_back_likelihood = data.eye_right_back.likelihood.to_numpy()
+
+    left_vector = left_back_keypoint - left_front_keypoint
+    right_vector = right_back_keypoint - right_front_keypoint
+
+    L_rad = compute_angle_between_vectors(left_vector, np.array([0,1]))
+    R_rad = compute_angle_between_vectors(right_vector, np.array([0,1]))
+    L = np.rad2deg(L_rad)
+    R = np.rad2deg(R_rad)
+
+    # remove outliers
+    L[(left_front_likelihood < likelihood_threshold) | (left_back_likelihood < likelihood_threshold)] = np.nan
+    R[(right_front_likelihood < likelihood_threshold) | (right_back_likelihood < likelihood_threshold)] = np.nan
+    L[(-L<divergence_threshold_deg) | (-L>convergence_threshold_deg)] = np.nan 
+    R[(R<divergence_threshold_deg) | (R>convergence_threshold_deg)] = np.nan
+
+    # interpolate and smooth
+    L = pd.Series(L).interpolate(limit_direction="both").to_numpy()
+    R = pd.Series(R).interpolate(limit_direction="both").to_numpy()
+    L_s = savgol_filter(L, window_length, polyorder=2)
+    R_s = savgol_filter(R, window_length, polyorder=2)
+    version_angle = (L_s + R_s)/2
+    vergence_angle = R_s - L_s
+
+    res = EyesTimeseries(
+        angle_left_deg=L,
+        angle_right_deg=R,
+        angle_left_smooth_deg=L_s,
+        angle_right_smooth_deg=R_s,
+        version_angle_deg=version_angle,
+        vergence_angle_deg=vergence_angle
+    )
+    return res
+
+def plot_eyes(
+        config_yaml: Path, 
+        output_png: Path,
+        behavior_files: List[BehaviorFiles],
+        target_fps: float = 120,
+        max_trial_duration_s: float = 25
+    ):
+
+    output_npz = output_png.with_suffix('.npz')
+
+    cfg = load_yaml_config(config_yaml)
+    stim_specs = list(read_stim_specs(cfg, ignore_time_bins=True))
+    target_time = get_target_time(max_trial_duration_s, target_fps)
+
+    N_fish = len(behavior_files)
+    N_trials = max([len(spec.trials) for spec in stim_specs])
+    N_epochs = len(stim_specs)
+    N_samples = len(target_time) 
+
+    vergence_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
+    version_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
+    
+    for fish_idx, behavior_file in tqdm(enumerate(behavior_files)):
+
+        behavior_data: BehaviorData = load_data(behavior_file)
+        timestamps = behavior_data.video_timestamps.timestamp.to_numpy()
+        stim_trials = get_trials(behavior_data)
+        eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
+
+        for spec_idx, spec in enumerate(stim_specs):
+            spec_mask = (
+                spec.parameters.get_mask(stim_trials) &
+                (stim_trials.stim_select == spec.stim)
+            )
+            spec_data = stim_trials[spec_mask]
+            if spec_data.empty: 
+                continue
+            
+            valid_trials = [i for i in spec.trials if i < len(spec_data)]
+            trial_data = spec_data.iloc[valid_trials]
+
+            for trial_idx, (trial, row) in enumerate(trial_data.iterrows()):
+                mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
+                n = sum(mask)
+                trial_time = 1e-9 * (timestamps[mask] - row.start_timestamp)
+                version_angle[fish_idx, trial_idx, spec_idx, :] = interpolate_ts(target_time, trial_time, eyes.version_angle_deg[mask])
+                vergence_angle[fish_idx, trial_idx, spec_idx, :] = interpolate_ts(target_time, trial_time, eyes.vergence_angle_deg[mask])
+
+    with open(output_npz, 'wb') as fp:
+        np.savez(fp, 
+                version=version_angle, 
+                vergence=vergence_angle)
+    
 def plot_heatmap(
         input_csv: Path, 
         config_yaml: Path, 

@@ -191,3 +191,9 @@ def compute_eye_angle_from_keypoints(
         angle[~mask] = np.nan
     return angle
 
+def get_target_time(trial_duration, target_fps) -> np.ndarray:
+    num_points = int(target_fps * trial_duration)
+    return np.linspace(0, trial_duration, num_points, endpoint=False)
+
+def interpolate_ts(target_time, time, values) -> np.ndarray:
+    return np.interp(target_time, time, values)
