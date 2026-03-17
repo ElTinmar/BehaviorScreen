@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from scipy.signal import savgol_filter
 from typing import NamedTuple
+from statsmodels.stats.multitest import multipletests
+
 from BehaviorScreen.load import (
     Directories, 
     BehaviorData,
@@ -381,6 +383,49 @@ def bootstrap_cohen_d(a, b, n_boot=2000, rng=None):
     # Cohen's d distribution
     return (means_b - means_a) / pooled_stds
 
+def compute_t_and_d(group_a, group_b):
+    """Helper to get both T-stat (for p-values) and Cohen's D (for heatmap)."""
+    # Calculate means and vars
+    m_a, m_b = np.nanmean(group_a, axis=0), np.nanmean(group_b, axis=0)
+    v_a, v_b = np.nanvar(group_a, axis=0), np.nanvar(group_b, axis=0)
+    na, nb = len(group_a), len(group_b)
+    
+    # Standard t-test formula (Welch's if you prefer, but standard is fine for permutation)
+    pooled_std = np.sqrt(((na - 1) * v_a + (nb - 1) * v_b) / (na + nb - 2))
+    # Avoid div by zero
+    pooled_std[pooled_std == 0] = np.nan
+    
+    t_stat = (m_b - m_a) / (pooled_std * np.sqrt(1/na + 1/nb))
+    cohen_d = (m_b - m_a) / pooled_std
+    
+    return t_stat, cohen_d
+
+def permutation_analysis(a, b, n_perm=5000, alpha=0.05):
+    # 1. Get observed stats
+    obs_t, obs_d = compute_t_and_d(a, b)
+    
+    # 2. Permutation
+    combined = np.concatenate([a, b], axis=0)
+    n_a = len(a)
+    null_t_stats = []
+    
+    rng = np.random.default_rng()
+    for _ in range(n_perm):
+        shuffled = rng.permutation(combined, axis=0)
+        perm_t, _ = compute_t_and_d(shuffled[:n_a], shuffled[n_a:])
+        null_t_stats.append(perm_t)
+        
+    null_t_stats = np.array(null_t_stats)
+    
+    # 3. Two-tailed p-values
+    p_values = np.mean(np.abs(null_t_stats) >= np.abs(obs_t), axis=0)
+    
+    # 4. FDR Correction (Benjamini-Hochberg)
+    # Reshape to 1D for correction, then back to original shape
+    p_shape = p_values.shape
+    reject, p_corrected, _, _ = multipletests(p_values.ravel(), alpha=alpha, method='fdr_bh')
+    
+    return obs_d, p_corrected.reshape(p_shape)
 
 ROOT = Path('/home/martin/Desktop/DATA')
 
@@ -448,14 +493,24 @@ for ref, comp_list in comparisons.items():
 
         cohen_d_boot = bootstrap_cohen_d(ref_trial_avg, exp_trial_avg)
         ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [2.5, 50, 97.5], axis=0)
+        ci_mask = (ci_low.T > 0) | (ci_high.T < 0) 
         data = cohen_d_median.T
-        ci_mask = (ci_low.T > 0) | (ci_high.T < 0) # also cut off bout with very low freq)
-        val_mask = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) < 0.1 # should I bootstrap this too ?
+
+        d_map, p_map = permutation_analysis(ref_trial_avg, exp_trial_avg)
+        #data = d_map.T
+        sig_mask = p_map.T < 0.05
+
+        val_mask = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) < 0.1 
         data[~ci_mask] = 0
+        #data[~sig_mask] = 0
         data[val_mask] = 0
 
         title = f"{p.relative_to(ROOT).parent} - {ref.relative_to(ROOT).parent}".replace('/',':')
         plot_heatmap(data, title, row_names, bin_names)
         plt.savefig(f"{title}.png")
         plt.close()
+
+
+
+#### 
 
