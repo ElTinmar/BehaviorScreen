@@ -33,3 +33,9 @@ sbatch megabout.sbatch /ptmp/mapri/Screen/lhx9/ronidazole
 sbatch megabout.sbatch /ptmp/mapri/Screen/lhx9/vehicle 
 sbatch megabout.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/ronidazole 
 sbatch megabout.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/vehicle 
+sbatch megabout.sbatch /ptmp/mapri/Screen/y532/ronidazole 
+sbatch megabout.sbatch /ptmp/mapri/Screen/y532/vehicle 
+sbatch megabout.sbatch /ptmp/mapri/Screen/y359/ronidazole 
+sbatch megabout.sbatch /ptmp/mapri/Screen/y359/vehicle 
+sbatch megabout.sbatch /ptmp/mapri/Screen/242A/ronidazole 
+sbatch megabout.sbatch /ptmp/mapri/Screen/242A/vehicle 

@@ -33,3 +33,9 @@ sbatch pose_estimation.sbatch /ptmp/mapri/Screen/lhx9/ronidazole
 sbatch pose_estimation.sbatch /ptmp/mapri/Screen/lhx9/vehicle 
 sbatch pose_estimation.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/ronidazole 
 sbatch pose_estimation.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/vehicle 
+sbatch pose_estimation.sbatch /ptmp/mapri/Screen/y532/ronidazole 
+sbatch pose_estimation.sbatch /ptmp/mapri/Screen/y532/vehicle 
+sbatch pose_estimation.sbatch /ptmp/mapri/Screen/y359/ronidazole 
+sbatch pose_estimation.sbatch /ptmp/mapri/Screen/y359/vehicle 
+sbatch pose_estimation.sbatch /ptmp/mapri/Screen/242A/ronidazole 
+sbatch pose_estimation.sbatch /ptmp/mapri/Screen/242A/vehicle 

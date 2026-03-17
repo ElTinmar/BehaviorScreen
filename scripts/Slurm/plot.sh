@@ -33,3 +33,9 @@ sbatch plot.sbatch /ptmp/mapri/Screen/lhx9/ronidazole BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/lhx9/vehicle BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/ronidazole BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/mafaa-switchNTR-ath5-Cre/vehicle BehaviorScreen/screen.yaml
+sbatch plot.sbatch /ptmp/mapri/Screen/y532/ronidazole BehaviorScreen/screen.yaml
+sbatch plot.sbatch /ptmp/mapri/Screen/y532/vehicle BehaviorScreen/screen.yaml 
+sbatch plot.sbatch /ptmp/mapri/Screen/y359/ronidazole BehaviorScreen/screen.yaml 
+sbatch plot.sbatch /ptmp/mapri/Screen/y359/vehicle BehaviorScreen/screen.yaml 
+sbatch plot.sbatch /ptmp/mapri/Screen/242A/ronidazole BehaviorScreen/screen.yaml 
+sbatch plot.sbatch /ptmp/mapri/Screen/242A/vehicle BehaviorScreen/screen.yaml 
