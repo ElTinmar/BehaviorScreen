@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Optional, Generator, Any
+from typing import List, Tuple, Generator, Any
 import argparse
 from pathlib import Path
 import pandas as pd
@@ -14,7 +14,15 @@ from tqdm import tqdm
 
 from megabouts.utils import bouts_category_name_short   
 from BehaviorScreen.core import Stim, BoutSign
-from BehaviorScreen.load import base_regexp, FileNameInfo, BehaviorData
+from BehaviorScreen.load import (
+    base_regexp, 
+    FileNameInfo,
+    Directories, 
+    BehaviorData, 
+    BehaviorFiles,
+    load_data,
+    find_files
+)
 from BehaviorScreen.process import get_trials
 
 def pd_series_in(s: pd.Series, v: Any) -> pd.Series:
@@ -226,6 +234,11 @@ def has_no_bouts(
     stim_mask &= bouts.file == fish
     return stim_mask.sum() == 0
 
+def get_behavior_data(behavior_files: List[BehaviorFiles], fish: str) -> BehaviorData | None:
+    for f in behavior_files:
+        if fish in str(f.metadata):
+            return load_data(f)
+
 def stim_presented(behavior_data: BehaviorData, spec: StimSpec) -> bool:
 
     stim_trials = get_trials(behavior_data)
@@ -243,8 +256,6 @@ def stim_presented(behavior_data: BehaviorData, spec: StimSpec) -> bool:
     
     # NOTE: this can miss the intent if the protocol has the given trial number but  
     # the protocol is different
-    # TODO: check that O-bends are valid before / after protocol change
-    # if not, maybe find another way to select dark->bright transitions
     valid_trials = [i for i in spec.trials if i < len(spec_data)]
     if not valid_trials:
         return False
@@ -261,7 +272,8 @@ def stim_presented(behavior_data: BehaviorData, spec: StimSpec) -> bool:
 def plot_heatmap(
         input_csv: Path, 
         config_yaml: Path, 
-        output_png: Path
+        output_png: Path,
+        behavior_files: List[BehaviorFiles]
     ) -> None:
 
     # TODO move the computation to megabouts and keep only the plotting here
@@ -280,19 +292,21 @@ def plot_heatmap(
     N_epochs = len(stim_specs)
     N_bouts = len(bouts_category_name_short)
     N_sides = len(sides)
-    bout_frequency = np.full((N_fish, N_trials, N_epochs, N_bouts, N_sides), np.nan)
+    bout_frequency = np.zeros((N_fish, N_trials, N_epochs, N_bouts, N_sides), dtype=np.float32)
     rows = []
     
-    # TODO put zeros if there was no bouts, 
-    # put NaN if the stimulus epoch was not presented at all 
-    # otherwise low frequency noise might be amplified it not weighted with zeros
     for fish_idx, fish in tqdm(enumerate(fish_names)):
         fish_info = parse_fish(fish)
         time_cos, time_sin = cosinor(fish_info)
+        
+        behavior_data = get_behavior_data(behavior_files, fish)
+        if behavior_data is None:
+            raise RuntimeError(f"{fish} not found, aborting")
+
         for epoch_num, spec in enumerate(stim_specs):
             
-            if has_no_bouts(fish, filtered_bouts, spec):
-                print(f"skipping {spec}, no bouts found for fish {fish}")
+            if not stim_presented(behavior_data, spec):
+                bout_frequency[fish_idx,:,epoch_num,...] = np.nan
                 continue
 
             for trial_idx, trial_num in enumerate(spec.trials):
@@ -393,14 +407,115 @@ def build_parser() -> argparse.ArgumentParser:
         help="output PNG file",
     )
 
+    # Directory layout overrides
+    parser.add_argument(
+        "--metadata",
+        default="results",
+        help="Subfolder containing metadata files (default: results)",
+    )
+
+    parser.add_argument(
+        "--stimuli",
+        default="results",
+        help="Subfolder containing stimulus log files (default: results)",
+    )
+
+    parser.add_argument(
+        "--tracking",
+        default="results",
+        help="Subfolder containing tracking CSV files (default: results)",
+    )
+
+    parser.add_argument(
+        "--lightning-pose",
+        default="lightning_pose",
+        help="Subfolder containing lightning pose tracking CSV files (default: lightning_pose)",
+    )
+
+    parser.add_argument(
+        "--temperature",
+        default="results",
+        help="Subfolder containing temperature logs (default: results)",
+    )
+
+    parser.add_argument(
+        "--video",
+        default="results",
+        help="Subfolder containing raw video files (default: results)",
+    )
+
+    parser.add_argument(
+        "--video-timestamp",
+        default="results",
+        help="Subfolder containing video timestamp files (default: results)",
+    )
+
+    parser.add_argument(
+        "--results",
+        default="results",
+        help="Subfolder where per-animal exports will be written (default: results)",
+    )
+
+    parser.add_argument(
+        "--plots",
+        default="plots",
+        help="Subfolder containing plots (default: plots)",
+    )
+
     return parser
+
+def run_plot(
+        bouts_csv: str,
+        bouts_png: str,
+        config_yaml: Path,
+        root: Path,
+        metadata: str,
+        stimuli: str,
+        tracking: str,
+        lightning_pose: str,
+        temperature: str,
+        video: str,
+        video_timestamp: str,
+        results: str,
+        plots: str,
+    ) -> None:
+
+    input_csv = root / bouts_csv
+    output_png = root / bouts_png
+
+    directories = Directories(
+        root,
+        metadata=metadata,
+        stimuli=stimuli,
+        tracking=tracking,
+        full_tracking=lightning_pose,
+        temperature=temperature,
+        video=video,
+        video_timestamp=video_timestamp,
+        results=results,
+        plots=plots
+    )
+    behavior_files = find_files(directories)
+
+    plot_heatmap(input_csv, config_yaml, output_png, behavior_files)
 
 def main(args: argparse.Namespace) -> None:
 
-    input_csv = args.root / args.bouts_csv
-    output_png = args.root / args.bouts_png
-    config_yaml = args.yaml
-    plot_heatmap(input_csv, config_yaml, output_png)
+    run_plot(
+        bouts_csv=args.bouts_csv,
+        bouts_png=args.bouts_png,
+        config_yaml=args.config_yaml,
+        root=args.root,
+        metadata=args.metadata,
+        stimuli=args.stimuli,
+        tracking=args.tracking,
+        lightning_pose=args.lightning_pose,
+        temperature=args.temperature,
+        video=args.video,
+        video_timestamp=args.video_timestamp,
+        results=args.results,
+        plots=args.plots,
+    )
 
 if __name__ == "__main__":
 

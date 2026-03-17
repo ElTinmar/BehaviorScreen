@@ -4,7 +4,7 @@ from pathlib import Path
 from BehaviorScreen.export import export_single_animals
 from BehaviorScreen.megabouts import run_megabouts
 from BehaviorScreen.pose_estimation import estimate_pose, export_cropped_eyes_video
-from BehaviorScreen.plot import plot_heatmap
+from BehaviorScreen.plot import run_plot
 
 # TODO separate analysis and plotting
 # TODO linear mixed effects analysis to get within and between individual variability
@@ -199,10 +199,20 @@ def main(args: argparse.Namespace) -> None:
     # TODO
 
     print("5. plot", flush=True)
-    plot_heatmap(
-        input_csv = args.root / args.bouts_csv,
+    run_plot(
+        bouts_csv=args.bouts_csv,
+        bouts_png = args.bouts_png,
         config_yaml = args.yaml,
-        output_png = args.root / args.bouts_png,
+        root = args.root,
+        metadata=args.results,
+        stimuli=args.results,
+        tracking=args.results,
+        lightning_pose=args.lightning_pose,
+        temperature=args.results,
+        video=args.results,
+        video_timestamp=args.results,
+        results=args.results,
+        plots=args.plots
     )
 
     print("6. overlay")
