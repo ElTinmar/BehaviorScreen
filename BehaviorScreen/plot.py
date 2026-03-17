@@ -685,6 +685,7 @@ def main(args: argparse.Namespace) -> None:
     run_plot(
         bouts_csv=args.bouts_csv,
         bouts_png=args.bouts_png,
+        eyes_png=args.eyes_png,
         config_yaml=args.yaml,
         root=args.root,
         metadata=args.metadata,
