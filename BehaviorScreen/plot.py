@@ -105,32 +105,6 @@ def filter_bouts(bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
 
     return filtered
 
-def create_mask(
-        bouts: pd.DataFrame, 
-        fish: str,
-        category: int,
-        side: BoutSign,
-        stim: Stim,
-        trial_num: int,
-        time_range: Tuple[int, int],
-        parameters: RuleSet
-    ) -> pd.Series:
-    
-    lo, hi = time_range
-
-    mask = (
-        (bouts.stim == stim) & 
-        (bouts.trial_num == trial_num) &
-        (bouts.file == fish) &
-        (bouts.trial_time >= lo) & 
-        (bouts.trial_time < hi) &
-        (bouts.category == category) &
-        (bouts.sign == side)
-    )
-    mask &= parameters.get_mask(bouts)
-
-    return mask
-
 def load_yaml_config(path: Path) -> dict:
     """Load YAML config from file"""
     with open(path, 'r') as f:
@@ -223,17 +197,6 @@ def cosinor(info: FileNameInfo) -> Tuple[float, float]:
     theta = 2 * np.pi * (seconds / (24 * 3600))
     return (np.cos(theta), np.sin(theta))
 
-def has_no_bouts(
-        fish: str,
-        bouts: pd.DataFrame, 
-        spec: StimSpec
-    ) -> bool:
-
-    stim_mask = spec.parameters.get_mask(bouts)
-    stim_mask &= bouts.stim == spec.stim
-    stim_mask &= bouts.file == fish
-    return stim_mask.sum() == 0
-
 def get_behavior_data(behavior_files: List[BehaviorFiles], fish: str) -> BehaviorData | None:
     for f in behavior_files:
         if fish in str(f.metadata):
@@ -263,7 +226,7 @@ def stim_presented(behavior_data: BehaviorData, spec: StimSpec) -> bool:
     if spec.time_range is not None:
         trial_data = spec_data.iloc[valid_trials]
         trial_duration = 1e-9 * (trial_data.stop_timestamp - trial_data.start_timestamp)
-        valid_time_range = spec.time_range[1] < trial_duration 
+        valid_time_range = spec.time_range[0] < trial_duration 
         if not valid_time_range.any():
             return False
 
@@ -292,10 +255,17 @@ def plot_heatmap(
     N_epochs = len(stim_specs)
     N_bouts = len(bouts_category_name_short)
     N_sides = len(sides)
-    bout_frequency = np.zeros((N_fish, N_trials, N_epochs, N_bouts, N_sides), dtype=np.float32)
+    bout_frequency = np.full((N_fish, N_trials, N_epochs, N_bouts, N_sides), np.nan)
     rows = []
+
+    fish_groups = filtered_bouts.groupby("file")
     
     for fish_idx, fish in tqdm(enumerate(fish_names)):
+
+        if fish not in fish_groups.groups:
+            continue
+        fish_bouts = fish_groups.get_group(fish)
+
         fish_info = parse_fish(fish)
         time_cos, time_sin = cosinor(fish_info)
         
@@ -303,28 +273,38 @@ def plot_heatmap(
         if behavior_data is None:
             raise RuntimeError(f"{fish} not found, aborting")
 
+        stim_groups = fish_bouts.groupby("stim")
+
         for epoch_num, spec in enumerate(stim_specs):
+
+            if spec.time_range is None:
+                raise RuntimeError('time range should not be None')
             
             if not stim_presented(behavior_data, spec):
-                bout_frequency[fish_idx,:,epoch_num,...] = np.nan
+                print(f"{spec} not presented, skipping")
                 continue
+            
+            if spec.stim not in stim_groups.groups:
+                continue
+            
+            epoch_bouts = stim_groups.get_group(spec.stim)
+            rule_mask = spec.parameters.get_mask(epoch_bouts)
+            epoch_bouts = epoch_bouts[rule_mask]
+            
+            lo, hi = spec.time_range
+            duration = hi - lo
+            time_mask = (epoch_bouts.trial_time >= lo) & (epoch_bouts.trial_time < hi)
+            epoch_bouts = epoch_bouts[time_mask]
 
             for trial_idx, trial_num in enumerate(spec.trials):
+                trial_bouts = epoch_bouts[epoch_bouts.trial_num == trial_num]
+
                 for category, cat_name in enumerate(bouts_category_name_short):
+                    cat_bouts = trial_bouts[trial_bouts.category == category]
+
                     for side_idx, side in enumerate(sides):
                         
-                        mask = create_mask(
-                            bouts = filtered_bouts, 
-                            fish = fish,
-                            category = category,
-                            side = side,
-                            stim = spec.stim,
-                            trial_num = trial_num,
-                            time_range = spec.time_range,
-                            parameters = spec.parameters
-                        )
-                        counts = mask.sum() 
-                        duration = spec.time_range[1] - spec.time_range[0]
+                        counts = (cat_bouts.sign == side).sum()
                         freq = counts / duration
 
                         bout_frequency[fish_idx, trial_idx, epoch_num, category, side_idx] = freq
@@ -504,7 +484,7 @@ def main(args: argparse.Namespace) -> None:
     run_plot(
         bouts_csv=args.bouts_csv,
         bouts_png=args.bouts_png,
-        config_yaml=args.config_yaml,
+        config_yaml=args.yaml,
         root=args.root,
         metadata=args.metadata,
         stimuli=args.stimuli,
