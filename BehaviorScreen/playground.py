@@ -187,7 +187,7 @@ def compute_t_and_d(group_a, group_b):
     return t_stat, cohen_d
 
 def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
-    
+
     rng = np.random.default_rng(rng)
 
     obs_t, obs_d = compute_t_and_d(a, b)
@@ -220,7 +220,7 @@ comparisons = {
         if f.is_dir() 
         for p in [f / 'ronidazole/bouts.npz'] 
         if p.exists()
-    ],
+    ] + [ ROOT / 'WT/danieau/bouts.npz'],
     ROOT / 'WT/danieau/bouts.npz': [
         p for f in ROOT.iterdir() 
         if f.is_dir()
@@ -265,6 +265,10 @@ def plot_heatmap(
     ax.set_title(title)
     fig.tight_layout()
 
+
+
+alpha = 0.001
+
 for ref, comp_list in comparisons.items():
 
     ref_trial_avg, bin_names = load_bouts(ref)
@@ -282,7 +286,7 @@ for ref, comp_list in comparisons.items():
 
         d_map, p_map = permutation_analysis(ref_trial_avg, exp_trial_avg)
         data = d_map.T
-        sig_mask = p_map.T < 0.001
+        sig_mask = p_map.T < alpha
 
         val_mask = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) < 0.1 
         #data[~ci_mask] = 0
@@ -291,5 +295,5 @@ for ref, comp_list in comparisons.items():
 
         title = f"{p.relative_to(ROOT).parent} - {ref.relative_to(ROOT).parent}".replace('/',':')
         plot_heatmap(data, title, row_names, bin_names)
-        plt.savefig(f"{title}.png")
+        plt.savefig(f"{title}_alpha_{alpha}.png")
         plt.close()
