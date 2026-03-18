@@ -18,71 +18,8 @@ from BehaviorScreen.load import (
     load_data
 )
 from BehaviorScreen.megabouts import MegaboutResults
-from BehaviorScreen.process import compute_angle_between_vectors
+from BehaviorScreen.plot import get_eye_traces, read_stim_specs
 from megabouts.utils import bouts_category_name_short
-
-class EyesTimeseries(NamedTuple):
-    angle_left_deg: np.ndarray
-    angle_right_deg: np.ndarray
-    angle_left_smooth_deg: np.ndarray
-    angle_right_smooth_deg: np.ndarray
-    version_angle_deg: np.ndarray
-    vergence_angle_deg: np.ndarray
-
-def get_eye_traces(
-        data: pd.DataFrame, 
-        likelihood_threshold: float = 0.9,
-        divergence_threshold_deg: float = -10,
-        convergence_threshold_deg: float = 60,
-        window_length: int = 41
-    ) -> EyesTimeseries:
-
-    assert window_length % 2 == 1
-
-    # extract data
-    left_front_keypoint = data.eye_left_front[['x', 'y']].to_numpy()
-    left_front_likelihood = data.eye_left_front.likelihood.to_numpy()
-
-    left_back_keypoint = data.eye_left_back[['x', 'y']].to_numpy()
-    left_back_likelihood = data.eye_left_back.likelihood.to_numpy()
-
-    right_front_keypoint = data.eye_right_front[['x', 'y']].to_numpy()
-    right_front_likelihood = data.eye_right_front.likelihood.to_numpy()
-
-    right_back_keypoint = data.eye_right_back[['x', 'y']].to_numpy()
-    right_back_likelihood = data.eye_right_back.likelihood.to_numpy()
-
-    left_vector = left_back_keypoint - left_front_keypoint
-    right_vector = right_back_keypoint - right_front_keypoint
-
-    L_rad = compute_angle_between_vectors(left_vector, np.array([0,1]))
-    R_rad = compute_angle_between_vectors(right_vector, np.array([0,1]))
-    L = np.rad2deg(L_rad)
-    R = np.rad2deg(R_rad)
-
-    # remove outliers
-    L[(left_front_likelihood < likelihood_threshold) | (left_back_likelihood < likelihood_threshold)] = np.nan
-    R[(right_front_likelihood < likelihood_threshold) | (right_back_likelihood < likelihood_threshold)] = np.nan
-    L[(-L<divergence_threshold_deg) | (-L>convergence_threshold_deg)] = np.nan 
-    R[(R<divergence_threshold_deg) | (R>convergence_threshold_deg)] = np.nan
-
-    # interpolate and smooth
-    L = pd.Series(L).interpolate(limit_direction="both").to_numpy()
-    R = pd.Series(R).interpolate(limit_direction="both").to_numpy()
-    L_s = savgol_filter(L, window_length, polyorder=2)
-    R_s = savgol_filter(R, window_length, polyorder=2)
-    version_angle = (L_s + R_s)/2
-    vergence_angle = R_s - L_s
-
-    res = EyesTimeseries(
-        angle_left_deg=L,
-        angle_right_deg=R,
-        angle_left_smooth_deg=L_s,
-        angle_right_smooth_deg=R_s,
-        version_angle_deg=version_angle,
-        vergence_angle_deg=vergence_angle
-    )
-    return res
 
 ROOT = Path('/media/martin/DATA_18TB/Screen/WT/danieau')
 ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen/WT/danieau')
@@ -123,7 +60,7 @@ for idx, behavior_file in enumerate(files):
         print(idx, len(behavior_data.stimuli))
         if len(behavior_data.stimuli) < 180: 
             continue
-        eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
+        eyes = get_eye_traces(behavior_data, likelihood_threshold=0.9)
         n = len(eyes.version_angle_deg)
         pooled_vergence[idx, 0:n] = eyes.vergence_angle_deg
         pooled_version[idx, 0:n] = eyes.version_angle_deg
@@ -139,36 +76,6 @@ axes[1].set_ylabel(r'$\langle \text{version angle [deg]} \rangle$')
 plt.tight_layout()
 plt.savefig('vergence_version_wt.png')
 plt.show()
-
-from BehaviorScreen.load import load_lightning_pose
-files = [f for f in Path('/home/martin/Desktop/DATA/mecp2/danieau/lightning_pose').glob('*.csv') if 'temporal' not in str(f)]
-fs = 120
-pooled_vergence = np.full((len(files), 600_000), np.nan)
-pooled_version = np.full((len(files), 600_000), np.nan)
-for idx, behavior_file in enumerate(files): 
-        print(behavior_file)
-        tracking = load_lightning_pose(behavior_file)
-        eyes = get_eye_traces(tracking, likelihood_threshold=0.9)
-        n = len(eyes.version_angle_deg)
-        pooled_vergence[idx, 0:n] = eyes.vergence_angle_deg
-        pooled_version[idx, 0:n] = eyes.version_angle_deg
-
-plt.figure(figsize=(26, 4))
-plt.title('mecp2')
-plt.plot(np.arange(600_000)/fs, np.nanmean(pooled_vergence, axis=0)) 
-plt.xlabel('time')
-plt.ylabel('<vergence angle [deg]>')
-plt.savefig('mecp2_vergence.png')
-plt.show()
-
-plt.figure(figsize=(26,4))
-plt.title('mecp2')
-plt.plot(np.arange(600_000)/fs, np.nanmean(pooled_version, axis=0))    
-plt.xlabel('time')
-plt.ylabel('<version angle [deg]>')
-plt.savefig('mecp2_version.png')
-plt.show()
-
 
 def process_eye_data(file_path):
     
@@ -236,6 +143,7 @@ def plot_comparative_eyes(datasets, labels, stim_specs, fs, save_path='compariso
     plt.savefig(save_path, bbox_inches='tight')
     plt.show()
 
+stim_specs = read_stim_specs('BehaviorScreen/mecp2.yaml', ignore_time_bins=True)
 wt_data = process_eye_data('wt_eyes.npz')
 mutant_data = process_eye_data('mecp2_eyes.npz')
 
