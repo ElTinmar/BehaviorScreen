@@ -4,7 +4,7 @@
 #SBATCH -D /u/mapri/Code/BehaviorScreen
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=12
-#SBATCH --mem=48000
+#SBATCH --mem=12000
 #SBATCH --time=24:00:00
 
 module purge
