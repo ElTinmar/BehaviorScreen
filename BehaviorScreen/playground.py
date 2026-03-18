@@ -248,6 +248,7 @@ def plot_heatmap(
         ref,
         exp,
         effect_size, 
+        mask,
         title,
         row_names,
         col_names,
@@ -255,13 +256,15 @@ def plot_heatmap(
     ):
     # Create 3 vertically stacked subplots
     # Increased height (30) to accommodate three large heatmaps
-    fig, axes = plt.subplots(3, 1, figsize=(24, 34), sharex=True)
+    fig, axes = plt.subplots(3, 1, figsize=(24, 26), sharex=True)
     
     # 1. Plot Reference
     im0 = axes[0].imshow(ref, aspect='auto', cmap='inferno')
     im0.set_clim(*clim)
     axes[0].set_title(f"{title} - Reference")
     fig.colorbar(im0, ax=axes[0], label="Bout Frequency")
+    asterisk_y, asterisk_x = np.where(mask)
+    axes[0].scatter(asterisk_x, asterisk_y, s=8, color='lime', marker='o', zorder=2)
     
     # 2. Plot Experimental (Comp)
     im1 = axes[1].imshow(exp, aspect='auto', cmap='inferno')
@@ -286,7 +289,6 @@ def plot_heatmap(
         ax.set_xticks(range(len(col_names)))
         if i == 2:
             ax.set_xticklabels(col_names, rotation=90, ha='center')
-            ax.set_xlabel("epoch")
         else:
             ax.set_xticklabels([])
 
@@ -297,6 +299,7 @@ def plot_heatmap(
 # - lak danieau vs WT danieau show lots of differences
 # - WT danieau vs WT ronidazole does not
 alpha = 0.01
+value_threshold = 0.05
 
 for ref, comp_list in comparisons.items():
 
@@ -317,12 +320,14 @@ for ref, comp_list in comparisons.items():
         data = d_map.T
         sig_mask = p_map.T < alpha
 
-        val_mask = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) < 0.1 
-        #data[~ci_mask] = 0
-        data[~sig_mask] = 0
-        data[val_mask] = 0
+        low_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) < value_threshold 
+        mask_out = low_bout_freq | (~sig_mask)
+        data[mask_out] = 0
+
+        high_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) >= value_threshold 
+        scatter_mask = high_bout_freq & sig_mask
 
         title = f"{p.relative_to(ROOT).parent} - {ref.relative_to(ROOT).parent}".replace('/',':')
-        plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, title, row_names, bin_names)
+        plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, scatter_mask, title, row_names, bin_names)
         plt.savefig(f"{title}_alpha_{alpha}.png")
         plt.close()
