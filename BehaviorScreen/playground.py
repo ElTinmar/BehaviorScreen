@@ -245,25 +245,50 @@ def load_bouts(file):
     return trial_avg, bin_names
 
 def plot_heatmap(
-        data, 
+        ref,
+        exp,
+        effect_size, 
         title,
         row_names,
         col_names
     ):
+    # Create 3 vertically stacked subplots
+    # Increased height (30) to accommodate three large heatmaps
+    fig, axes = plt.subplots(3, 1, figsize=(24, 34), sharex=True)
     
-    fig = plt.figure(figsize=(26, 14))
-    ax = fig.gca()
-    im = ax.imshow(data, aspect='auto', cmap='bwr')
-    im.set_clim(-3,3)
-    fig.colorbar(im, ax=ax, label="effect size (cohen's d)")
-    ax.set_xticks(range(data.shape[1]))
-    ax.set_xticklabels(col_names, rotation=90, ha='center')
-    ax.set_yticks(range(data.shape[0]))
-    ax.set_yticklabels(row_names)
-    ax.set_xlabel("epoch")
-    ax.set_ylabel("bout category")
-    ax.set_title(title)
+    # 1. Plot Reference
+    im0 = axes[0].imshow(ref, aspect='auto', cmap='inferno')
+    axes[0].set_title(f"{title} - Reference")
+    fig.colorbar(im0, ax=axes[0], label="Bout Frequency")
+    
+    # 2. Plot Experimental (Comp)
+    im1 = axes[1].imshow(exp, aspect='auto', cmap='inferno')
+    axes[1].set_title(f"{title} - Experimental")
+    fig.colorbar(im1, ax=axes[1], label="Bout Frequency")
+    
+    # 3. Plot Effect Size
+    im2 = axes[2].imshow(effect_size, aspect='auto', cmap='bwr')
+    im2.set_clim(-3, 3) # Specific range for Cohen's d
+    axes[2].set_title(f"{title} - Effect Size (Cohen's d)")
+    fig.colorbar(im2, ax=axes[2], label="Effect size (Cohen's d)")
+    
+    # Formatting across all axes
+    for i, ax in enumerate(axes):
+        # Y-axis labels for every plot
+        ax.set_yticks(range(len(row_names)))
+        ax.set_yticklabels(row_names)
+        ax.set_ylabel("bout category")
+        
+        # X-axis labels (only rotate and show for the bottom plot to save space)
+        ax.set_xticks(range(len(col_names)))
+        if i == 2:
+            ax.set_xticklabels(col_names, rotation=90, ha='center')
+            ax.set_xlabel("epoch")
+        else:
+            ax.set_xticklabels([])
+
     fig.tight_layout()
+    return fig, axes
 
 # I want a method of quantifying significance/effect size where 
 # - lak danieau vs WT danieau show lots of differences
@@ -295,6 +320,6 @@ for ref, comp_list in comparisons.items():
         data[val_mask] = 0
 
         title = f"{p.relative_to(ROOT).parent} - {ref.relative_to(ROOT).parent}".replace('/',':')
-        plot_heatmap(data, title, row_names, bin_names)
+        plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, title, row_names, bin_names)
         plt.savefig(f"{title}_alpha_{alpha}.png")
         plt.close()
