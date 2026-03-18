@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 import pickle
 import numpy as np
 import textwrap
@@ -250,7 +250,8 @@ def plot_heatmap(
         effect_size, 
         title,
         row_names,
-        col_names
+        col_names,
+        clim: Tuple[float, float] = (0, 0.35)
     ):
     # Create 3 vertically stacked subplots
     # Increased height (30) to accommodate three large heatmaps
@@ -258,17 +259,19 @@ def plot_heatmap(
     
     # 1. Plot Reference
     im0 = axes[0].imshow(ref, aspect='auto', cmap='inferno')
+    im0.set_clim(*clim)
     axes[0].set_title(f"{title} - Reference")
     fig.colorbar(im0, ax=axes[0], label="Bout Frequency")
     
     # 2. Plot Experimental (Comp)
     im1 = axes[1].imshow(exp, aspect='auto', cmap='inferno')
+    im1.set_clim(*clim)
     axes[1].set_title(f"{title} - Experimental")
     fig.colorbar(im1, ax=axes[1], label="Bout Frequency")
     
     # 3. Plot Effect Size
     im2 = axes[2].imshow(effect_size, aspect='auto', cmap='bwr')
-    im2.set_clim(-3, 3) # Specific range for Cohen's d
+    im2.set_clim(-3, 3)
     axes[2].set_title(f"{title} - Effect Size (Cohen's d)")
     fig.colorbar(im2, ax=axes[2], label="Effect size (Cohen's d)")
     
