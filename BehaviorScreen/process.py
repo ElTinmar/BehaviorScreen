@@ -172,25 +172,6 @@ def compute_angle_between_vectors(v1: np.ndarray, v2: np.ndarray):
     angle = np.arctan2(sin_angle, cos_angle)
     return angle
 
-def compute_eye_angle_from_keypoints(
-        front_x, 
-        front_y, 
-        back_x, 
-        back_y,
-        head_x,
-        head_y,
-        swimbladder_x,
-        swimbladder_y,
-        mask
-        ):
-    
-    v1 = np.column_stack([head_x - swimbladder_x, head_y - swimbladder_y])
-    v2 = np.column_stack([front_x - back_x, front_y - back_y])
-    angle =  compute_angle_between_vectors(v1, v2)
-    if mask is not None:
-        angle[~mask] = np.nan
-    return angle
-
 def get_target_time(trial_duration, target_fps) -> np.ndarray:
     num_points = int(target_fps * trial_duration)
     return np.linspace(0, trial_duration, num_points, endpoint=False)
