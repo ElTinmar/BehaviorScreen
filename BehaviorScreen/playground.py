@@ -24,7 +24,6 @@ from megabouts.utils import bouts_category_name_short
 ROOT = Path('/media/martin/DATA_18TB/Screen/WT/danieau')
 ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen/WT/danieau')
 ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen/mecp2/danieau')
-
 #ROOT = Path('/media/martin/MARTIN_8TB_0/Work/Baier/DATA/Behavioral_screen/DATA/WT/danieau')
 
 directories = Directories(
