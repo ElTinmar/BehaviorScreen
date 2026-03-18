@@ -265,8 +265,6 @@ def plot_heatmap(
     ax.set_title(title)
     fig.tight_layout()
 
-
-
 alpha = 0.001
 
 for ref, comp_list in comparisons.items():
