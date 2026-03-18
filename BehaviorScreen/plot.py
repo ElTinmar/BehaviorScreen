@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import operator
 from itertools import product
 import textwrap
+import warnings
 
 import yaml
 import pandas as pd
@@ -84,6 +85,7 @@ class StimSpec:
     parameters: RuleSet
 
 class EyesTimeseries(NamedTuple):
+    timestamps: np.ndarray
     angle_left_deg: np.ndarray
     angle_right_deg: np.ndarray
     angle_left_smooth_deg: np.ndarray
@@ -249,7 +251,7 @@ def stim_presented(behavior_data: BehaviorData, spec: StimSpec) -> bool:
     return True
 
 def get_eye_traces(
-        data: pd.DataFrame, 
+        behavior_data: BehaviorData, 
         likelihood_threshold: float = 0.9,
         divergence_threshold_deg: float = -10,
         convergence_threshold_deg: float = 60,
@@ -259,17 +261,17 @@ def get_eye_traces(
     assert window_length % 2 == 1
 
     # extract data
-    left_front_keypoint = data.eye_left_front[['x', 'y']].to_numpy()
-    left_front_likelihood = data.eye_left_front.likelihood.to_numpy()
+    left_front_keypoint = behavior_data.eyes_tracking.eye_left_front[['x', 'y']].to_numpy()
+    left_front_likelihood = behavior_data.eyes_tracking.eye_left_front.likelihood.to_numpy()
 
-    left_back_keypoint = data.eye_left_back[['x', 'y']].to_numpy()
-    left_back_likelihood = data.eye_left_back.likelihood.to_numpy()
+    left_back_keypoint = behavior_data.eyes_tracking.eye_left_back[['x', 'y']].to_numpy()
+    left_back_likelihood = behavior_data.eyes_tracking.eye_left_back.likelihood.to_numpy()
 
-    right_front_keypoint = data.eye_right_front[['x', 'y']].to_numpy()
-    right_front_likelihood = data.eye_right_front.likelihood.to_numpy()
+    right_front_keypoint = behavior_data.eyes_tracking.eye_right_front[['x', 'y']].to_numpy()
+    right_front_likelihood = behavior_data.eyes_tracking.eye_right_front.likelihood.to_numpy()
 
-    right_back_keypoint = data.eye_right_back[['x', 'y']].to_numpy()
-    right_back_likelihood = data.eye_right_back.likelihood.to_numpy()
+    right_back_keypoint = behavior_data.eyes_tracking.eye_right_back[['x', 'y']].to_numpy()
+    right_back_likelihood = behavior_data.eyes_tracking.eye_right_back.likelihood.to_numpy()
 
     left_vector = left_back_keypoint - left_front_keypoint
     right_vector = right_back_keypoint - right_front_keypoint
@@ -293,13 +295,20 @@ def get_eye_traces(
     version_angle = (L_s + R_s)/2
     vergence_angle = R_s - L_s
 
+    timestamps = behavior_data.video_timestamps.timestamp.to_numpy()
+    n = len(timestamps)
+    if n != len(version_angle):
+        warnings.warn(f"frame mismatch: timestamps: {n} | eye tracking: {len(version_angle)}")
+        # NOTE this happens for a file in WT/ronidazole
+
     res = EyesTimeseries(
-        angle_left_deg=L,
-        angle_right_deg=R,
-        angle_left_smooth_deg=L_s,
-        angle_right_smooth_deg=R_s,
-        version_angle_deg=version_angle,
-        vergence_angle_deg=vergence_angle
+        timestamps = timestamps,
+        angle_left_deg=L[:n],
+        angle_right_deg=R[:n],
+        angle_left_smooth_deg=L_s[:n],
+        angle_right_smooth_deg=R_s[:n],
+        version_angle_deg=version_angle[:n],
+        vergence_angle_deg=vergence_angle[:n]
     )
     return res
 
@@ -329,9 +338,8 @@ def plot_eyes(
     for fish_idx, behavior_file in tqdm(enumerate(behavior_files)):
 
         behavior_data: BehaviorData = load_data(behavior_file)
-        timestamps = behavior_data.video_timestamps.timestamp.to_numpy()
         stim_trials = get_trials(behavior_data)
-        eyes = get_eye_traces(behavior_data.eyes_tracking, likelihood_threshold=0.9)
+        eyes = get_eye_traces(behavior_data, likelihood_threshold=0.9)
 
         for spec_idx, spec in enumerate(stim_specs):
             spec_mask = (
@@ -346,9 +354,9 @@ def plot_eyes(
             trial_data = spec_data.iloc[valid_trials]
 
             for trial_idx, (trial, row) in enumerate(trial_data.iterrows()):
-                mask = (timestamps > row.start_timestamp) & (timestamps < row.stop_timestamp) 
+                mask = (eyes.timestamps > row.start_timestamp) & (eyes.timestamps < row.stop_timestamp) 
                 trial_duration = 1e-9 * (row.stop_timestamp - row.start_timestamp)
-                trial_time = 1e-9 * (timestamps[mask] - row.start_timestamp)
+                trial_time = 1e-9 * (eyes.timestamps[mask] - row.start_timestamp)
                 n = np.searchsorted(target_time, trial_duration)
                 version_angle[fish_idx, trial_idx, spec_idx, :n] = interpolate_ts(target_time[:n], trial_time, eyes.version_angle_deg[mask])
                 vergence_angle[fish_idx, trial_idx, spec_idx, :n] = interpolate_ts(target_time[:n], trial_time, eyes.vergence_angle_deg[mask])
