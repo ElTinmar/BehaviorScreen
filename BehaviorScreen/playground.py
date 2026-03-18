@@ -296,7 +296,7 @@ def plot_heatmap(
 # I want a method of quantifying significance/effect size where 
 # - lak danieau vs WT danieau show lots of differences
 # - WT danieau vs WT ronidazole does not
-alpha = 0.001
+alpha = 0.01
 
 for ref, comp_list in comparisons.items():
 
