@@ -18,8 +18,7 @@ from BehaviorScreen.load import (
     load_data
 )
 from BehaviorScreen.megabouts import MegaboutResults
-from BehaviorScreen.process import get_trials, compute_angle_between_vectors
-from BehaviorScreen.plot import load_yaml_config, read_stim_specs
+from BehaviorScreen.process import compute_angle_between_vectors
 from megabouts.utils import bouts_category_name_short
 
 class EyesTimeseries(NamedTuple):
