@@ -16,4 +16,4 @@ PARENT_DIR=$(basename "$(dirname "$INPUT_PATH")")
 JOB_NAME="video_overlay_${PARENT_DIR}/${FILE_NAME}"
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
-srun --unbuffered conda run -n BehaviorScreen python -m BehaviorScreen.overlay "$INPUT_PATH" --metadata='results' --stimuli='results' --tracking='results' --video='results' --video-timestamp='results'
+srun conda run --no-capture-output -n BehaviorScreen python -m BehaviorScreen.overlay "$INPUT_PATH" --metadata='results' --stimuli='results' --tracking='results' --video='results' --video-timestamp='results'

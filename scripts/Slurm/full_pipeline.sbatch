@@ -18,4 +18,4 @@ PARENT_DIR=$(basename "$(dirname "$INPUT_PATH")")
 JOB_NAME="full_pipeline_${PARENT_DIR}/${FILE_NAME}"
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
-srun --unbuffered conda run -n BehaviorScreen python -u -m BehaviorScreen "$INPUT_PATH"
+srun conda run --no-capture-output -n BehaviorScreen python -m BehaviorScreen "$INPUT_PATH"
