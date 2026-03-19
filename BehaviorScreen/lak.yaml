@@ -1,0 +1,219 @@
+filters:
+  distance_center: {'<=': 10} 
+  proba: {'>=': 0.5}
+  distance: {'<=': 100}
+  peak_axial_speed: {'<=': 300}
+  heading_mismatch_max: {'<=': 180}
+  centroid_mismatch_max: {'<=': 1000}
+  file: {'not_in': ["fish_1", "fish_2"]}
+
+time_bins:
+  - [0, 2.5]
+  - [2.5, 5]
+  - [5, 7.5]
+  - [7.5, 10]
+  - [10, 15]
+  - [15, 25]
+
+stimuli:
+  - stim: DARK
+    name: "dark"
+    parameters: 
+      - background_color: {'==': "[0.0, 0.0, 0.0, 1.0]"}
+    trial_range: 
+      start: 10
+      stop: 20
+      step: 1
+
+  - stim: BRIGHT
+    name: "bright"
+    parameters: 
+      - foreground_color: {'==': "[0.2, 0.2, 0.0, 1.0]"}
+    trial_range: 
+      start: 5
+      stop: 15
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "prey capture"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+       - prey_arc_start_deg: {'==': 20}
+    trial_range: 
+      start: 0
+      stop: 5
+      step: 1
+
+  - stim: PHOTOTAXIS
+    name: "phototaxis"
+    parameters: 
+       - phototaxis_polarity: {'==': -1}
+         foreground_color: {'==': "[0.1, 0.1, 0.0, 1.0]"}
+       - phototaxis_polarity: {'==': 1}
+         foreground_color: {'==': "[0.1, 0.1, 0.0, 1.0]"}
+    time_bins:
+      - [0, 0.5]
+      - [0.5, 1]
+      - [1, 1.5]
+      - [1.5, 2]
+      - [2, 5]
+      - [5, 10]
+      - [10, 15]
+      - [15, 25]
+    trial_range: 
+      start: 0
+      stop: 10
+      step: 1
+
+  - stim: PHOTOTAXIS
+    name: "phototaxis"
+    parameters: 
+       - phototaxis_polarity: {'==': -1}
+         foreground_color: {'==': "[0.2, 0.2, 0.0, 1.0]"}
+       - phototaxis_polarity: {'==': 1}
+         foreground_color: {'==': "[0.2, 0.2, 0.0, 1.0]"}
+    time_bins:
+      - [0, 0.5]
+      - [0.5, 1]
+      - [1, 1.5]
+      - [1.5, 2]
+      - [2, 5]
+      - [5, 10]
+      - [10, 15]
+      - [15, 25]
+    trial_range: 
+      start: 0
+      stop: 10
+      step: 1
+
+  - stim: OMR
+    name: "OMR lateral"
+    parameters: 
+      - omr_angle_deg: {'==': -90}
+      - omr_angle_deg: {'==': 90}
+    time_bins:
+      - [0, 2.5]
+      - [2.5, 5]
+      - [5, 7.5]
+      - [7.5, 10]
+    trial_range: 
+      start: 0
+      stop: 5
+      step: 1
+
+  - stim: OMR
+    name: "OMR forward"
+    parameters: 
+      - omr_angle_deg: {'==': 0}
+    time_bins:
+      - [0, 2.5]
+      - [2.5, 5]
+      - [5, 7.5]
+      - [7.5, 10]
+    trial_range:
+      start: 0
+      stop: 5
+      step: 1
+
+  - stim: OKR
+    name: "OKR"
+    parameters: 
+      - okr_speed_deg_per_sec: {'==': -36}
+      - okr_speed_deg_per_sec: {'==': 36}
+    time_bins:
+      - [0, 2.5]
+      - [2.5, 5]
+      - [5, 7.5]
+      - [7.5, 10]
+    trial_range: 
+      start: 0
+      stop: 5
+      step: 1
+
+  - stim: LOOMING
+    name: "looming"
+    parameters:
+      - looming_center_mm_x: {'==': -3}
+      - looming_center_mm_x: {'==': 3}
+    time_bins:
+      - [0, 1]
+      - [1, 2]
+      - [2, 3]
+      - [3, 4]
+      - [4, 5]
+      - [5, 6]
+      - [6, 7]
+      - [7, 8]
+      - [8, 9]
+      - [9, 10]
+    trial_range: 
+      start: 0
+      stop: 7
+      step: 1
+
+  - stim: DARK
+    name: "bright -> dark"
+    parameters: 
+      - background_color: {'==': "[0.0, 0.0, 0.0, 1.0]"}
+    time_bins:
+      - [0, 0.5]
+      - [0.5, 1]
+      - [1, 2]
+      - [2, 5]
+      - [5, 10]
+    trial_range: 
+      start: 20
+      stop: 25
+      step: 1
+
+  # - stim: BRIGHT
+  #   name: "OMR 90 MAE"
+  #   parameters: ["[0.1, 0.1, 0.0, 1.0]"]
+  #   time_bins:
+  #     - [0, 0.5]
+  #   trial_range: 
+  #     start: 20
+  #     stop: 35
+  #     step: 3
+
+  # - stim: BRIGHT
+  #   name: "OMR -90 MAE"
+  #   parameters: ["[0.1, 0.1, 0.0, 1.0]"]
+  #   time_bins:
+  #     - [0, 0.5]
+  #   trial_range:
+  #     start: 21
+  #     stop: 35
+  #     step: 3
+
+  # - stim: BRIGHT
+  #   name: "OMR 0 MAE"
+  #   parameters: ["[0.1, 0.1, 0.0, 1.0]"]
+  #   time_bins:
+  #     - [0, 0.5]
+  #   trial_range: 
+  #     start: 22
+  #     stop: 35
+  #     step: 3
+      
+  # - stim: BRIGHT
+  #   name: "OKR 36 MAE"
+  #   parameters: ["[0.1, 0.1, 0.0, 1.0]"]
+  #   time_bins:
+  #     - [0, 0.5]
+  #   trial_range: 
+  #     start: 35
+  #     stop: 45
+  #     step: 2
+
+  # - stim: BRIGHT
+  #   name: "OKR -36 MAE"
+  #   parameters: ["[0.1, 0.1, 0.0, 1.0]"]
+  #   time_bins:
+  #     - [0, 0.5]
+  #   trial_range: 
+  #     start: 36
+  #     stop: 45
+  #     step: 2
+
+  # VMR : transient period of hyperactivity on light loss: O-bend -> RT  
