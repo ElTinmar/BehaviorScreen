@@ -39,3 +39,5 @@ sbatch megabout.sbatch /ptmp/mapri/Screen/y359/ronidazole
 sbatch megabout.sbatch /ptmp/mapri/Screen/y359/vehicle 
 sbatch megabout.sbatch /ptmp/mapri/Screen/242A/ronidazole 
 sbatch megabout.sbatch /ptmp/mapri/Screen/242A/vehicle 
+sbatch megabout.sbatch /ptmp/mapri/Screen/gr/danieau
+sbatch megabout.sbatch /ptmp/mapri/Screen/wik/danieau

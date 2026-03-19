@@ -39,3 +39,5 @@ sbatch full_pipeline.sbatch /ptmp/mapri/Screen/y359/ronidazole
 sbatch full_pipeline.sbatch /ptmp/mapri/Screen/y359/vehicle 
 sbatch full_pipeline.sbatch /ptmp/mapri/Screen/242A/ronidazole 
 sbatch full_pipeline.sbatch /ptmp/mapri/Screen/242A/vehicle 
+sbatch full_pipeline.sbatch /ptmp/mapri/Screen/gr/danieau
+sbatch full_pipeline.sbatch /ptmp/mapri/Screen/wik/danieau

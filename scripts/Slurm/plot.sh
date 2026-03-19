@@ -39,3 +39,5 @@ sbatch plot.sbatch /ptmp/mapri/Screen/y359/ronidazole BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/y359/vehicle BehaviorScreen/screen.yaml 
 sbatch plot.sbatch /ptmp/mapri/Screen/242A/ronidazole BehaviorScreen/screen.yaml 
 sbatch plot.sbatch /ptmp/mapri/Screen/242A/vehicle BehaviorScreen/screen.yaml 
+sbatch plot.sbatch /ptmp/mapri/Screen/gr/danieau BehaviorScreen/screen.yaml 
+sbatch plot.sbatch /ptmp/mapri/Screen/wik/danieau BehaviorScreen/screen.yaml 
