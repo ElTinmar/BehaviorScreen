@@ -93,7 +93,7 @@ def get_bout_metrics(
         rollover_time_s: int = 3600
     ) -> List[Dict]:
 
-    well_coords_mm = get_well_coords_mm(directories, behavior_files, behavior_data)
+    cx,cy,_ = get_well_coords_mm(directories, behavior_files, behavior_data)
     fps = behavior_data.metadata['camera']['framerate_value']
     stim_trials = get_trials(behavior_data)
     bout_start = megabout.timestamp[megabout.bouts.onset]
@@ -106,7 +106,6 @@ def get_bout_metrics(
     posthoc_tracking_heading = behavior_data.full_tracking.Head[['x', 'y']].to_numpy() - posthoc_tracking_centroid
     posthoc_tracking_heading = posthoc_tracking_heading / np.linalg.norm(posthoc_tracking_heading, axis=1, keepdims=True)
     
-    cx,cy,_ = well_coords_mm[0,:]
     rows = []
 
     for stim_select, stim_data in stim_trials.groupby('stim_select'):
@@ -265,12 +264,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output CSV file containing bout x visual stim",
     )
 
-    parser.add_argument(
-        "--megabout",
-        default='megabout.pkl',
-        help="Output pickle file containing megabouts results",
-    )
-
     # Directory layout overrides
     parser.add_argument(
         "--metadata",
@@ -334,7 +327,6 @@ def build_parser() -> argparse.ArgumentParser:
 def run_megabouts(
         root: Path,
         output_csv: str,
-        output_megabout: str,
         metadata: str,
         stimuli: str,
         tracking: str,
@@ -367,11 +359,12 @@ def run_megabouts(
     behavior_files = find_files(directories)
 
     bout_stim = []
-    megabout_results = {}
     for behavior_file in tqdm(behavior_files):
         behavior_data = load_data(behavior_file)
         megabout = megabout_fulltracking_pipeline(behavior_data)
-        megabout_results[behavior_file.metadata.stem] = megabout
+        mb_file = behavior_file.metadata.with_suffix('.pkl')
+        with open(mb_file, "wb") as f:
+            pickle.dump(megabout, f)
         bout_metrics = get_bout_metrics(directories, behavior_data, behavior_file, megabout)
         bout_stim.extend(bout_metrics)
 
@@ -382,14 +375,10 @@ def run_megabouts(
         index=False
     )
 
-    with open(root / output_megabout, "wb") as f:
-        pickle.dump(megabout_results, f)
-
 def main(args: argparse.Namespace) -> None:
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
-        output_megabout=args.megabout,
         metadata=args.metadata,
         stimuli=args.stimuli,
         tracking=args.tracking,
