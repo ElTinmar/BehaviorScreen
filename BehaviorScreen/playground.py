@@ -339,7 +339,7 @@ for ref, comp_list in comparisons.items():
 import numpy as np
 
 # Learning wall interaction: add "distance to wall" and "angle of incidence" to the features 
-from BehaviorScreen.process import get_well_coords_mm
+from BehaviorScreen.process import get_well_coords_mm, get_background_image
 well_coords_mm = get_well_coords_mm(directories, behavior_file, behavior_data)
 
 def extract_features(df):
