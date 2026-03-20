@@ -339,36 +339,9 @@ for ref, comp_list in comparisons.items():
 import numpy as np
 
 # Learning wall interaction: add "distance to wall" and "angle of incidence" to the features 
+from BehaviorScreen.process import get_well_coords_mm
+well_coords_mm = get_well_coords_mm(directories, behavior_file, behavior_data)
 
-# I might need to improve the detection of the wall
-#from BehaviorScreen.process import get_well_coords_mm
-#well_coords_mm = get_well_coords_mm(directories, behavior_file, behavior_data)
-
-import cv2
-from BehaviorScreen.process import get_background_image
-
-frame = get_background_image(behavior_data)
-
-def well_coordinates(frame):
-
-    blurred = cv2.GaussianBlur(frame, (5, 5), 0)
-    edges = cv2.Canny(blurred, 50, 150)
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    if not contours:
-        return None
-
-    largest_contour = max(contours, key=lambda c: cv2.arcLength(c, True))
-    if len(largest_contour) < 5:
-        return None
-    
-    ellipse = cv2.fitEllipse(largest_contour) 
-    (xc, yc), (d1, d2), angle = ellipse
-    avg_radius = (d1 + d2) / 4
-    circle_approx = ((int(xc), int(yc)), int(avg_radius))
-
-    return ellipse, circle_approx
-    
 def extract_features(df):
     # main axis pointing towards the tail 
     heading_x = (df[('Swim_Bladder', 'x')] - df[('Head', 'x')]).values
