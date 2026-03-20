@@ -57,7 +57,7 @@ def get_circle(
 
     background = cv2.GaussianBlur(image, (101, 101), 0)
     flat = cv2.divide(image, background, scale=255)
-    blurred = cv2.GaussianBlur(flat, (11, 11), 0)
+    blurred = cv2.GaussianBlur(flat, (13, 13), 0)
     edges = cv2.Canny(blurred, 10, 120)
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     target_radius_mm = well_dimensions['well_radius_mm']
