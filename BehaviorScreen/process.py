@@ -88,38 +88,6 @@ def get_circle_hough(
         circle[2]
     ) 
 
-def get_circle(
-        image: np.ndarray, 
-        pix_per_mm: float,
-        tolerance_mm: float,
-        well_dimensions: WellDimensions
-    ) -> Circle:
-
-    background = cv2.GaussianBlur(image, (101, 101), 0)
-    flat = cv2.divide(image, background, scale=255)
-    blurred = cv2.GaussianBlur(flat, (13, 13), 0)
-    #edges = cv2.Canny(blurred, 10, 120)
-    ret, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    target_radius_mm = well_dimensions['well_radius_mm']
-
-    if not contours:
-        raise RuntimeError('circle not found')
-    
-    def distance(contour):
-        perimeter_px = cv2.arcLength(cv2.convexHull(contour), True)
-        perimeter_mm = perimeter_px/pix_per_mm
-        radius_mm = perimeter_mm/(2*np.pi)
-        return np.abs(radius_mm-target_radius_mm)
-
-    best_contour = min(contours, key=distance)
-    (x, y), radius = cv2.minEnclosingCircle(best_contour)
-
-    if abs(radius/pix_per_mm - target_radius_mm) > tolerance_mm:
-        raise RuntimeError('circle not found')
-
-    return Circle((int(x), int(y)), int(radius))
-
 def save_detected_circle(
         directories: Directories,
         behavior_file: BehaviorFiles,
