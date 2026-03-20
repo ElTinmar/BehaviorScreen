@@ -331,3 +331,79 @@ for ref, comp_list in comparisons.items():
         plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, scatter_mask, title, row_names, bin_names)
         plt.savefig(f"{title}_alpha_{alpha}.png")
         plt.close()
+
+
+## playing with head embedding ===================================================================================
+
+
+import numpy as np
+
+# Learning wall interaction: add "distance to wall" and "angle of incidence" to the features 
+
+# I might need to improve the detection of the wall
+#from BehaviorScreen.process import get_well_coords_mm
+#well_coords_mm = get_well_coords_mm(directories, behavior_file, behavior_data)
+
+import cv2
+from BehaviorScreen.process import get_background_image
+
+frame = get_background_image(behavior_data)
+
+def well_coordinates(frame):
+
+    blurred = cv2.GaussianBlur(frame, (5, 5), 0)
+    edges = cv2.Canny(blurred, 50, 150)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if not contours:
+        return None
+
+    largest_contour = max(contours, key=lambda c: cv2.arcLength(c, True))
+    if len(largest_contour) < 5:
+        return None
+    
+    ellipse = cv2.fitEllipse(largest_contour) 
+    (xc, yc), (d1, d2), angle = ellipse
+    avg_radius = (d1 + d2) / 4
+    circle_approx = ((int(xc), int(yc)), int(avg_radius))
+
+    return ellipse, circle_approx
+    
+def extract_features(df):
+    # main axis pointing towards the tail 
+    heading_x = (df[('Swim_Bladder', 'x')] - df[('Head', 'x')]).values
+    heading_y = (df[('Swim_Bladder', 'y')] - df[('Head', 'y')]).values
+    
+    tail_angles = []
+    for i in range(9):
+        segment_x = (df[(f'Tail_{i+1}', 'x')] - df[(f'Tail_{i}', 'x')]).values
+        segment_y = (df[(f'Tail_{i+1}', 'y')] - df[(f'Tail_{i}', 'y')]).values
+        
+        dot = heading_x * segment_x + heading_y * segment_y
+        det = heading_x * segment_y - heading_y * segment_x
+        angle = np.arctan2(det, dot)
+        tail_angles.append(angle)
+
+    tail_angles = np.stack(tail_angles, axis=1)
+    tail_velocity = np.diff(tail_angles, axis=0, prepend=tail_angles[:1])
+    features = np.hstack([tail_angles, tail_velocity])
+    
+    return features
+
+def extract_targets(df):
+    h_x, h_y = df[('Head', 'x')].values, df[('Head', 'y')].values
+    s_x, s_y = df[('Swim_Bladder', 'x')].values, df[('Swim_Bladder', 'y')].values
+    
+    theta = np.arctan2(h_y - s_y, h_x - s_x)
+    diff_x = np.diff(h_x)
+    diff_y = np.diff(h_y)
+    diff_theta = np.diff(np.unwrap(theta))
+    
+    t_start = theta[:-1]
+    dx_local = diff_x * np.cos(t_start) + diff_y * np.sin(t_start)
+    dy_local = -diff_x * np.sin(t_start) + diff_y * np.cos(t_start)
+    
+    return np.column_stack([dx_local, dy_local, diff_theta])
+
+features = extract_features(behavior_data.full_tracking)
+targets = extract_targets(behavior_data.full_tracking) 
