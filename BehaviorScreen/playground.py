@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import List, Tuple
-import pickle
 import numpy as np
 import textwrap
 import matplotlib.pyplot as plt
@@ -14,7 +13,6 @@ from BehaviorScreen.load import (
     find_files, 
     load_data
 )
-from BehaviorScreen.megabouts import MegaboutResults
 from BehaviorScreen.plot import get_eye_traces, read_stim_specs
 from megabouts.utils import bouts_category_name_short
 
@@ -40,10 +38,11 @@ files: List[BehaviorFiles] = find_files(directories)
 behavior_file = files[0]
 behavior_data: BehaviorData = load_data(behavior_file)
 
-with open(ROOT / 'megabout.pkl', 'rb') as fp:
-    mb = pickle.load(fp) 
 
-megabout = mb[behavior_file.metadata.stem]
+ROOT = Path('/media/martin/DATA_18TB/Screen/cort/vehicle')
+behavior_file = [f for f in files if '00_07dpf_cort-veh_Wed_11_Feb_2026_18h59min38sec_fish_1' in str(f.metadata)][0]
+behavior_data: BehaviorData = load_data(behavior_file)
+
 
 # ----------------------------
 fs = 120
@@ -380,3 +379,64 @@ def extract_targets(df):
 
 features = extract_features(behavior_data.full_tracking)
 targets = extract_targets(behavior_data.full_tracking) 
+
+
+
+
+####
+
+def create_ring_template(radius_mm, pix_per_mm, thickness_px=5):
+    # 1. Convert physical units to pixels
+    r_px = int(radius_mm * pix_per_mm)
+    # Give the template some 'breathing room' (padding)
+    pad = 10
+    side = (r_px + pad) * 2
+    
+    # 2. Create a white background
+    template = np.full((side, side), 255, dtype=np.uint8)
+    
+    # 3. Draw the dark ring (the 'well wall')
+    center = (side // 2, side // 2)
+    cv2.circle(template, center, r_px, (0, 0, 0), thickness=thickness_px)
+    
+    # 4. Blur it! This is the secret sauce.
+    # A sharp template is too 'picky'. A blurred one handles 
+    # slightly irregular or noisy walls much better.
+    template = cv2.GaussianBlur(template, (5, 5), 0)
+    
+    return template
+
+def find_well_template(image, radius_mm, pix_per_mm):
+    if len(image.shape) == 3:
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+    template = create_ring_template(radius_mm, pix_per_mm)
+    h, w = template.shape
+    
+    # Run the matching
+    res = cv2.matchTemplate(image, template, cv2.TM_CCOEFF_NORMED)
+    
+    # Find the peak
+    _, max_val, _, max_loc = cv2.minMaxLoc(res)
+    
+    # Calculate the center of the found well
+    # max_loc is the top-left of the match
+    center_x = max_loc[0] + w // 2
+    center_y = max_loc[1] + h // 2
+    
+    return (center_x, center_y), max_val
+
+def find_well_multi_scale(image, radius_mm, pix_per_mm):
+    scales = [0.95, 0.98, 1.0, 1.02, 1.05] # Check 5 sizes
+    best_match = None
+    max_score = -1
+    
+    for s in scales:
+        temp = create_ring_template(radius_mm * s, pix_per_mm)
+        (cx, cy), score = find_well_template(image, radius_mm * s, pix_per_mm)
+        
+        if score > max_score:
+            max_score = score
+            best_match = (cx, cy, int(radius_mm * s * pix_per_mm))
+            
+    return best_match, max_score

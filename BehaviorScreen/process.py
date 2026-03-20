@@ -55,8 +55,10 @@ def get_circle(
         well_dimensions: WellDimensions
     ) -> Circle:
 
-    blurred = cv2.GaussianBlur(image, (5, 5), 0)
-    edges = cv2.Canny(blurred, 10, 10)
+    background = cv2.GaussianBlur(image, (101, 101), 0)
+    flat = cv2.divide(image, background, scale=255)
+    blurred = cv2.GaussianBlur(flat, (11, 11), 0)
+    edges = cv2.Canny(blurred, 10, 120)
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     target_radius_mm = well_dimensions['well_radius_mm']
 
@@ -70,9 +72,6 @@ def get_circle(
         return np.abs(radius_mm-target_radius_mm)
 
     best_contour = min(contours, key=distance)
-    if len(best_contour) < 5:
-        raise RuntimeError('circle not found')
-    
     (x, y), radius = cv2.minEnclosingCircle(best_contour)
 
     if abs(radius/pix_per_mm - target_radius_mm) > tolerance_mm:
