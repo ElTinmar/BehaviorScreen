@@ -48,6 +48,46 @@ class Circle(NamedTuple):
     center: Tuple[int, int]
     radius: int
 
+def get_circle_hough(
+        image: np.ndarray, 
+        pix_per_mm: float,
+        tolerance_mm: float,
+        well_dimensions: WellDimensions
+    ) -> Circle:
+
+    background = cv2.GaussianBlur(image, (101, 101), 0)
+    flat = cv2.divide(image, background, scale=255)
+    blurred = cv2.GaussianBlur(flat, (13, 13), 0)
+
+    tolerance = int(tolerance_mm * pix_per_mm) 
+
+    circle_radius = int(pix_per_mm * well_dimensions['well_radius_mm'])
+    min_radius = circle_radius - tolerance
+    max_radius = circle_radius + tolerance
+
+    well_distance = pix_per_mm * well_dimensions['distance_between_well_centers_mm']
+    min_distance = well_distance - tolerance
+
+    circles = cv2.HoughCircles(
+        blurred,
+        cv2.HOUGH_GRADIENT,
+        dp = 1,
+        minDist = min_distance,
+        param1 = 50,
+        param2 = 30,
+        minRadius = min_radius,
+        maxRadius = max_radius
+    )
+
+    if circles is None:
+        raise RuntimeError('circle not found')
+    
+    circle = np.uint16(np.around(circles[0, 0]))
+    return Circle(
+        (circle[0], circle[1]), 
+        circle[2]
+    ) 
+
 def get_circle(
         image: np.ndarray, 
         pix_per_mm: float,
@@ -58,8 +98,9 @@ def get_circle(
     background = cv2.GaussianBlur(image, (101, 101), 0)
     flat = cv2.divide(image, background, scale=255)
     blurred = cv2.GaussianBlur(flat, (13, 13), 0)
-    edges = cv2.Canny(blurred, 10, 120)
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    #edges = cv2.Canny(blurred, 10, 120)
+    ret, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     target_radius_mm = well_dimensions['well_radius_mm']
 
     if not contours:
@@ -109,7 +150,7 @@ def get_well_coords_mm(
     pix_per_mm = behavior_data.metadata['calibration']['pix_per_mm']
     
     try:
-        circle = get_circle(
+        circle = get_circle_hough(
             background_image, 
             pix_per_mm, 
             tolerance_mm, 
