@@ -56,7 +56,7 @@ def get_circle(
     ) -> Circle:
 
     blurred = cv2.GaussianBlur(image, (5, 5), 0)
-    edges = cv2.Canny(blurred, 20, 60)
+    edges = cv2.Canny(blurred, 50, 150)
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     target_radius_mm = well_dimensions['well_radius_mm']
 
@@ -108,12 +108,18 @@ def get_well_coords_mm(
 
     background_image = get_background_image(behavior_data)
     pix_per_mm = behavior_data.metadata['calibration']['pix_per_mm']
-    circle = get_circle(
-        background_image, 
-        pix_per_mm, 
-        tolerance_mm, 
-        AGAROSE_WELL_DIMENSIONS
-    )
+    
+    try:
+        circle = get_circle(
+            background_image, 
+            pix_per_mm, 
+            tolerance_mm, 
+            AGAROSE_WELL_DIMENSIONS
+        )
+    except:
+        print(f"Error in get_circle: {behavior_file.metadata}")
+        raise
+
     save_detected_circle(directories, behavior_file, background_image, circle)
     return (
         circle.center[0]/pix_per_mm, 
