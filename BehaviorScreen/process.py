@@ -1,8 +1,8 @@
 import pandas as pd
 from typing import (
     Tuple, 
-    List, 
-    Iterable
+    Iterable,
+    NamedTuple
 )
 import numpy as np
 import cv2
@@ -44,41 +44,47 @@ def get_background_image_safe(
     background_image = np.median(video_samples, axis=2).astype(np.uint8)
     return background_image
 
-def get_circles(
+class Circle(NamedTuple):
+    center: Tuple[int, int]
+    radius: int
+
+def get_circle(
         image: np.ndarray, 
         pix_per_mm: float,
         tolerance_mm: float,
         well_dimensions: WellDimensions
-    ) -> np.ndarray:
+    ) -> Circle:
 
-    tolerance = int(tolerance_mm * pix_per_mm) 
+    blurred = cv2.GaussianBlur(image, (5, 5), 0)
+    edges = cv2.Canny(blurred, 50, 150)
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    target_radius_mm = well_dimensions['well_radius_mm']
 
-    circle_radius = int(pix_per_mm * well_dimensions['well_radius_mm'])
-    min_radius = circle_radius - tolerance
-    max_radius = circle_radius + tolerance
+    if not contours:
+        raise RuntimeError('circle not found')
+    
+    def distance(contour):
+        perimeter_px = cv2.arcLength(cv2.convexHull(contour), True)
+        perimeter_mm = perimeter_px/pix_per_mm
+        radius_mm = perimeter_mm/(2*np.pi)
+        return np.abs(radius_mm-target_radius_mm)
 
-    well_distance = pix_per_mm * well_dimensions['distance_between_well_centers_mm']
-    min_distance = well_distance - tolerance
+    best_contour = min(contours, key=distance)
+    if len(best_contour) < 5:
+        raise RuntimeError('circle not found')
+    
+    (x, y), radius = cv2.minEnclosingCircle(best_contour)
 
-    # TODO maybe adding a slight blurr to the images could help 
-    circles = cv2.HoughCircles(
-        image,
-        cv2.HOUGH_GRADIENT,
-        dp = 1,
-        minDist = min_distance,
-        param1 = 50,
-        param2 = 30,
-        minRadius = min_radius,
-        maxRadius = max_radius
-    )[0]
+    if abs(radius/pix_per_mm - target_radius_mm) > tolerance_mm:
+        raise RuntimeError('circle not found')
 
-    return circles
+    return Circle((int(x), int(y)), int(radius))
 
-def save_detected_circles(
+def save_detected_circle(
         directories: Directories,
         behavior_file: BehaviorFiles,
         image: np.ndarray, 
-        circles: np.ndarray
+        circle: Circle
     ) -> None:
 
     if len(image.shape) == 2:  # grayscale
@@ -86,50 +92,34 @@ def save_detected_circles(
     else:
         img_color = image.copy()
 
-    circles = np.around(circles).astype(np.uint16)
-    for x, y, radius in circles:
-        center = (x, y)
-        cv2.circle(img_color, center, radius, (0, 255, 0), 2)
-        cv2.circle(img_color, center, 2, (0, 0, 255), 3)
+    cv2.circle(img_color, circle.center, circle.radius, (0, 255, 0), 2)
+    cv2.circle(img_color, circle.center, 2, (0, 0, 255), 3)
 
     #TODO directories.results may not exist 
     result = directories.results / f"{behavior_file.metadata.stem}_WELLS.png"
     cv2.imwrite(str(result), img_color)
-    
-def circle_roi_index(circles: np.ndarray, rois: List[Tuple[int,int,int,int]]):
-    indices = []
-    for x, y, _ in circles:
-        index = -1
-        for i, (rx, ry, rw, rh) in enumerate(rois):
-            if rx <= x < rx + rw and ry <= y < ry + rh:
-                index = i
-        
-        if index == -1:
-            RuntimeError('Circle does not belong to any ROI')
-        
-        indices.append(index)
-    return np.argsort(indices)
 
 def get_well_coords_mm(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData, 
         tolerance_mm = 2,
-    ) -> np.ndarray:
+    ) -> Tuple[float, float, float]:
 
     background_image = get_background_image(behavior_data)
     pix_per_mm = behavior_data.metadata['calibration']['pix_per_mm']
-    circles = get_circles(
+    circle = get_circle(
         background_image, 
         pix_per_mm, 
         tolerance_mm, 
         AGAROSE_WELL_DIMENSIONS
     )
-    save_detected_circles(directories, behavior_file, background_image, circles)
-    ind = circle_roi_index(circles, behavior_data.metadata['identity']['ROIs']) 
-    circles_mm = 1/pix_per_mm * circles[ind,:]
-
-    return circles_mm
+    save_detected_circle(directories, behavior_file, background_image, circle)
+    return (
+        circle.center[0]/pix_per_mm, 
+        circle.center[1]/pix_per_mm, 
+        circle.radius/pix_per_mm
+    ) 
     
 def get_trials(
         behavior_data: BehaviorData, 
