@@ -55,6 +55,7 @@ def get_circle_hough(
         well_dimensions: WellDimensions
     ) -> Circle:
 
+    # TODO specify smoothing in mm?
     background = cv2.GaussianBlur(image, (101, 101), 0)
     flat = cv2.divide(image, background, scale=255)
     blurred = cv2.GaussianBlur(flat, (13, 13), 0)
