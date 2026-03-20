@@ -41,3 +41,4 @@ sbatch pose_estimation.sbatch /ptmp/mapri/Screen/242A/ronidazole
 sbatch pose_estimation.sbatch /ptmp/mapri/Screen/242A/vehicle 
 sbatch pose_estimation.sbatch /ptmp/mapri/Screen/gr/danieau
 sbatch pose_estimation.sbatch /ptmp/mapri/Screen/wik/danieau
+sbatch pose_estimation.sbatch /ptmp/mapri/Screen/mecp2/danieau

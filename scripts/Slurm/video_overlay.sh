@@ -41,3 +41,4 @@ sbatch video_overlay.sbatch /ptmp/mapri/Screen/242A/ronidazole
 sbatch video_overlay.sbatch /ptmp/mapri/Screen/242A/vehicle 
 sbatch video_overlay.sbatch /ptmp/mapri/Screen/gr/danieau
 sbatch video_overlay.sbatch /ptmp/mapri/Screen/wik/danieau
+sbatch video_overlay.sbatch /ptmp/mapri/Screen/mecp2/danieau
