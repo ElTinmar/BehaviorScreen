@@ -466,7 +466,19 @@ model.fit(X_train, y_train)
 predictions = model.predict(X_test)
 print(f"Mean Squared Error: {np.mean((y_test - predictions)**2)}")
 
-plt.scatter(y_test[:,0], predictions[:,0])
+fig, axes = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
+titles = ['Forward Velocity (dx)', 'Lateral Velocity (dy)', 'Angular Velocity (dTheta)']
+colors = ['black', 'red']
+for i in range(3):
+    axes[i].plot(y_test[:, i], color=colors[0], label='Actual', alpha=0.7)
+    axes[i].plot(predictions[:, i], color=colors[1], label='Predicted', alpha=0.8)
+    axes[i].set_ylabel('Units/Frame')
+    axes[i].set_title(titles[i])
+    if i == 0:
+        axes[i].legend(loc='upper right')
+axes[-1].set_xlabel('Frames (Time)')
+plt.tight_layout()
+plt.show()
 
 traj_test = target_to_trajectory(y_test)
 traj_pred = target_to_trajectory(predictions)
@@ -502,7 +514,6 @@ for i in range(3):
     axes[i].set_title(f'Actual vs Predicted: {targets_names[i]}')
     axes[i].set_xlabel('Actual')
     axes[i].set_ylabel('Predicted')
-
 plt.tight_layout()
 plt.show()
 
@@ -515,8 +526,13 @@ for i in range(3):
     axes[i].set_title(f'Residuals for {titles[i]}')
     axes[i].set_xlabel('Predicted Value')
     axes[i].set_ylabel('Error (Actual - Pred)')
-
 plt.tight_layout()
+plt.show()
+
+plt.scatter(X_test[:, -1], residuals[:, 0], alpha=0.1) # Distance to wall vs dx error
+plt.axhline(0, color='red', linestyle='--')
+plt.xlabel('Distance to Wall (normalized)')
+plt.ylabel('Prediction Error (dx)')
 plt.show()
 
 #########
