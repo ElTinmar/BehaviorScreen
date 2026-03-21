@@ -52,13 +52,16 @@ def get_circle_hough(
         image: np.ndarray, 
         pix_per_mm: float,
         tolerance_mm: float,
-        well_dimensions: WellDimensions
+        well_dimensions: WellDimensions,
+        blur_kernel_large_mm: float,
+        blur_kernel_small_mm: float
     ) -> Circle:
 
-    # TODO specify smoothing in mm?
-    background = cv2.GaussianBlur(image, (101, 101), 0)
+    blur_kernel_large_px = int(pix_per_mm * blur_kernel_large_mm) | 1
+    blur_kernel_small_px = int(pix_per_mm * blur_kernel_small_mm) | 1
+    background = cv2.GaussianBlur(image, (blur_kernel_large_px, blur_kernel_large_px), 0)
     flat = cv2.divide(image, background, scale=255)
-    blurred = cv2.GaussianBlur(flat, (13, 13), 0)
+    blurred = cv2.GaussianBlur(flat, (blur_kernel_small_px, blur_kernel_small_px), 0)
 
     tolerance = int(tolerance_mm * pix_per_mm) 
 
@@ -112,7 +115,9 @@ def get_well_coords_mm(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData, 
-        tolerance_mm = 2,
+        tolerance_mm: float = 2,
+        blur_kernel_large_mm: float = 2.5,
+        blur_kernel_small_mm: float = 0.3
     ) -> Tuple[float, float, float]:
 
     background_image = get_background_image(behavior_data)
@@ -123,7 +128,9 @@ def get_well_coords_mm(
             background_image, 
             pix_per_mm, 
             tolerance_mm, 
-            AGAROSE_WELL_DIMENSIONS
+            AGAROSE_WELL_DIMENSIONS,
+            blur_kernel_large_mm,
+            blur_kernel_small_mm
         )
     except:
         print(f"Error in get_circle: {behavior_file.metadata}")
