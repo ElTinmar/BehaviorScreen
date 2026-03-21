@@ -211,6 +211,7 @@ def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
     return obs_d, p_corrected.reshape(p_shape)
 
 ROOT = Path('/home/martin/Desktop/DATA')
+ROOT = Path('/media/martin/DATA_18TB/Screen')
 ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
 
 comparisons = {
@@ -297,7 +298,7 @@ def plot_heatmap(
 # I want a method of quantifying significance/effect size where 
 # - lak danieau vs WT danieau show lots of differences
 # - WT danieau vs WT ronidazole does not
-alpha = 0.01
+alpha = 0.05
 value_threshold = 0.05
 
 for ref, comp_list in comparisons.items():
@@ -320,11 +321,13 @@ for ref, comp_list in comparisons.items():
         sig_mask = p_map.T < alpha
 
         low_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) < value_threshold 
-        mask_out = low_bout_freq | (~sig_mask)
+        #mask_out = low_bout_freq | (~sig_mask)
+        mask_out = ~sig_mask
         data[mask_out] = 0
 
         high_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) >= value_threshold 
-        scatter_mask = high_bout_freq & sig_mask
+        #scatter_mask = high_bout_freq & sig_mask
+        scatter_mask = sig_mask
 
         title = f"{p.relative_to(ROOT).parent} - {ref.relative_to(ROOT).parent}".replace('/',':')
         plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, scatter_mask, title, row_names, bin_names)
