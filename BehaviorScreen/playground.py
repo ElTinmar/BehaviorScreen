@@ -466,9 +466,8 @@ for line in Path('/media/martin/DATA_18TB/Screen').iterdir():
                 y_aligned = targets[n_history:]
             
                 X.append(X_history) 
-                y.append(y_aligned)            
-
-
+                y.append(y_aligned)
+                            
 # train
 from statsmodels.graphics.tsaplots import plot_acf
 from sklearn.ensemble import RandomForestRegressor
