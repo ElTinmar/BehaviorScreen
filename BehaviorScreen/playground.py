@@ -1,12 +1,13 @@
 from pathlib import Path
 from typing import List, Tuple
 import numpy as np
+import pandas as pd
 import textwrap
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from statsmodels.stats.multitest import multipletests
 
-from BehaviorScreen.core import Stim
+from BehaviorScreen.core import Stim, AGAROSE_WELL_DIMENSIONS
 from BehaviorScreen.load import (
     Directories, 
     BehaviorData,
@@ -15,6 +16,7 @@ from BehaviorScreen.load import (
     load_data
 )
 from BehaviorScreen.plot import get_eye_traces, read_stim_specs, load_yaml_config
+from BehaviorScreen.process import get_circle_hough, get_background_image
 from megabouts.utils import bouts_category_name_short
 
 ROOT = Path('/media/martin/DATA_18TB/Screen/WT/danieau')
@@ -38,12 +40,6 @@ directories = Directories(
 files: List[BehaviorFiles] = find_files(directories)
 behavior_file = files[0]
 behavior_data: BehaviorData = load_data(behavior_file)
-
-
-ROOT = Path('/media/martin/DATA_18TB/Screen/cort/vehicle')
-behavior_file = [f for f in files if '00_07dpf_cort-veh_Wed_11_Feb_2026_18h59min38sec_fish_1' in str(f.metadata)][0]
-behavior_data: BehaviorData = load_data(behavior_file)
-
 
 # ----------------------------
 fs = 120
@@ -342,34 +338,49 @@ for ref, comp_list in comparisons.items():
 ## playing with head embedding ===================================================================================
 
 
+# Learning wall interaction: add "distance to wall" and "angle of incidence" to the features 
 import numpy as np
 
-# Learning wall interaction: add "distance to wall" and "angle of incidence" to the features 
-from BehaviorScreen.process import get_well_coords_mm
-well_coords_mm = get_well_coords_mm(directories, behavior_file, behavior_data)
+def extract_features(behavior_data):
 
-def extract_features(df):
-    # main axis pointing towards the tail 
-    heading_x = (df[('Swim_Bladder', 'x')] - df[('Head', 'x')]).values
-    heading_y = (df[('Swim_Bladder', 'y')] - df[('Head', 'y')]).values
-    
-    tail_angles = []
-    for i in range(9):
-        segment_x = (df[(f'Tail_{i+1}', 'x')] - df[(f'Tail_{i}', 'x')]).values
-        segment_y = (df[(f'Tail_{i+1}', 'y')] - df[(f'Tail_{i}', 'y')]).values
-        
-        dot = heading_x * segment_x + heading_y * segment_y
-        det = heading_x * segment_y - heading_y * segment_x
-        angle = np.arctan2(det, dot)
-        tail_angles.append(angle)
+    df = behavior_data.full_tracking
+    pix_per_mm = behavior_data.metadata['calibration']['pix_per_mm']
+    background_image = get_background_image(behavior_data)
+    circle = get_circle_hough(
+        background_image, pix_per_mm, 2, AGAROSE_WELL_DIMENSIONS, 2.5, 0.3
+    )
 
-    tail_angles = np.stack(tail_angles, axis=1)
-    tail_velocity = np.diff(tail_angles, axis=0, prepend=tail_angles[:1])
-    features = np.hstack([tail_angles, tail_velocity])
+    head = df.Head[['x', 'y']].to_numpy()
+    sb = df.Swim_Bladder[['x', 'y']].to_numpy()
+    heading_v = head - sb
+    radial_v = sb - circle.center
+
+    dot_w = np.einsum('ij,ij->i', heading_v, radial_v)
+    det_w = heading_v[:, 0] * radial_v[:, 1] - heading_v[:, 1] * radial_v[:, 0]
+    angle_to_wall = np.arctan2(det_w, dot_w)
+    dist_from_center = np.linalg.norm(radial_v, axis=1)
+    distance_to_wall = (circle.radius - dist_from_center) / circle.radius
+
+    tail_coords = np.stack([df[f'Tail_{i}'][['x', 'y']].to_numpy() for i in range(10)], axis=1)
+    segments = np.diff(tail_coords, axis=1) # Shape: (N, 9, 2)
+    h_expanded = -1*heading_v[:, np.newaxis, :] # Shape: (N, 1, 2)
+    t_dot = h_expanded[..., 0] * segments[..., 0] + h_expanded[..., 1] * segments[..., 1]
+    t_det = h_expanded[..., 0] * segments[..., 1] - h_expanded[..., 1] * segments[..., 0]
+    tail_angles = np.arctan2(t_det, t_dot) # Shape: (N, 9)
+    tail_velocity = np.diff(tail_angles, axis=0, prepend=tail_angles[:1, :])
+
+    features = np.column_stack([
+        tail_angles, 
+        tail_velocity, 
+        angle_to_wall, 
+        distance_to_wall
+    ])
     
     return features
 
-def extract_targets(df):
+def extract_targets(behavior_data: BehaviorData):
+
+    df = behavior_data.full_tracking
     h_x, h_y = df[('Head', 'x')].values, df[('Head', 'y')].values
     s_x, s_y = df[('Swim_Bladder', 'x')].values, df[('Swim_Bladder', 'y')].values
     
@@ -384,9 +395,129 @@ def extract_targets(df):
     
     return np.column_stack([dx_local, dy_local, diff_theta])
 
-features = extract_features(behavior_data.full_tracking)
-targets = extract_targets(behavior_data.full_tracking) 
+def target_to_trajectory(targets, start_pos=(0, 0), start_theta=0):
 
+    n_steps = len(targets)
+    recon_x = np.zeros(n_steps + 1)
+    recon_y = np.zeros(n_steps + 1)
+    recon_theta = np.zeros(n_steps + 1)
+    recon_x[0], recon_y[0] = start_pos
+    recon_theta[0] = start_theta
+    dx_local = targets[:, 0]
+    dy_local = targets[:, 1]
+    d_theta = targets[:, 2]
+    
+    for i in range(n_steps):
+        recon_theta[i+1] = recon_theta[i] + d_theta[i]
+        cos_t = np.cos(recon_theta[i])
+        sin_t = np.sin(recon_theta[i])
+        dx_global = dx_local[i] * cos_t - dy_local[i] * sin_t
+        dy_global = dx_local[i] * sin_t + dy_local[i] * cos_t
+        recon_x[i+1] = recon_x[i] + dx_global
+        recon_y[i+1] = recon_y[i] + dy_global
+        
+    return recon_x, recon_y, recon_theta
+
+def add_history(X, n_history):
+    """
+    X: (N, features) array
+    n_history: number of previous frames to include (e.g., 5)
+    Returns: (N - n_history, features * (n_history + 1))
+    """
+    # Create a list of shifted arrays
+    # We want [X_t, X_{t-1}, X_{t-2}, ...]
+    shifted_blocks = []
+    for i in range(n_history + 1):
+        # Shift the data and trim the ends to keep lengths equal
+        # i=0 is current frame, i=1 is 1 frame ago...
+        start_idx = n_history - i
+        end_idx = X.shape[0] - i
+        shifted_blocks.append(X[start_idx:end_idx, :])
+    
+    # Concatenate horizontally
+    return np.hstack(shifted_blocks)
+
+features = extract_features(behavior_data)
+targets = extract_targets(behavior_data) 
+
+# train
+from statsmodels.graphics.tsaplots import plot_acf
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import r2_score
+
+plt.figure(figsize=(10, 4))
+plot_acf(features[:, 4] , lags=60)
+plt.title("Autocorrelation of Tail Segment 4")
+plt.xlabel("Lags (Frames)")
+plt.show()
+
+X = features[:-1, :] 
+y = targets            
+
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, shuffle=False)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+model = RandomForestRegressor(n_estimators=100, max_depth=10, n_jobs=-1)
+model.fit(X_train, y_train)
+predictions = model.predict(X_test)
+print(f"Mean Squared Error: {np.mean((y_test - predictions)**2)}")
+
+plt.scatter(y_test[:,0], predictions[:,0])
+
+traj_test = target_to_trajectory(y_test)
+traj_pred = target_to_trajectory(predictions)
+plt.plot(traj_test[0], traj_test[1], 'k', alpha=0.5)
+plt.plot(traj_pred[0], traj_pred[1], 'r', alpha=0.5)
+plt.axis('equal')
+plt.show()
+
+n_history = 10
+X_history = add_history(features, n_history)
+X_history = X_history[:-1, :] 
+y_aligned = targets[n_history:]
+
+X_train, X_test, y_train, y_test = train_test_split(X_history, y_aligned, test_size=0.2, shuffle=False)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+model = RandomForestRegressor(n_estimators=100, max_depth=20, n_jobs=-1)
+model.fit(X_train, y_train)
+predictions = model.predict(X_test)
+scores = r2_score(y_test, predictions, multioutput='raw_values')
+print(f"Mean Squared Error: {np.mean((y_test - predictions)**2)}")
+print(f"R2 Forward (dx): {scores[0]:.3f}")
+print(f"R2 Lateral (dy): {scores[1]:.3f}")
+print(f"R2 Turning (dTh): {scores[2]:.3f}")
+
+fig, axes = plt.subplots(1, 3, figsize=(15, 5))
+targets_names = ['dx_local', 'dy_local', 'diff_theta']
+for i in range(3):
+    axes[i].scatter(y_test[:, i], predictions[:, i], alpha=0.1, s=1)
+    axes[i].plot([y_test[:, i].min(), y_test[:, i].max()], 
+                 [y_test[:, i].min(), y_test[:, i].max()], 'r--')
+    axes[i].set_title(f'Actual vs Predicted: {targets_names[i]}')
+    axes[i].set_xlabel('Actual')
+    axes[i].set_ylabel('Predicted')
+
+plt.tight_layout()
+plt.show()
+
+residuals = y_test - predictions
+fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+titles = ['Forward (dx)', 'Lateral (dy)', 'Turning (dTheta)']
+for i in range(3):
+    axes[i].scatter(predictions[:, i], residuals[:, i], alpha=0.1, s=1)
+    axes[i].axhline(0, color='red', linestyle='--')
+    axes[i].set_title(f'Residuals for {titles[i]}')
+    axes[i].set_xlabel('Predicted Value')
+    axes[i].set_ylabel('Error (Actual - Pred)')
+
+plt.tight_layout()
+plt.show()
 
 #########
 
