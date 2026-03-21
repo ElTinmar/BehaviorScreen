@@ -437,8 +437,37 @@ def add_history(X, n_history):
     # Concatenate horizontally
     return np.hstack(shifted_blocks)
 
-features = extract_features(behavior_data)
-targets = extract_targets(behavior_data) 
+X=[]
+y=[]
+n_history = 10
+for line in Path('/media/martin/DATA_18TB/Screen').iterdir():
+    for condition in line.iterdir():
+        if condition.is_dir():
+            directories = Directories(
+                root = condition,
+                metadata='results',
+                stimuli='results',
+                tracking='results',
+                full_tracking='lightning_pose',
+                eyes_tracking='lightning_pose',
+                temperature='results',
+                video='results',
+                video_timestamp='results',
+                results='results',
+                plots=''
+            )
+            for behavior_file in find_files(directories):
+                print(behavior_file.metadata)
+                behavior_data = load_data(behavior_file)
+                features = extract_features(behavior_data)
+                targets = extract_targets(behavior_data) 
+                X_history = add_history(features, n_history)
+                X_history = X_history[:-1, :] 
+                y_aligned = targets[n_history:]
+            
+                X.append(X_history) 
+                y.append(y_aligned)            
+
 
 # train
 from statsmodels.graphics.tsaplots import plot_acf
@@ -465,20 +494,6 @@ model = RandomForestRegressor(n_estimators=100, max_depth=10, n_jobs=-1)
 model.fit(X_train, y_train)
 predictions = model.predict(X_test)
 print(f"Mean Squared Error: {np.mean((y_test - predictions)**2)}")
-
-fig, axes = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
-titles = ['Forward Velocity (dx)', 'Lateral Velocity (dy)', 'Angular Velocity (dTheta)']
-colors = ['black', 'red']
-for i in range(3):
-    axes[i].plot(y_test[:, i], color=colors[0], label='Actual', alpha=0.7)
-    axes[i].plot(predictions[:, i], color=colors[1], label='Predicted', alpha=0.8)
-    axes[i].set_ylabel('Units/Frame')
-    axes[i].set_title(titles[i])
-    if i == 0:
-        axes[i].legend(loc='upper right')
-axes[-1].set_xlabel('Frames (Time)')
-plt.tight_layout()
-plt.show()
 
 traj_test = target_to_trajectory(y_test)
 traj_pred = target_to_trajectory(predictions)
@@ -533,6 +548,20 @@ plt.scatter(X_test[:, -1], residuals[:, 0], alpha=0.1) # Distance to wall vs dx 
 plt.axhline(0, color='red', linestyle='--')
 plt.xlabel('Distance to Wall (normalized)')
 plt.ylabel('Prediction Error (dx)')
+plt.show()
+
+fig, axes = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
+titles = ['Forward Velocity (dx)', 'Lateral Velocity (dy)', 'Angular Velocity (dTheta)']
+colors = ['black', 'red']
+for i in range(3):
+    axes[i].plot(y_test[:, i], color=colors[0], label='Actual', alpha=0.7)
+    axes[i].plot(predictions[:, i], color=colors[1], label='Predicted', alpha=0.8)
+    axes[i].set_ylabel('Units/Frame')
+    axes[i].set_title(titles[i])
+    if i == 0:
+        axes[i].legend(loc='upper right')
+axes[-1].set_xlabel('Frames (Time)')
+plt.tight_layout()
 plt.show()
 
 #########
