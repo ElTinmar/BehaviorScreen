@@ -5,7 +5,10 @@ filters:
   peak_axial_speed: {'<=': 300}
   heading_mismatch_max: {'<=': 180}
   centroid_mismatch_max: {'<=': 1000}
-  file: {'not_in': ["fish_1", "fish_2"]}
+  file: {'not_in': [
+    "02_07dpf_GR_Wed_18_Mar_2026_15h30min46sec_fish_1", # went out of arena
+    "02_07dpf_GR_Wed_18_Mar_2026_15h30min46sec_fish_3"  # went out of arena
+  ]}
 
 time_bins:
   - [0, 2.5]
