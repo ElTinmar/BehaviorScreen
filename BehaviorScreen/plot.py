@@ -106,6 +106,8 @@ def parse_rules(cfg: dict) -> RuleSet:
     return RuleSet(tuple(rules))
 
 def filter_bouts(bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+    # TODO: should the filtered bouts be counted as NaNs instead of 
+    # just being removed?
 
     filtered = bouts.copy()
     n0 = len(filtered)
