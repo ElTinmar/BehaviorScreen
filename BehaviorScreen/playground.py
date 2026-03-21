@@ -13,7 +13,7 @@ from BehaviorScreen.load import (
     find_files, 
     load_data
 )
-from BehaviorScreen.plot import get_eye_traces, read_stim_specs
+from BehaviorScreen.plot import get_eye_traces, read_stim_specs, load_yaml_config
 from megabouts.utils import bouts_category_name_short
 
 ROOT = Path('/media/martin/DATA_18TB/Screen/WT/danieau')
@@ -138,14 +138,17 @@ def plot_comparative_eyes(datasets, labels, stim_specs, fs, save_path='compariso
     plt.savefig(save_path, bbox_inches='tight')
     plt.show()
 
-stim_specs = read_stim_specs('BehaviorScreen/mecp2.yaml', ignore_time_bins=True)
-wt_data = process_eye_data('wt_eyes.npz')
-mutant_data = process_eye_data('mecp2_eyes.npz')
+ROOT = Path('/media/martin/DATA_18TB/Screen')
+
+cfg = load_yaml_config('BehaviorScreen/screen.yaml')
+stim_specs = read_stim_specs(cfg, ignore_time_bins=True)
+wt_data = process_eye_data(ROOT / 'WT/danieau/eyes.npz')
+mutant_data = process_eye_data(ROOT / 'gr/danieau/eyes.npz')
 
 plot_comparative_eyes(
     datasets=[wt_data, mutant_data],
-    labels=['WT', 'mecp2-null'],
-    stim_specs=stim_specs, 
+    labels=['WT', 'gr'],
+    stim_specs=list(stim_specs), 
     fs=fs                   
 )
 
