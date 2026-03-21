@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from statsmodels.stats.multitest import multipletests
 
+from BehaviorScreen.core import Stim
 from BehaviorScreen.load import (
     Directories, 
     BehaviorData,
@@ -387,3 +388,71 @@ features = extract_features(behavior_data.full_tracking)
 targets = extract_targets(behavior_data.full_tracking) 
 
 
+#########
+
+# find /media/martin/DATA_18TB/Screen -name bouts.csv  | xargs python -m BehaviorScreen.merge_csv -o all_bouts.csv
+df = pd.read_csv('/home/martin/Code/BehaviorScreen/all_bouts.csv')
+
+df.bout_duration[df.bout_duration < 1].hist(bins=120)
+plt.show()
+
+df.interbout_duration[df.interbout_duration < 4].hist(bins=120)
+plt.show()
+
+df.peak_yaw_speed.hist(bins=200)
+plt.show()
+
+df.peak_axial_speed[(df.peak_axial_speed > -50) & (df.peak_axial_speed < 150)].hist(bins=200)
+plt.show()
+
+# weird outliers + O-Bend sitch
+df.centroid_mismatch_max[df.centroid_mismatch_max < 50].hist(bins=100)
+plt.show()
+
+df.centroid_mismatch_avg[df.centroid_mismatch_avg < 50].hist(bins=100)
+plt.show()
+
+df.heading_mismatch_avg[df.heading_mismatch_avg < 20].hist(bins=100)
+plt.show()
+
+df.heading_mismatch_max.hist(bins=100)
+plt.show()
+
+df.proba.hist(bins=100)
+plt.show()
+
+df[
+    (df.stim == Stim.PREY_CAPTURE) & 
+    (df.category == bouts_category_name_short.index('JT')) & 
+    (df.file.str.contains('WT', case=False)) 
+].stim_phase.hist(bins=50, density=True, alpha=0.75)
+df[
+    (df.stim == Stim.PREY_CAPTURE) & 
+    (df.category == bouts_category_name_short.index('RT')) & 
+    (df.file.str.contains('WT', case=False)) 
+].stim_phase.hist(bins=50, density=True, alpha=0.75)
+plt.show()
+
+df[
+    (df.stim == Stim.PREY_CAPTURE) & 
+    (df.category == bouts_category_name_short.index('JT')) & 
+    (df.file.str.contains('WT', case=False)) 
+].stim_phase.hist(bins=50, density=True, alpha=0.75)
+df[
+    (df.stim == Stim.PREY_CAPTURE) & 
+    (df.category == bouts_category_name_short.index('JT')) & 
+    (df.file.str.contains('mecp2', case=False))
+].stim_phase.hist(bins=50, density=True, alpha=0.75)
+plt.show()
+
+df[
+    (df.stim == Stim.PREY_CAPTURE) & 
+    (df.category == bouts_category_name_short.index('JT')) & 
+    (df.file.str.contains('WT', case=False)) 
+].stim_phase.hist(bins=50, density=True, alpha=0.75)
+df[
+    (df.stim == Stim.PREY_CAPTURE) & 
+    (df.category == bouts_category_name_short.index('JT')) & 
+    (df.file.str.contains('mafaa-switch', case=False))
+].stim_phase.hist(bins=50, density=True, alpha=0.75)
+plt.show()
