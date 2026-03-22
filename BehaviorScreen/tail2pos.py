@@ -179,7 +179,6 @@ class FishSequenceDataset(Dataset):
 
 
 class ChanneledTCNBlock(nn.Module):
-
     def __init__(
             self, 
             n_inputs, 
@@ -190,19 +189,24 @@ class ChanneledTCNBlock(nn.Module):
             padding, 
             dropout=0.2
         ):
-
+        
         super(ChanneledTCNBlock, self).__init__()
-        # Causal convolution: padding is (kernel_size-1) * dilation
         self.conv1 = weight_norm(nn.Conv1d(n_inputs, n_outputs, kernel_size,
                                            stride=stride, padding=padding, dilation=dilation))
-        self.chomp1 = nn.ConstantPad1d((-padding, 0), 0) # Remove "future" padding
+        self.chomp1 = nn.ConstantPad1d((-padding, 0), 0)
         self.relu1 = nn.ReLU()
         self.dropout1 = nn.Dropout(dropout)
+
         self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1)
+        
+        # Residual mapping if input/output channels differ
+        self.downsample = nn.Conv1d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
         self.relu = nn.ReLU()
 
     def forward(self, x):
-        return self.relu(self.net(x))
+        out = self.net(x)
+        res = x if self.downsample is None else self.downsample(x)
+        return self.relu(out + res) 
 
 
 class FishTCN(nn.Module):
