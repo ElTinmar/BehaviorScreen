@@ -150,8 +150,9 @@ class FishSequenceDataset(Dataset):
         self.y_paths = sorted(y_paths)
         self.scaler = scaler
         self.window_size = window_size
+        self.current_file_idx = -1
         
-        self.lengths = [np.load(p, mmap_mode='r').shape[0] - window_size - 1 for p in self.x_paths]
+        self.lengths = [np.load(p, mmap_mode='r').shape[0] - window_size for p in self.x_paths]
         self.cumulative_lengths = np.cumsum(self.lengths)
 
     def __len__(self):
@@ -164,12 +165,14 @@ class FishSequenceDataset(Dataset):
         # x_data = np.load(self.x_paths[file_idx], mmap_mode='r')
         # y_data = np.load(self.y_paths[file_idx], mmap_mode='r')
 
-        x_data = np.load(self.x_paths[file_idx])
-        y_data = np.load(self.y_paths[file_idx])
+        if self.current_file_idx !=  file_idx:
+            self.x_data = np.load(self.x_paths[file_idx])
+            self.y_data = np.load(self.y_paths[file_idx])
+        self.current_file_idx = file_idx
 
-        x_raw = x_data[inner_idx : inner_idx + self.window_size]
+        x_raw = self.x_data[inner_idx : inner_idx + self.window_size]
         x_scaled = self.scaler.transform(x_raw) 
-        y_val = y_data[inner_idx + self.window_size]
+        y_val = self.y_data[inner_idx + self.window_size]
         
         return (torch.tensor(x_scaled, dtype=torch.float32).T, 
                 torch.tensor(y_val, dtype=torch.float32))
@@ -254,7 +257,7 @@ def train(save_path: Path):
         x_shuffled, y_shuffled = zip(*combined)
 
         dataset = FishSequenceDataset(x_shuffled, y_shuffled, scaler)
-        loader = DataLoader(dataset, batch_size=8092, shuffle=False, num_workers=1)
+        loader = DataLoader(dataset, batch_size=512, shuffle=False, num_workers=4)
 
         pbar = tqdm(loader, desc=f"Epoch {epoch+1}/10", unit="batch")
         epoch_loss = 0
@@ -290,8 +293,8 @@ def predict():
 if __name__ == '__main__':
     
     BASE_PATH = Path('/media/martin/DATA_18TB/Screen')
-    SAVE_PATH = Path('/media/martin/DATA_18TB/Processed_TCN_Data')
+    SAVE_PATH = Path('/home/martin/Documents/Processed_TCN_Data')
     SAVE_PATH.mkdir(parents=True, exist_ok=True)
 
-    extract_data(BASE_PATH, SAVE_PATH)
+    #extract_data(BASE_PATH, SAVE_PATH)
     train(SAVE_PATH)
