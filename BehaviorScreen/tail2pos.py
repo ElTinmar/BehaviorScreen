@@ -3,9 +3,11 @@ import torch.nn as nn
 from torch.nn.utils import weight_norm
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
 from pathlib import Path
 import joblib
+import random
 
 from BehaviorScreen.core import AGAROSE_WELL_DIMENSIONS
 from BehaviorScreen.load import Directories, BehaviorData, load_data, find_files
@@ -235,42 +237,51 @@ class FishTCN(nn.Module):
 
 
 def train(save_path: Path):
-
-    x_files = sorted(list(save_path.glob("X_*.npy")))
-    y_files = sorted(list(save_path.glob("y_*.npy")))
-
-    scaler = joblib.load(save_path / 'tcn_scaler.pkl')
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Training on: {device}")
+    x_files = sorted(list(save_path.glob("X_*.npy")))
+    y_files = sorted(list(save_path.glob("y_*.npy")))
+    scaler = joblib.load(save_path / 'tcn_scaler.pkl')
 
-
-    model = FishTCN(input_size=20, output_size=3, num_channels=[64, 64, 64, 64]).to(device)
+    model = FishTCN(input_size=20, output_size=3, num_channels=[64, 64, 128, 128]).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    criterion = nn.MSELoss()
-    dataset = FishSequenceDataset(x_files, y_files, scaler, window_size=30)
-    # increase num_workers if your CPU is fast, decrease if disk IO is the bottleneck
-    loader = DataLoader(dataset, batch_size=256, shuffle=True, num_workers=4, pin_memory=True)
+    criterion = torch.nn.MSELoss()
 
-    model.train()
     for epoch in range(10):
-        total_loss = 0
-        for batch_x, batch_y in loader:
+        combined = list(zip(x_files, y_files))
+        random.shuffle(combined)
+        x_shuffled, y_shuffled = zip(*combined)
+
+        dataset = FishSequenceDataset(x_shuffled, y_shuffled, scaler)
+        loader = DataLoader(dataset, batch_size=8092, shuffle=False, num_workers=4)
+
+        pbar = tqdm(loader, desc=f"Epoch {epoch+1}/10", unit="batch")
+        epoch_loss = 0
+        
+        model.train()
+        for i, (batch_x, batch_y) in enumerate(pbar):
             batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-            
+
             optimizer.zero_grad()
             output = model(batch_x)
             loss = criterion(output, batch_y)
             loss.backward()
             optimizer.step()
-            
-            total_loss += loss.item()
-            
-        print(f"Epoch {epoch+1} | Avg Loss: {total_loss/len(loader):.6f}")
 
-    torch.save(model.state_dict(), save_path / 'fish_tcn_model.pth')
-    print("Model saved.")
+            # Update progress bar every batch
+            current_loss = loss.item()
+            epoch_loss += current_loss
+            
+            # Show live stats in the terminal
+            if i % 10 == 0:
+                pbar.set_postfix({
+                    "loss": f"{current_loss:.6f}",
+                    "avg_loss": f"{epoch_loss/(i+1):.6f}",
+                    "gpu_mem": f"{torch.cuda.memory_allocated()/1e9:.1f}GB"
+                })
 
+        print(f"--- Epoch {epoch+1} Finished. Avg Loss: {epoch_loss/len(loader):.6f} ---")
+        torch.save(model.state_dict(), save_path / f'checkpoint_e{epoch+1}.pth')
 
 def predict():
     ...
