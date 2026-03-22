@@ -12,9 +12,9 @@ class FishSequenceDataset(Dataset):
             self, 
             x_paths: list[Path], 
             y_paths: list[Path], 
-            window_size: int=30
+            window_size: int = 30
         ):
-        
+
         self.x_paths = x_paths 
         self.y_paths = y_paths
         self.window_size = window_size
@@ -99,6 +99,7 @@ class FishTCN(nn.Module):
 
 def train():
 
+    # TODO: fill that it
     x_files = []
     y_files = []
 
