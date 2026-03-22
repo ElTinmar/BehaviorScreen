@@ -471,6 +471,7 @@ for line in Path('/media/martin/DATA_18TB/Screen').iterdir():
 # train
 from statsmodels.graphics.tsaplots import plot_acf
 from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import r2_score
@@ -513,6 +514,25 @@ X_test_scaled = scaler.transform(X_test)
 model = RandomForestRegressor(n_estimators=100, max_depth=20, n_jobs=-1)
 model.fit(X_train, y_train)
 predictions = model.predict(X_test)
+scores = r2_score(y_test, predictions, multioutput='raw_values')
+print(f"Mean Squared Error: {np.mean((y_test - predictions)**2)}")
+print(f"R2 : {r2_score(y_test, predictions):.3f}")
+print(f"R2 Forward (dx): {scores[0]:.3f}")
+print(f"R2 Lateral (dy): {scores[1]:.3f}")
+print(f"R2 Turning (dTh): {scores[2]:.3f}")
+
+
+### this is really fast
+model_dx = HistGradientBoostingRegressor(max_iter=200)
+model_dy = HistGradientBoostingRegressor(max_iter=200)
+model_dtheta = HistGradientBoostingRegressor(max_iter=200)
+model_dx.fit(X_train, y_train[:, 0])
+model_dy.fit(X_train, y_train[:, 1])
+model_dtheta.fit(X_train, y_train[:, 2])
+dx_pred = model_dx.predict(X_test)
+dy_pred = model_dy.predict(X_test)
+dtheta_pred = model_dtheta.predict(X_test)
+predictions = np.column_stack([dx_pred, dy_pred, dtheta_pred])
 scores = r2_score(y_test, predictions, multioutput='raw_values')
 print(f"Mean Squared Error: {np.mean((y_test - predictions)**2)}")
 print(f"R2 : {r2_score(y_test, predictions):.3f}")
@@ -563,6 +583,77 @@ for i in range(3):
 axes[-1].set_xlabel('Frames (Time)')
 plt.tight_layout()
 plt.show()
+
+
+## TODO overlay on video
+import cv2
+model = {
+    'dx':model_dx,
+    'dy':model_dy,
+    'dtheta':model_dtheta
+}
+
+def overlay_video(behavior_data, model, output_path):
+
+    fps = behavior_data.video.get_fps()
+    height = behavior_data.video.get_height()
+    width = behavior_data.video.get_width()
+    num_frames = behavior_data.video.get_number_of_frame()
+
+    out = cv2.VideoWriter(
+        output_path,
+        cv2.VideoWriter_fourcc(*'mp4v'),
+        fps,
+        (width, height)
+    )
+    
+    features = extract_features(behavior_data)
+    X_history = add_history(features, n_history)
+    X_history = X_history[:-1, :] 
+    dx_pred = model['dx'].predict(X_history)
+    dy_pred = model['dy'].predict(X_history)
+    dtheta_pred = model['dtheta'].predict(X_history)
+    predictions = np.column_stack([dx_pred, dy_pred, dtheta_pred])
+
+    h_x, h_y = behavior_data.full_tracking[('Head', 'x')].values, behavior_data.full_tracking[('Head', 'y')].values
+    s_x, s_y = behavior_data.full_tracking[('Swim_Bladder', 'x')].values, behavior_data.full_tracking[('Swim_Bladder', 'y')].values
+    theta = np.arctan2(h_y - s_y, h_x - s_x)
+    rx, ry, rtheta = target_to_trajectory(predictions, (s_x[0], s_y[0]), theta[0])
+
+    for frame_idx in range(num_frames):
+        print(frame_idx)
+        if frame_idx % (120*5) == 0:
+            rx = rx - rx[frame_idx] + s_x[frame_idx]
+            ry = ry - ry[frame_idx] + s_y[frame_idx] 
+            rtheta = rtheta - rtheta[frame_idx] + theta[frame_idx] 
+            
+        ret, frame  =  behavior_data.video.next_frame()  
+
+        # prediction
+        x = int(rx[frame_idx])
+        y = int(ry[frame_idx])
+        arrow_len = 20
+        end = (
+            int(x + arrow_len * np.cos(rtheta[frame_idx])),
+            int(y + arrow_len * np.sin(rtheta[frame_idx]))
+        )
+        cv2.arrowedLine(frame, (x, y), end, (255, 0, 0), 2)
+
+        # tracking
+        x = int(s_x[frame_idx])
+        y = int(s_y[frame_idx])
+        arrow_len = 20
+        end = (
+            int(x + arrow_len * np.cos(theta[frame_idx])),
+            int(y + arrow_len * np.sin(theta[frame_idx]))
+        )
+        cv2.arrowedLine(frame, (x, y), end, (0, 0, 255), 2)
+        out.write(frame)
+
+        if frame_idx == 120*40:
+            break
+
+    out.release()
 
 #########
 
