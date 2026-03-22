@@ -151,7 +151,7 @@ class FishSequenceDataset(Dataset):
         self.scaler = scaler
         self.window_size = window_size
         
-        self.lengths = [np.load(p, mmap_mode='r').shape[0] - window_size for p in x_paths]
+        self.lengths = [np.load(p, mmap_mode='r').shape[0] - window_size - 1 for p in self.x_paths]
         self.cumulative_lengths = np.cumsum(self.lengths)
 
     def __len__(self):
@@ -163,6 +163,7 @@ class FishSequenceDataset(Dataset):
         
         # x_data = np.load(self.x_paths[file_idx], mmap_mode='r')
         # y_data = np.load(self.y_paths[file_idx], mmap_mode='r')
+
         x_data = np.load(self.x_paths[file_idx])
         y_data = np.load(self.y_paths[file_idx])
 
@@ -253,7 +254,7 @@ def train(save_path: Path):
         x_shuffled, y_shuffled = zip(*combined)
 
         dataset = FishSequenceDataset(x_shuffled, y_shuffled, scaler)
-        loader = DataLoader(dataset, batch_size=8092, shuffle=False, num_workers=4)
+        loader = DataLoader(dataset, batch_size=8092, shuffle=False, num_workers=1)
 
         pbar = tqdm(loader, desc=f"Epoch {epoch+1}/10", unit="batch")
         epoch_loss = 0
