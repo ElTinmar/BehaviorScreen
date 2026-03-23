@@ -165,7 +165,6 @@ class FishSequenceDataset(Dataset):
         self.current_file_idx = -1
 
         # Load everythin to RAM
-        print('loading data to RAM...')
         self.x_data = {}
         self.y_data = {}
         self.lengths = []
@@ -189,37 +188,66 @@ class FishSequenceDataset(Dataset):
         return x.T, y
 
 
-class ChanneledTCNBlock(nn.Module):
-    def __init__(
-            self, 
-            n_inputs, 
-            n_outputs, 
-            kernel_size, 
-            stride, 
-            dilation, 
-            padding, 
-            dropout=0.2
-        ):
+# class ChanneledTCNBlock(nn.Module):
+#     def __init__(
+#             self, 
+#             n_inputs, 
+#             n_outputs, 
+#             kernel_size, 
+#             stride, 
+#             dilation, 
+#             padding, 
+#             dropout=0.2
+#         ):
         
+#         super(ChanneledTCNBlock, self).__init__()
+#         self.conv1 = weight_norm(nn.Conv1d(n_inputs, n_outputs, kernel_size,
+#                                            stride=stride, padding=padding, dilation=dilation))
+#         self.chomp1 = nn.ConstantPad1d((-padding, 0), 0)
+#         self.relu1 = nn.ReLU()
+#         self.dropout1 = nn.Dropout(dropout)
+
+#         self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1)
+        
+#         # Residual mapping if input/output channels differ
+#         self.downsample = nn.Conv1d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
+#         self.relu = nn.ReLU()
+
+#     def forward(self, x):
+#         out = self.net(x)
+#         res = x if self.downsample is None else self.downsample(x)
+#         return self.relu(out + res) 
+
+class ChanneledTCNBlock(nn.Module):
+    def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, padding, dropout=0.2):
         super(ChanneledTCNBlock, self).__init__()
+        
+        # First layer of the block
         self.conv1 = weight_norm(nn.Conv1d(n_inputs, n_outputs, kernel_size,
                                            stride=stride, padding=padding, dilation=dilation))
         self.chomp1 = nn.ConstantPad1d((-padding, 0), 0)
         self.relu1 = nn.ReLU()
         self.dropout1 = nn.Dropout(dropout)
 
-        self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1)
+        # Second layer of the block (Original paper addition)
+        self.conv2 = weight_norm(nn.Conv1d(n_outputs, n_outputs, kernel_size,
+                                           stride=stride, padding=padding, dilation=dilation))
+        self.chomp2 = nn.ConstantPad1d((-padding, 0), 0)
+        self.relu2 = nn.ReLU()
+        self.dropout2 = nn.Dropout(dropout)
+
+        # Combined network
+        self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1,
+                                 self.conv2, self.chomp2, self.relu2, self.dropout2)
         
-        # Residual mapping if input/output channels differ
         self.downsample = nn.Conv1d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
         self.relu = nn.ReLU()
 
     def forward(self, x):
         out = self.net(x)
         res = x if self.downsample is None else self.downsample(x)
-        return self.relu(out + res) 
-
-
+        return self.relu(out + res)
+    
 class FishTCN(nn.Module):
 
     def __init__(
@@ -259,7 +287,7 @@ def validate(
         loader, 
         criterion, 
         device,
-        max_batches=50
+        max_batches=400
     ):
     
     model.eval()
@@ -284,11 +312,12 @@ def train(
         device,
         validate_every: int = 500,
         n_workers: int = 4,
-        batch_size: int = 512,
-        scheduler_patience: int = 5,
+        batch_size: int = 256,
+        scheduler_patience: int = 15,
         lr: float = 0.001,
         num_channels = [64, 64, 128, 128],
-        window_size = 30,
+        window_size = 90,
+        max_epoch: int = 100
     ):
 
     config = {
@@ -297,7 +326,8 @@ def train(
         "num_channels": num_channels,
         "window_size": window_size,
         "batch_size": batch_size,
-        "validate_every": validate_every
+        "validate_every": validate_every,
+        "max_epoch": max_epoch
     }
     with open(save_path / "config.json", "w") as f:
         json.dump(config, f, indent=4)
@@ -309,21 +339,21 @@ def train(
     x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
 
     train_ds = FishSequenceDataset(x_train, y_train, x_scaler, window_size)
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, persistent_workers=True)
     val_ds = FishSequenceDataset(x_val, y_val, x_scaler, window_size)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, persistent_workers=True)
 
     model = FishTCN(input_size=20, output_size=3, num_channels=num_channels).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=scheduler_patience)
-    criterion = torch.nn.MSELoss()
+    criterion = torch.nn.SmoothL1Loss()
 
     writer = SummaryWriter(log_dir=save_path / "logs")
     global_step = 0
     best_val_loss = float('inf')
 
-    for epoch in range(10):
-        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/10", unit="batch")
+    for epoch in range(max_epoch):
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{max_epoch}", unit="batch")
         epoch_loss = 0
         
         model.train()
@@ -359,7 +389,7 @@ def train(
                     best_val_loss = current_val_loss
                     torch.save(model.state_dict(), save_path / 'best_model.pth')
 
-                pbar.set_postfix({"val_loss": f"{current_val_loss:.6f}", "lr": optimizer.param_groups[0]['lr']})
+                print(f"val_loss: {current_val_loss:.6f}, lr: {optimizer.param_groups[0]['lr']}")
 
         print(f"--- Epoch {epoch+1} Finished. Avg Loss: {epoch_loss/len(train_loader):.6f} ---")
 
@@ -369,22 +399,25 @@ def predict(
         save_path: Path, 
         file_idx, 
         device,
+        num_samples: int = 200,
+        num_channels: list[int] = [64, 64, 128, 128],
+        window_size = 90,
         saved_model: str = 'best_model.pth',
     ):
 
-    model = FishTCN(input_size=20, output_size=3, num_channels=[64, 64, 128, 128]).to(device)
+    model = FishTCN(input_size=20, output_size=3, num_channels=num_channels).to(device)
     model.load_state_dict(torch.load(save_path / saved_model))
     
     # Load validation data specifically for prediction
     x_val = sorted(list(save_path.glob("X_val_*.npy")))
     y_val = sorted(list(save_path.glob("y_val_*.npy")))
     x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
-    dataset = FishSequenceDataset(x_val, y_val, x_scaler)
+    dataset = FishSequenceDataset(x_val, y_val, x_scaler, window_size=window_size)
     
     model.eval()
     
     start_idx = 0 if file_idx == 0 else dataset.cumulative_lengths[file_idx-1]
-    end_idx = dataset.cumulative_lengths[file_idx]
+    end_idx = min(start_idx+num_samples, dataset.cumulative_lengths[file_idx])
     
     predictions = []
     ground_truth = []
@@ -407,12 +440,13 @@ def predict(
         traj = [[x, y, theta]]
         
         for dx_loc, dy_loc, d_theta in moves:
-            theta += d_theta
             dx_glob = dx_loc * np.cos(theta) - dy_loc * np.sin(theta)
             dy_glob = dx_loc * np.sin(theta) + dy_loc * np.cos(theta)
             
             x += dx_glob
             y += dy_glob
+
+            theta += d_theta
             traj.append([x, y, theta])
         return np.array(traj)
 
@@ -424,8 +458,8 @@ def predict(
     
     # Subplot 1: XY Trajectory
     plt.subplot(1, 2, 1)
-    plt.plot(traj_real[:200, 0], traj_real[:200, 1], 'k-', alpha=0.5, label='Actual')
-    plt.plot(traj_pred[:200, 0], traj_pred[:200, 1], 'r--', alpha=0.8, label='Predicted')
+    plt.plot(traj_real[:, 0], traj_real[:, 1], 'k-', alpha=0.5, label='Actual')
+    plt.plot(traj_pred[:, 0], traj_pred[:, 1], 'r--', alpha=0.8, label='Predicted')
     plt.title("Reconstructed Trajectory")
     plt.xlabel("X (local units)")
     plt.ylabel("Y (local units)")
@@ -434,8 +468,8 @@ def predict(
     
     # Subplot 2: Heading change comparison
     plt.subplot(1, 2, 2)
-    plt.plot(traj_real[:200, 2], 'k', label='Actual dTheta')
-    plt.plot(traj_pred[:200, 2], 'r--', label='Predicted dTheta')
+    plt.plot(traj_real[:, 2], 'k', label='Actual dTheta')
+    plt.plot(traj_pred[:, 2], 'r--', label='Predicted dTheta')
     plt.title("Heading Change (First 200 frames)")
     plt.legend()
     
@@ -450,10 +484,29 @@ if __name__ == '__main__':
     SAVE_PATH = Path('/home/martin/Documents/Processed_TCN_Data')
     SAVE_PATH.mkdir(parents=True, exist_ok=True)
 
+    num_channels = [64, 64, 128, 128, 256, 256]
+    window_size = 120
+
     extract_data(BASE_PATH, SAVE_PATH, max_files=10)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    train(SAVE_PATH, device)
-    predict(SAVE_PATH, 0, device, 'best_model.pth')
+
+    train(
+        SAVE_PATH, 
+        device,
+        num_channels = num_channels,
+        window_size=window_size
+    )
+
+    predict(
+        SAVE_PATH, 
+        file_idx=0, 
+        device = device, 
+        num_samples=2000, 
+        num_channels=num_channels,
+        window_size = window_size,
+        saved_model='best_model.pth'
+    )
 
 
 
