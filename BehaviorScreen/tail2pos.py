@@ -315,7 +315,7 @@ def train(
 
     model = FishTCN(input_size=20, output_size=3, num_channels=num_channels).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', scheduler_patience=scheduler_patience)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=scheduler_patience)
     criterion = torch.nn.MSELoss()
 
     writer = SummaryWriter(log_dir=save_path / "logs")
