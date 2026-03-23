@@ -165,8 +165,8 @@ class FishSequenceDataset(Dataset):
         pairs = list(zip(self.x_paths, self.y_paths))
         for file_idx, (xp, yp) in enumerate(tqdm(pairs)):
             x_raw = np.load(xp)
-            self.x_data[file_idx] = self.scaler.transform(x_raw) 
-            self.y_data[file_idx] = np.load(yp)
+            self.x_data[file_idx] = torch.from_numpy(self.scaler.transform(x_raw)).float()
+            self.y_data[file_idx] = torch.from_numpy(np.load(yp)).float()
             self.lengths.append(self.x_data[file_idx].shape[0] - window_size)
         
         self.cumulative_lengths = np.cumsum(self.lengths)
@@ -176,13 +176,10 @@ class FishSequenceDataset(Dataset):
 
     def __getitem__(self, idx):
         file_idx = np.searchsorted(self.cumulative_lengths, idx, side='right')
-        inner_idx = idx if file_idx == 0 else idx - self.cumulative_lengths[file_idx-1]
-        
-        x_scaled = self.x_data[file_idx][inner_idx : inner_idx + self.window_size]
-        y_val = self.y_data[file_idx][inner_idx + self.window_size]
-        
-        return (torch.tensor(x_scaled, dtype=torch.float32).T, 
-                torch.tensor(y_val, dtype=torch.float32))
+        inner_idx = idx if file_idx == 0 else idx - self.cumulative_lengths[file_idx-1] 
+        x = self.x_data[file_idx][inner_idx : inner_idx + self.window_size]
+        y = self.y_data[file_idx][inner_idx + self.window_size]
+        return x.T, y
 
 
 class ChanneledTCNBlock(nn.Module):
@@ -255,7 +252,7 @@ def validate(
         loader, 
         criterion, 
         device,
-        max_batches=10
+        max_batches=50
     ):
     
     model.eval()
@@ -283,14 +280,11 @@ def train(
     ):
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    x_files = sorted(list(save_path.glob("X_*.npy")))
-    y_files = sorted(list(save_path.glob("y_*.npy")))
 
-    pairs = list(zip(x_files, y_files))
-    train_pairs, val_pairs = train_test_split(pairs, test_size=0.2, random_state=42)
-    x_train, y_train = zip(*train_pairs)
-    x_val, y_val = zip(*val_pairs)
-
+    x_train = sorted(list(save_path.glob("X_train_*.npy")))
+    y_train = sorted(list(save_path.glob("y_train_*.npy")))
+    x_val = sorted(list(save_path.glob("X_val_*.npy")))
+    y_val = sorted(list(save_path.glob("y_val_*.npy")))
     x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
 
     train_ds = FishSequenceDataset(x_train, y_train, x_scaler)
