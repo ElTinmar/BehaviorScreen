@@ -379,9 +379,7 @@ def predict(
         traj = [[x, y, theta]]
         
         for dx_loc, dy_loc, d_theta in moves:
-            # Update heading
             theta += d_theta
-            # Rotate local move back to global coordinates
             dx_glob = dx_loc * np.cos(theta) - dy_loc * np.sin(theta)
             dy_glob = dx_loc * np.sin(theta) + dy_loc * np.cos(theta)
             
