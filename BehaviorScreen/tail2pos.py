@@ -284,7 +284,7 @@ def train(
         scheduler_patience: int = 5,
         lr: float = 0.001,
         num_channels = [64, 64, 128, 128],
-        window_size = 30
+        window_size = 30,
     ):
 
     config = {
@@ -298,15 +298,15 @@ def train(
     with open(save_path / "config.json", "w") as f:
         json.dump(config, f, indent=4)
     
-    x_train = sorted(list(save_path.glob("X_train_*.npy")))
-    y_train = sorted(list(save_path.glob("y_train_*.npy")))
-    x_val = sorted(list(save_path.glob("X_val_*.npy")))
-    y_val = sorted(list(save_path.glob("y_val_*.npy")))
+    x_train = sorted(list(save_path.glob("X_train_*.npy")))[:10]
+    y_train = sorted(list(save_path.glob("y_train_*.npy")))[:10]
+    x_val = sorted(list(save_path.glob("X_val_*.npy")))[:2]
+    y_val = sorted(list(save_path.glob("y_val_*.npy")))[:2]
     x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
 
     train_ds = FishSequenceDataset(x_train, y_train, x_scaler, window_size)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True)
-    val_ds = FishSequenceDataset(x_val, y_val, x_scaler, , window_size)
+    val_ds = FishSequenceDataset(x_val, y_val, x_scaler, window_size)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True)
 
     model = FishTCN(input_size=20, output_size=3, num_channels=num_channels).to(device)
