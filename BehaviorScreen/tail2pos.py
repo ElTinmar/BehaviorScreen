@@ -98,7 +98,8 @@ def save_processed_data(behavior_file, save_dir, file_id):
 
 def extract_data(
         base_path: Path,
-        save_path: Path
+        save_path: Path,
+        max_files: int | None = None
     ):
     
     behavior_files = [
@@ -119,6 +120,9 @@ def extract_data(
             plots=''
         ))
     ]
+
+    if max_files is not None:
+        behavior_files = behavior_files[:max_files]
 
     random.shuffle(behavior_files)
     train_files, val_files = train_test_split(
@@ -298,10 +302,10 @@ def train(
     with open(save_path / "config.json", "w") as f:
         json.dump(config, f, indent=4)
     
-    x_train = sorted(list(save_path.glob("X_train_*.npy")))[:10]
-    y_train = sorted(list(save_path.glob("y_train_*.npy")))[:10]
-    x_val = sorted(list(save_path.glob("X_val_*.npy")))[:2]
-    y_val = sorted(list(save_path.glob("y_val_*.npy")))[:2]
+    x_train = sorted(list(save_path.glob("X_train_*.npy")))
+    y_train = sorted(list(save_path.glob("y_train_*.npy")))
+    x_val = sorted(list(save_path.glob("X_val_*.npy")))
+    y_val = sorted(list(save_path.glob("y_val_*.npy")))
     x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
 
     train_ds = FishSequenceDataset(x_train, y_train, x_scaler, window_size)
@@ -446,7 +450,7 @@ if __name__ == '__main__':
     SAVE_PATH = Path('/home/martin/Documents/Processed_TCN_Data')
     SAVE_PATH.mkdir(parents=True, exist_ok=True)
 
-    extract_data(BASE_PATH, SAVE_PATH)
+    extract_data(BASE_PATH, SAVE_PATH, max_files=10)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     train(SAVE_PATH, device)
     predict(SAVE_PATH, 0, device, 'best_model.pth')
