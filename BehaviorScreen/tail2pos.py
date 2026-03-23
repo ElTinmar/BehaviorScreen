@@ -2,9 +2,11 @@ import torch
 import torch.nn as nn
 from torch.nn.utils import weight_norm
 from torch.utils.data import Dataset, DataLoader
+from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 from pathlib import Path
 import joblib
 import random
@@ -96,43 +98,44 @@ def extract_data(
         save_path: Path
     ):
     
-    file_counter = 0
-    all_features_for_scaling = []
+    behavior_files = [
+        bf
+        for line in base_path.iterdir() if line.is_dir()
+        for condition in line.iterdir() if condition.is_dir()
+        for bf in find_files(Directories(
+            root=condition,
+            metadata='results',
+            stimuli='results',
+            tracking='results',
+            full_tracking='lightning_pose',
+            eyes_tracking='lightning_pose',
+            temperature='results',
+            video='results',
+            video_timestamp='results',
+            results='results',
+            plots=''
+        ))
+    ]
 
-    for line in base_path.iterdir():
-        if not line.is_dir(): continue
-        for condition in line.iterdir():
-            if not condition.is_dir(): continue
-            
-            directories = Directories(
-                root = condition,
-                metadata='results',
-                stimuli='results',
-                tracking='results',
-                full_tracking='lightning_pose',
-                eyes_tracking='lightning_pose',
-                temperature='results',
-                video='results',
-                video_timestamp='results',
-                results='results',
-                plots=''
-            )
+    random.shuffle(behavior_files)
+    train_files, val_files = train_test_split(
+        behavior_files,
+        test_size=0.2
+    )
 
-            for behavior_file in find_files(directories):
-                print(f"Processing: {behavior_file.metadata}")
-                X_data = save_processed_data(behavior_file, save_path, file_counter)
+    train_scaling_samples = []
+    for split, files in [("train", train_files), ("val", val_files)]:
+        print(f"=== Processing {split} ===")
+        for idx, behavior_file in enumerate(files):
+            X_data = save_processed_data(behavior_file, save_path, f"{split}_{idx}")
+            if split == "train" and X_data is not None and idx % 10 == 0:
+                train_scaling_samples.append(X_data[::10])
 
-                if X_data is not None and file_counter % 10 == 0:
-                    all_features_for_scaling.append(X_data[::10]) # Subsample further
-                
-                file_counter += 1
-
-    print("Calculating global normalization...")
-    full_sample = np.concatenate(all_features_for_scaling, axis=0)
+    print("Calculating normalization (train only)...")
+    train_sample = np.concatenate(train_scaling_samples, axis=0)
     scaler = StandardScaler()
-    scaler.fit(full_sample)
+    scaler.fit(train_sample)
     joblib.dump(scaler, save_path / 'tcn_scaler.pkl')
-    print(f"Done! Saved {file_counter} files and scaler to {save_path}")
 
 ## NETWORK ========================================================================
 
@@ -143,16 +146,29 @@ class FishSequenceDataset(Dataset):
             x_paths, 
             y_paths, 
             scaler, 
-            window_size=30
+            window_size=30,
         ):
+
+        assert len(x_paths) == len(y_paths)
 
         self.x_paths = sorted(x_paths) 
         self.y_paths = sorted(y_paths)
         self.scaler = scaler
         self.window_size = window_size
         self.current_file_idx = -1
+
+        # Load everythin to RAM
+        print('loading data to RAM...')
+        self.x_data = {}
+        self.y_data = {}
+        self.lengths = []
+        pairs = list(zip(self.x_paths, self.y_paths))
+        for file_idx, (xp, yp) in enumerate(tqdm(pairs)):
+            x_raw = np.load(xp)
+            self.x_data[file_idx] = self.scaler.transform(x_raw) 
+            self.y_data[file_idx] = np.load(yp)
+            self.lengths.append(self.x_data[file_idx].shape[0] - window_size)
         
-        self.lengths = [np.load(p, mmap_mode='r').shape[0] - window_size for p in self.x_paths]
         self.cumulative_lengths = np.cumsum(self.lengths)
 
     def __len__(self):
@@ -162,17 +178,8 @@ class FishSequenceDataset(Dataset):
         file_idx = np.searchsorted(self.cumulative_lengths, idx, side='right')
         inner_idx = idx if file_idx == 0 else idx - self.cumulative_lengths[file_idx-1]
         
-        # x_data = np.load(self.x_paths[file_idx], mmap_mode='r')
-        # y_data = np.load(self.y_paths[file_idx], mmap_mode='r')
-
-        if self.current_file_idx !=  file_idx:
-            self.x_data = np.load(self.x_paths[file_idx])
-            self.y_data = np.load(self.y_paths[file_idx])
-        self.current_file_idx = file_idx
-
-        x_raw = self.x_data[inner_idx : inner_idx + self.window_size]
-        x_scaled = self.scaler.transform(x_raw) 
-        y_val = self.y_data[inner_idx + self.window_size]
+        x_scaled = self.x_data[file_idx][inner_idx : inner_idx + self.window_size]
+        y_val = self.y_data[file_idx][inner_idx + self.window_size]
         
         return (torch.tensor(x_scaled, dtype=torch.float32).T, 
                 torch.tensor(y_val, dtype=torch.float32))
@@ -243,27 +250,64 @@ class FishTCN(nn.Module):
 
 ## FUNCTIONS ========================================================================
 
-
-def train(save_path: Path):
+def validate(
+        model, 
+        loader, 
+        criterion, 
+        device,
+        max_batches=10
+    ):
+    
+    model.eval()
+    val_loss = 0
+    steps = 0 
+    with torch.no_grad():
+        for i, (batch_x, batch_y) in enumerate(loader):
+            if i >= max_batches: 
+                break
+            steps += 1
+            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+            output = model(batch_x)
+            loss = criterion(output, batch_y)
+            val_loss += loss.item()
+    
+    avg_loss = val_loss / steps
+    model.train() 
+    return avg_loss
+    
+def train(
+        save_path: Path, 
+        validate_every: int = 500,
+        n_workers: int = 4,
+        batch_size: int = 512
+    ):
     
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     x_files = sorted(list(save_path.glob("X_*.npy")))
     y_files = sorted(list(save_path.glob("y_*.npy")))
-    scaler = joblib.load(save_path / 'tcn_scaler.pkl')
+
+    pairs = list(zip(x_files, y_files))
+    train_pairs, val_pairs = train_test_split(pairs, test_size=0.2, random_state=42)
+    x_train, y_train = zip(*train_pairs)
+    x_val, y_val = zip(*val_pairs)
+
+    x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
+
+    train_ds = FishSequenceDataset(x_train, y_train, x_scaler)
+    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True)
+    val_ds = FishSequenceDataset(x_val, y_val, x_scaler)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True)
 
     model = FishTCN(input_size=20, output_size=3, num_channels=[64, 64, 128, 128]).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = torch.nn.MSELoss()
 
+    writer = SummaryWriter(log_dir=save_path / "logs")
+    global_step = 0
+    best_val_loss = float('inf')
+
     for epoch in range(10):
-        combined = list(zip(x_files, y_files))
-        random.shuffle(combined)
-        x_shuffled, y_shuffled = zip(*combined)
-
-        dataset = FishSequenceDataset(x_shuffled, y_shuffled, scaler)
-        loader = DataLoader(dataset, batch_size=512, shuffle=False, num_workers=4)
-
-        pbar = tqdm(loader, desc=f"Epoch {epoch+1}/10", unit="batch")
+        pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/10", unit="batch")
         epoch_loss = 0
         
         model.train()
@@ -276,20 +320,27 @@ def train(save_path: Path):
             loss.backward()
             optimizer.step()
 
-            # Update progress bar every batch
             current_loss = loss.item()
             epoch_loss += current_loss
-            
-            # Show live stats in the terminal
             if i % 10 == 0:
                 pbar.set_postfix({
                     "loss": f"{current_loss:.6f}",
-                    "avg_loss": f"{epoch_loss/(i+1):.6f}",
-                    "gpu_mem": f"{torch.cuda.memory_allocated()/1e9:.1f}GB"
+                    "avg_loss": f"{epoch_loss/(i+1):.6f}"
                 })
 
-        print(f"--- Epoch {epoch+1} Finished. Avg Loss: {epoch_loss/len(loader):.6f} ---")
-        torch.save(model.state_dict(), save_path / f'checkpoint_e{epoch+1}.pth')
+            writer.add_scalar("Loss/Train", current_loss, global_step)
+            global_step += 1
+            
+            if global_step % validate_every == 0:
+                current_val_loss = validate(model, val_loader, criterion, device)
+                writer.add_scalar("Loss/Validation", current_val_loss, global_step)
+                if current_val_loss < best_val_loss:
+                    best_val_loss = current_val_loss
+                    torch.save(model.state_dict(), save_path / 'best_model.pth')
+
+        print(f"--- Epoch {epoch+1} Finished. Avg Loss: {epoch_loss/len(train_loader):.6f} ---")
+
+    writer.close()
 
 def predict():
     ...
