@@ -1,6 +1,7 @@
 from pathlib import Path
 import joblib
 import random
+from collections import deque
 
 import torch
 import torch.nn as nn
@@ -188,39 +189,9 @@ class FishSequenceDataset(Dataset):
         return x.T, y
 
 
-# class ChanneledTCNBlock(nn.Module):
-#     def __init__(
-#             self, 
-#             n_inputs, 
-#             n_outputs, 
-#             kernel_size, 
-#             stride, 
-#             dilation, 
-#             padding, 
-#             dropout=0.2
-#         ):
-        
-#         super(ChanneledTCNBlock, self).__init__()
-#         self.conv1 = weight_norm(nn.Conv1d(n_inputs, n_outputs, kernel_size,
-#                                            stride=stride, padding=padding, dilation=dilation))
-#         self.chomp1 = nn.ConstantPad1d((-padding, 0), 0)
-#         self.relu1 = nn.ReLU()
-#         self.dropout1 = nn.Dropout(dropout)
-
-#         self.net = nn.Sequential(self.conv1, self.chomp1, self.relu1, self.dropout1)
-        
-#         # Residual mapping if input/output channels differ
-#         self.downsample = nn.Conv1d(n_inputs, n_outputs, 1) if n_inputs != n_outputs else None
-#         self.relu = nn.ReLU()
-
-#     def forward(self, x):
-#         out = self.net(x)
-#         res = x if self.downsample is None else self.downsample(x)
-#         return self.relu(out + res) 
-
-class ChanneledTCNBlock(nn.Module):
+class TCNBlock(nn.Module):
     def __init__(self, n_inputs, n_outputs, kernel_size, stride, dilation, padding, dropout=0.2):
-        super(ChanneledTCNBlock, self).__init__()
+        super(TCNBlock, self).__init__()
         
         # First layer of the block
         self.conv1 = weight_norm(nn.Conv1d(n_inputs, n_outputs, kernel_size,
@@ -229,7 +200,7 @@ class ChanneledTCNBlock(nn.Module):
         self.relu1 = nn.ReLU()
         self.dropout1 = nn.Dropout(dropout)
 
-        # Second layer of the block (Original paper addition)
+        # Second layer of the block 
         self.conv2 = weight_norm(nn.Conv1d(n_outputs, n_outputs, kernel_size,
                                            stride=stride, padding=padding, dilation=dilation))
         self.chomp2 = nn.ConstantPad1d((-padding, 0), 0)
@@ -248,7 +219,7 @@ class ChanneledTCNBlock(nn.Module):
         res = x if self.downsample is None else self.downsample(x)
         return self.relu(out + res)
     
-class FishTCN(nn.Module):
+class TCN(nn.Module):
 
     def __init__(
             self, 
@@ -259,14 +230,14 @@ class FishTCN(nn.Module):
             dropout=0.2
         ):
 
-        super(FishTCN, self). __init__()
+        super(TCN, self). __init__()
         layers = []
         num_levels = len(num_channels)
         for i in range(num_levels):
             dilation_size = 2 ** i
             in_channels = input_size if i == 0 else num_channels[i-1]
             out_channels = num_channels[i]
-            layers += [ChanneledTCNBlock(in_channels, out_channels, kernel_size, stride=1,
+            layers += [TCNBlock(in_channels, out_channels, kernel_size, stride=1,
                                           dilation=dilation_size, padding=(kernel_size-1) * dilation_size, 
                                           dropout=dropout)]
 
@@ -313,9 +284,11 @@ def train(
         validate_every: int = 500,
         n_workers: int = 4,
         batch_size: int = 256,
+        average_batch_size: int = 400,
         scheduler_patience: int = 15,
-        lr: float = 0.001,
+        lr: float = 0.002,
         num_channels = [64, 64, 128, 128],
+        kernel_size: int = 3,
         window_size = 90,
         max_epoch: int = 100
     ):
@@ -343,7 +316,14 @@ def train(
     val_ds = FishSequenceDataset(x_val, y_val, x_scaler, window_size)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, persistent_workers=True)
 
-    model = FishTCN(input_size=20, output_size=3, num_channels=num_channels).to(device)
+    model = TCN(
+        input_size=20, 
+        output_size=3, 
+        num_channels=num_channels, 
+        kernel_size=kernel_size, 
+        dropout=0.2
+    ).to(device)
+
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=scheduler_patience)
     criterion = torch.nn.SmoothL1Loss()
@@ -351,6 +331,7 @@ def train(
     writer = SummaryWriter(log_dir=save_path / "logs")
     global_step = 0
     best_val_loss = float('inf')
+    training_loss_buffer = deque(maxlen=average_batch_size)
 
     for epoch in range(max_epoch):
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{max_epoch}", unit="batch")
@@ -368,18 +349,25 @@ def train(
             optimizer.step()
 
             current_loss = loss.item()
+            training_loss_buffer.append(current_loss)
+            average_training_loss = np.mean(training_loss_buffer)
             epoch_loss += current_loss
             if i % 10 == 0:
                 pbar.set_postfix({
-                    "loss": f"{current_loss:.6f}",
-                    "avg_loss": f"{epoch_loss/(i+1):.6f}"
+                    "loss": f"{average_training_loss:.6f}",
                 })
 
-            writer.add_scalar("Loss/Train", current_loss, global_step)
+            writer.add_scalar("Loss/Train", average_training_loss, global_step)
             global_step += 1
             
             if global_step % validate_every == 0:
-                current_val_loss = validate(model, val_loader, criterion, device)
+                current_val_loss = validate(
+                    model, 
+                    val_loader, 
+                    criterion, 
+                    device, 
+                    max_batches=average_batch_size
+                )
                 writer.add_scalar("Loss/Validation", current_val_loss, global_step)
                 writer.add_scalar("LearningRate", optimizer.param_groups[0]['lr'], global_step)
                 
@@ -401,11 +389,19 @@ def predict(
         device,
         num_samples: int = 200,
         num_channels: list[int] = [64, 64, 128, 128],
+        kernel_size: int = 5,
         window_size = 90,
         saved_model: str = 'best_model.pth',
     ):
 
-    model = FishTCN(input_size=20, output_size=3, num_channels=num_channels).to(device)
+    model = TCN(
+        input_size=20, 
+        output_size=3, 
+        num_channels=num_channels, 
+        kernel_size=kernel_size, 
+        dropout=0.2
+    ).to(device)
+
     model.load_state_dict(torch.load(save_path / saved_model))
     
     # Load validation data specifically for prediction
@@ -485,7 +481,8 @@ if __name__ == '__main__':
     SAVE_PATH.mkdir(parents=True, exist_ok=True)
 
     num_channels = [64, 64, 128, 128, 256, 256]
-    window_size = 120
+    kernel_size = 5
+    window_size = 240
 
     extract_data(BASE_PATH, SAVE_PATH, max_files=10)
 
@@ -495,7 +492,9 @@ if __name__ == '__main__':
         SAVE_PATH, 
         device,
         num_channels = num_channels,
-        window_size=window_size
+        window_size=window_size,
+        kernel_size = 5,
+        lr = 0.002
     )
 
     predict(
