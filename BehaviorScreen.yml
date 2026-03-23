@@ -12,6 +12,7 @@ dependencies:
 - pip:
   - pyyaml
   - megabouts
+  - tensorboard
   - filetype
   - git+https://github.com/ElTinmar/video_tools.git@main
 
