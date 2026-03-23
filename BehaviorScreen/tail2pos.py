@@ -12,6 +12,7 @@ from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
+import json
 
 from BehaviorScreen.core import AGAROSE_WELL_DIMENSIONS
 from BehaviorScreen.load import Directories, BehaviorData, load_data, find_files
@@ -279,8 +280,23 @@ def train(
         device,
         validate_every: int = 500,
         n_workers: int = 4,
-        batch_size: int = 512
+        batch_size: int = 512,
+        scheduler_patience: int = 5,
+        lr: float = 0.001,
+        num_channels = [64, 64, 128, 128],
+        window_size = 30
     ):
+
+    config = {
+        "lr": lr,
+        "scheduler_patience": scheduler_patience,
+        "num_channels": num_channels,
+        "window_size": window_size,
+        "batch_size": batch_size,
+        "validate_every": validate_every
+    }
+    with open(save_path / "config.json", "w") as f:
+        json.dump(config, f, indent=4)
     
     x_train = sorted(list(save_path.glob("X_train_*.npy")))
     y_train = sorted(list(save_path.glob("y_train_*.npy")))
@@ -288,13 +304,14 @@ def train(
     y_val = sorted(list(save_path.glob("y_val_*.npy")))
     x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
 
-    train_ds = FishSequenceDataset(x_train, y_train, x_scaler)
+    train_ds = FishSequenceDataset(x_train, y_train, x_scaler, window_size)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True)
-    val_ds = FishSequenceDataset(x_val, y_val, x_scaler)
+    val_ds = FishSequenceDataset(x_val, y_val, x_scaler, , window_size)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True)
 
-    model = FishTCN(input_size=20, output_size=3, num_channels=[64, 64, 128, 128]).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    model = FishTCN(input_size=20, output_size=3, num_channels=num_channels).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', scheduler_patience=scheduler_patience)
     criterion = torch.nn.MSELoss()
 
     writer = SummaryWriter(log_dir=save_path / "logs")
@@ -313,6 +330,7 @@ def train(
             output = model(batch_x)
             loss = criterion(output, batch_y)
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
 
             current_loss = loss.item()
@@ -329,9 +347,15 @@ def train(
             if global_step % validate_every == 0:
                 current_val_loss = validate(model, val_loader, criterion, device)
                 writer.add_scalar("Loss/Validation", current_val_loss, global_step)
+                writer.add_scalar("LearningRate", optimizer.param_groups[0]['lr'], global_step)
+                
+                scheduler.step(current_val_loss)
+                
                 if current_val_loss < best_val_loss:
                     best_val_loss = current_val_loss
                     torch.save(model.state_dict(), save_path / 'best_model.pth')
+
+                pbar.set_postfix({"val_loss": f"{current_val_loss:.6f}", "lr": optimizer.param_groups[0]['lr']})
 
         print(f"--- Epoch {epoch+1} Finished. Avg Loss: {epoch_loss/len(train_loader):.6f} ---")
 
