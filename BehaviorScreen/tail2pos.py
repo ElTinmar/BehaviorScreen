@@ -276,13 +276,12 @@ def validate(
     
 def train(
         save_path: Path, 
+        device,
         validate_every: int = 500,
         n_workers: int = 4,
         batch_size: int = 512
     ):
     
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     x_train = sorted(list(save_path.glob("X_train_*.npy")))
     y_train = sorted(list(save_path.glob("y_train_*.npy")))
     x_val = sorted(list(save_path.glob("X_val_*.npy")))
@@ -338,11 +337,24 @@ def train(
 
     writer.close()
 
-def predict(model, dataset, file_idx, device):
+def predict(
+        save_path: Path, 
+        file_idx, 
+        device,
+        saved_model: str = 'best_model.pth',
+    ):
+
+    model = FishTCN(input_size=20, output_size=3, num_channels=[64, 64, 128, 128]).to(device)
+    model.load_state_dict(torch.load(save_path / saved_model))
+    
+    # Load validation data specifically for prediction
+    x_val = sorted(list(SAVE_PATH.glob("X_val_*.npy")))
+    y_val = sorted(list(SAVE_PATH.glob("y_val_*.npy")))
+    x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
+    dataset = FishSequenceDataset(x_val, y_val, x_scaler)
+    
     model.eval()
     
-    # 1. Prepare data for a single file
-    # We want to predict the entire file, so we iterate through its specific indices
     start_idx = 0 if file_idx == 0 else dataset.cumulative_lengths[file_idx-1]
     end_idx = dataset.cumulative_lengths[file_idx]
     
@@ -361,11 +373,10 @@ def predict(model, dataset, file_idx, device):
     predictions = np.array(predictions) # (N, 3) -> [dx, dy, dtheta]
     ground_truth = np.array(ground_truth)
     
-    # 2. Reconstruct Global Trajectory
     def reconstruct(moves):
         # We start at origin (0,0) with 0 heading
         x, y, theta = 0, 0, 0
-        traj = [[x, y]]
+        traj = [[x, y, theta]]
         
         for dx_loc, dy_loc, d_theta in moves:
             # Update heading
@@ -376,7 +387,7 @@ def predict(model, dataset, file_idx, device):
             
             x += dx_glob
             y += dy_glob
-            traj.append([x, y])
+            traj.append([x, y, theta])
         return np.array(traj)
 
     traj_pred = reconstruct(predictions)
@@ -387,8 +398,8 @@ def predict(model, dataset, file_idx, device):
     
     # Subplot 1: XY Trajectory
     plt.subplot(1, 2, 1)
-    plt.plot(traj_real[:, 0], traj_real[:, 1], 'k-', alpha=0.5, label='Actual')
-    plt.plot(traj_pred[:, 0], traj_pred[:, 1], 'r--', alpha=0.8, label='Predicted')
+    plt.plot(traj_real[:200, 0], traj_real[:200, 1], 'k-', alpha=0.5, label='Actual')
+    plt.plot(traj_pred[:200, 0], traj_pred[:200, 1], 'r--', alpha=0.8, label='Predicted')
     plt.title("Reconstructed Trajectory")
     plt.xlabel("X (local units)")
     plt.ylabel("Y (local units)")
@@ -397,8 +408,8 @@ def predict(model, dataset, file_idx, device):
     
     # Subplot 2: Heading change comparison
     plt.subplot(1, 2, 2)
-    plt.plot(ground_truth[:200, 2], 'k', label='Actual dTheta')
-    plt.plot(predictions[:200, 2], 'r--', label='Predicted dTheta')
+    plt.plot(traj_real[:200, 2], 'k', label='Actual dTheta')
+    plt.plot(traj_pred[:200, 2], 'r--', label='Predicted dTheta')
     plt.title("Heading Change (First 200 frames)")
     plt.legend()
     
@@ -413,5 +424,10 @@ if __name__ == '__main__':
     SAVE_PATH = Path('/home/martin/Documents/Processed_TCN_Data')
     SAVE_PATH.mkdir(parents=True, exist_ok=True)
 
-    #extract_data(BASE_PATH, SAVE_PATH)
-    train(SAVE_PATH)
+    extract_data(BASE_PATH, SAVE_PATH)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    train(SAVE_PATH, device)
+    predict(SAVE_PATH, 0, device, 'best_model.pth')
+
+
+
