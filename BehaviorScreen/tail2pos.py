@@ -288,7 +288,7 @@ def train(
         scheduler_patience: int = 15,
         lr: float = 0.002,
         num_channels = [64, 64, 128, 128],
-        kernel_size: int = 3,
+        kernel_size: int = 5,
         window_size = 90,
         max_epoch: int = 100
     ):
