@@ -1,3 +1,7 @@
+from pathlib import Path
+import joblib
+import random
+
 import torch
 import torch.nn as nn
 from torch.nn.utils import weight_norm
@@ -7,9 +11,7 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
-from pathlib import Path
-import joblib
-import random
+import matplotlib.pyplot as plt
 
 from BehaviorScreen.core import AGAROSE_WELL_DIMENSIONS
 from BehaviorScreen.load import Directories, BehaviorData, load_data, find_files
@@ -290,7 +292,7 @@ def train(
     train_ds = FishSequenceDataset(x_train, y_train, x_scaler)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True)
     val_ds = FishSequenceDataset(x_val, y_val, x_scaler)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True)
 
     model = FishTCN(input_size=20, output_size=3, num_channels=[64, 64, 128, 128]).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -336,8 +338,74 @@ def train(
 
     writer.close()
 
-def predict():
-    ...
+def predict(model, dataset, file_idx, device):
+    model.eval()
+    
+    # 1. Prepare data for a single file
+    # We want to predict the entire file, so we iterate through its specific indices
+    start_idx = 0 if file_idx == 0 else dataset.cumulative_lengths[file_idx-1]
+    end_idx = dataset.cumulative_lengths[file_idx]
+    
+    predictions = []
+    ground_truth = []
+    
+    with torch.no_grad():
+        for i in range(start_idx, end_idx):
+            x, y = dataset[i]
+            x = x.unsqueeze(0).to(device) # Add batch dimension (1, Features, Window)
+            
+            output = model(x)
+            predictions.append(output.squeeze().cpu().numpy())
+            ground_truth.append(y.numpy())
+            
+    predictions = np.array(predictions) # (N, 3) -> [dx, dy, dtheta]
+    ground_truth = np.array(ground_truth)
+    
+    # 2. Reconstruct Global Trajectory
+    def reconstruct(moves):
+        # We start at origin (0,0) with 0 heading
+        x, y, theta = 0, 0, 0
+        traj = [[x, y]]
+        
+        for dx_loc, dy_loc, d_theta in moves:
+            # Update heading
+            theta += d_theta
+            # Rotate local move back to global coordinates
+            dx_glob = dx_loc * np.cos(theta) - dy_loc * np.sin(theta)
+            dy_glob = dx_loc * np.sin(theta) + dy_loc * np.cos(theta)
+            
+            x += dx_glob
+            y += dy_glob
+            traj.append([x, y])
+        return np.array(traj)
+
+    traj_pred = reconstruct(predictions)
+    traj_real = reconstruct(ground_truth)
+    
+    # 3. Plotting
+    plt.figure(figsize=(10, 5))
+    
+    # Subplot 1: XY Trajectory
+    plt.subplot(1, 2, 1)
+    plt.plot(traj_real[:, 0], traj_real[:, 1], 'k-', alpha=0.5, label='Actual')
+    plt.plot(traj_pred[:, 0], traj_pred[:, 1], 'r--', alpha=0.8, label='Predicted')
+    plt.title("Reconstructed Trajectory")
+    plt.xlabel("X (local units)")
+    plt.ylabel("Y (local units)")
+    plt.legend()
+    plt.axis('equal')
+    
+    # Subplot 2: Heading change comparison
+    plt.subplot(1, 2, 2)
+    plt.plot(ground_truth[:200, 2], 'k', label='Actual dTheta')
+    plt.plot(predictions[:200, 2], 'r--', label='Predicted dTheta')
+    plt.title("Heading Change (First 200 frames)")
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.show()
+
+    return predictions, ground_truth
 
 if __name__ == '__main__':
     
