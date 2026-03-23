@@ -291,7 +291,7 @@ def train(
     train_ds = FishSequenceDataset(x_train, y_train, x_scaler)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True)
     val_ds = FishSequenceDataset(x_val, y_val, x_scaler)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True)
+    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True)
 
     model = FishTCN(input_size=20, output_size=3, num_channels=[64, 64, 128, 128]).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -348,8 +348,8 @@ def predict(
     model.load_state_dict(torch.load(save_path / saved_model))
     
     # Load validation data specifically for prediction
-    x_val = sorted(list(SAVE_PATH.glob("X_val_*.npy")))
-    y_val = sorted(list(SAVE_PATH.glob("y_val_*.npy")))
+    x_val = sorted(list(save_path.glob("X_val_*.npy")))
+    y_val = sorted(list(save_path.glob("y_val_*.npy")))
     x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
     dataset = FishSequenceDataset(x_val, y_val, x_scaler)
     
