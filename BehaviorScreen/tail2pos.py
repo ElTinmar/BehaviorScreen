@@ -397,13 +397,14 @@ def predict(
         save_path: Path, 
         file_idx, 
         device,
-        samples: int = (0, 1000),
+        samples: tuple[int, int] = (0, 1000),
         num_channels: list[int] = [64, 64, 128, 128],
         kernel_size: int = 5,
         window_size = 90,
         saved_model: str = 'best_model.pth',
     ):
 
+    # 1. Initialize Model with the projection layer
     model = TCN(
         input_size=20, 
         output_size=3, 
@@ -413,52 +414,58 @@ def predict(
     ).to(device)
 
     model.load_state_dict(torch.load(save_path / saved_model))
+    model.eval()
     
-    # Load validation data specifically for prediction
+    # 2. Setup Data
     x_val = sorted(list(save_path.glob("X_val_*.npy")))
     y_val = sorted(list(save_path.glob("y_val_*.npy")))
     x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
     dataset = FishSequenceDataset(x_val, y_val, x_scaler, window_size=window_size)
     
-    model.eval()
-    
+    # Calculate index range for the specific file
     start_idx = samples[0] if file_idx == 0 else dataset.cumulative_lengths[file_idx-1] + samples[0]
-    end_idx = min(start_idx+samples[1], dataset.cumulative_lengths[file_idx])
+    end_idx = min(start_idx + samples[1], dataset.cumulative_lengths[file_idx])
     
     predictions = []
     ground_truth = []
     
+    # 3. Inference Loop
+    print(f"Running prediction on file {file_idx}...")
     with torch.no_grad():
-        for i in range(start_idx, end_idx):
+        for i in tqdm(range(start_idx, end_idx)):
+            # x shape: (20, Window), y shape: (3, Window)
             x, y = dataset[i]
-            x = x.unsqueeze(0).to(device) # Add batch dimension (1, Features, Window)
+            x = x.unsqueeze(0).to(device) 
             
-            output = model(x)
-            predictions.append(output.squeeze().cpu().numpy())
-            ground_truth.append(y.numpy())
+            output = model(x) # Output shape: (1, 3, Window)
             
-    predictions = np.array(predictions) # (N, 3) -> [dx, dy, dtheta]
+            # We take the LAST timestep of the window as our prediction for this point in time
+            # Shape: (3,)
+            pred_last_step = output[0, :, -1].cpu().numpy()
+            target_last_step = y[:, -1].numpy()
+            
+            predictions.append(pred_last_step)
+            ground_truth.append(target_last_step)
+            
+    predictions = np.array(predictions) # (N, 3)
     ground_truth = np.array(ground_truth)
 
+    # 4. Metrics
     scores = r2_score(ground_truth, predictions, multioutput='raw_values')
-    print(f"Mean Squared Error: {np.mean((ground_truth - predictions)**2)}")
-    print(f"R2 : {r2_score(ground_truth, predictions):.3f}")
-    print(f"R2 Forward (dx): {scores[0]:.3f}")
-    print(f"R2 Lateral (dy): {scores[1]:.3f}")
-    print(f"R2 Turning (dTh): {scores[2]:.3f}")
+    print(f"\n--- Results for {samples[1]} frames ---")
+    print(f"MSE: {np.mean((ground_truth - predictions)**2):.6f}")
+    print(f"R2 Overall: {r2_score(ground_truth, predictions):.3f}")
+    print(f"R2 dx: {scores[0]:.3f} | R2 dy: {scores[1]:.3f} | R2 dTh: {scores[2]:.3f}")
         
     def reconstruct(moves):
-        # We start at origin (0,0) with 0 heading
         x, y, theta = 0, 0, 0
         traj = [[x, y, theta]]
-        
         for dx_loc, dy_loc, d_theta in moves:
+            # Rotate local move into global coordinates
             dx_glob = dx_loc * np.cos(theta) - dy_loc * np.sin(theta)
             dy_glob = dx_loc * np.sin(theta) + dy_loc * np.cos(theta)
-            
             x += dx_glob
             y += dy_glob
-
             theta += d_theta
             traj.append([x, y, theta])
         return np.array(traj)
@@ -466,45 +473,38 @@ def predict(
     traj_pred = reconstruct(predictions)
     traj_real = reconstruct(ground_truth)
     
-    # 3. Plotting
-
+    # 5. Visualizations
     fig, axes = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
     titles = ['Forward Velocity (dx)', 'Lateral Velocity (dy)', 'Angular Velocity (dTheta)']
-    colors = ['black', 'red']
     for i in range(3):
-        axes[i].plot(ground_truth[:, i], color=colors[0], label='Actual', alpha=0.7)
-        axes[i].plot(predictions[:, i], color=colors[1], label='Predicted', alpha=0.8)
+        axes[i].plot(ground_truth[:, i], color='black', label='Actual', alpha=0.5)
+        axes[i].plot(predictions[:, i], color='red', label='Predicted', alpha=0.8)
         axes[i].set_ylabel('Units/Frame')
         axes[i].set_title(titles[i])
-        if i == 0:
-            axes[i].legend(loc='upper right')
-    axes[-1].set_xlabel('Frames (Time)')
+        if i == 0: axes[i].legend()
+    
     plt.tight_layout()
     plt.show()
 
     plt.figure(figsize=(10, 5))
-    
-    # Subplot 1: XY Trajectory
     plt.subplot(1, 2, 1)
     plt.plot(traj_real[:, 0], traj_real[:, 1], 'k-', alpha=0.5, label='Actual')
     plt.plot(traj_pred[:, 0], traj_pred[:, 1], 'r--', alpha=0.8, label='Predicted')
-    plt.title("Reconstructed Trajectory")
-    plt.xlabel("X (local units)")
-    plt.ylabel("Y (local units)")
-    plt.legend()
+    plt.title("XY Trajectory")
     plt.axis('equal')
+    plt.legend()
     
-    # Subplot 2: Heading change comparison
     plt.subplot(1, 2, 2)
-    plt.plot(traj_real[:, 2], 'k', label='Actual dTheta')
-    plt.plot(traj_pred[:, 2], 'r--', label='Predicted dTheta')
-    plt.title("Heading Change (First 200 frames)")
+    plt.plot(traj_real[:, 2], 'k', alpha=0.5, label='Actual')
+    plt.plot(traj_pred[:, 2], 'r--', alpha=0.8, label='Predicted')
+    plt.title("Cumulative Heading (Theta)")
     plt.legend()
     
     plt.tight_layout()
     plt.show()
 
     return predictions, ground_truth
+
 
 if __name__ == '__main__':
     
