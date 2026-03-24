@@ -12,6 +12,7 @@ import numpy as np
 from tqdm import tqdm
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
 import json
 
@@ -64,6 +65,10 @@ def get_targets(behavior_data: BehaviorData):
     df = behavior_data.full_tracking
     h_x, h_y = df[('Head', 'x')].values, df[('Head', 'y')].values
     s_x, s_y = df[('Swim_Bladder', 'x')].values, df[('Swim_Bladder', 'y')].values
+
+    # image space (origin topleft) to cartesian space 
+    h_y = -h_y 
+    s_y = -s_y
     
     theta = np.arctan2(h_y - s_y, h_x - s_x)
     diff_x = np.diff(h_x)
@@ -387,7 +392,7 @@ def predict(
         save_path: Path, 
         file_idx, 
         device,
-        num_samples: int = 200,
+        samples: int = (0, 1000),
         num_channels: list[int] = [64, 64, 128, 128],
         kernel_size: int = 5,
         window_size = 90,
@@ -412,8 +417,8 @@ def predict(
     
     model.eval()
     
-    start_idx = 0 if file_idx == 0 else dataset.cumulative_lengths[file_idx-1]
-    end_idx = min(start_idx+num_samples, dataset.cumulative_lengths[file_idx])
+    start_idx = samples[0] if file_idx == 0 else dataset.cumulative_lengths[file_idx-1] + samples[0]
+    end_idx = min(start_idx+samples[1], dataset.cumulative_lengths[file_idx])
     
     predictions = []
     ground_truth = []
@@ -429,7 +434,14 @@ def predict(
             
     predictions = np.array(predictions) # (N, 3) -> [dx, dy, dtheta]
     ground_truth = np.array(ground_truth)
-    
+
+    scores = r2_score(ground_truth, predictions, multioutput='raw_values')
+    print(f"Mean Squared Error: {np.mean((ground_truth - predictions)**2)}")
+    print(f"R2 : {r2_score(ground_truth, predictions):.3f}")
+    print(f"R2 Forward (dx): {scores[0]:.3f}")
+    print(f"R2 Lateral (dy): {scores[1]:.3f}")
+    print(f"R2 Turning (dTh): {scores[2]:.3f}")
+        
     def reconstruct(moves):
         # We start at origin (0,0) with 0 heading
         x, y, theta = 0, 0, 0
@@ -450,6 +462,21 @@ def predict(
     traj_real = reconstruct(ground_truth)
     
     # 3. Plotting
+
+    fig, axes = plt.subplots(3, 1, figsize=(15, 10), sharex=True)
+    titles = ['Forward Velocity (dx)', 'Lateral Velocity (dy)', 'Angular Velocity (dTheta)']
+    colors = ['black', 'red']
+    for i in range(3):
+        axes[i].plot(ground_truth[:, i], color=colors[0], label='Actual', alpha=0.7)
+        axes[i].plot(predictions[:, i], color=colors[1], label='Predicted', alpha=0.8)
+        axes[i].set_ylabel('Units/Frame')
+        axes[i].set_title(titles[i])
+        if i == 0:
+            axes[i].legend(loc='upper right')
+    axes[-1].set_xlabel('Frames (Time)')
+    plt.tight_layout()
+    plt.show()
+
     plt.figure(figsize=(10, 5))
     
     # Subplot 1: XY Trajectory
@@ -484,7 +511,7 @@ if __name__ == '__main__':
     kernel_size = 5
     window_size = 240
 
-    extract_data(BASE_PATH, SAVE_PATH, max_files=10)
+    extract_data(BASE_PATH, SAVE_PATH, max_files=100)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -501,8 +528,9 @@ if __name__ == '__main__':
         SAVE_PATH, 
         file_idx=0, 
         device = device, 
-        num_samples=2000, 
+        samples=(0, 10000), 
         num_channels=num_channels,
+        kernel_size = kernel_size,
         window_size = window_size,
         saved_model='best_model.pth'
     )
