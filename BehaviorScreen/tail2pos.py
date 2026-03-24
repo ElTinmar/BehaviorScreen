@@ -190,8 +190,9 @@ class FishSequenceDataset(Dataset):
         file_idx = np.searchsorted(self.cumulative_lengths, idx, side='right')
         inner_idx = idx if file_idx == 0 else idx - self.cumulative_lengths[file_idx-1] 
         x = self.x_data[file_idx][inner_idx : inner_idx + self.window_size]
-        y = self.y_data[file_idx][inner_idx + self.window_size] #TODO try with whole sequence?
-        return x.T, y
+        #y = self.y_data[file_idx][inner_idx + self.window_size] #TODO try with whole sequence?
+        y = self.y_data[file_idx][inner_idx : inner_idx + self.window_size]
+        return x.T, y.T
 
 
 class TCNBlock(nn.Module):
@@ -247,14 +248,18 @@ class TCN(nn.Module):
                                           dropout=dropout)]
 
         self.network = nn.Sequential(*layers)
-        self.linear = nn.Linear(num_channels[-1], output_size)
+        #self.linear = nn.Linear(num_channels[-1], output_size)
+        self.projection = nn.Conv1d(num_channels[-1], output_size, kernel_size=1)
 
     def forward(self, x):
         # x shape: (Batch, Features, Time) -> PyTorch Conv1d expects this
-        y1 = self.network(x)
+        #y1 = self.network(x)
         # We only want the prediction for the LAST time step in the window
-        return self.linear(y1[:, :, -1])
+        #return self.linear(y1[:, :, -1])
 
+        features = self.network(x)      # Returns (Batch, 256, Window)
+        out = self.projection(features) # Returns (Batch, 3, Window)
+        return out
 
 ## FUNCTIONS ========================================================================
 
