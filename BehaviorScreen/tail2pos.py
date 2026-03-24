@@ -190,7 +190,7 @@ class FishSequenceDataset(Dataset):
         file_idx = np.searchsorted(self.cumulative_lengths, idx, side='right')
         inner_idx = idx if file_idx == 0 else idx - self.cumulative_lengths[file_idx-1] 
         x = self.x_data[file_idx][inner_idx : inner_idx + self.window_size]
-        y = self.y_data[file_idx][inner_idx + self.window_size]
+        y = self.y_data[file_idx][inner_idx + self.window_size] #TODO try with whole sequence?
         return x.T, y
 
 
