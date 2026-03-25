@@ -268,6 +268,8 @@ def validate(
     
     model.eval()
     val_loss = 0
+    mae = 0
+
     steps = 0 
     with torch.no_grad():
         for i, (batch_x, batch_y) in enumerate(loader):
@@ -278,10 +280,13 @@ def validate(
             output = model(batch_x)
             loss = criterion(output, batch_y)
             val_loss += loss.item()
+            mae += torch.mean(torch.abs(output - batch_y))
+    
+    model.train() 
     
     avg_loss = val_loss / steps
-    model.train() 
-    return avg_loss
+    avg_mae = mae / steps
+    return avg_loss, avg_mae
     
 def train(
         save_path: Path, 
@@ -366,7 +371,7 @@ def train(
             global_step += 1
             
             if global_step % validate_every == 0:
-                current_val_loss = validate(
+                current_val_loss, current_val_mae = validate(
                     model, 
                     val_loader, 
                     criterion, 
@@ -374,6 +379,7 @@ def train(
                     max_batches=average_batch_size
                 )
                 writer.add_scalar("Loss/Validation", current_val_loss, global_step)
+                writer.add_scalar("MAE/Validation", current_val_mae, global_step)
                 writer.add_scalar("LearningRate", optimizer.param_groups[0]['lr'], global_step)
                 
                 scheduler.step(current_val_loss)
