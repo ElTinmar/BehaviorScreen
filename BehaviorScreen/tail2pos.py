@@ -2,6 +2,8 @@ from pathlib import Path
 import joblib
 import random
 from collections import deque
+import argparse
+import json
 
 import torch
 import torch.nn as nn
@@ -14,7 +16,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import r2_score
 import matplotlib.pyplot as plt
-import json
 
 from BehaviorScreen.core import AGAROSE_WELL_DIMENSIONS
 from BehaviorScreen.load import Directories, BehaviorData, load_data, find_files
@@ -96,11 +97,11 @@ def save_processed_data(behavior_file, save_dir, file_id):
         np.save(save_dir / f"X_{file_id}.npy", X_final)
         np.save(save_dir / f"y_{file_id}.npy", y_final)
         
-        return X_final 
+        return X_final, y_final
         
     except Exception as e:
         print(f"Error processing {behavior_file}: {e}")
-        return None
+        return None, None
 
 def extract_data(
         base_path: Path,
@@ -136,19 +137,27 @@ def extract_data(
         test_size=0.2
     )
 
-    train_scaling_samples = []
+    train_scaling_samples_x = []
+    train_scaling_samples_y = []
     for split, files in [("train", train_files), ("val", val_files)]:
         print(f"=== Processing {split} ===")
         for idx, behavior_file in enumerate(files):
-            X_data = save_processed_data(behavior_file, save_path, f"{split}_{idx}")
+            X_data, y_data = save_processed_data(behavior_file, save_path, f"{split}_{idx}")
             if split == "train" and X_data is not None and idx % 10 == 0:
-                train_scaling_samples.append(X_data[::10])
+                train_scaling_samples_x.append(X_data[::10])
+                train_scaling_samples_y.append(y_data[::10])
 
     print("Calculating normalization (train only)...")
-    train_sample = np.concatenate(train_scaling_samples, axis=0)
-    scaler = StandardScaler()
-    scaler.fit(train_sample)
-    joblib.dump(scaler, save_path / 'tcn_scaler.pkl')
+    train_sample_x = np.concatenate(train_scaling_samples_x, axis=0)
+    x_scaler = StandardScaler()
+    x_scaler.fit(train_sample_x)
+    joblib.dump(x_scaler, save_path / 'tcn_x_scaler.pkl')
+
+    train_sample_y = np.concatenate(train_scaling_samples_y, axis=0)
+    y_scaler = StandardScaler()
+    y_scaler.fit(train_sample_y)
+    joblib.dump(y_scaler, save_path / 'tcn_y_scaler.pkl')
+
 
 ## NETWORK ========================================================================
 
@@ -324,7 +333,8 @@ def train(
     y_train = sorted(list(save_path.glob("y_train_*.npy")))
     x_val = sorted(list(save_path.glob("X_val_*.npy")))
     y_val = sorted(list(save_path.glob("y_val_*.npy")))
-    x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
+    x_scaler = joblib.load(save_path / 'tcn_x_scaler.pkl')
+    y_scaler = joblib.load(save_path / 'tcn_y_scaler.pkl')
 
     train_ds = FishSequenceDataset(x_train, y_train, x_scaler, window_size)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, persistent_workers=True)
@@ -425,7 +435,7 @@ def predict(
     # 2. Setup Data
     x_val = sorted(list(save_path.glob("X_val_*.npy")))
     y_val = sorted(list(save_path.glob("y_val_*.npy")))
-    x_scaler = joblib.load(save_path / 'tcn_scaler.pkl')
+    x_scaler = joblib.load(save_path / 'tcn_x_scaler.pkl')
     dataset = FishSequenceDataset(x_val, y_val, x_scaler, window_size=window_size)
     
     # Calculate index range for the specific file
