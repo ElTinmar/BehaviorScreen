@@ -7,7 +7,7 @@ import json
 
 import torch
 import torch.nn as nn
-from torch.nn.utils import weight_norm
+from torch.nn.utils.parametrizations import weight_norm
 from torch.utils.data import Dataset, DataLoader
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
@@ -137,6 +137,9 @@ def extract_data(
         test_size=0.2
     )
 
+    n_training = len(train_files)
+    n_validation = len(train_files)
+
     train_scaling_samples_x = []
     train_scaling_samples_y = []
     for split, files in [("train", train_files), ("val", val_files)]:
@@ -158,6 +161,8 @@ def extract_data(
     y_scaler.fit(train_sample_y)
     joblib.dump(y_scaler, save_path / 'tcn_y_scaler.pkl')
 
+    return n_training, n_validation
+
 
 ## NETWORK ========================================================================
 
@@ -167,7 +172,8 @@ class FishSequenceDataset(Dataset):
             self, 
             x_paths, 
             y_paths, 
-            scaler, 
+            x_scaler, 
+            y_scaler, 
             window_size=30,
         ):
 
@@ -175,7 +181,7 @@ class FishSequenceDataset(Dataset):
 
         self.x_paths = sorted(x_paths) 
         self.y_paths = sorted(y_paths)
-        self.scaler = scaler
+        self.x_scaler = x_scaler
         self.window_size = window_size
         self.current_file_idx = -1
 
@@ -186,8 +192,9 @@ class FishSequenceDataset(Dataset):
         pairs = list(zip(self.x_paths, self.y_paths))
         for file_idx, (xp, yp) in enumerate(tqdm(pairs)):
             x_raw = np.load(xp)
-            self.x_data[file_idx] = torch.from_numpy(self.scaler.transform(x_raw)).float()
-            self.y_data[file_idx] = torch.from_numpy(np.load(yp)).float()
+            y_raw = np.load(xp)
+            self.x_data[file_idx] = torch.from_numpy(np.load(xp)).float() if x_scaler is None else torch.from_numpy(self.x_scaler.transform(x_raw)).float()
+            self.y_data[file_idx] = torch.from_numpy(np.load(yp)).float() if y_scaler is None else torch.from_numpy(self.x_scaler.transform(y_raw)).float()
             self.lengths.append(self.x_data[file_idx].shape[0] - window_size)
         
         self.cumulative_lengths = np.cumsum(self.lengths)
@@ -199,7 +206,6 @@ class FishSequenceDataset(Dataset):
         file_idx = np.searchsorted(self.cumulative_lengths, idx, side='right')
         inner_idx = idx if file_idx == 0 else idx - self.cumulative_lengths[file_idx-1] 
         x = self.x_data[file_idx][inner_idx : inner_idx + self.window_size]
-        #y = self.y_data[file_idx][inner_idx + self.window_size] #TODO try with whole sequence?
         y = self.y_data[file_idx][inner_idx : inner_idx + self.window_size]
         return x.T, y.T
 
@@ -336,9 +342,9 @@ def train(
     x_scaler = joblib.load(save_path / 'tcn_x_scaler.pkl')
     y_scaler = joblib.load(save_path / 'tcn_y_scaler.pkl')
 
-    train_ds = FishSequenceDataset(x_train, y_train, x_scaler, window_size)
+    train_ds = FishSequenceDataset(x_train, y_train, x_scaler, None, window_size)
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=n_workers, pin_memory=True, persistent_workers=True)
-    val_ds = FishSequenceDataset(x_val, y_val, x_scaler, window_size)
+    val_ds = FishSequenceDataset(x_val, y_val, x_scaler, None, window_size)
     val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=n_workers, pin_memory=True, persistent_workers=True)
 
     model = TCN(
@@ -409,11 +415,11 @@ def train(
 
     writer.close()
 
+
 def predict(
         save_path: Path, 
         file_idx, 
         device,
-        samples: tuple[int, int] = (0, 1000),
         num_channels: list[int] = [64, 64, 128, 128],
         kernel_size: int = 5,
         window_size = 90,
@@ -436,11 +442,12 @@ def predict(
     x_val = sorted(list(save_path.glob("X_val_*.npy")))
     y_val = sorted(list(save_path.glob("y_val_*.npy")))
     x_scaler = joblib.load(save_path / 'tcn_x_scaler.pkl')
-    dataset = FishSequenceDataset(x_val, y_val, x_scaler, window_size=window_size)
+    y_scaler = joblib.load(save_path / 'tcn_y_scaler.pkl')
+    dataset = FishSequenceDataset(x_val, y_val, x_scaler, None, window_size=window_size)
     
     # Calculate index range for the specific file
-    start_idx = samples[0] if file_idx == 0 else dataset.cumulative_lengths[file_idx-1] + samples[0]
-    end_idx = min(start_idx + samples[1], dataset.cumulative_lengths[file_idx])
+    start_idx = 0 if file_idx == 0 else dataset.cumulative_lengths[file_idx-1] 
+    end_idx = dataset.cumulative_lengths[file_idx]
     
     predictions = []
     ground_truth = []
@@ -466,13 +473,23 @@ def predict(
     predictions = np.array(predictions) # (N, 3)
     ground_truth = np.array(ground_truth)
 
-    # 4. Metrics
+    return predictions, ground_truth
+
+def score(ground_truth, predictions):
+
     scores = r2_score(ground_truth, predictions, multioutput='raw_values')
-    print(f"\n--- Results for {samples[1]} frames ---")
-    print(f"MSE: {np.mean((ground_truth - predictions)**2):.6f}")
-    print(f"R2 Overall: {r2_score(ground_truth, predictions):.3f}")
-    print(f"R2 dx: {scores[0]:.3f} | R2 dy: {scores[1]:.3f} | R2 dTh: {scores[2]:.3f}")
-        
+    mse = np.mean((ground_truth - predictions)**2)
+    mae = np.mean(np.abs(ground_truth - predictions))
+    r2_global = r2_score(ground_truth, predictions)
+    r2_dx = scores[0]
+    r2_dy =  scores[1]
+    r2_dtheta = scores[2]
+    
+    return mse, mae, r2_global, r2_dx, r2_dy, r2_dtheta
+
+
+def plot(predictions, ground_truth):
+
     def reconstruct(moves):
         x, y, theta = 0, 0, 0
         traj = [[x, y, theta]]
@@ -519,8 +536,6 @@ def predict(
     plt.tight_layout()
     plt.show()
 
-    return predictions, ground_truth
-
 
 if __name__ == '__main__':
     
@@ -532,7 +547,7 @@ if __name__ == '__main__':
     kernel_size = 5
     window_size = 240
 
-    extract_data(BASE_PATH, SAVE_PATH, max_files=100)
+    n_train, n_val = extract_data(BASE_PATH, SAVE_PATH, max_files=100)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -540,21 +555,25 @@ if __name__ == '__main__':
         SAVE_PATH, 
         device,
         num_channels = num_channels,
-        window_size=window_size,
+        window_size = window_size,
         kernel_size = 5,
         lr = 0.002
     )
 
-    predict(
-        SAVE_PATH, 
-        file_idx=0, 
-        device = device, 
-        samples=(0, 10000), 
-        num_channels=num_channels,
-        kernel_size = kernel_size,
-        window_size = window_size,
-        saved_model='best_model.pth'
-    )
+    scores = []
+
+    for file in range(n_val):
+
+        predictions, ground_truth = predict(
+            SAVE_PATH, 
+            file_idx=file, 
+            device = device, 
+            num_channels=num_channels,
+            kernel_size = kernel_size,
+            window_size = window_size,
+            saved_model='best_model.pth'
+        )
+        scores.append(score(predictions, ground_truth))
 
 
 
