@@ -643,24 +643,19 @@ plt.rcParams.update({
 
 plt.figure(figsize=(6, 6))
 
-# ax = sns.violinplot(
-#     data=df_plot,
-#     x='group',
-#     y='value',
-#     hue='laterality',
-#     inner=None,
-#     cut=0,
-#     palette='viridis'
-# )
 ax = sns.barplot(
     data=df_plot,
     x='group',
     y='value',
     hue='laterality',
-    palette='viridis',
+    palette=['#4C72B0', '#55A868'],
     errorbar='se',    # Standard Error of the mean
     capsize=0,      # Width of the error bar caps
-    alpha=0.9         # Make bars slightly transparent to see dots better
+    alpha=0.9,         # Make bars slightly transparent to see dots better
+    edgecolor='.2', # Dark grey border
+    linewidth=1.5,
+    width=0.6,
+    gap=0.1
 )
 
 sns.stripplot(
@@ -668,10 +663,13 @@ sns.stripplot(
     x='group',
     y='value',
     hue='laterality',
+    palette=['#4C72B0', '#55A868'], # Match the bars
     jitter=0.2,
     dodge=True,
-    color='black',
-    alpha=0.5
+    alpha=0.5,
+    edgecolor='white', # The 'halo'
+    linewidth=1,
+    size=6      # Slightly larger dots
 )
 
 # Fix legend duplication
