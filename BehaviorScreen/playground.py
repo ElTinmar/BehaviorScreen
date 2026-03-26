@@ -643,14 +643,24 @@ plt.rcParams.update({
 
 plt.figure(figsize=(6, 6))
 
-ax = sns.violinplot(
+# ax = sns.violinplot(
+#     data=df_plot,
+#     x='group',
+#     y='value',
+#     hue='laterality',
+#     inner=None,
+#     cut=0,
+#     palette='viridis'
+# )
+ax = sns.barplot(
     data=df_plot,
     x='group',
     y='value',
     hue='laterality',
-    inner=None,
-    cut=0,
-    palette='viridis'
+    palette='viridis',
+    errorbar='se',    # Standard Error of the mean
+    capsize=0,      # Width of the error bar caps
+    alpha=0.9         # Make bars slightly transparent to see dots better
 )
 
 sns.stripplot(
@@ -666,7 +676,7 @@ sns.stripplot(
 
 # Fix legend duplication
 handles, labels = ax.get_legend_handles_labels()
-ax.legend(handles[:2], labels[:2], title='Laterality')
+ax.legend(handles[:2], labels[:2], title='Prey side')
 
 
 plt.ylabel('J-turn frequency (Hz)')
@@ -676,7 +686,7 @@ def add_pval(ax, x1, x2, y, text):
     ax.plot([x1, x1, x2, x2], [y, y*1.05, y*1.05, y], lw=1.5, color='black')
     ax.text((x1 + x2) / 2, y*1.08, text, ha='center', va='bottom')
 
-y_max = df_plot['value'].max()
+y_max = 0.8* df_plot['value'].max()
 
 # Positions depend on dodge → approximate:
 # Mecp2: x=0, WT: x=1
