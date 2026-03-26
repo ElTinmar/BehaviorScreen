@@ -1,10 +1,12 @@
 from pathlib import Path
 from typing import List
+from enum import IntEnum
 import pickle
 import pandas as pd
 import numpy as np
 import textwrap
 import matplotlib.pyplot as plt
+import seaborn as sns
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from scipy.signal import savgol_filter
 from typing import NamedTuple
@@ -17,7 +19,7 @@ from BehaviorScreen.load import (
 )
 from BehaviorScreen.megabouts import MegaboutResults
 from BehaviorScreen.process import get_trials, compute_angle_between_vectors
-from BehaviorScreen.core import Stim, GROUPING_PARAMETER
+from BehaviorScreen.core import Stim, BoutSign, GROUPING_PARAMETER
 from BehaviorScreen.plot import load_yaml_config, read_stim_specs
 from megabouts.utils import bouts_category_name_short
 
@@ -459,3 +461,96 @@ for ref, comp_list in comparisons.items():
         plt.savefig(f"{title}.png")
         plt.close()
 
+#############################################################################
+
+ROOT = Path('/home/martin/Desktop/DATA')
+groups = ['mecp2/danieau/bouts.csv','WT/danieau/bouts.csv']
+JTURN = bouts_category_name_short.index('JT')
+prob_threshold = 0.5
+trial_duration_s = 25
+N_fish = 48
+
+N_trials = 5
+time_bins = [
+    [0, 2.5],
+    [2.5, 5],
+    [5, 7.5],
+    [7.5, 10],
+    [10, 15],
+    [15, 25]
+]
+
+class PreySide(IntEnum):
+    LEFT = -20
+    RIGHT = 20
+
+ipsilateral = [(BoutSign.LEFT, PreySide.LEFT), (BoutSign.RIGHT, PreySide.RIGHT)]
+contralateral = [(BoutSign.LEFT, PreySide.RIGHT), (BoutSign.RIGHT, PreySide.LEFT)]
+laterality = [ipsilateral, contralateral]
+
+heatmap = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins)), np.nan, dtype=np.float32)
+
+for g_idx, g in enumerate(groups):
+
+    bout_file = ROOT/g 
+    df = pd.read_csv(bout_file)
+    file = df[df.stim == Stim.PREY_CAPTURE].file.unique()
+    
+    for fish_idx, fish in enumerate(file):
+        for lat_idx, lat in enumerate(laterality): 
+            for trial in range(N_trials):
+                for bin_idx, (t_start, t_stop) in enumerate(time_bins):
+                    for bout_sign, prey_side in lat: 
+                        mask = (
+                            (df.file == fish) &
+                            (df.stim == Stim.PREY_CAPTURE) &
+                            (df.category == JTURN) & 
+                            (df.proba > prob_threshold) &
+                            (df.trial_time >= t_start) &
+                            (df.trial_time < t_stop) &
+                            (df.trial_num == trial) &
+                            (df.sign == bout_sign) & 
+                            (df.prey_arc_start_deg == prey_side)
+                        )
+                        heatmap[g_idx, fish_idx, lat_idx, trial, bin_idx] += mask.sum() / (t_stop - t_start)
+
+
+group_names = ['Mecp2', 'WT']
+lat_names = ['Ipsilateral', 'Contralateral']
+bin_labels = [f"{b[0]}-{b[1]}s" for b in time_bins]
+trial_labels = [f"Trial {i}" for i in range(N_trials)]
+
+# 2. Find a global maximum for consistent color scaling
+vmax = heatmap.max() 
+
+fig, axes = plt.subplots(len(group_names), len(lat_names), 
+                         figsize=(15, 10), sharex=True, sharey=True)
+
+for g_idx in range(len(group_names)):
+    for lat_idx in range(len(lat_names)):
+        ax = axes[g_idx, lat_idx]
+        
+        # Extract the 2D slice for this Group + Laterality
+        # Data shape is (N_trials, len(time_bins))
+        data = np.nanmean(heatmap[g_idx, :,lat_idx, :, :], axis =  1)
+        
+        sns.heatmap(data, 
+                    annot=True,       # Show numerical values in cells
+                    fmt=".3f",        # 3 decimal places for Hz
+                    cmap="magma",     # High contrast perceptually uniform map
+                    vmin=0,           # Frequency can't be negative
+                    vmax=vmax,        # Same scale for all 4 plots
+                    xticklabels=bin_labels,
+                    yticklabels=trial_labels,
+                    ax=ax,
+                    cbar_kws={'label': '<J-Turn frequency>_fish (Hz)'})
+        
+        ax.set_title(f"Group: {group_names[g_idx]} | {lat_names[lat_idx]}}", fontweight='bold')
+        
+        if g_idx == len(group_names) - 1:
+            ax.set_xlabel("Time Bins")
+        if lat_idx == 0:
+            ax.set_ylabel("Trial Number")
+
+plt.tight_layout()
+plt.show()
