@@ -166,10 +166,10 @@ ax = sns.barplot(
     y='value',
     hue='laterality',
     palette=['#4C72B0', '#55A868'],
-    errorbar='se',    # Standard Error of the mean
-    capsize=0,      # Width of the error bar caps
-    alpha=0.9,         # Make bars slightly transparent to see dots better
-    edgecolor='.2', # Dark grey border
+    errorbar='se',    
+    capsize=0,      
+    alpha=0.9,      
+    edgecolor='.2', 
     linewidth=1.5,
     gap=0.1
 )
@@ -179,13 +179,13 @@ sns.stripplot(
     x='group',
     y='value',
     hue='laterality',
-    palette=['#4C72B0', '#55A868'], # Match the bars
+    palette=['#4C72B0', '#55A868'], 
     jitter=0.15,
     dodge=True,
     alpha=0.5,
-    edgecolor='white', # The 'halo'
+    edgecolor='white', 
     linewidth=1,
-    size=6     # Slightly larger dots
+    size=6     
 )
 
 # Fix legend duplication
