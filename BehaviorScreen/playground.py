@@ -654,7 +654,6 @@ ax = sns.barplot(
     alpha=0.9,         # Make bars slightly transparent to see dots better
     edgecolor='.2', # Dark grey border
     linewidth=1.5,
-    width=0.6,
     gap=0.1
 )
 
@@ -664,12 +663,12 @@ sns.stripplot(
     y='value',
     hue='laterality',
     palette=['#4C72B0', '#55A868'], # Match the bars
-    jitter=0.2,
+    jitter=0.15,
     dodge=True,
     alpha=0.5,
     edgecolor='white', # The 'halo'
     linewidth=1,
-    size=6      # Slightly larger dots
+    size=6     # Slightly larger dots
 )
 
 # Fix legend duplication
@@ -689,14 +688,8 @@ y_max = 0.8* df_plot['value'].max()
 # Positions depend on dodge → approximate:
 # Mecp2: x=0, WT: x=1
 # Ipsi ~ -0.2, Contra ~ +0.2 offset
-
-# Mecp2 Ipsi vs Contra
-add_pval(ax, -0.2, 0.2, y_max*1.1, f"p={p_mecp2_bf:.3e}")
-
-# WT Ipsi vs Contra
+add_pval(ax, -0.2, 0.2, y_max*0.85, f"p={p_mecp2_bf:.3e}")
 add_pval(ax, 0.8, 1.2, y_max*1.25, f"p={p_wt_bf:.3e}")
-
-# Ipsi Mecp2 vs WT
 add_pval(ax, -0.2, 0.8, y_max*1.4, f"p={p_ipsi_between_bf:.3e}")
 
 plt.ylim(0, y_max*1.6)
