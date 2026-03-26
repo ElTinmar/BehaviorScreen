@@ -2,11 +2,24 @@ from pathlib import Path
 from enum import IntEnum
 import pandas as pd
 import numpy as np
+from scipy.stats import wilcoxon , mannwhitneyu
+from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 from BehaviorScreen.core import Stim, BoutSign
 from megabouts.utils import bouts_category_name_short
+
+plt.rcParams.update({
+    'font.size': 12,          # Global default
+    'axes.titlesize': 18,     # Title
+    'axes.labelsize': 16,     # X and Y labels
+    'xtick.labelsize': 14,    # X tick labels
+    'ytick.labelsize': 14,    # Y tick labels
+    'legend.fontsize': 12,    # Legend
+    'font.family': 'sans-serif',
+    'font.sans-serif': ['Arial'] # Common for biology journals
+})
 
 ROOT = Path('/home/martin/Desktop/DATA')
 groups = ['mecp2/danieau/bouts.csv','WT/danieau/bouts.csv']
@@ -74,17 +87,14 @@ fig, axes = plt.subplots(len(group_names), len(lat_names),
 for g_idx in range(len(group_names)):
     for lat_idx in range(len(lat_names)):
         ax = axes[g_idx, lat_idx]
-        
-        # Extract the 2D slice for this Group + Laterality
-        # Data shape is (N_trials, len(time_bins))
         data = np.nanmean(heatmap[g_idx, :,lat_idx, :, :], axis=0)
         
         sns.heatmap(data, 
-                    annot=True,       # Show numerical values in cells
-                    fmt=".3f",        # 3 decimal places for Hz
-                    cmap="magma",     # High contrast perceptually uniform map
-                    vmin=0,           # Frequency can't be negative
-                    vmax=vmax,        # Same scale for all 4 plots
+                    annot=True,       
+                    fmt=".3f",        
+                    cmap="magma",     
+                    vmin=0,           
+                    vmax=vmax,        
                     xticklabels=bin_labels,
                     yticklabels=trial_labels,
                     ax=ax,
@@ -100,7 +110,6 @@ for g_idx in range(len(group_names)):
 plt.tight_layout()
 plt.show()
 
-
 ### German's barplot
 
 data_dict = {
@@ -109,32 +118,6 @@ data_dict = {
     'WT_Ipsi':      np.nanmean(heatmap[1, :, 0, 0:3, 0], axis=1),
     'WT_Contra':    np.nanmean(heatmap[1, :, 1, 0:3, 0], axis=1)
 }
-
-# Convert to "Long-form" DataFrame for Seaborn
-df_plot = pd.DataFrame(data_dict).melt(var_name='Condition', value_name='Frequency')
-df_plot[['Genotype', 'Laterality']] = df_plot['Condition'].str.split('_', expand=True)
-
-plt.figure(figsize=(8, 6))
-
-# 1. Plot the individual data points
-sns.stripplot(data=df_plot, x='Genotype', y='Frequency', hue='Laterality', 
-              dodge=True, alpha=0.5, palette='viridis', jitter=True)
-
-# 2. Overlay the mean and error bars
-sns.pointplot(data=df_plot, x='Genotype', y='Frequency', hue='Laterality', 
-              dodge=True, palette='viridis', markers='D', errorbar='se', join=False)
-
-plt.title('J-Turn Frequency: Ipsi vs Contra')
-plt.ylabel('Bout Frequency (Hz)')
-plt.legend(title='Laterality', loc='upper right')
-sns.despine() # Makes it look "publication ready"
-plt.show()
-
-
-#######################################
-
-from scipy.stats import wilcoxon , mannwhitneyu
-from statsmodels.stats.multitest import multipletests
 
 p_ipsi_between = mannwhitneyu(
     data_dict['Mecp2_Ipsi'][~np.isnan(data_dict['Mecp2_Ipsi'])],
@@ -175,17 +158,6 @@ df_plot = pd.DataFrame({
 })
 df_plot = df_plot.dropna(subset=['value'])
 
-plt.rcParams.update({
-    'font.size': 12,          # Global default
-    'axes.titlesize': 18,     # Title
-    'axes.labelsize': 16,     # X and Y labels
-    'xtick.labelsize': 14,    # X tick labels
-    'ytick.labelsize': 14,    # Y tick labels
-    'legend.fontsize': 12,    # Legend
-    'font.family': 'sans-serif',
-    'font.sans-serif': ['Arial'] # Common for biology journals
-})
-
 plt.figure(figsize=(6, 6))
 
 ax = sns.barplot(
@@ -219,7 +191,6 @@ sns.stripplot(
 # Fix legend duplication
 handles, labels = ax.get_legend_handles_labels()
 ax.legend(handles[:2], labels[:2], title='Prey side')
-
 
 plt.ylabel('J-turn frequency (Hz)')
 plt.xlabel('')
