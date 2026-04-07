@@ -185,6 +185,8 @@ def get_bout_metrics(
                     # prepare next iteration
                     off_previous = off
 
+                    # TODO add laterality (ipsi, contra) based on stim side and bout sign?
+
                     rows.append({
                         'file': behavior_files.metadata.stem,
                         'bout_index': bout_index,

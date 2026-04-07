@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import textwrap
 import matplotlib.pyplot as plt
+import seaborn as sns
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from statsmodels.stats.multitest import multipletests
 
