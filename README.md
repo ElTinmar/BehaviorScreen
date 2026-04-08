@@ -35,6 +35,7 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - try to export average video in egocentric coords (might be a mess, but who knows)
 - MAE
 - freezing after loomings
+- look at the first ramp down to prey capture: some lines seem more agitated towards the end
 
 ### pre-processing
 
