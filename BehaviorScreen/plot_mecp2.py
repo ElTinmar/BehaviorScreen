@@ -10,6 +10,9 @@ import seaborn as sns
 from BehaviorScreen.core import Stim, BoutSign
 from megabouts.utils import bouts_category_name_short
 
+COLOR_MECP2 = '#D95319'
+COLOR_WT = '#0072BD'  
+
 plt.rcParams.update({
     'font.size': 12,          # Global default
     'axes.titlesize': 18,     # Title
@@ -22,6 +25,9 @@ plt.rcParams.update({
 })
 
 ROOT = Path('/home/martin/Desktop/DATA')
+ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
+
+
 groups = ['mecp2/danieau/bouts.csv','WT/danieau/bouts.csv']
 JTURN = bouts_category_name_short.index('JT')
 prob_threshold = 0.5
@@ -210,6 +216,6 @@ add_pval(ax, -0.2, 0.8, y_max*1.4, f"p={p_ipsi_between_bf:.3e}")
 
 plt.ylim(0, y_max*1.6)
 plt.tight_layout()
-plt.savefig('jturn_analysis.svg', format='svg', bbox_inches='tight')
-plt.savefig('jturn_analysis.png', format='png', dpi=100, bbox_inches='tight')
+#plt.savefig('jturn_analysis.svg', format='svg', bbox_inches='tight')
+#plt.savefig('jturn_analysis.png', format='png', dpi=100, bbox_inches='tight')
 plt.show()
