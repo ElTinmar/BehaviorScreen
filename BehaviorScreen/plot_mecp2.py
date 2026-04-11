@@ -254,6 +254,14 @@ def plot_barplot(
     plt.savefig(f"{label}_comp.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
 
+    plt.figure(figsize=(6, 6))
+    sns.ecdfplot(data_dict['Mecp2_Ipsi'], palette=COLOR_MECP2)
+    sns.ecdfplot(data_dict['WT_Ipsi'], palette=COLOR_WT)
+    plt.ylabel(f"Ispilateral J-turn CDF")
+    plt.xlabel(label)
+    plt.ylim(-0.1, 1.1)
+    plt.show()
+
 for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
 
     plot_heatmap(
