@@ -94,7 +94,7 @@ for g_idx, g in enumerate(groups):
                         JT_count[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask_JT.sum()
                         JT_proba[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask_JT.sum() / mask_all_bouts.sum()
 
-Ipsi
+
 group_names = ['Mecp2', 'WT']
 lat_names = ['Ipsilateral', 'Contralateral']
 bin_labels = [f"{b[0]}-{b[1]}s" for b in time_bins]
