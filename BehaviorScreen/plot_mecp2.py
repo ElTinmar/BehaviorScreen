@@ -33,12 +33,12 @@ ROOT = Path('/media/martin/DATA_18TB/Screen')
 
 groups = ['mecp2/danieau/bouts.csv','WT/danieau/bouts.csv']
 
-# Basic plots -----------------
+# Basic plots ----------------- select dark only
 
 for name, group in zip(['mecp2-mutant', 'wild type'], groups):
     bout_file = ROOT/group
     df = pd.read_csv(bout_file)
-    sns.kdeplot(df.bout_duration[df.bout_duration < 1], color=genotype_palette[name], label=name)
+    sns.kdeplot(df.bout_duration[(df.bout_duration < 1)], color=genotype_palette[name], label=name)
 plt.legend(frameon=False)
 plt.show()
 
