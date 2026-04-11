@@ -27,9 +27,9 @@ plt.rcParams.update({
 
 ROOT = Path('/home/martin/Desktop/DATA')
 ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
+ROOT = Path('/media/martin/DATA_18TB/Screen')
 
-
-groups = ['mecp2/danieau/bouts.csv','WT/danieau/bouts.csv']
+groups = ['mecp2/danieau/bouts.csv','AB/danieau/bouts.csv']
 JTURN = bouts_category_name_short.index('JT')
 prob_threshold = 0.5
 trial_duration_s = 25
@@ -55,6 +55,7 @@ laterality = [ipsilateral, contralateral]
 
 JT_freq = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins)), np.nan, dtype=np.float32)
 JT_count = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins)), np.nan, dtype=np.float32)
+JT_proba = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins)), np.nan, dtype=np.float32)
 
 for g_idx, g in enumerate(groups):
 
@@ -67,7 +68,7 @@ for g_idx, g in enumerate(groups):
             for trial in range(N_trials):
                 for bin_idx, (t_start, t_stop) in enumerate(time_bins):
                     for bout_sign, prey_side in lat: 
-                        mask = (
+                        mask_JT = (
                             (df.file == fish) &
                             (df.stim == Stim.PREY_CAPTURE) &
                             (df.category == JTURN) & 
@@ -78,8 +79,19 @@ for g_idx, g in enumerate(groups):
                             (df.sign == bout_sign) & 
                             (df.prey_arc_start_deg == prey_side)
                         )
-                        JT_freq[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask.sum() / (t_stop - t_start)
-                        JT_count[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask.sum()
+                        mask_all_bouts = (
+                            (df.file == fish) &
+                            (df.stim == Stim.PREY_CAPTURE) &
+                            (df.proba > prob_threshold) &
+                            (df.trial_time >= t_start) &
+                            (df.trial_time < t_stop) &
+                            (df.trial_num == trial) &
+                            (df.sign == bout_sign) & 
+                            (df.prey_arc_start_deg == prey_side)
+                        )
+                        JT_freq[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask_JT.sum() / (t_stop - t_start)
+                        JT_count[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask_JT.sum()
+                        JT_proba[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask_JT.sum() / mask_all_bouts.sum()
 
 
 group_names = ['Mecp2', 'WT']
@@ -87,7 +99,7 @@ lat_names = ['Ipsilateral', 'Contralateral']
 bin_labels = [f"{b[0]}-{b[1]}s" for b in time_bins]
 trial_labels = [f"Trial {i}" for i in range(N_trials)]
 
-# 2. Find a global maximum for consistent color scaling
+# Frequency
 vmax = 0.6
 
 fig, axes = plt.subplots(len(group_names), len(lat_names), 
@@ -96,7 +108,7 @@ fig, axes = plt.subplots(len(group_names), len(lat_names),
 for g_idx in range(len(group_names)):
     for lat_idx in range(len(lat_names)):
         ax = axes[g_idx, lat_idx]
-        data = np.nanmean(JT_freq[g_idx, :,lat_idx, :, :], axis=0)
+        data = np.nanmean(JT_proba[g_idx, :,lat_idx, :, :], axis=0)
         
         sns.heatmap(data, 
                     annot=True,       
@@ -108,6 +120,38 @@ for g_idx in range(len(group_names)):
                     yticklabels=trial_labels,
                     ax=ax,
                     cbar_kws={'label': '<J-Turn frequency>_fish (Hz)'})
+        
+        ax.set_title(f"Group: {group_names[g_idx]} | {lat_names[lat_idx]}", fontweight='bold')
+        
+        if g_idx == len(group_names) - 1:
+            ax.set_xlabel("Time Bins")
+        if lat_idx == 0:
+            ax.set_ylabel("Trial Number")
+
+plt.tight_layout()
+plt.show()
+
+# PROBA
+vmax = 0.6
+
+fig, axes = plt.subplots(len(group_names), len(lat_names), 
+                         figsize=(15, 10), sharex=True, sharey=True)
+
+for g_idx in range(len(group_names)):
+    for lat_idx in range(len(lat_names)):
+        ax = axes[g_idx, lat_idx]
+        data = np.nanmean(JT_proba[g_idx, :,lat_idx, :, :], axis=0)
+        
+        sns.heatmap(data, 
+                    annot=True,       
+                    fmt=".3f",        
+                    cmap="magma",     
+                    vmin=0,           
+                    vmax=vmax,        
+                    xticklabels=bin_labels,
+                    yticklabels=trial_labels,
+                    ax=ax,
+                    cbar_kws={'label': '<J-Turn probability>_fish'})
         
         ax.set_title(f"Group: {group_names[g_idx]} | {lat_names[lat_idx]}", fontweight='bold')
         
