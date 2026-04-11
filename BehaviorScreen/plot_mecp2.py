@@ -99,16 +99,12 @@ lat_names = ['Ipsilateral', 'Contralateral']
 bin_labels = [f"{b[0]}-{b[1]}s" for b in time_bins]
 trial_labels = [f"Trial {i}" for i in range(N_trials)]
 
-# Frequency
-
-
-
-
-### German's barplot
-
-for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
-
-    vmax = 0.6
+def plot_heatmap(
+        data, 
+        label,
+        output_file,
+        vmax = 0.6
+    ):
 
     fig, axes = plt.subplots(len(group_names), len(lat_names), 
                             figsize=(15, 10), sharex=True, sharey=True)
@@ -127,7 +123,7 @@ for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
                         xticklabels=bin_labels,
                         yticklabels=trial_labels,
                         ax=ax,
-                        cbar_kws={'label': f"<J-Turn {data_type}>_fish"})
+                        cbar_kws={'label': label})
             
             ax.set_title(f"Group: {group_names[g_idx]} | {lat_names[lat_idx]}", fontweight='bold')
             
@@ -137,9 +133,20 @@ for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
                 ax.set_ylabel("Trial Number")
 
     plt.tight_layout()
-    plt.savefig(f"jturn_{data_type}_heatmap.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"jturn_{data_type}_heatmap.png", format='png', dpi=100, bbox_inches='tight')
+    plt.savefig(f"{output_file}_heatmap.svg", format='svg', bbox_inches='tight')
+    plt.savefig(f"{output_file}_heatmap.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
+    
+### German's barplot
+
+for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
+
+    plot_heatmap(
+        data,
+        data_type,
+        data_type,
+        vmax = 0.6
+    )
 
     data_dict = {
         'Mecp2_Ipsi':   np.nanmean(data[0, :, 0, 0:3, 0], axis=1),
