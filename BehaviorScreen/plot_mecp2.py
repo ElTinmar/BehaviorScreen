@@ -94,7 +94,7 @@ for g_idx, g in enumerate(groups):
                         JT_count[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask_JT.sum()
                         JT_proba[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask_JT.sum() / mask_all_bouts.sum()
 
-
+Ipsi
 group_names = ['Mecp2', 'WT']
 lat_names = ['Ipsilateral', 'Contralateral']
 bin_labels = [f"{b[0]}-{b[1]}s" for b in time_bins]
@@ -248,18 +248,31 @@ def plot_barplot(
     add_pval_star(ax, 0.2, 1.2, 0.65, p_wt_bf)
     add_pval_star(ax, 0.8, 1.2, 0.1, p_contra_between_bf)
 
-    plt.ylim(0, 0.725)
+    #plt.ylim(0, 0.725)
     plt.tight_layout()
     plt.savefig(f"{label}_comp.svg", format='svg', bbox_inches='tight')
     plt.savefig(f"{label}_comp.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
 
     plt.figure(figsize=(6, 6))
-    sns.ecdfplot(data_dict['Mecp2_Ipsi'], palette=COLOR_MECP2)
-    sns.ecdfplot(data_dict['WT_Ipsi'], palette=COLOR_WT)
+    sns.kdeplot(data_dict['Mecp2_Ipsi'], bw_adjust=0.5, color=COLOR_MECP2, label='mecp2-mutant') 
+    sns.kdeplot(data_dict['WT_Ipsi'],  bw_adjust=0.5, color=COLOR_WT, label='wild type') 
+    plt.ylabel("Ispilateral J-turn PDF")
+    plt.xlabel(label)
+    plt.legend(frameon=False)
+    plt.savefig(f"{label}_kde.svg", format='svg', bbox_inches='tight')
+    plt.savefig(f"{label}_kde.png", format='png', dpi=100, bbox_inches='tight')
+    plt.show()
+
+    plt.figure(figsize=(6, 6))
+    sns.ecdfplot(data_dict['Mecp2_Ipsi'], color=COLOR_MECP2, label='mecp2-mutant')
+    sns.ecdfplot(data_dict['WT_Ipsi'], color=COLOR_WT, label='wild type')
     plt.ylabel(f"Ispilateral J-turn CDF")
     plt.xlabel(label)
     plt.ylim(-0.1, 1.1)
+    plt.legend(frameon=False)
+    plt.savefig(f"{label}_cdf.svg", format='svg', bbox_inches='tight')
+    plt.savefig(f"{label}_cdf.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
 
 for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
