@@ -10,6 +10,7 @@ import seaborn as sns
 from BehaviorScreen.core import Stim, BoutSign
 from megabouts.utils import bouts_category_name_short
 
+
 COLOR_MECP2 = '#D95319'
 COLOR_WT = '#0072BD'  
 genotype_palette = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
@@ -31,6 +32,67 @@ ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
 ROOT = Path('/media/martin/DATA_18TB/Screen')
 
 groups = ['mecp2/danieau/bouts.csv','WT/danieau/bouts.csv']
+
+# Basic plots -----------------
+
+for name, group in zip(['mecp2-mutant', 'wild type'], groups):
+    bout_file = ROOT/group
+    df = pd.read_csv(bout_file)
+    sns.kdeplot(df.bout_duration[df.bout_duration < 1], color=genotype_palette[name], label=name)
+plt.legend(frameon=False)
+plt.show()
+
+for name, group in zip(['mecp2-mutant', 'wild type'], groups):
+    bout_file = ROOT/group
+    df = pd.read_csv(bout_file)
+    sns.ecdfplot(df.bout_duration[df.bout_duration < 1], color=genotype_palette[name], label=name)
+plt.legend(frameon=False)
+plt.show()
+
+for name, group in zip(['mecp2-mutant', 'wild type'], groups):
+    bout_file = ROOT/group
+    df = pd.read_csv(bout_file)
+    sns.kdeplot(df.interbout_duration[df.interbout_duration < 4], color=genotype_palette[name], label=name)
+plt.legend(frameon=False)
+plt.show()
+
+for name, group in zip(['mecp2-mutant', 'wild type'], groups):
+    bout_file = ROOT/group
+    df = pd.read_csv(bout_file)
+    sns.ecdfplot(df.interbout_duration[df.interbout_duration < 4], color=genotype_palette[name], label=name)
+plt.legend(frameon=False)
+plt.show()
+
+for name, group in zip(['mecp2-mutant', 'wild type'], groups):
+    bout_file = ROOT/group
+    df = pd.read_csv(bout_file)
+    sns.kdeplot(df.peak_yaw_speed, color=genotype_palette[name], label=name)
+plt.legend(frameon=False)
+plt.show()
+
+for name, group in zip(['mecp2-mutant', 'wild type'], groups):
+    bout_file = ROOT/group
+    df = pd.read_csv(bout_file)
+    sns.ecdfplot(df.peak_yaw_speed, color=genotype_palette[name], label=name)
+plt.legend(frameon=False)
+plt.show()
+
+for name, group in zip(['mecp2-mutant', 'wild type'], groups):
+    bout_file = ROOT/group
+    df = pd.read_csv(bout_file)
+    sns.kdeplot(df.peak_axial_speed[(df.peak_axial_speed > -50) & (df.peak_axial_speed < 150)], color=genotype_palette[name], label=name)
+plt.legend(frameon=False)
+plt.show()
+
+for name, group in zip(['mecp2-mutant', 'wild type'], groups):
+    bout_file = ROOT/group
+    df = pd.read_csv(bout_file)
+    sns.ecdfplot(df.peak_axial_speed[(df.peak_axial_speed > -50) & (df.peak_axial_speed < 150)], color=genotype_palette[name], label=name)
+plt.legend(frameon=False)
+plt.show()
+
+### 
+
 JTURN = bouts_category_name_short.index('JT')
 prob_threshold = 0.5
 trial_duration_s = 25
