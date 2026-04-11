@@ -12,6 +12,7 @@ from megabouts.utils import bouts_category_name_short
 
 COLOR_MECP2 = '#D95319'
 COLOR_WT = '#0072BD'  
+genotype_palette = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
 
 plt.rcParams.update({
     'font.size': 12,          # Global default
@@ -102,7 +103,6 @@ trial_labels = [f"Trial {i}" for i in range(N_trials)]
 def plot_heatmap(
         data, 
         label,
-        output_file,
         vmax = 0.6
     ):
 
@@ -133,26 +133,34 @@ def plot_heatmap(
                 ax.set_ylabel("Trial Number")
 
     plt.tight_layout()
-    plt.savefig(f"{output_file}_heatmap.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"{output_file}_heatmap.png", format='png', dpi=100, bbox_inches='tight')
+    plt.savefig(f"{label}_heatmap.svg", format='svg', bbox_inches='tight')
+    plt.savefig(f"{label}_heatmap.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
-    
-### German's barplot
 
-for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
+def pval_to_star(p):
+    if p <= 0.0001: return "****"
+    if p <= 0.001:  return "***"
+    if p <= 0.01:   return "**"
+    if p <= 0.05:   return "*"
+    return "n.s."
 
-    plot_heatmap(
-        data,
-        data_type,
-        data_type,
-        vmax = 0.6
-    )
+def add_pval_star(ax, x1, x2, y, p_val):
+    text = pval_to_star(p_val)
+    ax.plot([x1, x1, x2, x2], [y, y*1.02, y*1.02, y], lw=1.5, color='black', zorder=4)
+    ax.text((x1 + x2) / 2, y, text, ha='center', va='bottom', fontsize=20)
+
+def plot_barplot(
+        data, 
+        label,
+        trials = [0,1,2],
+        time_bins = [0]
+    ):
 
     data_dict = {
-        'Mecp2_Ipsi':   np.nanmean(data[0, :, 0, 0:3, 0], axis=1),
-        'Mecp2_Contra': np.nanmean(data[0, :, 1, 0:3, 0], axis=1),
-        'WT_Ipsi':      np.nanmean(data[1, :, 0, 0:3, 0], axis=1),
-        'WT_Contra':    np.nanmean(data[1, :, 1, 0:3, 0], axis=1)
+        'Mecp2_Ipsi':   np.nanmean(data[0, :, 0, trials, time_bins], axis=0),
+        'Mecp2_Contra': np.nanmean(data[0, :, 1, trials, time_bins], axis=0),
+        'WT_Ipsi':      np.nanmean(data[1, :, 0, trials, time_bins], axis=0),
+        'WT_Contra':    np.nanmean(data[1, :, 1, trials, time_bins], axis=0)
     }
 
     p_ipsi_between = mannwhitneyu(
@@ -197,80 +205,7 @@ for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
             ['contralateral'] * len(data_dict['WT_Contra'])
         )
     })
-    df_plot = df_plot.dropna(subset=['value'])
-
-    plt.figure(figsize=(6, 6))
-
-    ax = sns.barplot(
-        data=df_plot,
-        x='group',
-        y='value',
-        hue='laterality',
-        palette=['#4C72B0', '#55A868'],
-        errorbar='se',    
-        capsize=0,      
-        alpha=0.9,      
-        edgecolor='.2', 
-        linewidth=1.5,
-        gap=0.1
-    )
-
-    sns.stripplot(
-        data=df_plot,
-        x='group',
-        y='value',
-        hue='laterality',
-        palette=['#4C72B0', '#55A868'], 
-        jitter=0.15,
-        dodge=True,
-        alpha=0.5,
-        edgecolor='white', 
-        linewidth=1,
-        size=6     
-    )
-
-    # Fix legend duplication
-    handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles[:2], labels[:2], title='Prey side')
-
-    plt.ylabel(f"J-turn {data_type}")
-    plt.xlabel('')
-
-    def add_pval(ax, x1, x2, y, text):
-        ax.plot([x1, x1, x2, x2], [y, y*1.05, y*1.05, y], lw=1.5, color='black')
-        ax.text((x1 + x2) / 2, y*1.08, text, ha='center', va='bottom')
-
-    y_max = 0.8* df_plot['value'].max()
-
-    # Positions depend on dodge → approximate:
-    # Mecp2: x=0, WT: x=1
-    # Ipsi ~ -0.2, Contra ~ +0.2 offset
-    add_pval(ax, -0.2, 0.2, y_max*0.85, f"p={p_mecp2_bf:.3e}")
-    add_pval(ax, 0.8, 1.2, y_max*1.25, f"p={p_wt_bf:.3e}")
-    add_pval(ax, -0.2, 0.8, y_max*1.4, f"p={p_ipsi_between_bf:.3e}")
-
-    plt.ylim(0, y_max*1.6)
-    plt.tight_layout()
-    #plt.savefig('jturn_analysis.svg', format='svg', bbox_inches='tight')
-    #plt.savefig('jturn_analysis.png', format='png', dpi=100, bbox_inches='tight')
-    plt.show()
-
-
-
-    ###
-    def pval_to_star(p):
-        if p <= 0.0001: return "****"
-        if p <= 0.001:  return "***"
-        if p <= 0.01:   return "**"
-        if p <= 0.05:   return "*"
-        return "n.s."
-
-    def add_pval_star(ax, x1, x2, y, p_val):
-        text = pval_to_star(p_val)
-        ax.plot([x1, x1, x2, x2], [y, y*1.02, y*1.02, y], lw=1.5, color='black', zorder=4)
-        ax.text((x1 + x2) / 2, y, text, ha='center', va='bottom', fontsize=20)
-
-    genotype_palette = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
+    df_plot = df_plot.dropna(subset=['value'])    
 
     plt.figure(figsize=(6, 6))
 
@@ -305,7 +240,7 @@ for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
     handles, labels = ax.get_legend_handles_labels()
     ax.legend(handles[:2], labels[:2], frameon=False)
 
-    plt.ylabel(f"J-turn {data_type}")
+    plt.ylabel(f"J-turn {label}")
     plt.xlabel('')
 
     add_pval_star(ax, -0.2, 0.2,  0.55, p_ipsi_between_bf)
@@ -315,6 +250,23 @@ for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
 
     plt.ylim(0, 0.725)
     plt.tight_layout()
-    plt.savefig(f"jturn_{data_type}_comp.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"jturn_{data_type}_comp.png", format='png', dpi=100, bbox_inches='tight')
+    plt.savefig(f"{label}_comp.svg", format='svg', bbox_inches='tight')
+    plt.savefig(f"{label}_comp.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
+
+for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
+
+    plot_heatmap(
+        data,
+        data_type,
+        vmax = 0.6
+    )
+
+    plot_barplot(
+        data,
+        data_type,
+        trials=[0,1,2],
+        time_bins=[0]
+    )
+
+
