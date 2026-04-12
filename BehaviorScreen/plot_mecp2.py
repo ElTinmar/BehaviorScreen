@@ -133,7 +133,6 @@ for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
     model_interbout_duration = smf.mixedlm("interbout_duration ~ group", epoch_df, groups=epoch_df["file"])
     result_interbout_duration = model_interbout_duration.fit()
     print(result_interbout_duration.summary())
-    plt.figure(figsize=(4, 4))
     plot_mean_sem_kde(
         epoch_df, 
         value_col='interbout_duration', 
@@ -149,7 +148,6 @@ for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
     model_bout_distance = smf.mixedlm("distance ~ group", epoch_df, groups=epoch_df["file"])
     result_bout_distance = model_bout_distance.fit()
     print(result_bout_distance.summary())
-    plt.figure(figsize=(4, 4))
     plot_mean_sem_kde(
         epoch_df, 
         value_col='distance', 
@@ -165,7 +163,6 @@ for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
     model_bout_speed = smf.mixedlm("speed ~ group", epoch_df, groups=epoch_df["file"])
     result_bout_speed = model_bout_speed.fit()
     print(result_bout_speed.summary())
-    plt.figure(figsize=(4, 4))
     plot_mean_sem_kde(
         epoch_df, 
         value_col='speed', 
@@ -181,7 +178,6 @@ for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
     model_distance_center = smf.mixedlm("distance_center ~ group", epoch_df, groups=epoch_df["file"])
     result_distance_center = model_distance_center.fit()
     print(result_distance_center.summary())
-    plt.figure(figsize=(4, 4))
     plot_mean_sem_kde(
         epoch_df, 
         value_col='distance_center', 
