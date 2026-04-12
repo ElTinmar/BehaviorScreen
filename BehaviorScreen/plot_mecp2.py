@@ -2,7 +2,7 @@ from pathlib import Path
 from enum import IntEnum
 import pandas as pd
 import numpy as np
-from scipy.stats import wilcoxon , mannwhitneyu, sem
+from scipy.stats import wilcoxon , mannwhitneyu, sem, gaussian_kde
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -32,21 +32,30 @@ ROOT = Path('/media/martin/DATA_18TB/Screen')
 
 # N=48, N=40
 groups = ['mecp2/danieau/bouts.csv','AB/danieau/bouts.csv']
+#groups = ['mecp2/danieau/bouts.csv','WT/danieau/bouts.csv']
 groups_name = ['mecp2-mutant','wild type']
 groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
 
 ##########
 
+def epoch_masks(df):
+    masks = [
+        (df.stim == Stim.DARK) & (df.trial_num >= 10) & (df.trial_num < 20),
+        (df.stim == Stim.BRIGHT) & (df.trial_num >= 5) & (df.trial_num < 15) & (df.time_start > 1049),
+        (df.stim == Stim.BRIGHT) & (df.trial_num >= 5) & (df.trial_num < 15) & (df.time_start > 1049),
+    ]
+    mask_names = ['spont_dark', 'spont_bright', 'looming']
+    return masks, mask_names
+
 all_data = [] 
 for g_idx, g in enumerate(groups):
     df = pd.read_csv(ROOT/g)
     #df_spont = df[(df.stim == Stim.DARK) & (df.trial_num >= 10) & (df.trial_num < 20)]
-    df_spont = df[(df.stim == Stim.BRIGHT) & (df.trial_num >= 5) & (df.trial_num < 15)] # doesnt work with TLN because of PTX only trials
+    df_spont = df[] 
     df_spont['group'] = g  
     all_data.append(df_spont)
 combined_df = pd.concat(all_data)
 combined_df['speed'] = combined_df['distance']/combined_df['bout_duration']       
-
 
 filtered_df = combined_df[
     (combined_df.bout_duration < 0.75) &  
@@ -54,24 +63,12 @@ filtered_df = combined_df[
     (combined_df.interbout_duration < 4) &
     (combined_df.interbout_duration > 0.05) &
     (combined_df.distance < 10) & 
-    (combined_df.speed < 30)
+    (combined_df.speed < 30) &
+    (combined_df.distance_center < 10) 
 ]
 
-# thigmotaxis
-plt.figure(figsize=(6, 6))
-for g, g_name, g_color in zip(groups, groups_name, groups_color.values()):
-    group_df = filtered_df[filtered_df['group'] == g]
-    group_df.distance_center.plot.kde(label=g_name, color=g_color)
-plt.xlim(-1,11)
-plt.legend(frameon=False)
-plt.show()
-
-
-def plot_mean_sem_hist(df, value_col, bin_edges, groups, groups_name, groups_color, ax=None):
-    if ax is None:
-        ax = plt.gca()
-        
-    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+def plot_mean_sem_kde(df, value_col, x_range, xlabel, groups, groups_name, groups_color, ax=None, bw=0.2):
+    if ax is None: ax = plt.gca()
     
     for g, g_name, g_color in zip(groups, groups_name, groups_color):
         group_df = df[df['group'] == g]
@@ -79,88 +76,108 @@ def plot_mean_sem_hist(df, value_col, bin_edges, groups, groups_name, groups_col
         subjects = group_df['file'].unique()
         
         for subj in subjects:
-            subj_data = group_df[group_df['file'] == subj][value_col].dropna()
+            subj_data = group_df[group_df['file'] == subj][value_col].dropna().values
             
-            if len(subj_data) < 2 or subj_data.std() == 0:
-                print(f"Skipping {subj}: insufficient data.")
+            if len(subj_data) < 5 or np.std(subj_data) == 0:
                 continue
 
-            counts, _ = np.histogram(subj_data, bins=bin_edges, density=True)
-            group_densities.append(counts)
+            kde = gaussian_kde(subj_data, bw_method=bw)
+            group_densities.append(kde(x_range))
             
         density_array = np.array(group_densities)
+        mean_kde = np.mean(density_array, axis=0)
+        sem_kde = sem(density_array, axis=0)
         
-        mean_hist = np.mean(density_array, axis=0)
-        sem_hist = sem(density_array, axis=0)
-        
-        line, = ax.plot(bin_centers, mean_hist, label=g_name, color=g_color, lw=1.5)
-        ax.fill_between(bin_centers, 
-                        mean_hist - sem_hist, 
-                        mean_hist + sem_hist, 
+        line, = ax.plot(x_range, mean_kde, label=g_name, color=g_color, lw=2)
+        ax.fill_between(x_range, 
+                        mean_kde - sem_kde, 
+                        mean_kde + sem_kde, 
                         color=line.get_color(), 
                         alpha=0.2, 
                         edgecolor='none')
 
-    ax.set_xlabel(value_col.replace('_', ' ').capitalize())
-    ax.set_ylabel("Probability Density")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("density")
     ax.legend(frameon=False)
 
 model_bout_duration = smf.mixedlm("bout_duration ~ group", filtered_df, groups=filtered_df["file"])
 result_bout_duration = model_bout_duration.fit()
 print(result_bout_duration.summary())
-my_edges = np.linspace(0, 0.75, 35)
-plt.figure(figsize=(10, 6))
-plot_mean_sem_hist(
+plt.figure(figsize=(4, 4))
+plot_mean_sem_kde(
     filtered_df, 
     value_col='bout_duration', 
-    bin_edges=my_edges,
+    x_range=np.linspace(0, 0.75, 200),
+    xlabel = 'bout duration (s)',
     groups=groups,
     groups_name=groups_name,
     groups_color=[groups_color[k] for k in groups_name]
 )
+plt.tight_layout()
 plt.show()
 
 model_interbout_duration = smf.mixedlm("interbout_duration ~ group", filtered_df, groups=filtered_df["file"])
 result_interbout_duration = model_interbout_duration.fit()
 print(result_interbout_duration.summary())
-my_edges = np.linspace(0, 4, 40)
-plt.figure(figsize=(10, 6))
-plot_mean_sem_hist(
+plt.figure(figsize=(4, 4))
+plot_mean_sem_kde(
     filtered_df, 
     value_col='interbout_duration', 
-    bin_edges=my_edges,
+    x_range=np.linspace(0, 4, 200),
+    xlabel = 'interbout duration (s)',
     groups=groups,
     groups_name=groups_name,
     groups_color=[groups_color[k] for k in groups_name]
 )
+plt.tight_layout()
 plt.show()
 
 model_bout_distance = smf.mixedlm("distance ~ group", filtered_df, groups=filtered_df["file"])
 result_bout_distance = model_bout_distance.fit()
 print(result_bout_distance.summary())
-my_edges = np.linspace(0, 10, 25)
-plt.figure(figsize=(10, 6))
-plot_mean_sem_hist(
+plt.figure(figsize=(4, 4))
+plot_mean_sem_kde(
     filtered_df, 
     value_col='distance', 
-    bin_edges=my_edges,
+    x_range=np.linspace(0, 10, 200),
+    xlabel = 'distance (mm)',
     groups=groups,
     groups_name=groups_name,
-    groups_color=[groups_color[k] for k in groups_name])
+    groups_color=[groups_color[k] for k in groups_name]
+)
+plt.tight_layout()
 plt.show()
 
 model_bout_speed = smf.mixedlm("speed ~ group", filtered_df, groups=filtered_df["file"])
 result_bout_speed = model_bout_speed.fit()
 print(result_bout_speed.summary())
-my_edges = np.linspace(0, 30, 25)
-plt.figure(figsize=(10, 6))
-plot_mean_sem_hist(
+plt.figure(figsize=(4, 4))
+plot_mean_sem_kde(
     filtered_df, 
     value_col='speed', 
-    bin_edges=my_edges,
+    x_range=np.linspace(0, 30, 200),
+    xlabel = 'speed (mm/s)',
     groups=groups,
     groups_name=groups_name,
-    groups_color=[groups_color[k] for k in groups_name])
+    groups_color=[groups_color[k] for k in groups_name]
+)
+plt.tight_layout()
+plt.show()
+
+model_distance_center = smf.mixedlm("distance_center ~ group", filtered_df, groups=filtered_df["file"])
+result_distance_center = model_distance_center.fit()
+print(result_distance_center.summary())
+plt.figure(figsize=(4, 4))
+plot_mean_sem_kde(
+    filtered_df, 
+    value_col='distance_center', 
+    x_range=np.linspace(0, 10, 200),
+    xlabel = 'speed (mm/s)',
+    groups=groups,
+    groups_name=groups_name,
+    groups_color=[groups_color[k] for k in groups_name]
+)
+plt.tight_layout()
 plt.show()
 
 
