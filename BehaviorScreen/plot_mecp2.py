@@ -2,18 +2,17 @@ from pathlib import Path
 from enum import IntEnum
 import pandas as pd
 import numpy as np
-from scipy.stats import wilcoxon , mannwhitneyu
+from scipy.stats import wilcoxon , mannwhitneyu, sem
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 import seaborn as sns
+import statsmodels.formula.api as smf
 
 from BehaviorScreen.core import Stim, BoutSign
 from megabouts.utils import bouts_category_name_short
 
-
 COLOR_MECP2 = '#D95319'
 COLOR_WT = '#0072BD'  
-genotype_palette = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
 
 plt.rcParams.update({
     'font.size': 12,          # Global default
@@ -31,75 +30,142 @@ ROOT = Path('/home/martin/Desktop/DATA')
 ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
 ROOT = Path('/media/martin/DATA_18TB/Screen')
 
-groups = ['mecp2/danieau/bouts.csv','WT/danieau/bouts.csv']
+# N=48, N=40
+groups = ['mecp2/danieau/bouts.csv','AB/danieau/bouts.csv']
+groups_name = ['mecp2-mutant','wild type']
+groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
 
-# Basic plots -----------------
+##########
 
-for name, group in zip(['mecp2-mutant', 'wild type'], groups):
-    bout_file = ROOT/group
-    df = pd.read_csv(bout_file)
-    df_spont = df[(df.stim == Stim.DARK) & (df.trial_num>= 10) & (df.trial_num<20)]
-    sns.kdeplot(df_spont.bout_duration[(df_spont.bout_duration < 1)], color=genotype_palette[name], label=name)
+all_data = [] 
+for g_idx, g in enumerate(groups):
+    df = pd.read_csv(ROOT/g)
+    #df_spont = df[(df.stim == Stim.DARK) & (df.trial_num >= 10) & (df.trial_num < 20)]
+    df_spont = df[(df.stim == Stim.BRIGHT) & (df.trial_num >= 5) & (df.trial_num < 15)] # doesnt work with TLN because of PTX only trials
+    df_spont['group'] = g  
+    all_data.append(df_spont)
+combined_df = pd.concat(all_data)
+combined_df['speed'] = combined_df['distance']/combined_df['bout_duration']       
+
+
+filtered_df = combined_df[
+    (combined_df.bout_duration < 0.75) &  
+    (combined_df.bout_duration > 0.05) &  
+    (combined_df.interbout_duration < 4) &
+    (combined_df.interbout_duration > 0.05) &
+    (combined_df.distance < 10) & 
+    (combined_df.speed < 30)
+]
+
+# thigmotaxis
+plt.figure(figsize=(6, 6))
+for g, g_name, g_color in zip(groups, groups_name, groups_color.values()):
+    group_df = filtered_df[filtered_df['group'] == g]
+    group_df.distance_center.plot.kde(label=g_name, color=g_color)
+plt.xlim(-1,11)
 plt.legend(frameon=False)
 plt.show()
 
-for name, group in zip(['mecp2-mutant', 'wild type'], groups):
-    bout_file = ROOT/group
-    df = pd.read_csv(bout_file)
-    df_spont = df[(df.stim == Stim.DARK) & (df.trial_num>= 10) & (df.trial_num<20)]
-    sns.ecdfplot(df_spont.bout_duration[df_spont.bout_duration < 1], color=genotype_palette[name], label=name)
-plt.legend(frameon=False)
+
+def plot_mean_sem_hist(df, value_col, bin_edges, groups, groups_name, groups_color, ax=None):
+    if ax is None:
+        ax = plt.gca()
+        
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    
+    for g, g_name, g_color in zip(groups, groups_name, groups_color):
+        group_df = df[df['group'] == g]
+        group_densities = []
+        subjects = group_df['file'].unique()
+        
+        for subj in subjects:
+            subj_data = group_df[group_df['file'] == subj][value_col].dropna()
+            
+            if len(subj_data) < 2 or subj_data.std() == 0:
+                print(f"Skipping {subj}: insufficient data.")
+                continue
+
+            counts, _ = np.histogram(subj_data, bins=bin_edges, density=True)
+            group_densities.append(counts)
+            
+        density_array = np.array(group_densities)
+        
+        mean_hist = np.mean(density_array, axis=0)
+        sem_hist = sem(density_array, axis=0)
+        
+        line, = ax.plot(bin_centers, mean_hist, label=g_name, color=g_color, lw=1.5)
+        ax.fill_between(bin_centers, 
+                        mean_hist - sem_hist, 
+                        mean_hist + sem_hist, 
+                        color=line.get_color(), 
+                        alpha=0.2, 
+                        edgecolor='none')
+
+    ax.set_xlabel(value_col.replace('_', ' ').capitalize())
+    ax.set_ylabel("Probability Density")
+    ax.legend(frameon=False)
+
+model_bout_duration = smf.mixedlm("bout_duration ~ group", filtered_df, groups=filtered_df["file"])
+result_bout_duration = model_bout_duration.fit()
+print(result_bout_duration.summary())
+my_edges = np.linspace(0, 0.75, 35)
+plt.figure(figsize=(10, 6))
+plot_mean_sem_hist(
+    filtered_df, 
+    value_col='bout_duration', 
+    bin_edges=my_edges,
+    groups=groups,
+    groups_name=groups_name,
+    groups_color=[groups_color[k] for k in groups_name]
+)
 plt.show()
 
-for name, group in zip(['mecp2-mutant', 'wild type'], groups):
-    bout_file = ROOT/group
-    df = pd.read_csv(bout_file)
-    df_spont = df[(df.stim == Stim.DARK) & (df.trial_num>= 10) & (df.trial_num<20)]
-    sns.kdeplot(df_spont.interbout_duration[df_spont.interbout_duration < 4], color=genotype_palette[name], label=name)
-plt.legend(frameon=False)
+model_interbout_duration = smf.mixedlm("interbout_duration ~ group", filtered_df, groups=filtered_df["file"])
+result_interbout_duration = model_interbout_duration.fit()
+print(result_interbout_duration.summary())
+my_edges = np.linspace(0, 4, 40)
+plt.figure(figsize=(10, 6))
+plot_mean_sem_hist(
+    filtered_df, 
+    value_col='interbout_duration', 
+    bin_edges=my_edges,
+    groups=groups,
+    groups_name=groups_name,
+    groups_color=[groups_color[k] for k in groups_name]
+)
 plt.show()
 
-for name, group in zip(['mecp2-mutant', 'wild type'], groups):
-    bout_file = ROOT/group
-    df = pd.read_csv(bout_file)
-    df_spont = df[(df.stim == Stim.DARK) & (df.trial_num>= 10) & (df.trial_num<20)]
-    sns.ecdfplot(df_spont.interbout_duration[df_spont.interbout_duration < 4], color=genotype_palette[name], label=name)
-plt.legend(frameon=False)
+model_bout_distance = smf.mixedlm("distance ~ group", filtered_df, groups=filtered_df["file"])
+result_bout_distance = model_bout_distance.fit()
+print(result_bout_distance.summary())
+my_edges = np.linspace(0, 10, 25)
+plt.figure(figsize=(10, 6))
+plot_mean_sem_hist(
+    filtered_df, 
+    value_col='distance', 
+    bin_edges=my_edges,
+    groups=groups,
+    groups_name=groups_name,
+    groups_color=[groups_color[k] for k in groups_name])
 plt.show()
 
-for name, group in zip(['mecp2-mutant', 'wild type'], groups):
-    bout_file = ROOT/group
-    df = pd.read_csv(bout_file)
-    df_spont = df[(df.stim == Stim.DARK) & (df.trial_num>= 10) & (df.trial_num<20)]
-    sns.kdeplot(df_spont.peak_yaw_speed, color=genotype_palette[name], label=name)
-plt.legend(frameon=False)
+model_bout_speed = smf.mixedlm("speed ~ group", filtered_df, groups=filtered_df["file"])
+result_bout_speed = model_bout_speed.fit()
+print(result_bout_speed.summary())
+my_edges = np.linspace(0, 30, 25)
+plt.figure(figsize=(10, 6))
+plot_mean_sem_hist(
+    filtered_df, 
+    value_col='speed', 
+    bin_edges=my_edges,
+    groups=groups,
+    groups_name=groups_name,
+    groups_color=[groups_color[k] for k in groups_name])
 plt.show()
 
-for name, group in zip(['mecp2-mutant', 'wild type'], groups):
-    bout_file = ROOT/group
-    df = pd.read_csv(bout_file)
-    df_spont = df[(df.stim == Stim.DARK) & (df.trial_num>= 10) & (df.trial_num<20)]
-    sns.ecdfplot(df_spont.peak_yaw_speed, color=genotype_palette[name], label=name)
-plt.legend(frameon=False)
-plt.show()
 
-for name, group in zip(['mecp2-mutant', 'wild type'], groups):
-    bout_file = ROOT/group
-    df = pd.read_csv(bout_file)
-    df_spont = df[(df.stim == Stim.DARK) & (df.trial_num>= 10) & (df.trial_num<20)]
-    sns.kdeplot(df_spont.peak_axial_speed[(df.peak_axial_speed > -50) & (df.peak_axial_speed < 150)], color=genotype_palette[name], label=name)
-plt.legend(frameon=False)
-plt.show()
+####
 
-for name, group in zip(['mecp2-mutant', 'wild type'], groups):
-    bout_file = ROOT/group
-    df = pd.read_csv(bout_file)
-    df_spont = df[(df.stim == Stim.DARK) & (df.trial_num>= 10) & (df.trial_num<20)]
-    sns.ecdfplot(df_spont.peak_axial_speed[(df.peak_axial_speed > -50) & (df.peak_axial_speed < 150)], color=genotype_palette[name], label=name)
-plt.legend(frameon=False)
-plt.show()
-
-### 
 
 JTURN = bouts_category_name_short.index('JT')
 prob_threshold = 0.5
@@ -160,9 +226,11 @@ for g_idx, g in enumerate(groups):
                             (df.sign == bout_sign) & 
                             (df.prey_arc_start_deg == prey_side)
                         )
-                        JT_freq[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask_JT.sum() / (t_stop - t_start)
-                        JT_count[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask_JT.sum()
-                        JT_proba[g_idx, fish_idx, lat_idx, trial, bin_idx] = mask_JT.sum() / mask_all_bouts.sum()
+                        count_all_bouts =  mask_all_bouts.sum()
+                        count_JT = mask_JT.sum()
+                        JT_freq[g_idx, fish_idx, lat_idx, trial, bin_idx] = count_JT / (t_stop - t_start)
+                        JT_count[g_idx, fish_idx, lat_idx, trial, bin_idx] = count_JT
+                        JT_proba[g_idx, fish_idx, lat_idx, trial, bin_idx] = count_JT / count_all_bouts if count_all_bouts > 0 else 0
 
 
 group_names = ['Mecp2', 'WT']
@@ -284,7 +352,7 @@ def plot_barplot(
         x='laterality',
         y='value',
         hue='group',
-        palette=genotype_palette,
+        palette=groups_color,
         errorbar='se',    
         capsize=0.05,      
         edgecolor='.2', 
@@ -298,7 +366,7 @@ def plot_barplot(
         x='laterality',
         y='value',
         hue='group',
-        palette=genotype_palette, 
+        palette=groups_color, 
         jitter=0.15,
         dodge=True,
         alpha=0.5,
