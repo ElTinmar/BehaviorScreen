@@ -190,3 +190,14 @@ def get_target_time(trial_duration, target_fps) -> np.ndarray:
 
 def interpolate_ts(target_time, time, values) -> np.ndarray:
     return np.interp(target_time, time, values)
+
+def timestamp_to_frame(behavior_data, timestamp) -> int:
+    diffs = (behavior_data.video_timestamps.timestamp - timestamp).abs()
+    closest_idx = diffs.idxmin()
+    return int(behavior_data.video_timestamps.at[closest_idx, 'index'])
+
+def frame_to_timestamp(behavior_data, frame: int) -> int:
+    try:
+        return int(behavior_data.video_timestamps.at[frame, 'timestamp'])
+    except KeyError:
+        raise RuntimeError(f'Frame {frame} not found in video_timestamps')
