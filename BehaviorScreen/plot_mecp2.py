@@ -31,8 +31,8 @@ ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
 ROOT = Path('/media/martin/DATA_18TB/Screen')
 
 # N=48, N=40
-groups = ['mecp2/danieau/bouts.csv','AB/danieau/bouts.csv']
-#groups = ['mecp2/danieau/bouts.csv','WT/danieau/bouts.csv']
+#groups = ['mecp2/danieau/bouts.csv','AB/danieau/bouts.csv']
+groups = ['mecp2/danieau/bouts.csv','WT/danieau/bouts.csv']
 groups_name = ['mecp2-mutant','wild type']
 groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
 
@@ -42,18 +42,15 @@ def epoch_masks(df):
     masks = [
         (df.stim == Stim.DARK) & (df.trial_num >= 10) & (df.trial_num < 20),
         (df.stim == Stim.BRIGHT) & (df.trial_num >= 5) & (df.trial_num < 15) & (df.time_start > 1049),
-        (df.stim == Stim.BRIGHT) & (df.trial_num >= 5) & (df.trial_num < 15) & (df.time_start > 1049),
     ]
-    mask_names = ['spont_dark', 'spont_bright', 'looming']
+    mask_names = ['spont_dark', 'spont_bright']
     return masks, mask_names
 
 all_data = [] 
 for g_idx, g in enumerate(groups):
     df = pd.read_csv(ROOT/g)
-    #df_spont = df[(df.stim == Stim.DARK) & (df.trial_num >= 10) & (df.trial_num < 20)]
-    df_spont = df[] 
-    df_spont['group'] = g  
-    all_data.append(df_spont)
+    df['group'] = g  
+    all_data.append(df)
 combined_df = pd.concat(all_data)
 combined_df['speed'] = combined_df['distance']/combined_df['bout_duration']       
 
@@ -66,8 +63,21 @@ filtered_df = combined_df[
     (combined_df.speed < 30) &
     (combined_df.distance_center < 10) 
 ]
+e_masks, e_mask_names = epoch_masks(filtered_df)
 
-def plot_mean_sem_kde(df, value_col, x_range, xlabel, groups, groups_name, groups_color, ax=None, bw=0.2):
+def plot_mean_sem_kde(
+        df, 
+        value_col, 
+        x_range, 
+        xlabel, 
+        ylabel,
+        groups, 
+        groups_name, 
+        groups_color, 
+        ax=None, 
+        bw=0.2
+    ) -> None:
+    
     if ax is None: ax = plt.gca()
     
     for g, g_name, g_color in zip(groups, groups_name, groups_color):
@@ -97,92 +107,97 @@ def plot_mean_sem_kde(df, value_col, x_range, xlabel, groups, groups_name, group
                         edgecolor='none')
 
     ax.set_xlabel(xlabel)
-    ax.set_ylabel("density")
+    ax.set_ylabel(ylabel)
     ax.legend(frameon=False)
 
-model_bout_duration = smf.mixedlm("bout_duration ~ group", filtered_df, groups=filtered_df["file"])
-result_bout_duration = model_bout_duration.fit()
-print(result_bout_duration.summary())
-plt.figure(figsize=(4, 4))
-plot_mean_sem_kde(
-    filtered_df, 
-    value_col='bout_duration', 
-    x_range=np.linspace(0, 0.75, 200),
-    xlabel = 'bout duration (s)',
-    groups=groups,
-    groups_name=groups_name,
-    groups_color=[groups_color[k] for k in groups_name]
-)
+fig, axes = plt.subplots(nrows=len(e_masks), ncols=5, figsize=(3*len(e_masks), 20))
+
+for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
+    epoch_df = filtered_df[mask]
+
+    model_bout_duration = smf.mixedlm("bout_duration ~ group", epoch_df, groups=epoch_df["file"])
+    result_bout_duration = model_bout_duration.fit()
+    print(result_bout_duration.summary())
+    plot_mean_sem_kde(
+        epoch_df, 
+        value_col='bout_duration', 
+        x_range=np.linspace(0, 0.75, 200),
+        xlabel = 'bout duration (s)' if i==len(e_masks)-1 else '',
+        ylabel = f'{m_name} density',
+        groups=groups,
+        groups_name=groups_name,
+        groups_color=[groups_color[k] for k in groups_name],
+        ax=axes[i,0]
+    )
+
+    model_interbout_duration = smf.mixedlm("interbout_duration ~ group", epoch_df, groups=epoch_df["file"])
+    result_interbout_duration = model_interbout_duration.fit()
+    print(result_interbout_duration.summary())
+    plt.figure(figsize=(4, 4))
+    plot_mean_sem_kde(
+        epoch_df, 
+        value_col='interbout_duration', 
+        x_range=np.linspace(0, 4, 200),
+        xlabel = 'interbout duration (s)' if i==len(e_masks)-1 else '',
+        ylabel = '',
+        groups=groups,
+        groups_name=groups_name,
+        groups_color=[groups_color[k] for k in groups_name],
+        ax=axes[i,1]
+    )
+
+    model_bout_distance = smf.mixedlm("distance ~ group", epoch_df, groups=epoch_df["file"])
+    result_bout_distance = model_bout_distance.fit()
+    print(result_bout_distance.summary())
+    plt.figure(figsize=(4, 4))
+    plot_mean_sem_kde(
+        epoch_df, 
+        value_col='distance', 
+        x_range=np.linspace(0, 10, 200),
+        xlabel = 'distance (mm)' if i==len(e_masks)-1 else '',
+        ylabel = '',
+        groups=groups,
+        groups_name=groups_name,
+        groups_color=[groups_color[k] for k in groups_name],
+        ax=axes[i,2]
+    )
+
+    model_bout_speed = smf.mixedlm("speed ~ group", epoch_df, groups=epoch_df["file"])
+    result_bout_speed = model_bout_speed.fit()
+    print(result_bout_speed.summary())
+    plt.figure(figsize=(4, 4))
+    plot_mean_sem_kde(
+        epoch_df, 
+        value_col='speed', 
+        x_range=np.linspace(0, 30, 200),
+        xlabel = 'speed (mm/s)' if i==len(e_masks)-1 else '',
+        ylabel = '',
+        groups=groups,
+        groups_name=groups_name,
+        groups_color=[groups_color[k] for k in groups_name],
+        ax=axes[i,3]
+    )
+
+    model_distance_center = smf.mixedlm("distance_center ~ group", epoch_df, groups=epoch_df["file"])
+    result_distance_center = model_distance_center.fit()
+    print(result_distance_center.summary())
+    plt.figure(figsize=(4, 4))
+    plot_mean_sem_kde(
+        epoch_df, 
+        value_col='distance_center', 
+        x_range=np.linspace(0, 10, 200),
+        xlabel = 'ditance to center (mm)' if i==len(e_masks)-1 else '',
+        ylabel = '',
+        groups=groups,
+        groups_name=groups_name,
+        groups_color=[groups_color[k] for k in groups_name],
+        ax=axes[i,4]
+    )
+
 plt.tight_layout()
 plt.show()
 
-model_interbout_duration = smf.mixedlm("interbout_duration ~ group", filtered_df, groups=filtered_df["file"])
-result_interbout_duration = model_interbout_duration.fit()
-print(result_interbout_duration.summary())
-plt.figure(figsize=(4, 4))
-plot_mean_sem_kde(
-    filtered_df, 
-    value_col='interbout_duration', 
-    x_range=np.linspace(0, 4, 200),
-    xlabel = 'interbout duration (s)',
-    groups=groups,
-    groups_name=groups_name,
-    groups_color=[groups_color[k] for k in groups_name]
-)
-plt.tight_layout()
-plt.show()
-
-model_bout_distance = smf.mixedlm("distance ~ group", filtered_df, groups=filtered_df["file"])
-result_bout_distance = model_bout_distance.fit()
-print(result_bout_distance.summary())
-plt.figure(figsize=(4, 4))
-plot_mean_sem_kde(
-    filtered_df, 
-    value_col='distance', 
-    x_range=np.linspace(0, 10, 200),
-    xlabel = 'distance (mm)',
-    groups=groups,
-    groups_name=groups_name,
-    groups_color=[groups_color[k] for k in groups_name]
-)
-plt.tight_layout()
-plt.show()
-
-model_bout_speed = smf.mixedlm("speed ~ group", filtered_df, groups=filtered_df["file"])
-result_bout_speed = model_bout_speed.fit()
-print(result_bout_speed.summary())
-plt.figure(figsize=(4, 4))
-plot_mean_sem_kde(
-    filtered_df, 
-    value_col='speed', 
-    x_range=np.linspace(0, 30, 200),
-    xlabel = 'speed (mm/s)',
-    groups=groups,
-    groups_name=groups_name,
-    groups_color=[groups_color[k] for k in groups_name]
-)
-plt.tight_layout()
-plt.show()
-
-model_distance_center = smf.mixedlm("distance_center ~ group", filtered_df, groups=filtered_df["file"])
-result_distance_center = model_distance_center.fit()
-print(result_distance_center.summary())
-plt.figure(figsize=(4, 4))
-plot_mean_sem_kde(
-    filtered_df, 
-    value_col='distance_center', 
-    x_range=np.linspace(0, 10, 200),
-    xlabel = 'speed (mm/s)',
-    groups=groups,
-    groups_name=groups_name,
-    groups_color=[groups_color[k] for k in groups_name]
-)
-plt.tight_layout()
-plt.show()
-
-
-####
-
+### TODO plot bout frequency during looming
 
 JTURN = bouts_category_name_short.index('JT')
 prob_threshold = 0.5
