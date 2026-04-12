@@ -110,7 +110,7 @@ def plot_mean_sem_kde(
     ax.set_ylabel(ylabel)
     ax.legend(frameon=False)
 
-fig, axes = plt.subplots(nrows=len(e_masks), ncols=5, figsize=(3*len(e_masks), 20))
+fig, axes = plt.subplots(nrows=len(e_masks), ncols=5, figsize=(5*4, 4*len(e_masks)))
 
 for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
     epoch_df = filtered_df[mask]
