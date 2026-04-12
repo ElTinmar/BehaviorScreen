@@ -215,6 +215,10 @@ for g in groups:
     for behavior_file in behavior_files:
         behavior_data = load_data(behavior_file)
         stim_trials = get_trials(behavior_data)
+        looming_trials = stim_trials[stim_trials.stim_select == Stim.LOOMING]
+
+        traj = behavior_data.tracking[['centroid_x', 'centroid_y']].to_numpy()
+        traj = behavior_data.full_tracking.Swim_Bladder[['x','y']].to_numpy()
 
 #####
 
