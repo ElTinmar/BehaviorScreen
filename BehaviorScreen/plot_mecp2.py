@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import statsmodels.formula.api as smf
 
+from BehaviorScreen.load import Directories, find_files, load_data
+from BehaviorScreen.process import get_trials
 from BehaviorScreen.core import Stim, BoutSign
 from megabouts.utils import bouts_category_name_short
 
@@ -182,7 +184,7 @@ for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
         epoch_df, 
         value_col='distance_center', 
         x_range=np.linspace(0, 10, 200),
-        xlabel = 'ditance to center (mm)' if i==len(e_masks)-1 else '',
+        xlabel = 'distance to center (mm)' if i==len(e_masks)-1 else '',
         ylabel = '',
         groups=groups,
         groups_name=groups_name,
@@ -193,7 +195,28 @@ for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
 plt.tight_layout()
 plt.show()
 
-### TODO plot bout frequency during looming
+### TODO plot bout frequency during looming / distance travelled (looming + recovery)
+
+for g in groups:
+
+    bout_csv = ROOT/g
+    directories = Directories(
+        bout_csv.parent,
+        metadata='results',
+        stimuli='results',
+        tracking='results',
+        full_tracking='lightning_pose',
+        video='results',
+        video_timestamp='results',
+        results='results',
+        plots='plots'
+    )
+    behavior_files = find_files(directories)
+    for behavior_file in behavior_files:
+        behavior_data = load_data(behavior_file)
+        stim_trials = get_trials(behavior_data)
+
+#####
 
 JTURN = bouts_category_name_short.index('JT')
 prob_threshold = 0.5
