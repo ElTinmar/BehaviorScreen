@@ -198,7 +198,6 @@ plt.show()
 
 ### TODO plot bout frequency during looming / total distance travelled (looming + recovery)
 
-
 fig, axes = plt.subplots(1, 2, figsize=(12, 6), sharey=True)
 edges = np.linspace(-11, 11, 221) # 0.1 mm resolution
 
@@ -225,7 +224,7 @@ for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.v
         cx,cy,_ = get_well_coords_mm(directories, behavior_file, behavior_data)
 
         stim_trials = get_trials(behavior_data)
-        spont_trial = stim_trials[stim_trials.stim_select == Stim.LOOMING]
+        spont_trial = stim_trials[stim_trials.stim_select == Stim.DARK]
 
         traj = behavior_data.tracking[['centroid_x', 'centroid_y']].to_numpy()
         traj_centered = traj/behavior_data.metadata['calibration']['pix_per_mm'] - np.array([cx, cy])
@@ -233,12 +232,18 @@ for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.v
 
     all_trajectories = np.vstack(all_trajectories)
 
+    fps = behavior_data.metadata["camera"]["framerate_value"]
+    n_individuals = len(behavior_files)
+    normalization_weight = 1.0 / (fps * n_individuals)
+    weights = np.ones(len(all_trajectories)) * normalization_weight
+
     custom_cmap = LinearSegmentedColormap.from_list("black_to_color", ["black", gcolor])
     h = axes[idx].hist2d(
         all_trajectories[:, 0], 
         all_trajectories[:, 1], 
         bins=[edges,edges], 
-        cmap=custom_cmap
+        cmap=custom_cmap,
+        weights=weights
     )
     h[3].set_clim([0, 500])
     axes[idx].set_aspect('equal')
@@ -250,7 +255,7 @@ for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.v
     
     cbar = fig.colorbar(h[3], ax=axes[idx], fraction=0.046, pad=0.04)
     if idx == 1:
-        cbar.set_label('Frame Count')
+        cbar.set_label('Mean Time per Fish (s)')
 
 plt.tight_layout()
 plt.savefig(f"thigmotaxis_2d_hist.svg", format='svg', bbox_inches='tight')
