@@ -37,8 +37,8 @@ ROOT = Path('/media/martin/DATA_18TB/Screen')
 # N=48, N=40
 #groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv']
 #groups = ['mecp2/danieau/bouts.csv', 'WT/danieau/bouts.csv']
-groups_name = ['mecp2-mutant', 'wild type']
-groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
+#groups_name = ['mecp2-mutant', 'wild type']
+#groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
 
 groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv', 'WT/danieau/bouts.csv']
 groups_name = ['mecp2-mutant', 'wild type (AB)', 'wild type (TLN)']
@@ -207,7 +207,7 @@ plt.show()
 
 ### TODO plot bout frequency during looming / total distance travelled (looming + recovery)
 
-fig, axes = plt.subplots(1, 2, figsize=(12, 6), sharey=True)
+fig, axes = plt.subplots(1, len(groups), figsize=(6*len(groups), 6), sharey=True)
 edges = np.linspace(-11, 11, 221) # 0.1 mm resolution
 
 for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.values())):
@@ -342,7 +342,6 @@ for g_idx, g in enumerate(groups):
                         JT_proba[g_idx, fish_idx, lat_idx, trial, bin_idx] = count_JT / count_all_bouts if count_all_bouts > 0 else 0
 
 
-group_names = ['Mecp2', 'WT']
 lat_names = ['Ipsilateral', 'Contralateral']
 bin_labels = [f"{b[0]}-{b[1]}s" for b in time_bins]
 trial_labels = [f"Trial {i}" for i in range(N_trials)]
@@ -353,10 +352,15 @@ def plot_heatmap(
         vmax = 0.6
     ):
 
-    fig, axes = plt.subplots(len(group_names), len(lat_names), 
-                            figsize=(15, 10), sharex=True, sharey=True)
+    fig, axes = plt.subplots(
+        len(groups_name), 
+        len(lat_names), 
+        figsize=(len(groups_name)*4, len(lat_names)*4), 
+        sharex=True, 
+        sharey=True
+    )
 
-    for g_idx in range(len(group_names)):
+    for g_idx in range(len(groups_name)):
         for lat_idx in range(len(lat_names)):
             ax = axes[g_idx, lat_idx]
             data_avg = np.nanmean(data[g_idx, :,lat_idx, :, :], axis=0)
@@ -372,9 +376,9 @@ def plot_heatmap(
                         ax=ax,
                         cbar_kws={'label': label})
             
-            ax.set_title(f"Group: {group_names[g_idx]} | {lat_names[lat_idx]}", fontweight='bold')
+            ax.set_title(f"Group: {groups_name[g_idx]} | {lat_names[lat_idx]}", fontweight='bold')
             
-            if g_idx == len(group_names) - 1:
+            if g_idx == len(groups_name) - 1:
                 ax.set_xlabel("Time Bins")
             if lat_idx == 0:
                 ax.set_ylabel("Trial Number")
