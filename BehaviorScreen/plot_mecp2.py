@@ -221,8 +221,10 @@ for g in groups:
         traj = behavior_data.tracking[['centroid_x', 'centroid_y']].to_numpy()
         traj = behavior_data.full_tracking.Swim_Bladder[['x','y']].to_numpy()
 
-#####
+##### TODO distribution of eye vergence angles
 
+
+###
 JTURN = bouts_category_name_short.index('JT')
 prob_threshold = 0.5
 trial_duration_s = 25
