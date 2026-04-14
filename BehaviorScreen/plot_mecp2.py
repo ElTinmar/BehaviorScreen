@@ -16,6 +16,7 @@ from megabouts.utils import bouts_category_name_short
 
 COLOR_MECP2 = '#D95319'
 COLOR_WT = '#0072BD'  
+COLOR_WT_TLN = '#2E8B57'
 
 plt.rcParams.update({
     'font.size': 12,          # Global default
@@ -34,10 +35,14 @@ ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
 ROOT = Path('/media/martin/DATA_18TB/Screen')
 
 # N=48, N=40
-groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv']
+#groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv']
 #groups = ['mecp2/danieau/bouts.csv', 'WT/danieau/bouts.csv']
 groups_name = ['mecp2-mutant', 'wild type']
 groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
+
+groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv', 'WT/danieau/bouts.csv']
+groups_name = ['mecp2-mutant', 'wild type (AB)', 'wild type (TLN)']
+groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type (AB)': COLOR_WT, 'wild type (TLN)': COLOR_WT_TLN}
 
 ##########
 
@@ -194,6 +199,10 @@ for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
     )
 
 plt.tight_layout()
+plt.tight_layout()
+plt.savefig(f"distributions_spont.svg", format='svg', bbox_inches='tight')
+plt.savefig(f"distributions_spont.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
 plt.show()
 
 ### TODO plot bout frequency during looming / total distance travelled (looming + recovery)
