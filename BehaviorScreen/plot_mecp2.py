@@ -245,7 +245,7 @@ for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.v
         cmap=custom_cmap,
         weights=weights
     )
-    h[3].set_clim([0, 500])
+    h[3].set_clim([0, 1])
     axes[idx].set_aspect('equal')
     axes[idx].set_xlabel('X (mm)')
     if idx == 0:
