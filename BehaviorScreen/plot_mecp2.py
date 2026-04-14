@@ -225,6 +225,7 @@ for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.v
 
         stim_trials = get_trials(behavior_data)
         spont_trial = stim_trials[stim_trials.stim_select == Stim.DARK]
+        # TODO find a better way to select stims
 
         traj = behavior_data.tracking[['centroid_x', 'centroid_y']].to_numpy()
         traj_centered = traj/behavior_data.metadata['calibration']['pix_per_mm'] - np.array([cx, cy])
