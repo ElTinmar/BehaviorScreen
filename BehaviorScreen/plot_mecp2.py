@@ -5,11 +5,12 @@ import numpy as np
 from scipy.stats import wilcoxon , mannwhitneyu, sem, gaussian_kde
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import seaborn as sns
 import statsmodels.formula.api as smf
 
 from BehaviorScreen.load import Directories, find_files, load_data
-from BehaviorScreen.process import get_trials
+from BehaviorScreen.process import get_trials, get_well_coords_mm
 from BehaviorScreen.core import Stim, BoutSign
 from megabouts.utils import bouts_category_name_short
 
@@ -198,7 +199,12 @@ plt.show()
 ### TODO plot bout frequency during looming / total distance travelled (looming + recovery)
 
 
-for g in groups:
+fig, axes = plt.subplots(1, 2, figsize=(12, 6), sharey=True)
+edges = np.linspace(-11, 11, 221) # 0.1 mm resolution
+
+for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.values())):
+
+    all_trajectories = []
 
     bout_csv = ROOT/g
     directories = Directories(
@@ -214,12 +220,42 @@ for g in groups:
     )
     behavior_files = find_files(directories)
     for behavior_file in behavior_files:
+        print(behavior_file.metadata)
         behavior_data = load_data(behavior_file)
+        cx,cy,_ = get_well_coords_mm(directories, behavior_file, behavior_data)
+
         stim_trials = get_trials(behavior_data)
-        looming_trials = stim_trials[stim_trials.stim_select == Stim.LOOMING]
+        spont_trial = stim_trials[stim_trials.stim_select == Stim.LOOMING]
 
         traj = behavior_data.tracking[['centroid_x', 'centroid_y']].to_numpy()
-        traj = behavior_data.full_tracking.Swim_Bladder[['x','y']].to_numpy()
+        traj_centered = traj/behavior_data.metadata['calibration']['pix_per_mm'] - np.array([cx, cy])
+        all_trajectories.append(traj_centered)
+
+    all_trajectories = np.vstack(all_trajectories)
+
+    custom_cmap = LinearSegmentedColormap.from_list("black_to_color", ["black", gcolor])
+    h = axes[idx].hist2d(
+        all_trajectories[:, 0], 
+        all_trajectories[:, 1], 
+        bins=[edges,edges], 
+        cmap=custom_cmap
+    )
+    h[3].set_clim([0, 500])
+    axes[idx].set_aspect('equal')
+    axes[idx].set_xlabel('X (mm)')
+    if idx == 0:
+        axes[idx].set_ylabel('Y (mm)')
+
+    axes[idx].set_title(gname)
+    
+    cbar = fig.colorbar(h[3], ax=axes[idx], fraction=0.046, pad=0.04)
+    if idx == 1:
+        cbar.set_label('Frame Count')
+
+plt.tight_layout()
+plt.savefig(f"thigmotaxis_2d_hist.svg", format='svg', bbox_inches='tight')
+plt.savefig(f"thigmotaxis_2d_hist.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
 
 ##### TODO distribution of eye vergence angles
 
