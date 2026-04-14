@@ -33,8 +33,8 @@ ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
 ROOT = Path('/media/martin/DATA_18TB/Screen')
 
 # N=48, N=40
-#groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv']
-groups = ['mecp2/danieau/bouts.csv', 'WT/danieau/bouts.csv']
+groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv']
+#groups = ['mecp2/danieau/bouts.csv', 'WT/danieau/bouts.csv']
 groups_name = ['mecp2-mutant', 'wild type']
 groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
 
@@ -195,7 +195,8 @@ for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
 plt.tight_layout()
 plt.show()
 
-### TODO plot bout frequency during looming / distance travelled (looming + recovery)
+### TODO plot bout frequency during looming / total distance travelled (looming + recovery)
+
 
 for g in groups:
 
