@@ -9,9 +9,10 @@ from matplotlib.colors import LinearSegmentedColormap
 import seaborn as sns
 import statsmodels.formula.api as smf
 
-from BehaviorScreen.load import Directories, find_files, load_data
-from BehaviorScreen.process import get_trials, get_well_coords_mm
+from BehaviorScreen.load import Directories, find_files, load_data, BehaviorData
+from BehaviorScreen.process import get_trials, get_well_coords_mm, timestamp_to_frame
 from BehaviorScreen.core import Stim, BoutSign
+from BehaviorScreen.plot import load_yaml_config, read_stim_specs
 from megabouts.utils import bouts_category_name_short
 
 COLOR_MECP2 = '#D95319'
@@ -207,6 +208,33 @@ plt.show()
 
 ### TODO plot bout frequency during looming / total distance travelled (looming + recovery)
 
+def get_bright_stim_frame_mask(behavior_data: BehaviorData):
+    "find 10 consecutive bright stim"
+
+    target_stim = 0.0
+    target_color = [0.2, 0.2, 0.2, 1.0]
+    
+    mask = np.zeros((behavior_data.tracking.shape[0],), dtype=bool)
+    
+    for i in range(len(behavior_data.stimuli) - 10):
+
+        is_sequence_start = all(
+            behavior_data.stimuli[i+j].get('stim_select') == target_stim and 
+            behavior_data.stimuli[i+j].get('foreground_color') == target_color
+            for j in range(10)
+        )
+        
+        if is_sequence_start:
+            for j in range(10):
+                start_ts = behavior_data.stimuli[i+j].get('timestamp')
+                stop_ts = behavior_data.stimuli[i+j+1].get('timestamp')
+                start_frame = timestamp_to_frame(behavior_data,start_ts)
+                stop_frame = timestamp_to_frame(behavior_data,stop_ts)
+                mask[start_frame:stop_frame] = True
+            break 
+            
+    return mask
+
 fig, axes = plt.subplots(1, len(groups), figsize=(6*len(groups), 6), sharey=True)
 edges = np.linspace(-11, 11, 221) # 0.1 mm resolution
 
@@ -227,24 +255,27 @@ for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.v
         plots='plots'
     )
     behavior_files = find_files(directories)
+    n_ind = 0
     for behavior_file in behavior_files:
         print(behavior_file.metadata)
         behavior_data = load_data(behavior_file)
         cx,cy,_ = get_well_coords_mm(directories, behavior_file, behavior_data)
 
-        stim_trials = get_trials(behavior_data)
-        spont_trial = stim_trials[stim_trials.stim_select == Stim.DARK]
-        # TODO find a better way to select stims
+        bright_stim_mask = get_bright_stim_frame_mask(behavior_data)
 
         traj = behavior_data.tracking[['centroid_x', 'centroid_y']].to_numpy()
         traj_centered = traj/behavior_data.metadata['calibration']['pix_per_mm'] - np.array([cx, cy])
-        all_trajectories.append(traj_centered)
+        traj_spont = traj_centered[bright_stim_mask]
+        if traj_spont.size > 0:
+            all_trajectories.append(traj_centered[bright_stim_mask])
+            n_ind += 1
+        else:
+            print('bright not found, skipping')
 
     all_trajectories = np.vstack(all_trajectories)
 
     fps = behavior_data.metadata["camera"]["framerate_value"]
-    n_individuals = len(behavior_files)
-    normalization_weight = 1.0 / (fps * n_individuals)
+    normalization_weight = 1.0 / (fps * n_ind)
     weights = np.ones(len(all_trajectories)) * normalization_weight
 
     custom_cmap = LinearSegmentedColormap.from_list("black_to_color", ["black", gcolor])
@@ -264,7 +295,7 @@ for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.v
     axes[idx].set_title(gname)
     
     cbar = fig.colorbar(h[3], ax=axes[idx], fraction=0.046, pad=0.04)
-    if idx == 1:
+    if idx == (len(groups)-1):
         cbar.set_label('Mean Time per Fish (s)')
 
 plt.tight_layout()
@@ -273,7 +304,45 @@ plt.savefig(f"thigmotaxis_2d_hist.png", format='png', dpi=100, bbox_inches='tigh
 plt.show()
 
 ##### TODO distribution of eye vergence angles
+config_yml = Path('BehaviorScreen/screen.yaml')
+cfg = load_yaml_config(config_yml)
+stim_specs = list(read_stim_specs(cfg, ignore_time_bins=True))
+pc_epoch = [2,3]
+bw = 0.1
+x_range = np.linspace(0, 80, 81)
 
+plt.figure(figsize=(6,6))
+for idx, (g, g_name, g_color) in enumerate(zip(groups, groups_name, groups_color.values())):
+
+    bout_csv = ROOT/g
+    eyes_data = bout_csv.with_name('eyes.npz')
+    data = np.load(eyes_data)
+    vergence = data['vergence']
+
+    group_densities = []
+    for ind in range(vergence.shape[0]):
+        kde_data = vergence[ind,:,2:4,:].reshape(-1)
+        kde_data = kde_data[~np.isnan(kde_data)]
+        if len(kde_data) < 5:
+            print(f'fish {ind} not enough data, skipping')
+            continue
+        kde = gaussian_kde(kde_data[~np.isnan(kde_data)], bw_method=bw)
+        group_densities.append(kde(x_range))
+
+    density_array = np.array(group_densities)
+    mean_kde = np.mean(density_array, axis=0)
+    sem_kde = sem(density_array, axis=0)
+    
+    line, = plt.plot(x_range, mean_kde, label=g_name, color=g_color, lw=2)
+    plt.fill_between(x_range, 
+                    mean_kde - sem_kde, 
+                    mean_kde + sem_kde, 
+                    color=line.get_color(), 
+                    alpha=0.2, 
+                    edgecolor='none')
+
+plt.legend()
+plt.show()
 
 ###
 JTURN = bouts_category_name_short.index('JT')
