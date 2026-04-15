@@ -286,7 +286,7 @@ for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.v
         cmap=custom_cmap,
         weights=weights
     )
-    h[3].set_clim([0, 1])
+    h[3].set_clim([0, 0.1])
     axes[idx].set_aspect('equal')
     axes[idx].set_xlabel('X (mm)')
     if idx == 0:
@@ -307,9 +307,10 @@ plt.show()
 config_yml = Path('BehaviorScreen/screen.yaml')
 cfg = load_yaml_config(config_yml)
 stim_specs = list(read_stim_specs(cfg, ignore_time_bins=True))
-pc_epoch = [2,3]
+epochs = [2,3] 
+trials = [0,1,2]
 bw = 0.1
-x_range = np.linspace(0, 80, 81)
+x_range = np.linspace(-10, 90, 101)
 
 plt.figure(figsize=(6,6))
 for idx, (g, g_name, g_color) in enumerate(zip(groups, groups_name, groups_color.values())):
@@ -321,7 +322,8 @@ for idx, (g, g_name, g_color) in enumerate(zip(groups, groups_name, groups_color
 
     group_densities = []
     for ind in range(vergence.shape[0]):
-        kde_data = vergence[ind,:,2:4,:].reshape(-1)
+        kde_data = vergence[ind,trials][:, epochs].reshape(-1)
+        #kde_data = vergence.reshape(-1)
         kde_data = kde_data[~np.isnan(kde_data)]
         if len(kde_data) < 5:
             print(f'fish {ind} not enough data, skipping')
@@ -341,7 +343,7 @@ for idx, (g, g_name, g_color) in enumerate(zip(groups, groups_name, groups_color
                     alpha=0.2, 
                     edgecolor='none')
 
-plt.legend()
+plt.legend(frameon=False)
 plt.show()
 
 ###
