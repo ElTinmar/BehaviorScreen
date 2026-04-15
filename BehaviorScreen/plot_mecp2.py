@@ -617,46 +617,6 @@ def plot_barplot(
     plt.savefig(f"{label}_ecdf.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
 
-import pandas as pd
-import numpy as np
-
-def create_long_df(data, groups_name, trials=[0,1,2], time_bins=[0]):
-    rows = []
-    
-    # Iterate through each dimension
-    for g_idx, g_name in enumerate(groups_name):
-        for fish_idx in range(data.shape[1]):
-            for lat_idx, lat_name in enumerate(['Ipsi', 'Contra']):
-                for t_idx in trials:
-                    for b_idx in time_bins:
-   
-                        val = np.nanmean(data[g_idx, fish_idx, lat_idx, t_idx, b_idx])
-                        
-                        # Create a unique ID for each fish so the model 
-                        # knows 'Fish 1' in Mecp2 is not 'Fish 1' in AB
-                        fish_id = f"{g_name}_F{fish_idx}"
-                        
-                        rows.append({
-                            'fish_id': fish_id,
-                            'group': g_name,
-                            'laterality': lat_name,
-                            'trial': t_idx,
-                            'time_bin': b_idx,
-                            'value': val
-                        })
-        
-    df_long = pd.DataFrame(rows)
-    return df_long.dropna(subset=['value'])
-
-# Usage:
-df_long = create_long_df(data, groups_name, trials=[0,1,2], time_bins=[0])
-model = smf.mixedlm("value ~ group * laterality", 
-                    df_long, 
-                    groups=df_long["fish_id"])
-
-result = model.fit()
-print(result.summary())
-
 for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
 
     plot_heatmap(
@@ -664,8 +624,6 @@ for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
         data_type,
         vmax = 0.6
     )
-
-
 
     plot_barplot(
         data,
