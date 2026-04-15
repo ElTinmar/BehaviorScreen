@@ -2,12 +2,13 @@ from pathlib import Path
 from enum import IntEnum
 import pandas as pd
 import numpy as np
-from scipy.stats import wilcoxon , mannwhitneyu, sem, gaussian_kde
+from scipy.stats import wilcoxon, mannwhitneyu, sem, gaussian_kde
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import seaborn as sns
 import statsmodels.formula.api as smf
+from scipy.stats import kruskal
 
 from BehaviorScreen.load import Directories, find_files, load_data, BehaviorData
 from BehaviorScreen.process import get_trials, get_well_coords_mm, timestamp_to_frame
@@ -323,7 +324,6 @@ for idx, (g, g_name, g_color) in enumerate(zip(groups, groups_name, groups_color
     group_densities = []
     for ind in range(vergence.shape[0]):
         kde_data = vergence[ind,trials][:, epochs].reshape(-1)
-        #kde_data = vergence.reshape(-1)
         kde_data = kde_data[~np.isnan(kde_data)]
         if len(kde_data) < 5:
             print(f'fish {ind} not enough data, skipping')
@@ -415,7 +415,6 @@ for g_idx, g in enumerate(groups):
 
 lat_names = ['Ipsilateral', 'Contralateral']
 bin_labels = [f"{b[0]}-{b[1]}s" for b in time_bins]
-trial_labels = [f"Trial {i}" for i in range(N_trials)]
 
 def plot_heatmap(
         data, 
@@ -426,7 +425,7 @@ def plot_heatmap(
     fig, axes = plt.subplots(
         len(groups_name), 
         len(lat_names), 
-        figsize=(len(groups_name)*4, len(lat_names)*4), 
+        figsize=(len(lat_names)*5, len(groups_name)*5), 
         sharex=True, 
         sharey=True
     )
@@ -438,23 +437,22 @@ def plot_heatmap(
             
             sns.heatmap(data_avg, 
                         annot=True,       
-                        fmt=".3f",        
+                        fmt=".2f",        
                         cmap="magma",     
                         vmin=0,           
                         vmax=vmax,        
                         xticklabels=bin_labels,
-                        yticklabels=trial_labels,
                         ax=ax,
+                        cbar=(lat_idx == len(lat_names) - 1),
                         cbar_kws={'label': label})
             
-            ax.set_title(f"Group: {groups_name[g_idx]} | {lat_names[lat_idx]}", fontweight='bold')
+            ax.set_title(f"{groups_name[g_idx]} | {lat_names[lat_idx]}")
             
             if g_idx == len(groups_name) - 1:
                 ax.set_xlabel("Time Bins")
             if lat_idx == 0:
                 ax.set_ylabel("Trial Number")
 
-    plt.tight_layout()
     plt.savefig(f"{label}_heatmap.svg", format='svg', bbox_inches='tight')
     plt.savefig(f"{label}_heatmap.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
@@ -477,72 +475,97 @@ def plot_barplot(
         trials = [0,1,2],
         time_bins = [0]
     ):
+    
+    groups_color = {'Mecp2': COLOR_MECP2, 'AB': COLOR_WT, 'TLN': COLOR_WT_TLN}
 
     data_dict = {
-        'Mecp2_Ipsi':   np.nanmean(data[0, :, 0, trials, time_bins], axis=0),
-        'Mecp2_Contra': np.nanmean(data[0, :, 1, trials, time_bins], axis=0),
-        'WT_Ipsi':      np.nanmean(data[1, :, 0, trials, time_bins], axis=0),
-        'WT_Contra':    np.nanmean(data[1, :, 1, trials, time_bins], axis=0)
+        # We slice the first 3 dims [Group, :, Lat], 
+        # then use idx for the last 2 [Trials, TimeBins]
+        'Mecp2_Ipsi':   np.nanmean(data[0, :, 0][:, trials][..., time_bins], axis=(1, 2)),
+        'Mecp2_Contra': np.nanmean(data[0, :, 1][:, trials][..., time_bins], axis=(1, 2)),
+        'AB_Ipsi':      np.nanmean(data[1, :, 0][:, trials][..., time_bins], axis=(1, 2)),
+        'AB_Contra':    np.nanmean(data[1, :, 1][:, trials][..., time_bins], axis=(1, 2)),
+        'TLN_Ipsi':     np.nanmean(data[2, :, 0][:, trials][..., time_bins], axis=(1, 2)),
+        'TLN_Contra':   np.nanmean(data[2, :, 1][:, trials][..., time_bins], axis=(1, 2))
     }
 
-    p_ipsi_between = mannwhitneyu(
+    def filter_non_responders(arr):
+        # This keeps only fish that have at least one non-zero/non-nan value
+        #return arr[~np.isnan(arr) & (arr != 0)]
+        return arr[~np.isnan(arr)]
+
+    data_dict = {k: filter_non_responders(v) for k, v in data_dict.items()}
+
+    # 1. Omnibus Test: Are the three groups different at all?
+    # We do this for Ipsilateral and Contralateral separately
+    stat_k_ipsi, p_k_ipsi = kruskal(
         data_dict['Mecp2_Ipsi'][~np.isnan(data_dict['Mecp2_Ipsi'])],
-        data_dict['WT_Ipsi'][~np.isnan(data_dict['WT_Ipsi'])]
-    ).pvalue
-
-    p_contra_between = mannwhitneyu(
+        data_dict['AB_Ipsi'][~np.isnan(data_dict['AB_Ipsi'])],
+        data_dict['TLN_Ipsi'][~np.isnan(data_dict['TLN_Ipsi'])]
+    )
+    
+    stat_k_contra, p_k_contra = kruskal(
         data_dict['Mecp2_Contra'][~np.isnan(data_dict['Mecp2_Contra'])],
-        data_dict['WT_Contra'][~np.isnan(data_dict['WT_Contra'])]
-    ).pvalue
+        data_dict['AB_Contra'][~np.isnan(data_dict['AB_Contra'])],
+        data_dict['TLN_Contra'][~np.isnan(data_dict['TLN_Contra'])]
+    )
 
-    # Mecp2 (paired)
-    mask_m = ~np.isnan(data_dict['Mecp2_Ipsi']) & ~np.isnan(data_dict['Mecp2_Contra'])
-    p_mecp2 = wilcoxon(
-        data_dict['Mecp2_Ipsi'][mask_m],
-        data_dict['Mecp2_Contra'][mask_m]
-    ).pvalue
+    print(f"Kruskal-Wallis (Ipsi): p={p_k_ipsi:.4f}")
+    print(f"Kruskal-Wallis (Contra): p={p_k_contra:.4f}")
 
-    # WT (paired)
-    mask_w = ~np.isnan(data_dict['WT_Ipsi']) & ~np.isnan(data_dict['WT_Contra'])
-    p_wt = wilcoxon(
-        data_dict['WT_Ipsi'][mask_w],
-        data_dict['WT_Contra'][mask_w]
-    ).pvalue
+    # 2. Stats: Update to compare Mecp2 vs AB and Mecp2 vs TLN
+    def get_p(a, b):
+        a_clean = a[~np.isnan(a)]
+        b_clean = b[~np.isnan(b)]
+        if len(a_clean) == 0 or len(b_clean) == 0: return 1.0
+        return mannwhitneyu(a_clean, b_clean, alternative='less').pvalue
 
-    pvals = (p_ipsi_between, p_contra_between, p_mecp2, p_wt)
-    rejected, (p_ipsi_between_bf, p_contra_between_bf, p_mecp2_bf, p_wt_bf), _, _ = multipletests(pvals, alpha=0.05, method='bonferroni')
+    p_ipsi_m_ab = get_p(data_dict['Mecp2_Ipsi'], data_dict['AB_Ipsi'])
+    p_ipsi_m_tln = get_p(data_dict['Mecp2_Ipsi'], data_dict['TLN_Ipsi'])
+
+    # Bonferroni correction for the 4 new comparisons
+    pvals = [p_ipsi_m_ab, p_ipsi_m_tln]
+    _, corrected_p, _, _ = multipletests(pvals, alpha=0.05, method=res_ipsi = dunnett(data_dict['Mecp2_Ipsi'], data_dict['TLN_Ipsi'], 
+                   control=data_dict['AB_Ipsi']))
+
+    names = ['Ipsi: M vs AB', 'Ipsi: M vs TLN']
+    for name, raw, corr in zip(names, pvals, corrected_p):
+        print(f"{name} -> Raw: {raw:.4f}, Corrected: {corr:.4f}")
+
+    # 3. Update DataFrame construction
+    groups = []
+    lateralities = []
+    values = []
+
+    for key in data_dict.keys():
+        val_array = data_dict[key]
+        group_name = key.split('_')[0] # 'Mecp2', 'AB', or 'TLN'
+        lat_name = 'ipsilateral' if 'Ipsi' in key else 'contralateral'
+        
+        values.extend(val_array)
+        groups.extend([group_name] * len(val_array))
+        lateralities.extend([lat_name] * len(val_array))
 
     df_plot = pd.DataFrame({
-        'value': np.concatenate(list(data_dict.values())),
-        'group': (
-            ['mecp2-mutant'] * len(data_dict['Mecp2_Ipsi']) +
-            ['mecp2-mutant'] * len(data_dict['Mecp2_Contra']) +
-            ['wild type']    * len(data_dict['WT_Ipsi']) +
-            ['wild type']    * len(data_dict['WT_Contra'])
-        ),
-        'laterality': (
-            ['ipsilateral'] * len(data_dict['Mecp2_Ipsi']) +
-            ['contralateral'] * len(data_dict['Mecp2_Contra']) +
-            ['ipsilateral'] * len(data_dict['WT_Ipsi']) +
-            ['contralateral'] * len(data_dict['WT_Contra'])
-        )
-    })
-    df_plot = df_plot.dropna(subset=['value'])    
+        'value': values,
+        'group': groups,
+        'laterality': lateralities
+    }).dropna(subset=['value'])
 
-    plt.figure(figsize=(6, 6))
+    plt.figure(figsize=(8, 6)) 
 
     ax = sns.barplot(
         data=df_plot,
         x='laterality',
         y='value',
         hue='group',
-        palette=groups_color,
+        hue_order=['Mecp2', 'AB', 'TLN'], # Explicit order
+        palette=groups_color, # Ensure this dict has 'Mecp2', 'AB', and 'TLN' keys
         errorbar='se',    
         capsize=0.05,      
         edgecolor='.2', 
         linewidth=1.5,
-        gap=0.1,
-        err_kws={'zorder': 0}
+        gap=0.1
     )
 
     sns.stripplot(
@@ -550,52 +573,89 @@ def plot_barplot(
         x='laterality',
         y='value',
         hue='group',
+        hue_order=['Mecp2', 'AB', 'TLN'],
         palette=groups_color, 
         jitter=0.15,
         dodge=True,
-        alpha=0.5,
+        alpha=0.4,
         edgecolor='white', 
-        linewidth=1,
-        size=6     
+        linewidth=0.5,
+        size=4
     )
 
-    handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles[:2], labels[:2], frameon=False)
+    x_m, x_ab, x_tln = -0.26, 0, 0.26
+    y_max = df_plot['value'].max() * 1.1
+    h_inc = y_max * 0.1 # Height increment for stacking stars
+
+    add_pval_star(ax, x_m, x_ab,  y_max, corrected_p[0]) # Mecp2 vs AB (Ipsi)
+    add_pval_star(ax, x_m, x_tln, y_max + h_inc, corrected_p[1]) # Mecp2 vs TLN (Ipsi)
 
     plt.ylabel(f"J-turn {label}")
-    plt.xlabel('')
-
-    add_pval_star(ax, -0.2, 0.2,  0.55, p_ipsi_between_bf)
-    add_pval_star(ax, -0.2, 0.8, 0.6, p_mecp2_bf)
-    add_pval_star(ax, 0.2, 1.2, 0.65, p_wt_bf)
-    add_pval_star(ax, 0.8, 1.2, 0.1, p_contra_between_bf)
-
-    #plt.ylim(0, 0.725)
+    plt.legend(frameon=False)
     plt.tight_layout()
-    plt.savefig(f"{label}_comp.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"{label}_comp.png", format='png', dpi=100, bbox_inches='tight')
+    plt.savefig(f"{label}_barplot.svg", format='svg', bbox_inches='tight')
+    plt.savefig(f"{label}_barplot.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
 
     plt.figure(figsize=(6, 6))
-    sns.kdeplot(data_dict['Mecp2_Ipsi'], bw_adjust=0.5, color=COLOR_MECP2, label='mecp2-mutant') 
-    sns.kdeplot(data_dict['WT_Ipsi'],  bw_adjust=0.5, color=COLOR_WT, label='wild type') 
-    plt.ylabel("Ispilateral J-turn PDF")
-    plt.xlabel(label)
-    plt.legend(frameon=False)
+    sns.kdeplot(data_dict['Mecp2_Ipsi'], color=groups_color['Mecp2'], label='Mecp2') 
+    sns.kdeplot(data_dict['AB_Ipsi'], color=groups_color['AB'], label='AB') 
+    sns.kdeplot(data_dict['TLN_Ipsi'], color=groups_color['TLN'], label='TLN') 
+    plt.title("Ipsilateral")
+    plt.legend()
     plt.savefig(f"{label}_kde.svg", format='svg', bbox_inches='tight')
     plt.savefig(f"{label}_kde.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
 
     plt.figure(figsize=(6, 6))
-    sns.ecdfplot(data_dict['Mecp2_Ipsi'], color=COLOR_MECP2, label='mecp2-mutant')
-    sns.ecdfplot(data_dict['WT_Ipsi'], color=COLOR_WT, label='wild type')
-    plt.ylabel(f"Ispilateral J-turn CDF")
-    plt.xlabel(label)
-    plt.ylim(-0.1, 1.1)
-    plt.legend(frameon=False)
-    plt.savefig(f"{label}_cdf.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"{label}_cdf.png", format='png', dpi=100, bbox_inches='tight')
+    sns.ecdfplot(data_dict['Mecp2_Ipsi'], color=groups_color['Mecp2'], label='Mecp2') 
+    sns.ecdfplot(data_dict['AB_Ipsi'], color=groups_color['AB'], label='AB') 
+    sns.ecdfplot(data_dict['TLN_Ipsi'], color=groups_color['TLN'], label='TLN') 
+    plt.title("Ipsilateral")
+    plt.legend()
+    plt.savefig(f"{label}_ecdf.svg", format='svg', bbox_inches='tight')
+    plt.savefig(f"{label}_ecdf.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
+
+import pandas as pd
+import numpy as np
+
+def create_long_df(data, groups_name, trials=[0,1,2], time_bins=[0]):
+    rows = []
+    
+    # Iterate through each dimension
+    for g_idx, g_name in enumerate(groups_name):
+        for fish_idx in range(data.shape[1]):
+            for lat_idx, lat_name in enumerate(['Ipsi', 'Contra']):
+                for t_idx in trials:
+                    for b_idx in time_bins:
+   
+                        val = np.nanmean(data[g_idx, fish_idx, lat_idx, t_idx, b_idx])
+                        
+                        # Create a unique ID for each fish so the model 
+                        # knows 'Fish 1' in Mecp2 is not 'Fish 1' in AB
+                        fish_id = f"{g_name}_F{fish_idx}"
+                        
+                        rows.append({
+                            'fish_id': fish_id,
+                            'group': g_name,
+                            'laterality': lat_name,
+                            'trial': t_idx,
+                            'time_bin': b_idx,
+                            'value': val
+                        })
+        
+    df_long = pd.DataFrame(rows)
+    return df_long.dropna(subset=['value'])
+
+# Usage:
+df_long = create_long_df(data, groups_name, trials=[0,1,2], time_bins=[0])
+model = smf.mixedlm("value ~ group * laterality", 
+                    df_long, 
+                    groups=df_long["fish_id"])
+
+result = model.fit()
+print(result.summary())
 
 for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
 
@@ -605,11 +665,13 @@ for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
         vmax = 0.6
     )
 
+
+
     plot_barplot(
         data,
         data_type,
-        trials=[0,1,2],
-        time_bins=[0]
+        trials=[0,1],
+        time_bins=[0,1,2]
     )
 
 
