@@ -53,6 +53,11 @@ def epoch_masks(df):
         (df.stim == Stim.DARK) & (df.trial_num >= 10) & (df.trial_num < 20),
         (df.stim == Stim.BRIGHT) & (df.trial_num >= 5) & (df.trial_num < 15) & (df.time_start > 1049),
     ]
+    # use last trials
+    #masks = [
+    #    (df.stim == Stim.DARK) & (df.trial_num >= 15) & (df.trial_num < 20),
+    #    (df.stim == Stim.BRIGHT) & (df.trial_num >= 10) & (df.trial_num < 15) & (df.time_start > 1049),
+    #]
     mask_names = ['spont_dark', 'spont_bright']
     return masks, mask_names
 
@@ -204,7 +209,6 @@ plt.tight_layout()
 plt.tight_layout()
 plt.savefig(f"distributions_spont.svg", format='svg', bbox_inches='tight')
 plt.savefig(f"distributions_spont.png", format='png', dpi=100, bbox_inches='tight')
-plt.show()
 plt.show()
 
 ### TODO plot bout frequency during looming / total distance travelled (looming + recovery)
