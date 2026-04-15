@@ -499,15 +499,15 @@ def plot_barplot(
     # 1. Omnibus Test: Are the three groups different at all?
     # We do this for Ipsilateral and Contralateral separately
     stat_k_ipsi, p_k_ipsi = kruskal(
-        data_dict['Mecp2_Ipsi'][~np.isnan(data_dict['Mecp2_Ipsi'])],
-        data_dict['AB_Ipsi'][~np.isnan(data_dict['AB_Ipsi'])],
-        data_dict['TLN_Ipsi'][~np.isnan(data_dict['TLN_Ipsi'])]
+        data_dict['Mecp2_Ipsi'],
+        data_dict['AB_Ipsi'],
+        data_dict['TLN_Ipsi']
     )
     
     stat_k_contra, p_k_contra = kruskal(
-        data_dict['Mecp2_Contra'][~np.isnan(data_dict['Mecp2_Contra'])],
-        data_dict['AB_Contra'][~np.isnan(data_dict['AB_Contra'])],
-        data_dict['TLN_Contra'][~np.isnan(data_dict['TLN_Contra'])]
+        data_dict['Mecp2_Contra'],
+        data_dict['AB_Contra'],
+        data_dict['TLN_Contra']
     )
 
     print(f"Kruskal-Wallis (Ipsi): p={p_k_ipsi:.4f}")
@@ -525,9 +525,7 @@ def plot_barplot(
 
     # Bonferroni correction for the 4 new comparisons
     pvals = [p_ipsi_m_ab, p_ipsi_m_tln]
-    _, corrected_p, _, _ = multipletests(pvals, alpha=0.05, method=res_ipsi = dunnett(data_dict['Mecp2_Ipsi'], data_dict['TLN_Ipsi'], 
-                   control=data_dict['AB_Ipsi']))
-
+    _, corrected_p, _, _ = multipletests(pvals, alpha=0.05, method='holm')
     names = ['Ipsi: M vs AB', 'Ipsi: M vs TLN']
     for name, raw, corr in zip(names, pvals, corrected_p):
         print(f"{name} -> Raw: {raw:.4f}, Corrected: {corr:.4f}")
