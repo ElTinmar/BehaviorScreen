@@ -344,6 +344,10 @@ for idx, (g, g_name, g_color) in enumerate(zip(groups, groups_name, groups_color
                     edgecolor='none')
 
 plt.legend(frameon=False)
+plt.xlabel('eye vergence (deg)')
+plt.ylabel('density')
+plt.savefig(f"eye_vergence.svg", format='svg', bbox_inches='tight')
+plt.savefig(f"eye_vergence.png", format='png', dpi=100, bbox_inches='tight')
 plt.show()
 
 ###
