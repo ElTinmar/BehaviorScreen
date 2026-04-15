@@ -28,6 +28,7 @@ stimuli:
       stop: 20
       step: 1
 
+  # TODO make sure there is no contamination from ptx only 
   - stim: BRIGHT
     name: "bright"
     parameters: 
