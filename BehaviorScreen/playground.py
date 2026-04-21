@@ -173,7 +173,7 @@ def bootstrap_cohen_d(a, b, n_boot=2000, rng=None):
     
     return (means_b - means_a) / pooled_stds
 
-def compute_t_and_d(group_a, group_b):
+def compute_t_student_and_d(group_a, group_b):
     m_a, m_b = np.nanmean(group_a, axis=0), np.nanmean(group_b, axis=0)
     v_a, v_b = np.nanvar(group_a, axis=0), np.nanvar(group_b, axis=0)
     na, nb = len(group_a), len(group_b)
@@ -182,6 +182,26 @@ def compute_t_and_d(group_a, group_b):
     pooled_std[pooled_std == 0] = np.nan
     
     t_stat = (m_b - m_a) / (pooled_std * np.sqrt(1/na + 1/nb))
+    cohen_d = (m_b - m_a) / pooled_std
+    
+    return t_stat, cohen_d
+
+def compute_t_and_d(group_a, group_b):
+    m_a, m_b = np.nanmean(group_a, axis=0), np.nanmean(group_b, axis=0)
+    v_a, v_b = np.nanvar(group_a, axis=0, ddof=1), np.nanvar(group_b, axis=0, ddof=1)
+    na, nb = len(group_a), len(group_b)
+    
+    # 1. Welch's T-Statistic (Unpooled)
+    # Formula: (mean_b - mean_a) / sqrt(var_a/na + var_b/nb)
+    se_welch = np.sqrt((v_a / na) + (v_b / nb))
+    se_welch[se_welch == 0] = np.nan
+    t_stat = (m_b - m_a) / se_welch
+    
+    # 2. Cohen's d (Standardly uses Pooled SD)
+    # We keep pooled_std here because d is an effect size metric
+    pooled_var = ((na - 1) * v_a + (nb - 1) * v_b) / (na + nb - 2)
+    pooled_std = np.sqrt(pooled_var)
+    pooled_std[pooled_std == 0] = np.nan
     cohen_d = (m_b - m_a) / pooled_std
     
     return t_stat, cohen_d
@@ -205,7 +225,12 @@ def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
     null_t_stats = np.array(null_t_stats)
     
     # Two-tailed p-values
-    p_values = np.mean(np.abs(null_t_stats) >= np.abs(obs_t), axis=0)
+    #p_values = np.mean(np.abs(null_t_stats) >= np.abs(obs_t), axis=0)
+    
+    # (Phipson & Smyth correction)
+    b = np.sum(np.abs(null_t_stats) >= np.abs(obs_t), axis=0)
+    p_values = (b + 1) / (n_perm + 1)
+
     p_shape = p_values.shape
     reject, p_corrected, _, _ = multipletests(p_values.ravel(), alpha=alpha, method='fdr_bh')
     
