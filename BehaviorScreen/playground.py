@@ -190,19 +190,22 @@ def compute_t_and_d(group_a, group_b):
     m_a, m_b = np.nanmean(group_a, axis=0), np.nanmean(group_b, axis=0)
     v_a, v_b = np.nanvar(group_a, axis=0, ddof=1), np.nanvar(group_b, axis=0, ddof=1)
     na, nb = len(group_a), len(group_b)
-    
-    # 1. Welch's T-Statistic (Unpooled)
-    # Formula: (mean_b - mean_a) / sqrt(var_a/na + var_b/nb)
-    se_welch = np.sqrt((v_a / na) + (v_b / nb))
-    se_welch[se_welch == 0] = np.nan
-    t_stat = (m_b - m_a) / se_welch
-    
-    # 2. Cohen's d (Standardly uses Pooled SD)
-    # We keep pooled_std here because d is an effect size metric
+
     pooled_var = ((na - 1) * v_a + (nb - 1) * v_b) / (na + nb - 2)
+    welch_var = (v_a / na) + (v_b / nb)
+    zero_var = welch_var <= 1e-15 
+    
+    # T-stat
+    se_welch = np.sqrt(welch_var)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        t_stat = (m_b - m_a) / se_welch
+    t_stat[zero_var] = 0  
+    
+    # Cohen's d
     pooled_std = np.sqrt(pooled_var)
-    pooled_std[pooled_std == 0] = np.nan
-    cohen_d = (m_b - m_a) / pooled_std
+    with np.errstate(divide='ignore', invalid='ignore'):
+        cohen_d = (m_b - m_a) / pooled_std
+    cohen_d[zero_var] = 0
     
     return t_stat, cohen_d
 
@@ -223,11 +226,8 @@ def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
         null_t_stats.append(perm_t)
         
     null_t_stats = np.array(null_t_stats)
-    
-    # Two-tailed p-values
-    #p_values = np.mean(np.abs(null_t_stats) >= np.abs(obs_t), axis=0)
-    
-    # (Phipson & Smyth correction)
+
+    # Two-tailed p-values (Phipson & Smyth correction)
     b = np.sum(np.abs(null_t_stats) >= np.abs(obs_t), axis=0)
     p_values = (b + 1) / (n_perm + 1)
 
@@ -276,8 +276,8 @@ def plot_heatmap(
         effect_size, 
         mask,
         title,
-        row_names,
-        col_names,
+        y_labels,
+        x_labels,
         clim: Tuple[float, float] = (0, 0.35)
     ):
     # Create 3 vertically stacked subplots
@@ -307,14 +307,14 @@ def plot_heatmap(
     # Formatting across all axes
     for i, ax in enumerate(axes):
         # Y-axis labels for every plot
-        ax.set_yticks(range(len(row_names)))
-        ax.set_yticklabels(row_names)
+        ax.set_yticks(range(len(y_labels)))
+        ax.set_yticklabels(y_labels)
         ax.set_ylabel("bout category")
         
         # X-axis labels (only rotate and show for the bottom plot to save space)
-        ax.set_xticks(range(len(col_names)))
+        ax.set_xticks(range(len(x_labels)))
         if i == 2:
-            ax.set_xticklabels(col_names, rotation=90, ha='center')
+            ax.set_xticklabels(x_labels, rotation=90, ha='center')
         else:
             ax.set_xticklabels([])
 
@@ -325,16 +325,22 @@ def plot_heatmap(
 # - lak danieau vs WT danieau show lots of differences
 # - WT danieau vs WT ronidazole does not
 alpha = 0.05
-value_threshold = 0.05
+#value_threshold = 0.05
+
+capture_strikes = ['LCS_L','LCS_R','SCS_L','SCS_R']
+keep = [i for i,r in enumerate(row_names) if r not in capture_strikes]
+bouts_cat = [r for r in row_names if r not in capture_strikes]
 
 for ref, comp_list in comparisons.items():
 
     ref_trial_avg, bin_names = load_bouts(ref)
+    ref_trial_avg = ref_trial_avg[...,keep]
     ref_fish_trial_avg = np.nanmean(ref_trial_avg, axis=0).T
     
     for p in comp_list:
     
         exp_trial_avg, _ = load_bouts(p)
+        exp_trial_avg = exp_trial_avg[...,keep]
         exp_fish_trial_avg = np.nanmean(exp_trial_avg, axis=0).T
 
         #cohen_d_boot = bootstrap_cohen_d(ref_trial_avg, exp_trial_avg)
@@ -345,18 +351,16 @@ for ref, comp_list in comparisons.items():
         d_map, p_map = permutation_analysis(ref_trial_avg, exp_trial_avg)
         data = d_map.T
         sig_mask = p_map.T < alpha
+        #data[~sig_mask] = 0
 
-        low_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) < value_threshold 
+        #low_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) < value_threshold 
         #mask_out = low_bout_freq | (~sig_mask)
-        mask_out = ~sig_mask
-        data[mask_out] = 0
 
-        high_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) >= value_threshold 
+        #high_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) >= value_threshold 
         #scatter_mask = high_bout_freq & sig_mask
-        scatter_mask = sig_mask
 
         title = f"{p.relative_to(ROOT).parent} - {ref.relative_to(ROOT).parent}".replace('/',':')
-        plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, scatter_mask, title, row_names, bin_names)
+        plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, sig_mask, title, bouts_cat, bin_names)
         plt.savefig(f"{title}_alpha_{alpha}.png")
         plt.close()
 
