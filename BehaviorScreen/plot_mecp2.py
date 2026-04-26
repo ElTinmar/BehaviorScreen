@@ -2,19 +2,23 @@ from pathlib import Path
 from enum import IntEnum
 import pandas as pd
 import numpy as np
-from scipy.stats import wilcoxon , mannwhitneyu, sem, gaussian_kde
+from scipy.stats import wilcoxon, mannwhitneyu, sem, gaussian_kde
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import seaborn as sns
 import statsmodels.formula.api as smf
+from scipy.stats import kruskal
 
-from BehaviorScreen.load import Directories, find_files, load_data
-from BehaviorScreen.process import get_trials
+from BehaviorScreen.load import Directories, find_files, load_data, BehaviorData
+from BehaviorScreen.process import get_trials, get_well_coords_mm, timestamp_to_frame
 from BehaviorScreen.core import Stim, BoutSign
+from BehaviorScreen.plot import load_yaml_config, read_stim_specs
 from megabouts.utils import bouts_category_name_short
 
 COLOR_MECP2 = '#D95319'
 COLOR_WT = '#0072BD'  
+COLOR_WT_TLN = '#2E8B57'
 
 plt.rcParams.update({
     'font.size': 12,          # Global default
@@ -34,9 +38,13 @@ ROOT = Path('/media/martin/DATA_18TB/Screen')
 
 # N=48, N=40
 #groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv']
-groups = ['mecp2/danieau/bouts.csv', 'WT/danieau/bouts.csv']
-groups_name = ['mecp2-mutant', 'wild type']
-groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
+#groups = ['mecp2/danieau/bouts.csv', 'WT/danieau/bouts.csv']
+#groups_name = ['mecp2-mutant', 'wild type']
+#groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
+
+groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv', 'WT/danieau/bouts.csv']
+groups_name = ['mecp2-mutant', 'wild type (AB)', 'wild type (TLN)']
+groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type (AB)': COLOR_WT, 'wild type (TLN)': COLOR_WT_TLN}
 
 ##########
 
@@ -45,6 +53,11 @@ def epoch_masks(df):
         (df.stim == Stim.DARK) & (df.trial_num >= 10) & (df.trial_num < 20),
         (df.stim == Stim.BRIGHT) & (df.trial_num >= 5) & (df.trial_num < 15) & (df.time_start > 1049),
     ]
+    # use last trials
+    #masks = [
+    #    (df.stim == Stim.DARK) & (df.trial_num >= 15) & (df.trial_num < 20),
+    #    (df.stim == Stim.BRIGHT) & (df.trial_num >= 10) & (df.trial_num < 15) & (df.time_start > 1049),
+    #]
     mask_names = ['spont_dark', 'spont_bright']
     return masks, mask_names
 
@@ -193,11 +206,46 @@ for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
     )
 
 plt.tight_layout()
+plt.tight_layout()
+plt.savefig(f"distributions_spont.svg", format='svg', bbox_inches='tight')
+plt.savefig(f"distributions_spont.png", format='png', dpi=100, bbox_inches='tight')
 plt.show()
 
-### TODO plot bout frequency during looming / distance travelled (looming + recovery)
+### TODO plot bout frequency during looming / total distance travelled (looming + recovery)
 
-for g in groups:
+def get_bright_stim_frame_mask(behavior_data: BehaviorData):
+    "find 10 consecutive bright stim"
+
+    target_stim = 0.0
+    target_color = [0.2, 0.2, 0.2, 1.0]
+    
+    mask = np.zeros((behavior_data.tracking.shape[0],), dtype=bool)
+    
+    for i in range(len(behavior_data.stimuli) - 10):
+
+        is_sequence_start = all(
+            behavior_data.stimuli[i+j].get('stim_select') == target_stim and 
+            behavior_data.stimuli[i+j].get('foreground_color') == target_color
+            for j in range(10)
+        )
+        
+        if is_sequence_start:
+            for j in range(10):
+                start_ts = behavior_data.stimuli[i+j].get('timestamp')
+                stop_ts = behavior_data.stimuli[i+j+1].get('timestamp')
+                start_frame = timestamp_to_frame(behavior_data,start_ts)
+                stop_frame = timestamp_to_frame(behavior_data,stop_ts)
+                mask[start_frame:stop_frame] = True
+            break 
+            
+    return mask
+
+fig, axes = plt.subplots(1, len(groups), figsize=(6*len(groups), 6), sharey=True)
+edges = np.linspace(-11, 11, 221) # 0.1 mm resolution
+
+for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.values())):
+
+    all_trajectories = []
 
     bout_csv = ROOT/g
     directories = Directories(
@@ -212,16 +260,101 @@ for g in groups:
         plots='plots'
     )
     behavior_files = find_files(directories)
+    n_ind = 0
     for behavior_file in behavior_files:
+        print(behavior_file.metadata)
         behavior_data = load_data(behavior_file)
-        stim_trials = get_trials(behavior_data)
-        looming_trials = stim_trials[stim_trials.stim_select == Stim.LOOMING]
+        cx,cy,_ = get_well_coords_mm(directories, behavior_file, behavior_data)
+
+        bright_stim_mask = get_bright_stim_frame_mask(behavior_data)
 
         traj = behavior_data.tracking[['centroid_x', 'centroid_y']].to_numpy()
-        traj = behavior_data.full_tracking.Swim_Bladder[['x','y']].to_numpy()
+        traj_centered = traj/behavior_data.metadata['calibration']['pix_per_mm'] - np.array([cx, cy])
+        traj_spont = traj_centered[bright_stim_mask]
+        if traj_spont.size > 0:
+            all_trajectories.append(traj_centered[bright_stim_mask])
+            n_ind += 1
+        else:
+            print('bright not found, skipping')
 
-#####
+    all_trajectories = np.vstack(all_trajectories)
 
+    fps = behavior_data.metadata["camera"]["framerate_value"]
+    normalization_weight = 1.0 / (fps * n_ind)
+    weights = np.ones(len(all_trajectories)) * normalization_weight
+
+    custom_cmap = LinearSegmentedColormap.from_list("black_to_color", ["black", gcolor])
+    h = axes[idx].hist2d(
+        all_trajectories[:, 0], 
+        all_trajectories[:, 1], 
+        bins=[edges,edges], 
+        cmap=custom_cmap,
+        weights=weights
+    )
+    h[3].set_clim([0, 0.1])
+    axes[idx].set_aspect('equal')
+    axes[idx].set_xlabel('X (mm)')
+    if idx == 0:
+        axes[idx].set_ylabel('Y (mm)')
+
+    axes[idx].set_title(gname)
+    
+    cbar = fig.colorbar(h[3], ax=axes[idx], fraction=0.046, pad=0.04)
+    if idx == (len(groups)-1):
+        cbar.set_label('Mean Time per Fish (s)')
+
+plt.tight_layout()
+plt.savefig(f"thigmotaxis_2d_hist.svg", format='svg', bbox_inches='tight')
+plt.savefig(f"thigmotaxis_2d_hist.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
+
+##### TODO distribution of eye vergence angles
+config_yml = Path('BehaviorScreen/screen.yaml')
+cfg = load_yaml_config(config_yml)
+stim_specs = list(read_stim_specs(cfg, ignore_time_bins=True))
+epochs = [2,3] 
+trials = [0,1,2]
+bw = 0.1
+x_range = np.linspace(-10, 90, 101)
+
+plt.figure(figsize=(6,6))
+for idx, (g, g_name, g_color) in enumerate(zip(groups, groups_name, groups_color.values())):
+
+    bout_csv = ROOT/g
+    eyes_data = bout_csv.with_name('eyes.npz')
+    data = np.load(eyes_data)
+    vergence = data['vergence']
+
+    group_densities = []
+    for ind in range(vergence.shape[0]):
+        kde_data = vergence[ind,trials][:, epochs].reshape(-1)
+        kde_data = kde_data[~np.isnan(kde_data)]
+        if len(kde_data) < 5:
+            print(f'fish {ind} not enough data, skipping')
+            continue
+        kde = gaussian_kde(kde_data[~np.isnan(kde_data)], bw_method=bw)
+        group_densities.append(kde(x_range))
+
+    density_array = np.array(group_densities)
+    mean_kde = np.mean(density_array, axis=0)
+    sem_kde = sem(density_array, axis=0)
+    
+    line, = plt.plot(x_range, mean_kde, label=g_name, color=g_color, lw=2)
+    plt.fill_between(x_range, 
+                    mean_kde - sem_kde, 
+                    mean_kde + sem_kde, 
+                    color=line.get_color(), 
+                    alpha=0.2, 
+                    edgecolor='none')
+
+plt.legend(frameon=False)
+plt.xlabel('eye vergence (deg)')
+plt.ylabel('density')
+plt.savefig(f"eye_vergence.svg", format='svg', bbox_inches='tight')
+plt.savefig(f"eye_vergence.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
+
+###
 JTURN = bouts_category_name_short.index('JT')
 prob_threshold = 0.5
 trial_duration_s = 25
@@ -288,10 +421,8 @@ for g_idx, g in enumerate(groups):
                         JT_proba[g_idx, fish_idx, lat_idx, trial, bin_idx] = count_JT / count_all_bouts if count_all_bouts > 0 else 0
 
 
-group_names = ['Mecp2', 'WT']
 lat_names = ['Ipsilateral', 'Contralateral']
 bin_labels = [f"{b[0]}-{b[1]}s" for b in time_bins]
-trial_labels = [f"Trial {i}" for i in range(N_trials)]
 
 def plot_heatmap(
         data, 
@@ -299,33 +430,37 @@ def plot_heatmap(
         vmax = 0.6
     ):
 
-    fig, axes = plt.subplots(len(group_names), len(lat_names), 
-                            figsize=(15, 10), sharex=True, sharey=True)
+    fig, axes = plt.subplots(
+        len(groups_name), 
+        len(lat_names), 
+        figsize=(len(lat_names)*5, len(groups_name)*5), 
+        sharex=True, 
+        sharey=True
+    )
 
-    for g_idx in range(len(group_names)):
+    for g_idx in range(len(groups_name)):
         for lat_idx in range(len(lat_names)):
             ax = axes[g_idx, lat_idx]
             data_avg = np.nanmean(data[g_idx, :,lat_idx, :, :], axis=0)
             
             sns.heatmap(data_avg, 
                         annot=True,       
-                        fmt=".3f",        
+                        fmt=".2f",        
                         cmap="magma",     
                         vmin=0,           
                         vmax=vmax,        
                         xticklabels=bin_labels,
-                        yticklabels=trial_labels,
                         ax=ax,
+                        cbar=(lat_idx == len(lat_names) - 1),
                         cbar_kws={'label': label})
             
-            ax.set_title(f"Group: {group_names[g_idx]} | {lat_names[lat_idx]}", fontweight='bold')
+            ax.set_title(f"{groups_name[g_idx]} | {lat_names[lat_idx]}")
             
-            if g_idx == len(group_names) - 1:
+            if g_idx == len(groups_name) - 1:
                 ax.set_xlabel("Time Bins")
             if lat_idx == 0:
                 ax.set_ylabel("Trial Number")
 
-    plt.tight_layout()
     plt.savefig(f"{label}_heatmap.svg", format='svg', bbox_inches='tight')
     plt.savefig(f"{label}_heatmap.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
@@ -348,72 +483,95 @@ def plot_barplot(
         trials = [0,1,2],
         time_bins = [0]
     ):
+    
+    groups_color = {'Mecp2': COLOR_MECP2, 'AB': COLOR_WT, 'TLN': COLOR_WT_TLN}
 
     data_dict = {
-        'Mecp2_Ipsi':   np.nanmean(data[0, :, 0, trials, time_bins], axis=0),
-        'Mecp2_Contra': np.nanmean(data[0, :, 1, trials, time_bins], axis=0),
-        'WT_Ipsi':      np.nanmean(data[1, :, 0, trials, time_bins], axis=0),
-        'WT_Contra':    np.nanmean(data[1, :, 1, trials, time_bins], axis=0)
+        # We slice the first 3 dims [Group, :, Lat], 
+        # then use idx for the last 2 [Trials, TimeBins]
+        'Mecp2_Ipsi':   np.nanmean(data[0, :, 0][:, trials][..., time_bins], axis=(1, 2)),
+        'Mecp2_Contra': np.nanmean(data[0, :, 1][:, trials][..., time_bins], axis=(1, 2)),
+        'AB_Ipsi':      np.nanmean(data[1, :, 0][:, trials][..., time_bins], axis=(1, 2)),
+        'AB_Contra':    np.nanmean(data[1, :, 1][:, trials][..., time_bins], axis=(1, 2)),
+        'TLN_Ipsi':     np.nanmean(data[2, :, 0][:, trials][..., time_bins], axis=(1, 2)),
+        'TLN_Contra':   np.nanmean(data[2, :, 1][:, trials][..., time_bins], axis=(1, 2))
     }
 
-    p_ipsi_between = mannwhitneyu(
-        data_dict['Mecp2_Ipsi'][~np.isnan(data_dict['Mecp2_Ipsi'])],
-        data_dict['WT_Ipsi'][~np.isnan(data_dict['WT_Ipsi'])]
-    ).pvalue
+    def filter_non_responders(arr):
+        # This keeps only fish that have at least one non-zero/non-nan value
+        #return arr[~np.isnan(arr) & (arr != 0)]
+        return arr[~np.isnan(arr)]
 
-    p_contra_between = mannwhitneyu(
-        data_dict['Mecp2_Contra'][~np.isnan(data_dict['Mecp2_Contra'])],
-        data_dict['WT_Contra'][~np.isnan(data_dict['WT_Contra'])]
-    ).pvalue
+    data_dict = {k: filter_non_responders(v) for k, v in data_dict.items()}
 
-    # Mecp2 (paired)
-    mask_m = ~np.isnan(data_dict['Mecp2_Ipsi']) & ~np.isnan(data_dict['Mecp2_Contra'])
-    p_mecp2 = wilcoxon(
-        data_dict['Mecp2_Ipsi'][mask_m],
-        data_dict['Mecp2_Contra'][mask_m]
-    ).pvalue
+    # 1. Omnibus Test: Are the three groups different at all?
+    # We do this for Ipsilateral and Contralateral separately
+    stat_k_ipsi, p_k_ipsi = kruskal(
+        data_dict['Mecp2_Ipsi'],
+        data_dict['AB_Ipsi'],
+        data_dict['TLN_Ipsi']
+    )
+    
+    stat_k_contra, p_k_contra = kruskal(
+        data_dict['Mecp2_Contra'],
+        data_dict['AB_Contra'],
+        data_dict['TLN_Contra']
+    )
 
-    # WT (paired)
-    mask_w = ~np.isnan(data_dict['WT_Ipsi']) & ~np.isnan(data_dict['WT_Contra'])
-    p_wt = wilcoxon(
-        data_dict['WT_Ipsi'][mask_w],
-        data_dict['WT_Contra'][mask_w]
-    ).pvalue
+    print(f"Kruskal-Wallis (Ipsi): p={p_k_ipsi:.4f}")
+    print(f"Kruskal-Wallis (Contra): p={p_k_contra:.4f}")
 
-    pvals = (p_ipsi_between, p_contra_between, p_mecp2, p_wt)
-    rejected, (p_ipsi_between_bf, p_contra_between_bf, p_mecp2_bf, p_wt_bf), _, _ = multipletests(pvals, alpha=0.05, method='bonferroni')
+    # 2. Stats: Update to compare Mecp2 vs AB and Mecp2 vs TLN
+    def get_p(a, b):
+        a_clean = a[~np.isnan(a)]
+        b_clean = b[~np.isnan(b)]
+        if len(a_clean) == 0 or len(b_clean) == 0: return 1.0
+        return mannwhitneyu(a_clean, b_clean, alternative='less').pvalue
+
+    p_ipsi_m_ab = get_p(data_dict['Mecp2_Ipsi'], data_dict['AB_Ipsi'])
+    p_ipsi_m_tln = get_p(data_dict['Mecp2_Ipsi'], data_dict['TLN_Ipsi'])
+
+    # Bonferroni correction for the 4 new comparisons
+    pvals = [p_ipsi_m_ab, p_ipsi_m_tln]
+    _, corrected_p, _, _ = multipletests(pvals, alpha=0.05, method='holm')
+    names = ['Ipsi: M vs AB', 'Ipsi: M vs TLN']
+    for name, raw, corr in zip(names, pvals, corrected_p):
+        print(f"{name} -> Raw: {raw:.4f}, Corrected: {corr:.4f}")
+
+    # 3. Update DataFrame construction
+    groups = []
+    lateralities = []
+    values = []
+
+    for key in data_dict.keys():
+        val_array = data_dict[key]
+        group_name = key.split('_')[0] # 'Mecp2', 'AB', or 'TLN'
+        lat_name = 'ipsilateral' if 'Ipsi' in key else 'contralateral'
+        
+        values.extend(val_array)
+        groups.extend([group_name] * len(val_array))
+        lateralities.extend([lat_name] * len(val_array))
 
     df_plot = pd.DataFrame({
-        'value': np.concatenate(list(data_dict.values())),
-        'group': (
-            ['mecp2-mutant'] * len(data_dict['Mecp2_Ipsi']) +
-            ['mecp2-mutant'] * len(data_dict['Mecp2_Contra']) +
-            ['wild type']    * len(data_dict['WT_Ipsi']) +
-            ['wild type']    * len(data_dict['WT_Contra'])
-        ),
-        'laterality': (
-            ['ipsilateral'] * len(data_dict['Mecp2_Ipsi']) +
-            ['contralateral'] * len(data_dict['Mecp2_Contra']) +
-            ['ipsilateral'] * len(data_dict['WT_Ipsi']) +
-            ['contralateral'] * len(data_dict['WT_Contra'])
-        )
-    })
-    df_plot = df_plot.dropna(subset=['value'])    
+        'value': values,
+        'group': groups,
+        'laterality': lateralities
+    }).dropna(subset=['value'])
 
-    plt.figure(figsize=(6, 6))
+    plt.figure(figsize=(8, 6)) 
 
     ax = sns.barplot(
         data=df_plot,
         x='laterality',
         y='value',
         hue='group',
-        palette=groups_color,
+        hue_order=['Mecp2', 'AB', 'TLN'], # Explicit order
+        palette=groups_color, # Ensure this dict has 'Mecp2', 'AB', and 'TLN' keys
         errorbar='se',    
         capsize=0.05,      
         edgecolor='.2', 
         linewidth=1.5,
-        gap=0.1,
-        err_kws={'zorder': 0}
+        gap=0.1
     )
 
     sns.stripplot(
@@ -421,51 +579,48 @@ def plot_barplot(
         x='laterality',
         y='value',
         hue='group',
+        hue_order=['Mecp2', 'AB', 'TLN'],
         palette=groups_color, 
         jitter=0.15,
         dodge=True,
-        alpha=0.5,
+        alpha=0.4,
         edgecolor='white', 
-        linewidth=1,
-        size=6     
+        linewidth=0.5,
+        size=4
     )
 
-    handles, labels = ax.get_legend_handles_labels()
-    ax.legend(handles[:2], labels[:2], frameon=False)
+    x_m, x_ab, x_tln = -0.26, 0, 0.26
+    y_max = df_plot['value'].max() * 1.1
+    h_inc = y_max * 0.1 # Height increment for stacking stars
+
+    add_pval_star(ax, x_m, x_ab,  y_max, corrected_p[0]) # Mecp2 vs AB (Ipsi)
+    add_pval_star(ax, x_m, x_tln, y_max + h_inc, corrected_p[1]) # Mecp2 vs TLN (Ipsi)
 
     plt.ylabel(f"J-turn {label}")
-    plt.xlabel('')
-
-    add_pval_star(ax, -0.2, 0.2,  0.55, p_ipsi_between_bf)
-    add_pval_star(ax, -0.2, 0.8, 0.6, p_mecp2_bf)
-    add_pval_star(ax, 0.2, 1.2, 0.65, p_wt_bf)
-    add_pval_star(ax, 0.8, 1.2, 0.1, p_contra_between_bf)
-
-    #plt.ylim(0, 0.725)
+    plt.legend(frameon=False)
     plt.tight_layout()
-    plt.savefig(f"{label}_comp.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"{label}_comp.png", format='png', dpi=100, bbox_inches='tight')
+    plt.savefig(f"{label}_barplot.svg", format='svg', bbox_inches='tight')
+    plt.savefig(f"{label}_barplot.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
 
     plt.figure(figsize=(6, 6))
-    sns.kdeplot(data_dict['Mecp2_Ipsi'], bw_adjust=0.5, color=COLOR_MECP2, label='mecp2-mutant') 
-    sns.kdeplot(data_dict['WT_Ipsi'],  bw_adjust=0.5, color=COLOR_WT, label='wild type') 
-    plt.ylabel("Ispilateral J-turn PDF")
-    plt.xlabel(label)
-    plt.legend(frameon=False)
+    sns.kdeplot(data_dict['Mecp2_Ipsi'], color=groups_color['Mecp2'], label='Mecp2') 
+    sns.kdeplot(data_dict['AB_Ipsi'], color=groups_color['AB'], label='AB') 
+    sns.kdeplot(data_dict['TLN_Ipsi'], color=groups_color['TLN'], label='TLN') 
+    plt.title("Ipsilateral")
+    plt.legend()
     plt.savefig(f"{label}_kde.svg", format='svg', bbox_inches='tight')
     plt.savefig(f"{label}_kde.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
 
     plt.figure(figsize=(6, 6))
-    sns.ecdfplot(data_dict['Mecp2_Ipsi'], color=COLOR_MECP2, label='mecp2-mutant')
-    sns.ecdfplot(data_dict['WT_Ipsi'], color=COLOR_WT, label='wild type')
-    plt.ylabel(f"Ispilateral J-turn CDF")
-    plt.xlabel(label)
-    plt.ylim(-0.1, 1.1)
-    plt.legend(frameon=False)
-    plt.savefig(f"{label}_cdf.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"{label}_cdf.png", format='png', dpi=100, bbox_inches='tight')
+    sns.ecdfplot(data_dict['Mecp2_Ipsi'], color=groups_color['Mecp2'], label='Mecp2') 
+    sns.ecdfplot(data_dict['AB_Ipsi'], color=groups_color['AB'], label='AB') 
+    sns.ecdfplot(data_dict['TLN_Ipsi'], color=groups_color['TLN'], label='TLN') 
+    plt.title("Ipsilateral")
+    plt.legend()
+    plt.savefig(f"{label}_ecdf.svg", format='svg', bbox_inches='tight')
+    plt.savefig(f"{label}_ecdf.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
 
 for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
@@ -479,8 +634,8 @@ for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
     plot_barplot(
         data,
         data_type,
-        trials=[0,1,2],
-        time_bins=[0]
+        trials=[0,1],
+        time_bins=[0,1,2]
     )
 
 
