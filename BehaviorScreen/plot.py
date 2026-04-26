@@ -239,7 +239,9 @@ def stim_presented(behavior_data: BehaviorData, spec: StimSpec) -> bool:
     
     # NOTE: this can miss the intent if the protocol has the given trial number but  
     # the protocol is different
-    valid_trials = [i for i in spec.trials if i < len(spec_data)]
+    #valid_trials = [i for i in spec.trials if i < len(spec_data)]
+    valid_trials = [i for i, trial in enumerate(spec.trials) if i < len(spec_data)] # is that ok?
+
     if not valid_trials:
         return False
     
@@ -352,7 +354,9 @@ def plot_eyes(
             if spec_data.empty: 
                 continue
             
-            valid_trials = [i for i in spec.trials if i < len(spec_data)]
+            # FIXME: this is not ok
+            #valid_trials = [i for i in spec.trials if i < len(spec_data)]
+            valid_trials = [i for i, trial in enumerate(spec.trials) if i < len(spec_data)] # is that ok?
             trial_data = spec_data.iloc[valid_trials]
 
             for trial_idx, (trial, row) in enumerate(trial_data.iterrows()):
