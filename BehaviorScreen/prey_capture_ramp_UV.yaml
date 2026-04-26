@@ -1,0 +1,241 @@
+filters:
+  distance_center: {'<=': 10} 
+  proba: {'>=': 0.5}
+  distance: {'<=': 100}
+  peak_axial_speed: {'<=': 300}
+  heading_mismatch_max: {'<=': 180}
+  centroid_mismatch_max: {'<=': 1000}
+  file: {'not_in': ["fish_1", "fish_2"]}
+
+time_bins:
+  - [0, 7]
+
+stimuli:
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.01"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.01, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.01, 1.0]"}
+    trial_range: 
+      start: 0
+      stop: 1
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.02"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.02, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.02, 1.0]"}
+    trial_range: 
+      start: 1
+      stop: 2
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.03"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.03, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.03, 1.0]"}
+    trial_range: 
+      start: 2
+      stop: 3
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.04"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.04, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.04, 1.0]"}
+    trial_range: 
+      start: 3
+      stop: 4
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.05"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.05, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.05, 1.0]"}
+    trial_range: 
+      start: 4
+      stop: 5
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.06"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.06, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.06, 1.0]"}
+    trial_range: 
+      start: 5
+      stop: 6
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.07"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.07, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.07, 1.0]"}
+    trial_range: 
+      start: 6
+      stop: 7
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.08"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.08, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.08, 1.0]"}
+    trial_range: 
+      start: 7
+      stop: 8
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.09"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.09, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.09, 1.0]"}
+    trial_range: 
+      start: 8
+      stop: 9
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.10"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.1, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.1, 1.0]"}
+    trial_range: 
+      start: 9
+      stop: 10
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.15"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.15, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.15, 1.0]"}
+    trial_range: 
+      start: 10
+      stop: 11
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.20"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.2, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.2, 1.0]"}
+    trial_range: 
+      start: 11
+      stop: 12
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.25"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.25, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.25, 1.0]"}
+    trial_range: 
+      start: 12
+      stop: 13
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.30"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.3, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.3, 1.0]"}
+    trial_range: 
+      start: 13
+      stop: 14
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.40"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.4, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.4, 1.0]"}
+    trial_range: 
+      start: 14
+      stop: 15
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.50"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.5, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.5, 1.0]"}
+    trial_range: 
+      start: 15
+      stop: 16
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "uv=0.75"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 0.75, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 0.75, 1.0]"}
+    trial_range: 
+      start: 16
+      stop: 17
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "uv=1.00"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         foreground_color: {'==': "[0.0, 0.0, 1.0, 1.0]"}
+       - prey_arc_start_deg: {'==': 20}
+         foreground_color: {'==': "[0.0, 0.0, 1.0, 1.0]"}
+    trial_range: 
+      start: 17
+      stop: 18
+      step: 1
