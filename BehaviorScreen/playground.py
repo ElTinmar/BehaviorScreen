@@ -359,9 +359,9 @@ for ref, comp_list in comparisons.items():
         #high_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) >= value_threshold 
         #scatter_mask = high_bout_freq & sig_mask
 
-        title = f"{p.relative_to(ROOT).parent} - {ref.relative_to(ROOT).parent}".replace('/',':')
+        title = f"{p.relative_to(ROOT).parent}-{ref.relative_to(ROOT).parent}".replace('/','_')
         plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, sig_mask, title, bouts_cat, bin_names)
-        plt.savefig(f"{title}_alpha_{alpha}.png")
+        plt.savefig(p.parent / f"{title}_alpha_{alpha}.png")
         plt.close()
 
 
