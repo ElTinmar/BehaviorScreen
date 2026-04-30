@@ -48,7 +48,13 @@ def slp2lp(slp_pkg_file: Path, base_output_dir: Path) -> pd.DataFrame:
         
         user_instance = frame.user_instances[0]
 
-        video_file = Path(frame.video.original_video.filename).stem
+        # TODO is that a file version issue?
+        original_video = frame.video.original_video
+        if original_video is not None:
+            video_file = Path(original_video.filename).stem
+        else:
+            video_file = Path(frame.video.backend.source_filename).stem
+            
         image_file = f'labeled-data/{video_file}/img{frame.frame_idx:08}.png'
         index.append(image_file)    
 
