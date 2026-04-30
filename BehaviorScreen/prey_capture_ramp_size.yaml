@@ -1,0 +1,111 @@
+filters:
+  distance_center: {'<=': 10} 
+  proba: {'>=': 0.5}
+  distance: {'<=': 100}
+  peak_axial_speed: {'<=': 300}
+  heading_mismatch_max: {'<=': 180}
+  centroid_mismatch_max: {'<=': 1000}
+  file: {'not_in': ["fish_1", "fish_2"]}
+
+time_bins:
+  - [0, 7]
+
+stimuli:
+
+  - stim: PREY_CAPTURE
+    name: "r=0.02mm"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.02}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.02}
+    trial_range: 
+      start: 0
+      stop: 1
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "r=0.05mm"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.05}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.05}
+    trial_range: 
+      start: 1
+      stop: 2
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "r=0.10mm"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.1}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.1}
+    trial_range: 
+      start: 2
+      stop: 3
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "r=0.15mm"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.15}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.15}
+    trial_range: 
+      start: 3
+      stop: 4
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "r=0.20mm"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.2}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.2}
+    trial_range: 
+      start: 4
+      stop: 5
+      step: 1
+
+  - stim: PREY_CAPTURE
+    name: "r=0.30mm"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.3}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.3}
+    trial_range: 
+      start: 5
+      stop: 6
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "r=0.50mm"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.5}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.5}
+    trial_range: 
+      start: 6
+      stop: 7
+      step: 1
+
+
+  - stim: PREY_CAPTURE
+    name: "r=0.75mm"
+    parameters: 
+       - prey_arc_start_deg: {'==': -20}
+         prey_radius_mm: {'==': 0.75}
+       - prey_arc_start_deg: {'==': 20}
+         prey_radius_mm: {'==': 0.75}
+    trial_range: 
+      start: 7
+      stop: 8
+      step: 1
