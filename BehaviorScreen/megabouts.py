@@ -269,19 +269,19 @@ def build_parser() -> argparse.ArgumentParser:
     # Directory layout overrides
     parser.add_argument(
         "--metadata",
-        default="data",
+        default="results",
         help="Subfolder containing metadata files (default: data)",
     )
 
     parser.add_argument(
         "--stimuli",
-        default="data",
+        default="results",
         help="Subfolder containing stimulus log files (default: data)",
     )
 
     parser.add_argument(
         "--tracking",
-        default="data",
+        default="results",
         help="Subfolder containing tracking CSV files (default: data)",
     )
 
@@ -293,19 +293,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--temperature",
-        default="data",
+        default="results",
         help="Subfolder containing temperature logs (default: data)",
     )
 
     parser.add_argument(
         "--video",
-        default="video",
+        default="results",
         help="Subfolder containing raw video files (default: video)",
     )
 
     parser.add_argument(
         "--video-timestamp",
-        default="video",
+        default="results",
         help="Subfolder containing video timestamp files (default: video)",
     )
 
