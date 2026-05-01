@@ -53,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Subfolder where per-animal exports will be written (default: results)",
     )
 
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="overwrite videos that already have prediction files",
+    )
+
     return parser
 
 # TODO check what happens if no tracking data for a frame
@@ -124,7 +130,8 @@ def estimate_pose(
         video_directory: Path,
         output_directory: Path,
         video_extensions: List[str] = [".mp4", ".avi"],
-        lightning_pose_conda_env: str = "LightningPose"
+        lightning_pose_conda_env: str = "LightningPose",
+        overwrite: bool = False
     ) -> None: 
 
     video_directory = Path(video_directory)
@@ -149,8 +156,11 @@ def estimate_pose(
             str(model_directory), 
             str(video),
             '--prediction_dir', output_directory,
-            '--overrides', f"data.data_dir={model_directory.parent}" # FileNotFoundError: Could not find csv file at /path/CollectedData.csv!
+            '--overrides', f"data.data_dir={model_directory.parent}", # FileNotFoundError: Could not find csv file at /path/CollectedData.csv!
         ]
+        if overwrite:
+            cmd += ['--overwrite']
+
         subprocess.run(cmd, check=True)
 
 def export_cropped_eyes_video(
@@ -198,19 +208,22 @@ def main(args: argparse.Namespace):
     estimate_pose(
         model_directory = args.full_model_dir,
         video_directory = args.root / args.results,
-        output_directory = args.root / args.lightning_pose
+        output_directory = args.root / args.lightning_pose,
+        overwrite = args.overwrite
     )
 
     export_cropped_eyes_video(
         full_video_directory = args.root / args.results,
         eye_video_directory = args.root / args.eyes_video_dir,
-        full_tracking_directory = args.root / args.lightning_pose
+        full_tracking_directory = args.root / args.lightning_pose,
+        overwrite = args.overwrite
     )
 
     estimate_pose(
         model_directory = args.eyes_model_dir,
         video_directory = args.root / args.eyes_video_dir,
-        output_directory = args.root / args.lightning_pose
+        output_directory = args.root / args.lightning_pose,
+        overwrite = args.overwrite
     )
     
 if __name__ == '__main__':
