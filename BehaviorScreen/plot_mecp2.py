@@ -2,7 +2,7 @@ from pathlib import Path
 from enum import IntEnum
 import pandas as pd
 import numpy as np
-from scipy.stats import kruskal, mannwhitneyu, sem, gaussian_kde
+from scipy.stats import kruskal, mannwhitneyu, sem, gaussian_kde, permutation_test
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
@@ -508,14 +508,38 @@ def plot_barplot(
     print(f"Kruskal-Wallis (Contra): p={p_k_contra:.4f}")
 
     # 2. Stats: Update to compare Mecp2 vs AB and Mecp2 vs TLN
+    def get_p_permutation(a, b):
+
+        a_clean = a[~np.isnan(a)]
+        b_clean = b[~np.isnan(b)]
+        
+        if len(a_clean) == 0 or len(b_clean) == 0: 
+            return 1.0
+
+        def statistic(x, y):
+            return np.mean(x) - np.mean(y)
+
+        # Perform the permutation test
+        # 'less' tests the null hypothesis that mean(a) >= mean(b)
+        res = permutation_test(
+            (a_clean, b_clean), 
+            statistic, 
+            permutation_type='independent', 
+            vectorized=False, 
+            n_resamples=10000, 
+            alternative='less'
+        )
+        
+        return res.pvalue
+
     def get_p(a, b):
         a_clean = a[~np.isnan(a)]
         b_clean = b[~np.isnan(b)]
         if len(a_clean) == 0 or len(b_clean) == 0: return 1.0
         return mannwhitneyu(a_clean, b_clean, alternative='less').pvalue
 
-    p_ipsi_m_ab = get_p(data_dict['Mecp2_Ipsi'], data_dict['AB_Ipsi'])
-    p_ipsi_m_tln = get_p(data_dict['Mecp2_Ipsi'], data_dict['TLN_Ipsi'])
+    p_ipsi_m_ab = get_p_permutation(data_dict['Mecp2_Ipsi'], data_dict['AB_Ipsi'])
+    p_ipsi_m_tln = get_p_permutation(data_dict['Mecp2_Ipsi'], data_dict['TLN_Ipsi'])
 
     # Bonferroni correction for the 4 new comparisons
     pvals = [p_ipsi_m_ab, p_ipsi_m_tln]
@@ -623,8 +647,6 @@ for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
         trials=[0,1],
         time_bins=[0,1,2]
     )
-
-
 
 ##########
 groups = ['mecp2/bouts.csv', 'nacre/bouts.csv']
