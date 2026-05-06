@@ -37,6 +37,7 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - Try clustering & PCA,UMAP,Isomap,TSNE embedding of the full response vector and color scatter plot by line / condition
     (some indiv not subjected to whole protocol, maybe need to do per stim type)
 - Try LDA
+- plot distributions (bout interval, interbout interval, speed, distance, xy heatmap, radial distance/thigmotaxis)
 
 ### pre-processing
 
