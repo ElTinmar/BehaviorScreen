@@ -215,8 +215,8 @@ plt.show()
 def get_bright_stim_frame_mask(behavior_data: BehaviorData):
     "find 10 consecutive bright stim"
 
-    target_stim = 0.0
-    target_color = [0.2, 0.2, 0.2, 1.0]
+    target_stim = 1.0
+    target_color = [0.2, 0.2, 0.0, 1.0]
     
     mask = np.zeros((behavior_data.tracking.shape[0],), dtype=bool)
     
@@ -290,7 +290,7 @@ for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.v
         cmap=custom_cmap,
         weights=weights
     )
-    h[3].set_clim([0, 0.1])
+    h[3].set_clim([0, 0.04])
     axes[idx].set_aspect('equal')
     axes[idx].set_xlabel('X (mm)')
     if idx == 0:
