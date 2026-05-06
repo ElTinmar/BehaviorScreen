@@ -47,6 +47,7 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 
 - handle fish missing
 - filter fish that do not move (at the beginning)?
+- filter fish with erratic tracking
 
 ### refactoring
 
