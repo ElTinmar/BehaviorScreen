@@ -475,7 +475,7 @@ def plot_heatmap(
                 raise RuntimeError('time range should not be None')
             
             if not stim_presented(behavior_data, spec):
-                print(f"{spec} not presented, skipping")
+                print(f"{fish} - {spec} not presented, skipping")
                 continue
             
             if spec.stim not in stim_groups.groups:
