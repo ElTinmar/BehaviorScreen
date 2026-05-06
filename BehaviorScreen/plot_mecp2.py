@@ -2,13 +2,12 @@ from pathlib import Path
 from enum import IntEnum
 import pandas as pd
 import numpy as np
-from scipy.stats import wilcoxon, mannwhitneyu, sem, gaussian_kde
+from scipy.stats import kruskal, mannwhitneyu, sem, gaussian_kde
 from statsmodels.stats.multitest import multipletests
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
 import seaborn as sns
 import statsmodels.formula.api as smf
-from scipy.stats import kruskal
 
 from BehaviorScreen.load import Directories, find_files, load_data, BehaviorData
 from BehaviorScreen.process import get_trials, get_well_coords_mm, timestamp_to_frame
@@ -379,8 +378,6 @@ contralateral = [(BoutSign.LEFT, PreySide.RIGHT), (BoutSign.RIGHT, PreySide.LEFT
 laterality = [ipsilateral, contralateral]
 
 JT_freq = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins)), np.nan, dtype=np.float32)
-JT_count = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins)), np.nan, dtype=np.float32)
-JT_proba = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins)), np.nan, dtype=np.float32)
 
 for g_idx, g in enumerate(groups):
 
@@ -392,6 +389,8 @@ for g_idx, g in enumerate(groups):
         for lat_idx, lat in enumerate(laterality): 
             for trial in range(N_trials):
                 for bin_idx, (t_start, t_stop) in enumerate(time_bins):
+                    count_all_bouts = 0
+                    count_JT = 0
                     for bout_sign, prey_side in lat: 
                         mask_JT = (
                             (df.file == fish) &
@@ -404,21 +403,8 @@ for g_idx, g in enumerate(groups):
                             (df.sign == bout_sign) & 
                             (df.prey_arc_start_deg == prey_side)
                         )
-                        mask_all_bouts = (
-                            (df.file == fish) &
-                            (df.stim == Stim.PREY_CAPTURE) &
-                            (df.proba > prob_threshold) &
-                            (df.trial_time >= t_start) &
-                            (df.trial_time < t_stop) &
-                            (df.trial_num == trial) &
-                            (df.sign == bout_sign) & 
-                            (df.prey_arc_start_deg == prey_side)
-                        )
-                        count_all_bouts =  mask_all_bouts.sum()
-                        count_JT = mask_JT.sum()
-                        JT_freq[g_idx, fish_idx, lat_idx, trial, bin_idx] = count_JT / (t_stop - t_start)
-                        JT_count[g_idx, fish_idx, lat_idx, trial, bin_idx] = count_JT
-                        JT_proba[g_idx, fish_idx, lat_idx, trial, bin_idx] = count_JT / count_all_bouts if count_all_bouts > 0 else 0
+                        count_JT += mask_JT.sum()
+                    JT_freq[g_idx, fish_idx, lat_idx, trial, bin_idx] = count_JT / (len(lat) * (t_stop - t_start))
 
 
 lat_names = ['Ipsilateral', 'Contralateral']
@@ -639,3 +625,209 @@ for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
     )
 
 
+
+##########
+groups = ['mecp2/bouts.csv', 'nacre/bouts.csv']
+groups_name = ['mecp2-mutant', 'wild type']
+groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
+
+ROOT = Path('/media/martin/DATA_18TB/PreyCapture_mecp2/uv_intensity')
+JTURN = bouts_category_name_short.index('JT')
+ROUTINE_TURN = bouts_category_name_short.index('RT')
+
+prob_threshold = 0.5
+trial_duration_s = 7
+N_fish = 40
+
+class PreySide(IntEnum):
+    LEFT = -20
+    RIGHT = 20
+
+ipsilateral = [(BoutSign.LEFT, PreySide.LEFT), (BoutSign.RIGHT, PreySide.RIGHT)]
+contralateral = [(BoutSign.LEFT, PreySide.RIGHT), (BoutSign.RIGHT, PreySide.LEFT)]
+laterality = [ipsilateral, contralateral]
+uv_intensities = [0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.75,1.0]
+
+JT_freq = np.full((len(groups), N_fish, len(laterality), len(uv_intensities)), np.nan, dtype=np.float32)
+RT_freq = np.full((len(groups), N_fish, len(laterality), len(uv_intensities)), np.nan, dtype=np.float32)
+
+for g_idx, g in enumerate(groups):
+
+    bout_file = ROOT/g 
+    df = pd.read_csv(bout_file)
+    file = df[df.stim == Stim.PREY_CAPTURE].file.unique()
+    
+    for fish_idx, fish in enumerate(file):
+        for uv_idx, intensity in enumerate(uv_intensities):
+            for lat_idx, lat in enumerate(laterality): 
+                count_JT = 0
+                count_RT = 0
+                for bout_sign, prey_side in lat: 
+                    mask_JT = (
+                        (df.file == fish) &
+                        (df.stim == Stim.PREY_CAPTURE) &
+                        (df.category == JTURN) & 
+                        (df.proba > prob_threshold) &
+                        (df.sign == bout_sign) & 
+                        (df.trial_time <= trial_duration_s) & 
+                        (df.prey_arc_start_deg == prey_side) &
+                        (df.foreground_color == f'[0.0, 0.0, {intensity}, 1.0]')
+                    )
+                    count_JT += mask_JT.sum()
+
+                    mask_RT = (
+                        (df.file == fish) &
+                        (df.stim == Stim.PREY_CAPTURE) &
+                        (df.category == ROUTINE_TURN) & 
+                        (df.proba > prob_threshold) &
+                        (df.sign == bout_sign) & 
+                        (df.trial_time <= trial_duration_s) &
+                        (df.prey_arc_start_deg == prey_side) &
+                        (df.foreground_color == f'[0.0, 0.0, {intensity}, 1.0]')
+                    )
+                    count_RT += mask_RT.sum()
+
+                JT_freq[g_idx, fish_idx, lat_idx, uv_idx] = count_JT / (len(lat)*(t_stop - t_start))
+                RT_freq[g_idx, fish_idx, lat_idx, uv_idx] = count_RT / (len(lat)*(t_stop - t_start))
+
+
+def plot_with_shading(ax, x, data, color, label, linestyle='-'):
+    mu = np.nanmean(data, axis=0)
+    err = sem(data, axis=0, nan_policy='omit') 
+    ax.plot(x, mu, color=color, label=label, linestyle=linestyle, lw=2)
+    ax.fill_between(x, mu - err, mu + err, color=color, alpha=0.2, lw=0)
+
+
+fig, ax = plt.subplots(figsize=(8, 6))
+plot_with_shading(ax, uv_intensities, JT_freq[0,:,0,:], COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
+plot_with_shading(ax, uv_intensities, JT_freq[0,:,1,:], COLOR_MECP2, 'mecp2-mutant (Contra)', '--')
+plot_with_shading(ax, uv_intensities, JT_freq[1,:,0,:], COLOR_WT, 'wild type (Ipsi)', '-')
+plot_with_shading(ax, uv_intensities, JT_freq[1,:,1,:], COLOR_WT, 'wild type (Contra)', '--')
+ax.set_xscale('log') 
+ax.set_xlabel('UV Intensity')
+ax.set_ylabel('JT Frequency (Hz)')
+ax.legend(frameon=False, loc='upper left')
+sns.despine() 
+plt.tight_layout()
+plt.savefig(f"UV_intensity_JT.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
+
+fig, ax = plt.subplots(figsize=(8,6))
+plot_with_shading(ax, uv_intensities, RT_freq[0,:,0,:], COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
+plot_with_shading(ax, uv_intensities, RT_freq[0,:,1,:], COLOR_MECP2, 'mecp2-mutant (Contra)', '--')
+plot_with_shading(ax, uv_intensities, RT_freq[1,:,0,:], COLOR_WT, 'wild type (Ipsi)', '-')
+plot_with_shading(ax, uv_intensities, RT_freq[1,:,1,:], COLOR_WT, 'wild type (Contra)', '--')
+ax.set_xscale('log') 
+ax.set_xlabel('UV Intensity')
+ax.set_ylabel('RT Frequency (Hz)')
+ax.legend(frameon=False, loc='upper left')
+sns.despine() 
+plt.tight_layout()
+plt.savefig(f"UV_intensity_RT.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
+
+
+
+
+#############
+
+groups = ['mecp2/bouts.csv', 'nacre/bouts.csv']
+groups_name = ['mecp2-mutant', 'wild type']
+groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
+
+ROOT = Path('/media/martin/DATA_18TB/PreyCapture_mecp2/size')
+JTURN = bouts_category_name_short.index('JT')
+ROUTINE_TURN = bouts_category_name_short.index('RT')
+
+prob_threshold = 0.5
+trial_duration_s = 7
+N_fish = 40
+
+class PreySide(IntEnum):
+    LEFT = -20
+    RIGHT = 20
+
+ipsilateral = [(BoutSign.LEFT, PreySide.LEFT), (BoutSign.RIGHT, PreySide.RIGHT)]
+contralateral = [(BoutSign.LEFT, PreySide.RIGHT), (BoutSign.RIGHT, PreySide.LEFT)]
+laterality = [ipsilateral, contralateral]
+prey_sz = [0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.75]
+
+JT_freq = np.full((len(groups), N_fish, len(laterality), len(prey_sz)), np.nan, dtype=np.float32)
+RT_freq = np.full((len(groups), N_fish, len(laterality), len(prey_sz)), np.nan, dtype=np.float32)
+
+for g_idx, g in enumerate(groups):
+
+    bout_file = ROOT/g 
+    df = pd.read_csv(bout_file)
+    file = df[df.stim == Stim.PREY_CAPTURE].file.unique()
+    
+    for fish_idx, fish in enumerate(file):
+        for sz_idx, sz in enumerate(prey_sz):
+            for lat_idx, lat in enumerate(laterality): 
+                count_JT = 0
+                count_RT = 0
+                for bout_sign, prey_side in lat: 
+                    mask_JT = (
+                        (df.file == fish) &
+                        (df.stim == Stim.PREY_CAPTURE) &
+                        (df.category == JTURN) & 
+                        (df.proba > prob_threshold) &
+                        (df.sign == bout_sign) & 
+                        (df.trial_time <= trial_duration_s) & 
+                        (df.prey_arc_start_deg == prey_side) &
+                        (df.prey_radius_mm == sz)
+                    )
+                    count_JT += mask_JT.sum()
+
+                    mask_RT = (
+                        (df.file == fish) &
+                        (df.stim == Stim.PREY_CAPTURE) &
+                        (df.category == ROUTINE_TURN) & 
+                        (df.proba > prob_threshold) &
+                        (df.sign == bout_sign) & 
+                        (df.trial_time <= trial_duration_s) &
+                        (df.prey_arc_start_deg == prey_side) &
+                        (df.prey_radius_mm == sz)
+                    )
+                    count_RT += mask_RT.sum()
+
+                JT_freq[g_idx, fish_idx, lat_idx, sz_idx] = count_JT / (len(lat)*(t_stop - t_start))
+                RT_freq[g_idx, fish_idx, lat_idx, sz_idx] = count_RT / (len(lat)*(t_stop - t_start))
+
+
+def plot_with_shading(ax, x, data, color, label, linestyle='-'):
+    mu = np.nanmean(data, axis=0)
+    err = sem(data, axis=0, nan_policy='omit') 
+    ax.plot(x, mu, color=color, label=label, linestyle=linestyle, lw=2)
+    ax.fill_between(x, mu - err, mu + err, color=color, alpha=0.2, lw=0)
+
+
+fig, ax = plt.subplots(figsize=(8, 6))
+plot_with_shading(ax, prey_sz, JT_freq[0,:,0,:], COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
+plot_with_shading(ax, prey_sz, JT_freq[0,:,1,:], COLOR_MECP2, 'mecp2-mutant (Contra)', '--')
+plot_with_shading(ax, prey_sz, JT_freq[1,:,0,:], COLOR_WT, 'wild type (Ipsi)', '-')
+plot_with_shading(ax, prey_sz, JT_freq[1,:,1,:], COLOR_WT, 'wild type (Contra)', '--')
+ax.set_xscale('log') 
+ax.set_xlabel('prey radius (mm)')
+ax.set_ylabel('JT Frequency (Hz)')
+ax.legend(frameon=False, loc='upper left')
+sns.despine() 
+plt.tight_layout()
+plt.savefig(f"prey_size_JT.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
+
+fig, ax = plt.subplots(figsize=(8,6))
+plot_with_shading(ax, prey_sz, RT_freq[0,:,0,:], COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
+plot_with_shading(ax, prey_sz, RT_freq[0,:,1,:], COLOR_MECP2, 'mecp2-mutant (Contra)', '--')
+plot_with_shading(ax, prey_sz, RT_freq[1,:,0,:], COLOR_WT, 'wild type (Ipsi)', '-')
+plot_with_shading(ax, prey_sz, RT_freq[1,:,1,:], COLOR_WT, 'wild type (Contra)', '--')
+ax.set_xscale('log') 
+ax.set_xlabel('prey radius (mm)')
+ax.set_ylabel('RT Frequency (Hz)')
+ax.legend(frameon=False, loc='upper left')
+sns.despine() 
+plt.tight_layout()
+plt.savefig(f"prey_size_RT.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
+
+### approach to escape ratio?
