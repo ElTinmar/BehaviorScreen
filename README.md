@@ -30,7 +30,7 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - plot habituation (O-bends, loomings, prey capture, ...)
     % of fish vs trial
     % of trial vs time
-- try to export average video in egocentric coords (might be a mess, but who knows)
+- try to export average video in egocentric coords (might be a mess, but who knows) for: bout category / stimulus onset
 - MAE
 - freezing after loomings
 - look at the first ramp down to prey capture: some lines seem more agitated towards the end
