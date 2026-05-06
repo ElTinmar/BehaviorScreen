@@ -35,6 +35,7 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - freezing after loomings
 - look at the first ramp down to prey capture: some lines seem more agitated towards the end
 - Try clustering & PCA,UMAP,Isomap,TSNE embedding of the full response vector and color scatter plot by line / condition
+- Try LDA
 
 ### pre-processing
 
