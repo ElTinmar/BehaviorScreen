@@ -191,7 +191,7 @@ def compute_t_and_d(group_a, group_b):
     
     return t_stat, cohen_d, zero_var
 
-def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
+def permutation_analysis_old(a, b, n_perm=5000, alpha=0.05, rng=None):
 
     rng = np.random.default_rng(rng)
 
@@ -204,7 +204,7 @@ def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
     rng = np.random.default_rng()
     for _ in range(n_perm):
         shuffled = rng.permutation(combined, axis=0)
-        perm_t, _ = compute_t_and_d(shuffled[:n_a], shuffled[n_a:])
+        perm_t, _, _ = compute_t_and_d(shuffled[:n_a], shuffled[n_a:])
         null_t_stats.append(perm_t)
         
     null_t_stats = np.array(null_t_stats)
@@ -217,6 +217,40 @@ def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
     reject, p_corrected, _, _ = multipletests(p_values.ravel(), alpha=alpha, method='fdr_bh')
     
     return obs_d, p_corrected.reshape(p_shape)
+
+def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
+
+    rng = np.random.default_rng(rng)
+    obs_t, obs_d, zero_mask = compute_t_and_d(a, b)
+    
+    combined = np.concatenate([a, b], axis=0)
+    n_a = len(a)
+    
+    count_geq = np.zeros(obs_t.shape)
+    
+    for _ in range(n_perm):
+        shuffled = rng.permutation(combined, axis=0)
+        perm_t, _, _ = compute_t_and_d(shuffled[:n_a], shuffled[n_a:])
+        count_geq += (np.abs(perm_t) >= np.abs(obs_t))
+        
+    # Calculate raw P-values (Phipson & Smyth correction)
+    p_values = (count_geq + 1) / (n_perm + 1)
+    p_shape = p_values.shape
+    p_flat = p_values.ravel()
+    mask_flat = zero_mask.ravel()
+    
+    testable_indices = np.where(~mask_flat)[0]
+    p_corrected_flat = np.full(p_flat.shape, 1.0)
+    
+    if len(testable_indices) > 0:
+        _, p_corr_subset, _, _ = multipletests(
+            p_flat[testable_indices], 
+            alpha=alpha, 
+            method='fdr_bh'
+        )
+        p_corrected_flat[testable_indices] = p_corr_subset
+    
+    return obs_d, p_corrected_flat.reshape(p_shape)
 
 ROOT = Path('/home/martin/Desktop/DATA')
 ROOT = Path('/media/martin/DATA_18TB/Screen')
@@ -326,10 +360,10 @@ for ref, comp_list in comparisons.items():
 
         d_map, p_map = permutation_analysis(ref_trial_avg, exp_trial_avg)
         data = d_map.T
-        sig_mask = p_map.T < alpha
+        mask = p_map.T < alpha
 
         title = f"{p.relative_to(ROOT).parent}-{ref.relative_to(ROOT).parent}".replace('/','_')
-        plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, sig_mask, title, bouts_cat, bin_names)
+        plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, mask, title, bouts_cat, bin_names)
         plt.savefig(p.parent / f"{title}_alpha_{alpha}.png")
         plt.close()
 
