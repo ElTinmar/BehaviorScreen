@@ -341,6 +341,7 @@ def plot_heatmap(
 # - lak danieau vs WT danieau show lots of differences
 # - WT danieau vs WT ronidazole does not
 alpha = 0.05
+effect_size_thresh = 0.5
 
 capture_strikes = ['LCS_L','LCS_R','SCS_L','SCS_R']
 keep = [i for i,r in enumerate(row_names) if r not in capture_strikes]
@@ -360,7 +361,7 @@ for ref, comp_list in comparisons.items():
 
         d_map, p_map = permutation_analysis(ref_trial_avg, exp_trial_avg)
         data = d_map.T
-        mask = p_map.T < alpha
+        mask = (p_map.T < alpha) & (abs(d_map.T) > effect_size_thresh)
 
         title = f"{p.relative_to(ROOT).parent}-{ref.relative_to(ROOT).parent}".replace('/','_')
         plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, mask, title, bouts_cat, bin_names)
