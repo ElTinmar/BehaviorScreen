@@ -360,11 +360,11 @@ for ref, comp_list in comparisons.items():
         exp_fish_trial_avg = np.nanmean(exp_trial_avg, axis=0).T
 
         d_map, p_map = permutation_analysis(ref_trial_avg, exp_trial_avg)
-        data = d_map.T
-        mask = (p_map.T < alpha) & (abs(d_map.T) > effect_size_thresh)
+        effect_sz = d_map.T
+        mask = (p_map.T < alpha) & (abs(effect_sz) > effect_size_thresh)
 
         title = f"{p.relative_to(ROOT).parent}-{ref.relative_to(ROOT).parent}".replace('/','_')
-        plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, mask, title, bouts_cat, bin_names)
+        plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, effect_sz, mask, title, bouts_cat, bin_names)
         plt.savefig(p.parent / f"{title}_alpha_{alpha}.png")
         plt.close()
 
