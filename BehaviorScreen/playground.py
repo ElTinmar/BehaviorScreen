@@ -155,24 +155,6 @@ plot_comparative_eyes(
 sides = ['L', 'R']
 row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
 
-def bootstrap_cohen_d(a, b, n_boot=2000, rng=None):
-    rng = np.random.default_rng(rng)
-    
-    idx_a = rng.integers(0, len(a), size=(n_boot, len(a)))
-    idx_b = rng.integers(0, len(b), size=(n_boot, len(b)))
-    boot_samples_a = a[idx_a]
-    boot_samples_b = b[idx_b]
-    
-    means_a = np.nanmean(boot_samples_a, axis=1)
-    means_b = np.nanmean(boot_samples_b, axis=1)
-    var_a = np.nanvar(boot_samples_a, axis=1)
-    var_b = np.nanvar(boot_samples_b, axis=1)
-    
-    na, nb = len(a), len(b)
-    pooled_stds = np.sqrt(((na - 1) * var_a + (nb - 1) * var_b) / (na + nb - 2))
-    
-    return (means_b - means_a) / pooled_stds
-
 def compute_t_student_and_d(group_a, group_b):
     m_a, m_b = np.nanmean(group_a, axis=0), np.nanmean(group_b, axis=0)
     v_a, v_b = np.nanvar(group_a, axis=0), np.nanvar(group_b, axis=0)
@@ -207,13 +189,13 @@ def compute_t_and_d(group_a, group_b):
         cohen_d = (m_b - m_a) / pooled_std
     cohen_d[zero_var] = 0
     
-    return t_stat, cohen_d
+    return t_stat, cohen_d, zero_var
 
 def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
 
     rng = np.random.default_rng(rng)
 
-    obs_t, obs_d = compute_t_and_d(a, b)
+    obs_t, obs_d, zero_mask = compute_t_and_d(a, b)
     
     combined = np.concatenate([a, b], axis=0)
     n_a = len(a)
@@ -325,7 +307,6 @@ def plot_heatmap(
 # - lak danieau vs WT danieau show lots of differences
 # - WT danieau vs WT ronidazole does not
 alpha = 0.05
-#value_threshold = 0.05
 
 capture_strikes = ['LCS_L','LCS_R','SCS_L','SCS_R']
 keep = [i for i,r in enumerate(row_names) if r not in capture_strikes]
@@ -343,21 +324,9 @@ for ref, comp_list in comparisons.items():
         exp_trial_avg = exp_trial_avg[...,keep]
         exp_fish_trial_avg = np.nanmean(exp_trial_avg, axis=0).T
 
-        #cohen_d_boot = bootstrap_cohen_d(ref_trial_avg, exp_trial_avg)
-        #ci_low, cohen_d_median,  ci_high = np.percentile(cohen_d_boot, [2.5, 50, 97.5], axis=0)
-        #ci_mask = (ci_low.T > 0) | (ci_high.T < 0) 
-        #data = cohen_d_median.T
-
         d_map, p_map = permutation_analysis(ref_trial_avg, exp_trial_avg)
         data = d_map.T
         sig_mask = p_map.T < alpha
-        #data[~sig_mask] = 0
-
-        #low_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) < value_threshold 
-        #mask_out = low_bout_freq | (~sig_mask)
-
-        #high_bout_freq = np.stack((ref_fish_trial_avg, exp_fish_trial_avg)).max(axis=0) >= value_threshold 
-        #scatter_mask = high_bout_freq & sig_mask
 
         title = f"{p.relative_to(ROOT).parent}-{ref.relative_to(ROOT).parent}".replace('/','_')
         plot_heatmap(ref_fish_trial_avg, exp_fish_trial_avg, data, sig_mask, title, bouts_cat, bin_names)
