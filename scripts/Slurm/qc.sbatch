@@ -1,0 +1,22 @@
+#!/bin/bash -l
+#SBATCH -o /u/mapri/logs/job.out.%j
+#SBATCH -e /u/mapri/logs/job.err.%j
+#SBATCH -D /u/mapri/Code/BehaviorScreen
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=12
+#SBATCH --mem=12000
+#SBATCH --time=24:00:00
+
+module purge
+module load anaconda/3/2023.03
+
+INPUT_PATH=$1
+shift
+EXTRA_ARGS="$@"
+
+FILE_NAME=$(basename "$INPUT_PATH")
+PARENT_DIR=$(basename "$(dirname "$INPUT_PATH")")
+JOB_NAME="qc_${PARENT_DIR}/${FILE_NAME}"
+scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
+
+srun conda run --no-capture-output -n BehaviorScreen python -m BehaviorScreen.qc "$INPUT_PATH" $EXTRA_ARGS 

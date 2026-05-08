@@ -40,10 +40,13 @@ sbatch plot.sbatch /ptmp/mapri/Screen/rspo1/vehicle BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/rspo1/ronidazole BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/tbr1b/vehicle BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/tbr1b/ronidazole BehaviorScreen/screen.yaml
+sbatch plot.sbatch /ptmp/mapri/Screen/tbr1b_run3/vehicle BehaviorScreen/screen.yaml
+sbatch plot.sbatch /ptmp/mapri/Screen/tbr1b_run3/ronidazole BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/wik/danieau BehaviorScreen/screen.yaml 
 sbatch plot.sbatch /ptmp/mapri/Screen/WT/ronidazole BehaviorScreen/screen.yaml
 sbatch plot.sbatch /ptmp/mapri/Screen/WT/danieau BehaviorScreen/screen.yaml
-sbatch plot.sbatch /ptmp/mapri/Screen/y532/ronidazole BehaviorScreen/screen.yaml
-sbatch plot.sbatch /ptmp/mapri/Screen/y532/vehicle BehaviorScreen/screen.yaml 
 sbatch plot.sbatch /ptmp/mapri/Screen/y359/ronidazole BehaviorScreen/screen.yaml 
 sbatch plot.sbatch /ptmp/mapri/Screen/y359/vehicle BehaviorScreen/screen.yaml 
+sbatch plot.sbatch /ptmp/mapri/Screen/y532/ronidazole BehaviorScreen/screen.yaml
+sbatch plot.sbatch /ptmp/mapri/Screen/y532/vehicle BehaviorScreen/screen.yaml 
+
