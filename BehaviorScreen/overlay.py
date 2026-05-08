@@ -23,6 +23,8 @@ from BehaviorScreen.megabouts import MegaboutResults
 
 from video_tools import FFMPEG_VideoWriter_CPU
 
+##TODO add online tracking
+
 PI = np.pi
 
 LINEAR = 0
