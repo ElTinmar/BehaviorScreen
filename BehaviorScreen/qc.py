@@ -177,7 +177,7 @@ def get_average_speed(behavior_data: BehaviorData) -> float:
 def is_online_tracking_bad(
         behavior_data: BehaviorData, 
         centroid_threshold_mm_per_frame: float = 1,
-        heading_threshold_deg_per_frame: float = 10 # maybe 20
+        heading_threshold_deg_per_frame: float = 15 
     ) -> tuple[bool, bool]:
     
     centroid_error_mm_per_frame, heading_error_deg_per_frame = get_tracking_error(behavior_data)
@@ -190,7 +190,8 @@ def is_fish_not_moving(
         behavior_data: BehaviorData,
         speed_threshold_mm_per_sec: float = 0.4
     ) -> bool:
-
+    
+    # returns False if dark epoch not found
     average_speed_mm_per_sec = get_average_speed(behavior_data)
     return (average_speed_mm_per_sec < speed_threshold_mm_per_sec)
     
@@ -228,7 +229,7 @@ def quality_control(
         not_moving = is_fish_not_moving(behavior_data)
         centroid_issue, heading_issue = is_online_tracking_bad(behavior_data)
         if not_moving | centroid_issue | heading_issue:
-            bad_fish.append((behavior_file.metadata, not_moving, centroid_issue, heading_issue))  
+            bad_fish.append((behavior_file.metadata.stem, not_moving, centroid_issue, heading_issue))  
     
     header = ['file', 'not_moving', 'centroid_issue', 'heading_issue']
     pd.DataFrame(bad_fish, columns=header).to_csv(root / output_csv, index=False)
