@@ -32,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--qc-csv",
         default='qc.csv',
-        help="Output CSV file containing bout x visual stim",
+        help="Output CSV file",
     )
 
     # Directory layout overrides
