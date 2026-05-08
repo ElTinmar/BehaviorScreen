@@ -105,15 +105,22 @@ def parse_rules(cfg: dict) -> RuleSet:
 
     return RuleSet(tuple(rules))
 
-def filter_bouts(bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
+def filter_bouts(quality_control: Path, bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     # TODO: should the filtered bouts be counted as NaNs instead of 
     # just being removed?
-
-    # TODO read qc.csv if present and remove
 
     filtered = bouts.copy()
     n0 = len(filtered)
     print(f'TOTAL NUM BOUTS: {n0}')
+
+    if quality_control.exists():
+        qc = pd.read_csv(quality_control)
+        before = len(filtered)
+        filtered = filtered[~filtered['file'].isin(qc['file'])]
+        after = len(filtered)
+        removed = before - after
+        frac_total = removed / n0 if n0 else 0
+        print(f"Quality control → removed {removed:6d} ({frac_total:6.2%})")
 
     filters = parse_rules(cfg["filters"])
     for rule in filters.rules:
@@ -444,7 +451,7 @@ def plot_heatmap(
     cfg = load_yaml_config(config_yaml)
     stim_specs = list(read_stim_specs(cfg)) 
     bouts = load_bouts(input_csv)
-    filtered_bouts = filter_bouts(bouts, cfg)
+    filtered_bouts = filter_bouts(quality_control, bouts, cfg)
     sides = [BoutSign.LEFT, BoutSign.RIGHT]
 
     fish_names = filtered_bouts.file.unique()
