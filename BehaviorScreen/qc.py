@@ -131,7 +131,7 @@ def get_tracking_error(behavior_data: BehaviorData) -> tuple[float, float]:
                    for level0, level1 in offline.columns]
     
     common = online.join(offline, how='inner')
-    duration = 1e-9*(common.timestamp.iloc[-1] - common.timestamp.iloc[0])
+    n_frames = len(common)
 
     # centroid error
     online_centroid = np.column_stack((
@@ -144,8 +144,7 @@ def get_tracking_error(behavior_data: BehaviorData) -> tuple[float, float]:
     ))
     distance_centroid = np.linalg.norm(offline_centroid-online_centroid, axis=1)
     pix_per_mm = behavior_data.metadata['calibration']['pix_per_mm']
-    centroid_error = np.nansum(distance_centroid)/pix_per_mm
-    centroid_error /= duration
+    centroid_error = np.nansum(distance_centroid)/ (pix_per_mm*n_frames)
 
     # heading axis error
     online_heading = np.column_stack((common.pc1_x, common.pc1_y))
@@ -153,7 +152,7 @@ def get_tracking_error(behavior_data: BehaviorData) -> tuple[float, float]:
     sb =  np.column_stack((common.Swim_Bladder_x, common.Swim_Bladder_y))
     offline_heading = head - sb
     distance_angle = angle_between(online_heading, offline_heading)
-    heading_error = np.nansum(distance_angle) / duration
+    heading_error = np.nansum(distance_angle) / n_frames
 
     return centroid_error, heading_error
 
@@ -177,19 +176,19 @@ def get_average_speed(behavior_data: BehaviorData) -> float:
     
 def is_online_tracking_bad(
         behavior_data: BehaviorData, 
-        centroid_threshold_mm_per_sec: float = 100,
-        heading_threshold_deg_per_sec: float = 100
+        centroid_threshold_mm_per_frame: float = 1,
+        heading_threshold_deg_per_frame: float = 10 # maybe 20
     ) -> tuple[bool, bool]:
     
-    centroid_error_mm_per_sec, heading_error_deg_per_sec = get_tracking_error(behavior_data)
+    centroid_error_mm_per_frame, heading_error_deg_per_frame = get_tracking_error(behavior_data)
     return (
-        centroid_error_mm_per_sec >= centroid_threshold_mm_per_sec, 
-        heading_error_deg_per_sec >= heading_threshold_deg_per_sec
+        centroid_error_mm_per_frame >= centroid_threshold_mm_per_frame, 
+        heading_error_deg_per_frame >= heading_threshold_deg_per_frame
     )
 
 def is_fish_not_moving(
         behavior_data: BehaviorData,
-        speed_threshold_mm_per_sec: float = 0.1
+        speed_threshold_mm_per_sec: float = 0.4
     ) -> bool:
 
     average_speed_mm_per_sec = get_average_speed(behavior_data)

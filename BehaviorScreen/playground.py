@@ -796,11 +796,23 @@ for r in tqdm(roots):
         heading_error.append(h_error)
 
 
+plt.figure(figsize=(6,6))
 sns.histplot(speed, bins=100)
+plt.xlabel('speed dark (mm/s)')
+plt.ylabel('count')
+plt.savefig('qc_calibration_speed.png')
 plt.show()
 
-sns.histplot(centroid_error, bins=100)
+plt.figure(figsize=(6,6))
+sns.histplot(np.array(centroid_error)/120, bins=100)
+plt.xlabel('centroid error (mm/frame)')
+plt.ylabel('count')
+plt.savefig('qc_calibration_centroid.png')
 plt.show()
 
-sns.histplot(heading_error, bins=100)
+plt.figure(figsize=(6,6))
+sns.histplot(np.array(heading_error)/120, bins=100)
+plt.xlabel('heading error (deg/frame)')
+plt.ylabel('count')
+plt.savefig('qc_calibration.png')
 plt.show()
