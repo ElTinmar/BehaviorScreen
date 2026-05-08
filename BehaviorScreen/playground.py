@@ -757,3 +757,50 @@ df[
     (df.file.str.contains('mafaa-switch', case=False))
 ].stim_phase.hist(bins=50, density=True, alpha=0.75)
 plt.show()
+
+
+
+#### calibrate QC
+
+from BehaviorScreen.qc import get_average_speed, get_tracking_error
+import seaborn as sns
+from tqdm import tqdm
+
+ROOT = Path('/media/martin/DATA_18TB/Screen')
+roots = [f for f in ROOT.glob('*/*') if f.is_dir()]
+
+speed = []
+centroid_error = []
+heading_error = []
+
+for r in tqdm(roots):
+    directories = Directories(
+        root = r,
+        metadata='results',
+        stimuli='results',
+        tracking='results',
+        full_tracking='lightning_pose',
+        eyes_tracking='lightning_pose',
+        temperature='results',
+        video='results',
+        video_timestamp='results',
+        results='results',
+        plots=''
+    )
+    files: List[BehaviorFiles] = find_files(directories)
+    for f in files:
+        behavior_data = load_data(f)
+        speed.append(get_average_speed(behavior_data))
+        c_error, h_error = get_tracking_error(behavior_data)
+        centroid_error.append(c_error)
+        heading_error.append(h_error)
+
+
+sns.histplot(speed, bins=100)
+plt.show()
+
+sns.histplot(centroid_error, bins=100)
+plt.show()
+
+sns.histplot(heading_error, bins=100)
+plt.show()

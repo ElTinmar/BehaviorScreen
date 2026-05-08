@@ -8,9 +8,14 @@ from pathlib import Path
 from tqdm import tqdm
 from BehaviorScreen.load import (
     Directories, 
+    BehaviorData,
     find_files, 
     load_data
 )
+from BehaviorScreen.process import timestamp_to_frame
+from BehaviorScreen.core import Stim
+import pandas as pd
+import numpy as np
 
 def build_parser() -> argparse.ArgumentParser:
 
@@ -87,11 +92,108 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
-def is_online_tracking_bad():
-    ...
+def get_dark_epoch(behavior_data: BehaviorData) -> tuple[int,int]:
+    
+    res = (-1, -1)
+    
+    for i in range(len(behavior_data.stimuli) - 10):
 
-def is_fish_not_moving():
-    ...
+        is_sequence_start = all(
+            behavior_data.stimuli[i+j].get('stim_select') == Stim.DARK 
+            for j in range(10)
+        )
+        
+        if is_sequence_start:
+            start_ts = behavior_data.stimuli[i].get('timestamp')
+            stop_ts = behavior_data.stimuli[i+10].get('timestamp')
+            start_frame = timestamp_to_frame(behavior_data,start_ts)
+            stop_frame = timestamp_to_frame(behavior_data,stop_ts)
+            res = (start_frame, stop_frame)
+            
+    return res
+
+def angle_between(u, v):
+    # u and v are shape (n, 2)
+    norm_u = np.linalg.norm(u, axis=1, keepdims=True)
+    norm_v = np.linalg.norm(v, axis=1, keepdims=True)
+    with np.errstate(divide='ignore', invalid='ignore'):
+        unit_u = u / norm_u
+        unit_v = v / norm_v
+    dot_product = np.sum(unit_u * unit_v, axis=1)
+    angle = np.arccos(np.clip(dot_product, -1.0, 1.0))
+    return np.rad2deg(angle)
+
+def get_tracking_error(behavior_data: BehaviorData) -> tuple[float, float]:
+
+    online = behavior_data.tracking.set_index('index')
+    offline = behavior_data.full_tracking
+    offline.columns = [f"{level0}_{level1}" if level1 else level0 
+                   for level0, level1 in offline.columns]
+    
+    common = online.join(offline, how='inner')
+    duration = 1e-9*(common.timestamp.iloc[-1] - common.timestamp.iloc[0])
+
+    # centroid error
+    online_centroid = np.column_stack((
+        common.centroid_x,
+        common.centroid_y
+    ))
+    offline_centroid = np.column_stack((
+        common.Swim_Bladder_x,
+        common.Swim_Bladder_y
+    ))
+    distance_centroid = np.linalg.norm(offline_centroid-online_centroid, axis=1)
+    pix_per_mm = behavior_data.metadata['calibration']['pix_per_mm']
+    centroid_error = np.nansum(distance_centroid)/pix_per_mm
+    centroid_error /= duration
+
+    # heading axis error
+    online_heading = np.column_stack((common.pc1_x, common.pc1_y))
+    head = np.column_stack((common.Head_x, common.Head_y))
+    sb =  np.column_stack((common.Swim_Bladder_x, common.Swim_Bladder_y))
+    offline_heading = head - sb
+    distance_angle = angle_between(online_heading, offline_heading)
+    heading_error = np.nansum(distance_angle) / duration
+
+    return centroid_error, heading_error
+
+def get_average_speed(behavior_data: BehaviorData) -> float:
+
+    dark_start, dark_stop = get_dark_epoch(behavior_data)
+    if dark_start == -1:
+        return np.nan 
+    
+    pix_per_mm = behavior_data.metadata['calibration']['pix_per_mm']
+    fps = behavior_data.metadata['camera']['framerate_value']
+    duration = (dark_stop - dark_start)/fps
+
+    offline_centroid = np.column_stack((
+        behavior_data.full_tracking.Swim_Bladder['x'],
+        behavior_data.full_tracking.Swim_Bladder['y']
+    ))
+    total_distance_traveled = np.sum(np.linalg.norm(np.diff(offline_centroid[dark_start:dark_stop], axis=0), axis=1))
+    average_speed = total_distance_traveled / (duration*pix_per_mm)
+    return average_speed
+    
+def is_online_tracking_bad(
+        behavior_data: BehaviorData, 
+        centroid_threshold_mm_per_sec: float = 100,
+        heading_threshold_deg_per_sec: float = 100
+    ) -> tuple[bool, bool]:
+    
+    centroid_error_mm_per_sec, heading_error_deg_per_sec = get_tracking_error(behavior_data)
+    return (
+        centroid_error_mm_per_sec >= centroid_threshold_mm_per_sec, 
+        heading_error_deg_per_sec >= heading_threshold_deg_per_sec
+    )
+
+def is_fish_not_moving(
+        behavior_data: BehaviorData,
+        speed_threshold_mm_per_sec: float = 0.1
+    ) -> bool:
+
+    average_speed_mm_per_sec = get_average_speed(behavior_data)
+    return (average_speed_mm_per_sec < speed_threshold_mm_per_sec)
     
 def quality_control(
         root: Path,
@@ -105,7 +207,6 @@ def quality_control(
         video_timestamp: str,
         results: str,
         plots: str,
-        cpu: bool,
     ) -> None:
 
     directories = Directories(
@@ -122,9 +223,16 @@ def quality_control(
     )
     behavior_files = find_files(directories)
 
+    bad_fish = []
     for behavior_file in tqdm(behavior_files):
         behavior_data = load_data(behavior_file)
-        qc = is_fish_not_moving(behavior_data) | is_online_tracking_bad(behavior_data)
+        not_moving = is_fish_not_moving(behavior_data)
+        centroid_issue, heading_issue = is_online_tracking_bad(behavior_data)
+        if not_moving | centroid_issue | heading_issue:
+            bad_fish.append((behavior_file.metadata, not_moving, centroid_issue, heading_issue))  
+    
+    header = ['file', 'not_moving', 'centroid_issue', 'heading_issue']
+    pd.DataFrame(bad_fish, columns=header).to_csv(root / output_csv, index=False)
 
 def main(args: argparse.Namespace) -> None:
     quality_control(
