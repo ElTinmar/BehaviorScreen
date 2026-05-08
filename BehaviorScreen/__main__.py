@@ -221,6 +221,7 @@ def main(args: argparse.Namespace) -> None:
 
     print("6. plot", flush=True)
     run_plot(
+        qc_csv=args.qc_csv,
         bouts_csv=args.bouts_csv,
         bouts_png = args.bouts_png,
         eyes_png = args.eyes_png,

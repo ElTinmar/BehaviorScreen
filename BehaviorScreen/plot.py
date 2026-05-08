@@ -319,6 +319,7 @@ def get_eye_traces(
     return res
 
 def plot_eyes(
+        quality_control: Path,
         config_yaml: Path, 
         output_png: Path,
         behavior_files: List[BehaviorFiles],
@@ -429,6 +430,7 @@ def plot_eyes(
     plt.show()
 
 def plot_heatmap(
+        quality_control: Path,
         input_csv: Path, 
         config_yaml: Path, 
         output_png: Path,
@@ -572,6 +574,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--qc-csv",
+        default='qc.csv',
+        help="Output CSV file containing bout x visual stim",
+    )
+
+    parser.add_argument(
         "--bouts-csv",
         default='bouts.csv',
         help="input CSV file",
@@ -647,6 +655,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 def run_plot(
+        qc_csv: str,
         bouts_csv: str,
         bouts_png: str,
         eyes_png: str,
@@ -663,6 +672,7 @@ def run_plot(
         plots: str,
     ) -> None:
 
+    quality_control = root / qc_csv
     input_csv = root / bouts_csv
     output_bouts_png = root / bouts_png
     output_eyes_png = root / eyes_png
@@ -682,6 +692,7 @@ def run_plot(
     behavior_files = find_files(directories)
 
     plot_heatmap(
+        quality_control,
         input_csv, 
         config_yaml, 
         output_bouts_png, 
@@ -689,6 +700,7 @@ def run_plot(
     )
 
     plot_eyes(
+        quality_control,
         config_yaml, 
         output_eyes_png, 
         behavior_files, 
@@ -699,6 +711,7 @@ def run_plot(
 def main(args: argparse.Namespace) -> None:
 
     run_plot(
+        qc_csv=args.qc_csv,
         bouts_csv=args.bouts_csv,
         bouts_png=args.bouts_png,
         eyes_png=args.eyes_png,
