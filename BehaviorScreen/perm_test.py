@@ -10,6 +10,7 @@ sides = ['L', 'R']
 row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
 
 def compute_t_and_d(group_a, group_b):
+
     m_a, m_b = np.nanmean(group_a, axis=0), np.nanmean(group_b, axis=0)
     v_a, v_b = np.nanvar(group_a, axis=0, ddof=1), np.nanvar(group_b, axis=0, ddof=1)
     na, nb = len(group_a), len(group_b)
@@ -29,6 +30,7 @@ def compute_t_and_d(group_a, group_b):
     cohen_d[zero_var] = 0
     
     return t_stat, cohen_d, zero_var
+
 
 def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
 
@@ -64,6 +66,7 @@ def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
     
     return obs_d, p_corrected_flat.reshape(p_shape)
 
+
 def load_bouts(file):
 
     with np.load(file, allow_pickle=True) as data:
@@ -78,6 +81,7 @@ def load_bouts(file):
         trial_avg = np.nanmean(bout_frequency_interleaved, axis=1)
 
     return trial_avg, bin_names
+
 
 def plot_heatmap(
         ref,
