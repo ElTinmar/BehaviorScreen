@@ -186,9 +186,15 @@ def is_online_tracking_bad(
         heading_error_deg_per_frame >= heading_threshold_deg_per_frame
     )
 
+def is_offline_tracking_bad(
+        behavior_data: BehaviorData, 
+    ) -> bool:
+    # TODO maybe check the likelihood for the tail?
+    pass
+    
 def is_fish_not_moving(
         behavior_data: BehaviorData,
-        speed_threshold_mm_per_sec: float = 0.4
+        speed_threshold_mm_per_sec: float = 0.2
     ) -> bool:
     
     # returns False if dark epoch not found
