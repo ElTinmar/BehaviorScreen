@@ -337,6 +337,11 @@ def plot_eyes(
 
     output_npz = output_png.with_suffix('.npz')
 
+    removed_by_qc = []
+    if quality_control.exists():
+        qc = pd.read_csv(quality_control)
+        removed_by_qc.extend(qc.file)
+
     cfg = load_yaml_config(config_yaml)
     stim_specs = list(read_stim_specs(cfg, ignore_time_bins=True))
     target_time = get_target_time(max_trial_duration_s, target_fps)
@@ -350,6 +355,9 @@ def plot_eyes(
     version_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
     
     for fish_idx, behavior_file in tqdm(enumerate(behavior_files)):
+        
+        if behavior_file.metadata.stem in removed_by_qc:
+            continue
 
         behavior_data: BehaviorData = load_data(behavior_file)
         stim_trials = get_trials(behavior_data)
