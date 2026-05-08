@@ -5,6 +5,7 @@ from BehaviorScreen.export import export_single_animals
 from BehaviorScreen.megabouts import run_megabouts
 from BehaviorScreen.pose_estimation import estimate_pose, export_cropped_eyes_video
 from BehaviorScreen.plot import run_plot
+from BehaviorScreen.qc import quality_control
 
 # TODO separate analysis and plotting
 # TODO linear mixed effects analysis to get within and between individual variability
@@ -42,6 +43,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--yaml",
         default = 'BehaviorScreen/screen.yaml',
         help="Plot config file",
+    )
+
+    parser.add_argument(
+        "--qc-csv",
+        default='qc.csv',
+        help="quality control: fish not moving and tracking issues",
     )
 
     parser.add_argument(
@@ -177,8 +184,23 @@ def main(args: argparse.Namespace) -> None:
         video_directory=args.root / args.eyes_video_dir,
         output_directory=args.root / args.lightning_pose
     )
+
+    print("3. quality control")
+    quality_control(
+        root=args.root,
+        output_csv=args.qc_csv,
+        metadata=args.results,
+        stimuli=args.results,
+        tracking=args.results,
+        lightning_pose=args.lightning_pose,
+        temperature=args.results,
+        video=args.results,
+        video_timestamp=args.results,
+        results=args.results,
+        plots=args.plots,
+    )
     
-    print("3. extract bout metrics", flush=True)
+    print("4. extract bout metrics", flush=True)
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
@@ -194,10 +216,10 @@ def main(args: argparse.Namespace) -> None:
         cpu=args.cpu
     )
 
-    print("4. extract eye metrics", flush=True)
+    print("5. extract eye metrics", flush=True)
     # TODO
 
-    print("5. plot", flush=True)
+    print("6. plot", flush=True)
     run_plot(
         bouts_csv=args.bouts_csv,
         bouts_png = args.bouts_png,
@@ -215,7 +237,7 @@ def main(args: argparse.Namespace) -> None:
         plots=args.plots
     )
 
-    print("6. overlay")
+    print("7. overlay")
     # TODO
 
 if __name__ == '__main__':
