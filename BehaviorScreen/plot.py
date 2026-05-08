@@ -109,6 +109,8 @@ def filter_bouts(bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
     # TODO: should the filtered bouts be counted as NaNs instead of 
     # just being removed?
 
+    # TODO read qc.csv if present and remove
+
     filtered = bouts.copy()
     n0 = len(filtered)
     print(f'TOTAL NUM BOUTS: {n0}')
