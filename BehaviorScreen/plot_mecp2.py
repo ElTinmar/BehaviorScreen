@@ -709,8 +709,8 @@ for g_idx, g in enumerate(groups):
                     )
                     count_RT += mask_RT.sum()
 
-                JT_freq[g_idx, fish_idx, lat_idx, uv_idx] = count_JT / (len(lat)*(t_stop - t_start))
-                RT_freq[g_idx, fish_idx, lat_idx, uv_idx] = count_RT / (len(lat)*(t_stop - t_start))
+                JT_freq[g_idx, fish_idx, lat_idx, uv_idx] = count_JT / (len(lat)*trial_duration_s)
+                RT_freq[g_idx, fish_idx, lat_idx, uv_idx] = count_RT / (len(lat)*trial_duration_s)
 
 
 def plot_with_shading(ax, x, data, color, label, linestyle='-'):
@@ -813,8 +813,8 @@ for g_idx, g in enumerate(groups):
                     )
                     count_RT += mask_RT.sum()
 
-                JT_freq[g_idx, fish_idx, lat_idx, sz_idx] = count_JT / (len(lat)*(t_stop - t_start))
-                RT_freq[g_idx, fish_idx, lat_idx, sz_idx] = count_RT / (len(lat)*(t_stop - t_start))
+                JT_freq[g_idx, fish_idx, lat_idx, sz_idx] = count_JT / (len(lat)*trial_duration_s)
+                RT_freq[g_idx, fish_idx, lat_idx, sz_idx] = count_RT / (len(lat)*trial_duration_s)
 
 
 def plot_with_shading(ax, x, data, color, label, linestyle='-'):
