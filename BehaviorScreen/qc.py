@@ -146,7 +146,7 @@ def get_tracking_error(behavior_data: BehaviorData) -> tuple[float, float]:
     pix_per_mm = behavior_data.metadata['calibration']['pix_per_mm']
     centroid_error = np.nansum(distance_centroid)/ (pix_per_mm*n_frames)
 
-    # heading axis error
+    # heading axis error (maybe add measure of occasional flip?)
     online_heading = np.column_stack((common.pc1_x, common.pc1_y))
     head = np.column_stack((common.Head_x, common.Head_y))
     sb =  np.column_stack((common.Swim_Bladder_x, common.Swim_Bladder_y))
