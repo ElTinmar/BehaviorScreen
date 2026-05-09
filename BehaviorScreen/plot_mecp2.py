@@ -354,6 +354,14 @@ plt.savefig(f"eye_vergence.png", format='png', dpi=100, bbox_inches='tight')
 plt.show()
 
 ###
+groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv', 'WT/danieau/bouts.csv']
+groups_name = ['mecp2-mutant', 'wild type (AB)', 'wild type (TLN)']
+groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type (AB)': COLOR_WT, 'wild type (TLN)': COLOR_WT_TLN}
+
+ROOT = Path('/home/martin/Desktop/DATA')
+ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
+ROOT = Path('/media/martin/DATA_18TB/Screen')
+
 JTURN = bouts_category_name_short.index('JT')
 prob_threshold = 0.5
 trial_duration_s = 25
@@ -382,10 +390,22 @@ JT_freq = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins
 for g_idx, g in enumerate(groups):
 
     bout_file = ROOT/g 
+
+    qc_file = bout_file.with_name("qc.csv")
+    blacklisted = []
+    if qc_file.exists():
+        quality_control = pd.read_csv(qc_file)
+        blacklisted.extend(quality_control.file.to_list())
+
     df = pd.read_csv(bout_file)
     file = df[df.stim == Stim.PREY_CAPTURE].file.unique()
     
     for fish_idx, fish in enumerate(file):
+
+        if fish in blacklisted:
+            print(f'{fish} did not pass qc')
+            continue
+
         for lat_idx, lat in enumerate(laterality): 
             for trial in range(N_trials):
                 for bin_idx, (t_start, t_stop) in enumerate(time_bins):
@@ -633,7 +653,7 @@ def plot_barplot(
     plt.savefig(f"{label}_ecdf.png", format='png', dpi=100, bbox_inches='tight')
     plt.show()
 
-for data_type, data in [('Frequency (Hz)', JT_freq), ('Probability', JT_proba)]:
+for data_type, data in [('Frequency (Hz)', JT_freq)]:
 
     plot_heatmap(
         data,
@@ -676,10 +696,22 @@ RT_freq = np.full((len(groups), N_fish, len(laterality), len(uv_intensities)), n
 for g_idx, g in enumerate(groups):
 
     bout_file = ROOT/g 
+
+    qc_file = bout_file.with_name("qc.csv")
+    blacklisted = []
+    if qc_file.exists():
+        quality_control = pd.read_csv(qc_file)
+        blacklisted.extend(quality_control.file.to_list())
+
     df = pd.read_csv(bout_file)
     file = df[df.stim == Stim.PREY_CAPTURE].file.unique()
     
     for fish_idx, fish in enumerate(file):
+
+        if fish in blacklisted:
+            print(f'{fish} did not pass qc')
+            continue
+
         for uv_idx, intensity in enumerate(uv_intensities):
             for lat_idx, lat in enumerate(laterality): 
                 count_JT = 0
@@ -749,7 +781,24 @@ plt.savefig(f"UV_intensity_RT.png", format='png', dpi=100, bbox_inches='tight')
 plt.show()
 
 
+valence_index_stim_side_mecp2 = (JT_freq[0,:,0,:] - RT_freq[0,:,1,:]) / (JT_freq[0,:,0,:] + RT_freq[0,:,1,:])
+valence_index_ctrl_mecp2 = (JT_freq[0,:,1,:] - RT_freq[0,:,0,:]) / (JT_freq[0,:,1,:] + RT_freq[0,:,0,:])
+valence_index_stim_side_wt = (JT_freq[1,:,0,:] - RT_freq[1,:,1,:]) / (JT_freq[1,:,0,:] + RT_freq[1,:,1,:])
+valence_index_ctrl_wt = (JT_freq[1,:,1,:] - RT_freq[1,:,0,:]) / (JT_freq[1,:,1,:] + RT_freq[1,:,0,:])
 
+fig, ax = plt.subplots(figsize=(8, 6))
+plot_with_shading(ax, uv_intensities, valence_index_stim_side_mecp2, COLOR_MECP2, 'mecp2-mutant stim side', '-')
+plot_with_shading(ax, uv_intensities, valence_index_ctrl_mecp2, COLOR_MECP2, 'mecp2-mutant ctrl', '--')
+plot_with_shading(ax, uv_intensities, valence_index_stim_side_wt, COLOR_WT, 'WT stim side', '-')
+plot_with_shading(ax, uv_intensities, valence_index_ctrl_wt, COLOR_WT, 'WT ctrl', '--')
+ax.set_xscale('log') 
+ax.set_xlabel('UV Intensity')
+ax.set_ylabel('VI')
+ax.legend(frameon=False, loc='upper left')
+sns.despine() 
+plt.tight_layout()
+plt.savefig(f"UV_intensity_VI.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
 
 #############
 
@@ -780,10 +829,22 @@ RT_freq = np.full((len(groups), N_fish, len(laterality), len(prey_sz)), np.nan, 
 for g_idx, g in enumerate(groups):
 
     bout_file = ROOT/g 
+
+    qc_file = bout_file.with_name("qc.csv")
+    blacklisted = []
+    if qc_file.exists():
+        quality_control = pd.read_csv(qc_file)
+        blacklisted.extend(quality_control.file.to_list())
+
     df = pd.read_csv(bout_file)
     file = df[df.stim == Stim.PREY_CAPTURE].file.unique()
     
     for fish_idx, fish in enumerate(file):
+
+        if fish in blacklisted:
+            print(f'{fish} did not pass qc')
+            continue
+
         for sz_idx, sz in enumerate(prey_sz):
             for lat_idx, lat in enumerate(laterality): 
                 count_JT = 0
@@ -853,3 +914,21 @@ plt.savefig(f"prey_size_RT.png", format='png', dpi=100, bbox_inches='tight')
 plt.show()
 
 ### approach to escape ratio?
+valence_index_stim_side_mecp2 = (JT_freq[0,:,0,:] - RT_freq[0,:,1,:]) / (JT_freq[0,:,0,:] + RT_freq[0,:,1,:])
+valence_index_ctrl_mecp2 = (JT_freq[0,:,1,:] - RT_freq[0,:,0,:]) / (JT_freq[0,:,1,:] + RT_freq[0,:,0,:])
+valence_index_stim_side_wt = (JT_freq[1,:,0,:] - RT_freq[1,:,1,:]) / (JT_freq[1,:,0,:] + RT_freq[1,:,1,:])
+valence_index_ctrl_wt = (JT_freq[1,:,1,:] - RT_freq[1,:,0,:]) / (JT_freq[1,:,1,:] + RT_freq[1,:,0,:])
+
+fig, ax = plt.subplots(figsize=(8, 6))
+plot_with_shading(ax, prey_sz, valence_index_stim_side_mecp2, COLOR_MECP2, 'mecp2-mutant stim side', '-')
+#plot_with_shading(ax, prey_sz, valence_index_ctrl_mecp2, COLOR_MECP2, 'mecp2-mutant ctrl', '--')
+plot_with_shading(ax, prey_sz, valence_index_stim_side_wt, COLOR_WT, 'WT stim side', '-')
+#plot_with_shading(ax, prey_sz, valence_index_ctrl_wt, COLOR_WT, 'WT ctrl', '--')
+#ax.set_xscale('log') 
+ax.set_xlabel('Prey radius')
+ax.set_ylabel('VI')
+ax.legend(frameon=False, loc='upper left')
+sns.despine() 
+plt.tight_layout()
+plt.savefig(f"prey_size_VI.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
