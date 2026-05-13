@@ -145,6 +145,10 @@ def alpha_blend(bg, fg, alpha = 128):
     out16 = bg16 + ((fg16 - bg16) * alpha16 >> 8)
     return out16.astype(np.uint8)
 
+def sum_blend(bg, fg, gain=1.0):
+    out = bg.astype(np.uint16) + (fg.astype(np.uint16) * gain)
+    return np.clip(out, 0, 255).astype(np.uint8)
+
 def egocentric_coords_mm(coords, centroid, pc1, pc2, mm_per_pixel):
     transform = np.stack([pc2, pc1], axis=1) * mm_per_pixel
     return (coords - centroid) @ transform
@@ -555,7 +559,7 @@ def do_overlay(
                 )
                 dest_size = image.shape[:2]
                 oly = cv2.resize(oly, dsize=dest_size[::-1], interpolation=cv2.INTER_LINEAR)
-                stim = alpha_blend(image, oly)
+                stim = sum_blend(image, oly, 2.0)
                 label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
 
             add_label(stim, label)
