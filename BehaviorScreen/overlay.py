@@ -494,7 +494,7 @@ def do_overlay(
         print(f'{output_video} already exists, skipping ...', flush=True)
         return 
 
-    with open(behavior_file.metadata.with_suffix('pkl') , 'rb') as fp:
+    with open(behavior_file.metadata.with_suffix('.pkl') , 'rb') as fp:
         megabout: MegaboutResults = pickle.load(fp)
 
     behavior_data = load_data(behavior_file)
