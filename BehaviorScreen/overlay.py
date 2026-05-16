@@ -484,7 +484,6 @@ def add_label(
 def do_overlay(
         output_dir: Path, 
         behavior_file: BehaviorFiles, 
-        megabout: MegaboutResults, 
         downsample: int = 4
     ) -> None:
 
@@ -494,6 +493,9 @@ def do_overlay(
     if output_video.exists() and not progress_file.exists():
         print(f'{output_video} already exists, skipping ...', flush=True)
         return 
+
+    with open(behavior_file.metadata.with_suffix('pkl') , 'rb') as fp:
+        megabout: MegaboutResults = pickle.load(fp)
 
     behavior_data = load_data(behavior_file)
 
@@ -581,7 +583,6 @@ def do_overlay(
 
 def overlay(       
         root: Path,
-        megabout: str,
         overlay_dir: str,
         metadata: str,
         stimuli: str,
@@ -600,24 +601,19 @@ def overlay(
         video_timestamp=video_timestamp,
     )
     behavior_files = find_files(directories)
-
-    with open(root / megabout, 'rb') as fp:
-        megabout_dict: Dict[str, MegaboutResults] = pickle.load(fp)
-
     output_dir = root / overlay_dir 
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if multiprocessing:
         with mp.Pool(mp.cpu_count()//4) as pool:
-            pool.starmap(do_overlay, [(output_dir, bf, megabout_dict[bf.metadata.stem]) for bf in behavior_files])
+            pool.starmap(do_overlay, [(output_dir, bf) for bf in behavior_files])
     else:
         for behavior_file in behavior_files:
-            do_overlay(output_dir, behavior_file, megabout_dict[behavior_file.metadata.stem])
+            do_overlay(output_dir, behavior_file)
 
 def main(args: argparse.Namespace) -> None:
     overlay(
         root=args.root,
-        megabout=args.megabout,
         overlay_dir=args.overlay_dir,
         metadata=args.metadata,
         stimuli=args.stimuli,
@@ -673,12 +669,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--video-timestamp",
         default="",
-        help="Subfolder containing video timestamp files (default: video)",
-    )
-
-    parser.add_argument(
-        "--megabout",
-        default="megabout.pkl",
         help="Subfolder containing video timestamp files (default: video)",
     )
 
