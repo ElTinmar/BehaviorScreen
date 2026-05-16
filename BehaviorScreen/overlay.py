@@ -484,15 +484,17 @@ def add_label(
 def do_overlay(
         output_dir: Path, 
         behavior_file: BehaviorFiles, 
-        downsample: int = 4
+        downsample: int = 4,
+        overwrite: bool = False
     ) -> None:
 
     output_video = output_dir / behavior_file.video.name
     progress_file = output_dir / f"{behavior_file.video.stem}.progress"
 
     if output_video.exists() and not progress_file.exists():
-        print(f'{output_video} already exists, skipping ...', flush=True)
-        return 
+        if not overwrite:
+            print(f'{output_video} already exists, skipping ...', flush=True)
+            return 
 
     with open(behavior_file.metadata.with_suffix('.pkl') , 'rb') as fp:
         megabout: MegaboutResults = pickle.load(fp)
@@ -589,7 +591,8 @@ def overlay(
         tracking: str,
         video: str,
         video_timestamp: str,
-        multiprocessing: bool
+        multiprocessing: bool,
+        overwrite: bool = False,
     ) -> None:
 
     directories = Directories(
@@ -606,10 +609,10 @@ def overlay(
 
     if multiprocessing:
         with mp.Pool(mp.cpu_count()//4) as pool:
-            pool.starmap(do_overlay, [(output_dir, bf) for bf in behavior_files])
+            pool.starmap(do_overlay, [(output_dir, bf, overwrite) for bf in behavior_files])
     else:
         for behavior_file in behavior_files:
-            do_overlay(output_dir, behavior_file)
+            do_overlay(output_dir, behavior_file, overwrite)
 
 def main(args: argparse.Namespace) -> None:
     overlay(
@@ -620,7 +623,8 @@ def main(args: argparse.Namespace) -> None:
         tracking=args.tracking,
         video=args.video,
         video_timestamp=args.video_timestamp,
-        multiprocessing=args.multiprocessing
+        multiprocessing=args.multiprocessing,
+        overwrite=args.overwrite
     )
 
 def build_parser() -> argparse.ArgumentParser:
@@ -673,6 +677,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument("--multiprocessing", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
 
     return parser
 
