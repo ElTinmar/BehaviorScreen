@@ -23,10 +23,10 @@ plt.figure(figsize=(14, 6))
 sns.barplot(data=df_melted, x='line', y='Sample Size (N)', hue='Group', 
             palette=['#1f77b4', '#d62728'])
 plt.xticks(rotation=45, ha='right')
-plt.xlabel('Line', fontsize=12)
+plt.xlabel('')
 plt.ylabel('N', fontsize=12)
 text_str = f"Control N = {total_control}\nAblated N = {total_ablated}\n{days} days, {hours} hours, and {minutes} minutes"
 plt.gca().text(0.02, 0.95, text_str, transform=plt.gca().transAxes, fontsize=11, verticalalignment='top')
 plt.tight_layout()
-plt.show()
 plt.savefig('line_sample_sizes.png', dpi=300)
+plt.show()
