@@ -669,6 +669,38 @@ for data_type, data in [('Frequency (Hz)', JT_freq)]:
         time_bins=[0,1,2]
     )
 
+
+######################### distributions
+
+wt_ipsi_data = JT_freq[2, :, 0, :, :]
+num_trials = wt_ipsi_data.shape[1]      
+num_time_bins = wt_ipsi_data.shape[2] 
+fig, axes = plt.subplots(num_trials, num_time_bins, 
+                         figsize=(8, 8), 
+                         sharex=True, 
+                         sharey=True)
+
+max_freq = int(np.nanmax(wt_ipsi_data))
+bins = np.linspace(0, max_freq, 10)
+
+for trial_idx in range(num_trials):
+    for bin_idx in range(num_time_bins):
+        ax = axes[trial_idx, bin_idx]
+        
+        counts = wt_ipsi_data[:, trial_idx, bin_idx]
+        ax.hist(counts, bins=bins, color='lightgray', edgecolor='gray', alpha=0.7)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+        ax.tick_params(axis='both', which='both', length=0)
+        if trial_idx == 0:
+            ax.set_title(f"Bin {bin_idx}", fontsize=10)
+        if bin_idx == 0:
+            ax.set_ylabel(f"Trial {trial_idx}", fontsize=10)
+
+plt.tight_layout()
+plt.savefig(f"JT_histograms.svg", format='svg', bbox_inches='tight')
+plt.show()
+
 ##########
 groups = ['mecp2/bouts.csv', 'nacre/bouts.csv']
 groups_name = ['mecp2-mutant', 'wild type']
