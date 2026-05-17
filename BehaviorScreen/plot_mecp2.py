@@ -461,6 +461,7 @@ def plot_heatmap(
                         cbar_kws={'label': label})
             
             ax.set_title(f"{groups_name[g_idx]} | {lat_names[lat_idx]}")
+            ax.set_aspect('equal')
             
             if g_idx == len(groups_name) - 1:
                 ax.set_xlabel("Time Bins")
@@ -932,3 +933,95 @@ sns.despine()
 plt.tight_layout()
 plt.savefig(f"prey_size_VI.png", format='png', dpi=100, bbox_inches='tight')
 plt.show()
+
+
+###########################
+
+groups = ['mecp2/danieau/bouts.csv', 'AB/danieau/bouts.csv', 'WT/danieau/bouts.csv']
+groups_name = ['mecp2-mutant', 'wild type (AB)', 'wild type (TLN)']
+groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type (AB)': COLOR_WT, 'wild type (TLN)': COLOR_WT_TLN}
+
+ROOT = Path('/home/martin/Desktop/DATA')
+ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
+ROOT = Path('/media/martin/DATA_18TB/Screen')
+
+RT = bouts_category_name_short.index('RT')
+prob_threshold = 0.5
+trial_duration_s = 25
+N_fish = 48
+
+N_trials = 5
+time_bins = [
+    [0, 2.5],
+    [2.5, 5],
+    [5, 7.5],
+    [7.5, 10]
+]
+
+class GratingSide(IntEnum):
+    LEFT = -90
+    RIGHT = 90
+
+ipsilateral = [(BoutSign.LEFT, GratingSide.LEFT), (BoutSign.RIGHT, GratingSide.RIGHT)]
+contralateral = [(BoutSign.LEFT, GratingSide.RIGHT), (BoutSign.RIGHT, GratingSide.LEFT)]
+laterality = [ipsilateral, contralateral]
+
+RT_freq = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins)), np.nan, dtype=np.float32)
+
+for g_idx, g in enumerate(groups):
+
+    bout_file = ROOT/g 
+
+    qc_file = bout_file.with_name("qc.csv")
+    blacklisted = []
+    if qc_file.exists():
+        quality_control = pd.read_csv(qc_file)
+        blacklisted.extend(quality_control.file.to_list())
+
+    df = pd.read_csv(bout_file)
+    file = df[df.stim == Stim.OMR].file.unique()
+    
+    for fish_idx, fish in enumerate(file):
+
+        if fish in blacklisted:
+            print(f'{fish} did not pass qc')
+            continue
+
+        for lat_idx, lat in enumerate(laterality): 
+            for trial in range(N_trials):
+                for bin_idx, (t_start, t_stop) in enumerate(time_bins):
+                    count_all_bouts = 0
+                    count_RT = 0
+                    for bout_sign, grating_side in lat: 
+                        mask_RT = (
+                            (df.file == fish) &
+                            (df.stim == Stim.OMR) &
+                            (df.category == RT) & 
+                            (df.proba > prob_threshold) &
+                            (df.trial_time >= t_start) &
+                            (df.trial_time < t_stop) &
+                            (df.trial_num == trial) &
+                            (df.sign == bout_sign) & 
+                            (df.omr_angle_deg == grating_side)
+                        )
+                        count_RT += mask_RT.sum()
+                    RT_freq[g_idx, fish_idx, lat_idx, trial, bin_idx] = count_RT / (len(lat) * (t_stop - t_start))
+
+
+lat_names = ['Ipsilateral', 'Contralateral']
+bin_labels = [f"{b[0]}-{b[1]}s" for b in time_bins]
+
+for data_type, data in [('Frequency (Hz)', RT_freq)]:
+
+    plot_heatmap(
+        data,
+        data_type,
+        vmax = 0.6
+    )
+
+    # plot_barplot(
+    #     data,
+    #     data_type,
+    #     trials=[0,1],
+    #     time_bins=[0,1,2]
+    # )
