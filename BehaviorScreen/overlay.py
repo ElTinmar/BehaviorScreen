@@ -565,7 +565,7 @@ def do_overlay(
                 oly = cv2.resize(oly, dsize=dest_size[::-1], interpolation=cv2.INTER_LINEAR)
                 
                 if current_stim['stim_select'] == Stim.PREY_CAPTURE:
-                    stim = sum_blend(image, oly, 3.0)
+                    stim = sum_blend(image, oly, 5.0)
                 else:
                     stim = sum_blend(image, oly, 1.0)
 
