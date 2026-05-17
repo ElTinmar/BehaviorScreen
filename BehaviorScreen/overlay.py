@@ -563,7 +563,12 @@ def do_overlay(
                 )
                 dest_size = image.shape[:2]
                 oly = cv2.resize(oly, dsize=dest_size[::-1], interpolation=cv2.INTER_LINEAR)
-                stim = sum_blend(image, oly, 2.0)
+                
+                if current_stim['stim_select'] == Stim.PREY_CAPTURE:
+                    stim = sum_blend(image, oly, 3.0)
+                else:
+                    stim = sum_blend(image, oly, 1.0)
+
                 label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
 
             add_label(stim, label)
@@ -592,6 +597,7 @@ def overlay(
         video: str,
         video_timestamp: str,
         multiprocessing: bool,
+        downsample: int = 4,
         overwrite: bool = False,
     ) -> None:
 
@@ -609,10 +615,10 @@ def overlay(
 
     if multiprocessing:
         with mp.Pool(mp.cpu_count()//4) as pool:
-            pool.starmap(do_overlay, [(output_dir, bf, overwrite) for bf in behavior_files])
+            pool.starmap(do_overlay, [(output_dir, bf, downsample, overwrite) for bf in behavior_files])
     else:
         for behavior_file in behavior_files:
-            do_overlay(output_dir, behavior_file, overwrite)
+            do_overlay(output_dir, behavior_file, downsample, overwrite)
 
 def main(args: argparse.Namespace) -> None:
     overlay(
@@ -624,6 +630,7 @@ def main(args: argparse.Namespace) -> None:
         video=args.video,
         video_timestamp=args.video_timestamp,
         multiprocessing=args.multiprocessing,
+        downsample=args.downsample,
         overwrite=args.overwrite
     )
 
@@ -637,6 +644,13 @@ def build_parser() -> argparse.ArgumentParser:
         "root",
         type=Path,
         help="Root experiment folder (e.g. WT_oct_2025)",
+    )
+
+    parser.add_argument(
+        "--downsample",
+        type=int,
+        default=4,
+        help="downsampling factor",
     )
 
     parser.add_argument(
