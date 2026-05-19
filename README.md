@@ -38,6 +38,8 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
     (some indiv not subjected to whole protocol, maybe need to do per stim type)
 - Try LDA
 - plot distributions (bout interval, interbout interval, speed, distance, xy heatmap, radial distance/thigmotaxis)
+- Try to correlate behavioral deficit to line expression voxels in the atlas (intersection/combination)
+- Try to see if there is a correlation structure in the deficits (S2 deficit always correlate with RT deficits for instance)
 
 ### pre-processing
 
