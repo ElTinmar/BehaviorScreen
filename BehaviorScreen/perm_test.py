@@ -139,8 +139,8 @@ if __name__ == "__main__":
 
         
     ROOT = Path('/home/martin/Desktop/DATA')
-    ROOT = Path('/media/martin/DATA_18TB/Screen')
     ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
+    ROOT = Path('/media/martin/DATA_18TB/Screen')
 
     alpha = 0.05
     effect_size_thresh = 0.5

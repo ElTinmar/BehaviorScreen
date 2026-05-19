@@ -372,9 +372,7 @@ def plot_eyes(
             if spec_data.empty: 
                 continue
             
-            # FIXME: this is not ok
-            #valid_trials = [i for i in spec.trials if i < len(spec_data)]
-            valid_trials = [i for i, trial in enumerate(spec.trials) if i < len(spec_data)] # is that ok?
+            valid_trials = [i for i, trial in enumerate(spec.trials) if i < len(spec_data)]
             trial_data = spec_data.iloc[valid_trials]
 
             for trial_idx, (trial, row) in enumerate(trial_data.iterrows()):

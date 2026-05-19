@@ -1057,3 +1057,122 @@ for data_type, data in [('Frequency (Hz)', RT_freq)]:
     #     trials=[0,1],
     #     time_bins=[0,1,2]
     # )
+
+
+
+####
+from sklearn.decomposition import PCA
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
+from sklearn.preprocessing import StandardScaler
+import umap 
+
+X_list = []
+y_list = []
+
+for g, gname in zip(groups, groups_name):
+    filename = (ROOT/g).with_suffix('.npz')
+    with np.load(filename, allow_pickle=True) as data:
+        bout_frequency = data['bout_frequency']
+        epoch_bin_names = data['labels_2']
+
+    epoch_index = [idx for (idx, name) in enumerate(epoch_bin_names) if 'prey capture' in name]
+    subset = bout_frequency[:, :, epoch_index, :, :]
+    
+    valid_fish_mask = ~np.all(np.isnan(subset), axis=(1, 2, 3, 4))
+    clean_subset = subset[valid_fish_mask, :, :, :, :]
+
+    actual_trials_mask = ~np.all(np.isnan(clean_subset), axis=(0, 2, 3, 4))
+    clean_subset = clean_subset[:, actual_trials_mask, :, :, :]
+    print(np.isnan(clean_subset).sum())
+    
+    num_valid_fish = clean_subset.shape[0]
+    flattened_features = clean_subset.reshape(num_valid_fish, -1)
+    
+    X_list.append(flattened_features)
+    y_list.extend([gname] * num_valid_fish)
+
+X_final = np.vstack(X_list)
+y_final = np.array(y_list)
+
+X_scaled = StandardScaler().fit_transform(X_final)
+
+pca = PCA(n_components=2)
+X_pca = pca.fit_transform(X_scaled)
+
+reducer = umap.UMAP(n_neighbors=5, min_dist=0.01, random_state=42)
+X_umap = reducer.fit_transform(X_scaled)
+
+lda = LDA(n_components=2)
+X_lda = lda.fit_transform(X_scaled, y_final)
+
+fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=False)
+
+embeddings = [X_pca, X_umap, X_lda]
+titles = [
+    f"PCA (Linear)\nVar Explained: {pca.explained_variance_ratio_.sum()*100:.1f}%",
+    "UMAP (Non-Linear)",
+    "LDA (Supervised Linear)"
+]
+x_labels = ["PC 1", "UMAP 1", "LD 1"]
+y_labels = ["PC 2", "UMAP 2", "LD 2"]
+
+for i, ax in enumerate(axes):
+    # Clean background and borders
+    ax.set_facecolor('#fafafa')
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    #ax.tick_params(both=False, labelbottom=False, labelleft=False) # Hide raw coordinate ticks
+    ax.grid(True, linestyle=':', color='#e0e0e0', alpha=0.5)
+    
+    # Scatter plot
+    sns.scatterplot(
+        x=embeddings[i][:, 0], 
+        y=embeddings[i][:, 1], 
+        hue=y_final, 
+        palette=groups_color,
+        alpha=0.85, 
+        edgecolor='white', 
+        s=70, 
+        ax=ax,
+        legend=(i == 2) # Only show legend on the last plot to keep things clean
+    )
+    
+    ax.set_title(titles[i], fontsize=13, weight='bold', pad=12, color='#232F34')
+    ax.set_xlabel(x_labels[i], fontsize=11, color='#555555')
+    ax.set_ylabel(y_labels[i], fontsize=11, color='#555555')
+
+# Style the final legend nicely
+axes[2].legend(title="Genotype", loc='upper left', bbox_to_anchor=(1.02, 1), frameon=False)
+
+plt.suptitle("Dimensional Embedding of Zebrafish Larvae Behavioral Data", 
+             fontsize=16, weight='bold', color='#232F34', y=1.05)
+plt.tight_layout()
+plt.show()
+
+
+
+_, n_trials, n_epochs, n_cats, n_sides = clean_subset.shape
+
+feature_names = []
+for t in range(n_trials):
+    for e in range(n_epochs):
+        for c in range(n_cats):
+            for s in range(n_sides):
+                # Map the indices back to their names
+                cat_name = bout_categories[c]
+                side_name = "Ipsi" if s == 0 else "Contra"
+                
+                name = f"Trial_{t}_Epoch_{e}_{cat_name}_{side_name}"
+                feature_names.append(name)
+
+pca_loadings = pd.DataFrame(
+    pca.components_.T,  # Transpose to make features rows
+    columns=['PC1', 'PC2'],
+    index=feature_names
+)
+
+lda_loadings = pd.DataFrame(
+    lda.scalings_,  
+    columns=['LD1', 'LD2'],
+    index=feature_names
+)
