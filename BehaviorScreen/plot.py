@@ -442,6 +442,10 @@ def plot_eyes(
     plt.savefig(output_png, bbox_inches='tight')
     plt.show()
 
+# TODO: maybe I could try to plot
+# 1 - the proportion of fish that engaged in the behavior (non-zero)
+# 2 - the mean/median after excluding zero counts
+ 
 def plot_heatmap(
         quality_control: Path,
         input_csv: Path, 
