@@ -62,6 +62,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 # TODO check what happens if no tracking data for a frame
+# TODO export from original video
 def crop_around_eyes(
         input_video: Path,
         output_video: Path,
