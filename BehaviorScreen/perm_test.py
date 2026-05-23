@@ -35,7 +35,7 @@ def compute_t_and_d(group_a, group_b):
     
     return t_stat, cohen_d, zero_var
 
-
+# TODO use scipy.stats.permutation_test ?
 def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
 
     rng = np.random.default_rng(rng)
