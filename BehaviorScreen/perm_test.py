@@ -5,6 +5,10 @@ import matplotlib.pyplot as plt
 from statsmodels.stats.multitest import multipletests
 from megabouts.utils import bouts_category_name_short
 
+# TODO t-stats is maybe not the right stat for count data
+# also reconsider cohen's d ?
+
+
 capture_strikes = ['LCS_L','LCS_R','SCS_L','SCS_R']
 sides = ['L', 'R']
 row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
