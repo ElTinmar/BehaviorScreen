@@ -998,36 +998,6 @@ plt.tight_layout()
 plt.savefig("UV_Intensity_Profile_With_Stats.png", format='png', dpi=200, bbox_inches='tight')
 plt.show()
 
-
-#####
-
-import pingouin as pg
-
-df_mecp2 = pd.DataFrame(mecp2_ipsi_clean, columns=uv_intensities)
-df_nacre = pd.DataFrame(nacre_ipsi_clean, columns=uv_intensities)
-df_mecp2['subject_id'] = [f'mecp2_{i}' for i in range(len(df_mecp2))]
-df_nacre['subject_id'] = [f'nacre_{i}' for i in range(len(df_nacre))]
-df_mecp2['group'] = 'mecp2'
-df_nacre['group'] = 'nacre'
-combined_df = pd.concat([df_mecp2, df_nacre], ignore_index=True)
-df_long = pd.melt(
-    combined_df, 
-    id_vars=['subject_id', 'group'], 
-    value_vars=uv_intensities,
-    var_name='intensity', 
-    value_name='jt_freq'
-)
-df_long['intensity'] = pd.to_numeric(df_long['intensity'])
-anova_results = pg.mixed_anova(
-    data=df_long, 
-    dv='jt_freq', 
-    within='intensity', 
-    between='group', 
-    subject='subject_id'
-)
-print(anova_results)
-
-
 ############# Sigmoid
 
 import numpy as np
