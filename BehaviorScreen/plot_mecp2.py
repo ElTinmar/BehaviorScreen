@@ -777,6 +777,10 @@ for g_idx, g in enumerate(groups):
                 JT_freq[g_idx, fish_idx, lat_idx, uv_idx] = count_JT / (len(lat)*trial_duration_s)
                 RT_freq[g_idx, fish_idx, lat_idx, uv_idx] = count_RT / (len(lat)*trial_duration_s)
 
+mecp2_ipsi_jt = JT_freq[0,:,0,:]
+mecp2_contra_jt = JT_freq[0,:,1,:]
+nacre_ipsi_jt = JT_freq[1,:,0,:]
+nacre_contra_jt = JT_freq[1,:,1,:]
 
 def plot_with_shading(ax, x, data, color, label, linestyle='-'):
     mu = np.nanmean(data, axis=0)
@@ -784,19 +788,18 @@ def plot_with_shading(ax, x, data, color, label, linestyle='-'):
     ax.plot(x, mu, color=color, label=label, linestyle=linestyle, lw=2)
     ax.fill_between(x, mu - err, mu + err, color=color, alpha=0.2, lw=0)
 
-
 fig, ax = plt.subplots(figsize=(8, 6))
-plot_with_shading(ax, uv_intensities, JT_freq[0,:,0,:], COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
-plot_with_shading(ax, uv_intensities, JT_freq[0,:,1,:], COLOR_MECP2, 'mecp2-mutant (Contra)', '--')
-plot_with_shading(ax, uv_intensities, JT_freq[1,:,0,:], COLOR_WT, 'wild type (Ipsi)', '-')
-plot_with_shading(ax, uv_intensities, JT_freq[1,:,1,:], COLOR_WT, 'wild type (Contra)', '--')
+plot_with_shading(ax, uv_intensities, mecp2_ipsi_jt, COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
+plot_with_shading(ax, uv_intensities, mecp2_contra_jt, COLOR_MECP2, 'mecp2-mutant (Contra)', '--')
+plot_with_shading(ax, uv_intensities, nacre_ipsi_jt, COLOR_WT, 'wild type (Ipsi)', '-')
+plot_with_shading(ax, uv_intensities, nacre_contra_jt, COLOR_WT, 'wild type (Contra)', '--')
 ax.set_xscale('log') 
 ax.set_xlabel('UV Intensity')
 ax.set_ylabel('JT Frequency (Hz)')
 ax.legend(frameon=False, loc='upper left')
 sns.despine() 
 plt.tight_layout()
-plt.savefig(f"UV_intensity_JT.png", format='png', dpi=100, bbox_inches='tight')
+plt.savefig(f"UV_intensity_JT_all.png", format='png', dpi=100, bbox_inches='tight')
 plt.show()
 
 fig, ax = plt.subplots(figsize=(8,6))
@@ -812,7 +815,6 @@ sns.despine()
 plt.tight_layout()
 plt.savefig(f"UV_intensity_RT.png", format='png', dpi=100, bbox_inches='tight')
 plt.show()
-
 
 valence_index_stim_side_mecp2 = (JT_freq[0,:,0,:] - RT_freq[0,:,1,:]) / (JT_freq[0,:,0,:] + RT_freq[0,:,1,:])
 valence_index_ctrl_mecp2 = (JT_freq[0,:,1,:] - RT_freq[0,:,0,:]) / (JT_freq[0,:,1,:] + RT_freq[0,:,0,:])
@@ -831,6 +833,169 @@ ax.legend(frameon=False, loc='upper left')
 sns.despine() 
 plt.tight_layout()
 plt.savefig(f"UV_intensity_VI.png", format='png', dpi=100, bbox_inches='tight')
+plt.show()
+
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+mecp2_ipsi_jt   = JT_freq[0, :, 0, :]  
+mecp2_contra_jt = JT_freq[0, :, 1, :]
+nacre_ipsi_jt   = JT_freq[1, :, 0, :]
+nacre_contra_jt = JT_freq[1, :, 1, :]
+
+def remove_empty_fish(matrix):
+    return matrix[~np.isnan(matrix).all(axis=1)]
+
+# Filter your matrices to only display active fish
+mecp2_ipsi_clean   = remove_empty_fish(mecp2_ipsi_jt)
+mecp2_contra_clean = remove_empty_fish(mecp2_contra_jt)
+nacre_ipsi_clean   = remove_empty_fish(nacre_ipsi_jt)
+nacre_contra_clean = remove_empty_fish(nacre_contra_jt)
+
+# Calculate a single, unified color ceiling across the active data
+global_vmax = np.nanpercentile([
+    mecp2_ipsi_jt, 
+    mecp2_contra_jt, 
+    nacre_ipsi_jt, 
+    nacre_contra_jt
+],99.5)
+
+# Initialize the grid
+fig, axes = plt.subplots(2, 2, figsize=(7, 7), sharex=True, sharey=False)
+(ax_m_ipsi, ax_m_contra), (ax_n_ipsi, ax_n_contra) = axes
+
+heatmap_configs = [
+    (mecp2_ipsi_clean,   ax_m_ipsi, COLOR_MECP2),
+    (mecp2_contra_clean, ax_m_contra, COLOR_MECP2),
+    (nacre_ipsi_clean,   ax_n_ipsi, COLOR_WT),
+    (nacre_contra_clean, ax_n_contra, COLOR_WT)
+]
+
+x_labels = [str(intensity) for intensity in uv_intensities]
+
+for matrix_data, ax_target, col in heatmap_configs:
+    num_rows, num_cols = matrix_data.shape
+    cell_aspect = num_cols / num_rows
+    
+    sns.heatmap(
+        data=matrix_data,
+        ax=ax_target,
+        cmap="gist_yarg",
+        vmin=0.0,
+        vmax=global_vmax,
+        xticklabels=x_labels,
+        yticklabels=False,  
+        cbar=False,
+        robust=True
+    )
+    ax_target.set_aspect(cell_aspect, adjustable='box')    
+    for spine in ax_target.spines.values():
+        spine.set_visible(True)
+        spine.set_color(col)
+        spine.set_linewidth(1.2)
+
+for ax in axes.flat:
+    ax.label_outer()  
+
+axes[0, 0].set_title("ipsilateral", fontsize=12, fontweight='bold')
+axes[0, 1].set_title("contralateral", fontsize=12, fontweight='bold')
+axes[0, 0].set_ylabel("mecp2-mutant", fontsize=12, fontweight='bold', color=COLOR_MECP2)
+axes[1, 0].set_ylabel("wild type", fontsize=12, fontweight='bold', color=COLOR_WT)
+
+# Configure the bottom row x-axis labels layout cleanly
+for ax in axes[-1, :]:
+    ax.set_xlabel("UV Intensity", fontsize=11, labelpad=5)
+    ax.set_xticklabels(ax.get_xticklabels(), rotation=90, ha='center', fontsize=10)
+
+# Adjust padding structure tightly
+plt.tight_layout()
+fig.subplots_adjust(right=0.84, wspace=0.02, hspace=0.1)
+cbar_ax = fig.add_axes([0.87, 0.28, 0.02, 0.45])  # [left, bottom, width, height]  
+sm = plt.cm.ScalarMappable(cmap="gist_yarg", norm=plt.Normalize(vmin=0.0, vmax=global_vmax))
+sm.set_array([])
+
+# Add a matching border to the colorbar frame for visual consistency
+cb = fig.colorbar(sm, cax=cbar_ax, label='J-Turn Frequency (Hz)')
+cb.outline.set_visible(True)
+cb.outline.set_edgecolor('black')
+cb.outline.set_linewidth(1.0)
+
+plt.savefig("UV_Intensity_Heatmaps.png", format='png', dpi=200, bbox_inches='tight')
+plt.show()
+
+
+
+######### stats
+
+import numpy as np
+import pandas as pd
+from scipy.stats import mannwhitneyu
+from statsmodels.stats.multitest import multipletests
+
+p_values = []
+u_statistics = []
+mecp2_means = []
+nacre_means = []
+num_intensities = mecp2_ipsi_clean.shape[1]
+uv_labels = [str(intensity) for intensity in uv_intensities]
+for i in range(num_intensities):
+    mecp2_dist = mecp2_ipsi_clean[:, i]
+    nacre_dist = nacre_ipsi_clean[:, i]
+    u_stat, p_val = mannwhitneyu(mecp2_dist, nacre_dist, alternative='two-sided', nan_policy='omit')
+    u_statistics.append(u_stat)
+    p_values.append(p_val)
+    mecp2_means.append(np.nanmean(mecp2_dist))
+    nacre_means.append(np.nanmean(nacre_dist))
+reject, p_corrected, _, _ = multipletests(p_values, alpha=0.05, method='fdr_bh')
+
+stats_df = pd.DataFrame({
+    'UV_Intensity': uv_labels,
+    'Mecp2_Mean_Hz': mecp2_means,
+    'Nacre_Mean_Hz': nacre_means,
+    'U_Statistic': u_statistics,
+    'Raw_p': p_values,
+    'FDR_Corrected_p': p_corrected,
+    'Raw_p < 0.05': np.array(p_values) < 0.05
+})
+
+print("=========================================================")
+print("  GENOTYPE COMPARISON: MECP2 (N=40) vs. NACRE (N=38)     ")
+print("=========================================================")
+print(stats_df.to_string(index=False, formatters={
+    'Mecp2_Mean_Hz': '{:,.3f}'.format,
+    'Nacre_Mean_Hz': '{:,.3f}'.format,
+    'Raw_p': '{:,.4e}'.format,
+    'FDR_Corrected_p': '{:,.4e}'.format
+}))
+
+
+
+fig, ax = plt.subplots(figsize=(8, 5))
+plot_with_shading(ax, uv_intensities, mecp2_ipsi_clean, COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
+plot_with_shading(ax, uv_intensities, nacre_ipsi_clean, COLOR_WT, 'wild type (Ipsi)', '-')
+ax.set_xscale('log') 
+is_significant = np.array(p_values) < 0.05
+y_limits = ax.get_ylim()
+ax.fill_between(
+    uv_intensities, 
+    y_limits[0], y_limits[1], 
+    where=is_significant, 
+    color='gray', 
+    alpha=0.15, 
+    step='mid',   
+    zorder=1       
+)
+ax.set_ylim(0, y_limits[1])
+ax.set_xlabel("UV Intensity", fontsize=11, fontweight='bold', labelpad=8)
+ax.set_ylabel("J-Turn Frequency (Hz)", fontsize=11, fontweight='bold', labelpad=8)
+ax.set_title("Ipsilateral J-Turn Profile: Mecp2 vs. Wild Type", fontsize=12, fontweight='bold', pad=12)
+for spine in ['top', 'right']:
+    ax.spines[spine].set_visible(False)
+
+ax.legend(frameon=False, loc='upper left', fontsize=9)
+plt.tight_layout()
+plt.savefig("UV_Intensity_Profile_With_Stats.png", format='png', dpi=200, bbox_inches='tight')
 plt.show()
 
 #############
