@@ -974,7 +974,6 @@ print(stats_df.to_string(index=False, formatters={
 fig, ax = plt.subplots(figsize=(8, 5))
 plot_with_shading(ax, uv_intensities, mecp2_ipsi_clean, COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
 plot_with_shading(ax, uv_intensities, nacre_ipsi_clean, COLOR_WT, 'wild type (Ipsi)', '-')
-ax.set_xscale('log') 
 is_significant = np.array(p_values) < 0.05
 y_limits = ax.get_ylim()
 ax.fill_between(
@@ -986,6 +985,7 @@ ax.fill_between(
     step='mid',   
     zorder=1       
 )
+ax.set_xscale('log') 
 ax.set_ylim(0, y_limits[1])
 ax.set_xlabel("UV Intensity", fontsize=11, fontweight='bold', labelpad=8)
 ax.set_ylabel("J-Turn Frequency (Hz)", fontsize=11, fontweight='bold', labelpad=8)
@@ -996,6 +996,137 @@ for spine in ['top', 'right']:
 ax.legend(frameon=False, loc='upper left', fontsize=9)
 plt.tight_layout()
 plt.savefig("UV_Intensity_Profile_With_Stats.png", format='png', dpi=200, bbox_inches='tight')
+plt.show()
+
+
+#####
+
+import pingouin as pg
+
+df_mecp2 = pd.DataFrame(mecp2_ipsi_clean, columns=uv_intensities)
+df_nacre = pd.DataFrame(nacre_ipsi_clean, columns=uv_intensities)
+df_mecp2['subject_id'] = [f'mecp2_{i}' for i in range(len(df_mecp2))]
+df_nacre['subject_id'] = [f'nacre_{i}' for i in range(len(df_nacre))]
+df_mecp2['group'] = 'mecp2'
+df_nacre['group'] = 'nacre'
+combined_df = pd.concat([df_mecp2, df_nacre], ignore_index=True)
+df_long = pd.melt(
+    combined_df, 
+    id_vars=['subject_id', 'group'], 
+    value_vars=uv_intensities,
+    var_name='intensity', 
+    value_name='jt_freq'
+)
+df_long['intensity'] = pd.to_numeric(df_long['intensity'])
+anova_results = pg.mixed_anova(
+    data=df_long, 
+    dv='jt_freq', 
+    within='intensity', 
+    between='group', 
+    subject='subject_id'
+)
+print(anova_results)
+
+
+############# Sigmoid
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+
+intensity_stop = 15
+
+log_x = np.log10(uv_intensities[0:intensity_stop])
+x_smooth = np.linspace(log_x.min(), log_x.max(), 200) 
+
+def sigmoidal_model(x, bottom, top, log_ec50, hill_slope):
+    return bottom + (top - bottom) / (1 + 10**((log_ec50 - x) * hill_slope))
+
+n_mecp2 = mecp2_ipsi_clean.shape[0]
+n_nacre = nacre_ipsi_clean.shape[0]
+initial_guesses = [np.min(mecp2_ipsi_clean), np.max(mecp2_ipsi_clean), -1.0, 1.0]
+preds_mecp2 = []
+preds_nacre = []
+ec50_diffs = []
+ec50_m_list = []
+ec50_n_list = []
+n_iterations = 10_000
+
+bounds = (
+    [0, 0, log_x.min()-1, 0.01],   
+    [10, 10, log_x.max()+1, 5]
+)
+
+for i in range(n_iterations):
+    boot_m = np.random.choice(n_mecp2, size=n_mecp2, replace=True)
+    boot_n = np.random.choice(n_nacre, size=n_nacre, replace=True)
+    
+    mean_m = np.mean(mecp2_ipsi_clean[boot_m, 0:intensity_stop], axis=0)
+    mean_n = np.mean(nacre_ipsi_clean[boot_n, 0:intensity_stop], axis=0)
+    
+    try:
+        popt_m, _ = curve_fit(sigmoidal_model, log_x, mean_m, p0=initial_guesses, bounds=bounds, maxfev=5000)
+        popt_n, _ = curve_fit(sigmoidal_model, log_x, mean_n, p0=initial_guesses, bounds=bounds, maxfev=5000)
+
+        ec50_m = 10**popt_m[2]
+        ec50_n = 10**popt_n[2]
+        ec50_diffs.append(ec50_m - ec50_n)
+        ec50_m_list.append(ec50_m) 
+        ec50_n_list.append(ec50_n)
+        
+        # Save the continuous curve prediction paths over our smooth X grid
+        preds_mecp2.append(sigmoidal_model(x_smooth, *popt_m))
+        preds_nacre.append(sigmoidal_model(x_smooth, *popt_n))
+    except RuntimeError:
+        continue
+
+ec50_diffs = np.array(ec50_diffs)
+ec50_m_list = np.array(ec50_m_list)
+ec50_n_list = np.array(ec50_n_list)
+ci_lower = np.percentile(ec50_diffs, 2.5)
+ci_upper = np.percentile(ec50_diffs, 97.5)
+p_value = 2 * min(np.mean(ec50_diffs > 0), np.mean(ec50_diffs < 0))
+
+print("\n=== SUMMARY ===")
+print(f"mecp2 Group EC50: {np.median(ec50_m_list):.4f} [95% CI: {np.percentile(ec50_m_list, 2.5):.4f}, {np.percentile(ec50_m_list, 97.5):.4f}]")
+print(f"nacre Group EC50: {np.median(ec50_n_list):.4f} [95% CI: {np.percentile(ec50_n_list, 2.5):.4f}, {np.percentile(ec50_n_list, 97.5):.4f}]")
+print(f"Group Difference: {np.median(ec50_diffs):.4f} [95% CI: {ci_lower:.4f}, {ci_upper:.4f}]")
+print(f"Empirical P-value: {p_value:.4f}")
+
+# 2. Extract Confidence Interval Boundaries
+preds_mecp2 = np.array(preds_mecp2)
+preds_nacre = np.array(preds_nacre)
+med_m, low_m, high_m = np.percentile(preds_mecp2, [50, 2.5, 97.5], axis=0)
+med_n, low_n, high_n = np.percentile(preds_nacre, [50, 2.5, 97.5], axis=0)
+
+
+plt.figure(figsize=(8, 5.5))
+
+plt.plot(x_smooth, med_m, color=COLOR_MECP2, lw=2.5, label='mecp2-mutant')
+plt.fill_between(x_smooth, low_m, high_m, color=COLOR_MECP2, alpha=0.15, edgecolor=None)
+plt.plot(x_smooth, med_n, color=COLOR_WT, lw=2.5, label='wild type')
+plt.fill_between(x_smooth, low_n, high_n, color=COLOR_WT, alpha=0.15, edgecolor=None)
+
+raw_mean_m = np.mean(mecp2_ipsi_clean, axis=0)
+raw_mean_n = np.mean(nacre_ipsi_clean, axis=0)
+plt.scatter(np.log10(uv_intensities)[intensity_stop:], raw_mean_m[intensity_stop:], color=COLOR_MECP2, edgecolor='k', zorder=4, label='mecp2-mutant', alpha=0.35)
+plt.scatter(np.log10(uv_intensities)[intensity_stop:], raw_mean_n[intensity_stop:], color=COLOR_WT, edgecolor='k', zorder=4, label='wild type', alpha=0.35)
+plt.scatter(log_x, raw_mean_m[:intensity_stop], color=COLOR_MECP2, edgecolor='k', zorder=4, label='mecp2-mutant')
+plt.scatter(log_x, raw_mean_n[:intensity_stop], color=COLOR_WT, edgecolor='k', zorder=4, label='wild type')
+
+regular_ticks = [0.01, 0.03, 0.1, 0.3, 1.0]
+plt.xticks(np.log10(regular_ticks), [str(t) for t in regular_ticks])
+plt.xlim(np.log10(0.008), np.log10(1.2))
+
+# 3. Aesthetics and Output
+plt.xlabel('UV Intensity')
+plt.ylabel('J-Turn frequency (Hz)')
+
+handles, labels = plt.gca().get_legend_handles_labels()
+by_label = dict(zip(labels, handles))
+plt.legend(by_label.values(), by_label.keys(), loc='upper left')
+plt.grid(True, which='both', linestyle='--', alpha=0.3) 
+plt.savefig("UV_Intensity_Sigmoid_Bootstrap_Fit.png", format='png', dpi=200, bbox_inches='tight')
 plt.show()
 
 #############
