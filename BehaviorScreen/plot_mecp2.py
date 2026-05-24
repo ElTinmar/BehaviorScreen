@@ -711,7 +711,7 @@ JTURN = bouts_category_name_short.index('JT')
 ROUTINE_TURN = bouts_category_name_short.index('RT')
 
 prob_threshold = 0.5
-trial_duration_s = 7
+trial_duration_s = 7 # 7 total duration of the trial
 N_fish = 40
 
 class PreySide(IntEnum):
@@ -1004,99 +1004,266 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
+# 1. Clean your data arrays
+mecp2_ipsi_clean   = remove_empty_fish(mecp2_ipsi_jt)
+mecp2_contra_clean = remove_empty_fish(mecp2_contra_jt)
+nacre_ipsi_clean   = remove_empty_fish(nacre_ipsi_jt)
+nacre_contra_clean = remove_empty_fish(nacre_contra_jt)
+
 intensity_stop = 15
 
 log_x = np.log10(uv_intensities[0:intensity_stop])
 x_smooth = np.linspace(log_x.min(), log_x.max(), 200) 
 
+# --- Models ---
 def sigmoidal_model(x, bottom, top, log_ec50, hill_slope):
     return bottom + (top - bottom) / (1 + 10**((log_ec50 - x) * hill_slope))
 
+def linear_model(x, slope, intercept):
+    return slope * x + intercept
+
+def calculate_r_squared(y_true, y_pred):
+    ss_res = np.sum((y_true - y_pred) ** 2)
+    ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+    if ss_tot == 0:
+        return 0.0
+    return 1 - (ss_res / ss_tot)
+
+def calculate_rmse(y_true, y_pred):
+    return np.sqrt(np.mean((y_true - y_pred) ** 2))
+
+# --- Optimization Settings ---
 n_mecp2 = mecp2_ipsi_clean.shape[0]
 n_nacre = nacre_ipsi_clean.shape[0]
-initial_guesses = [np.min(mecp2_ipsi_clean), np.max(mecp2_ipsi_clean), -1.0, 1.0]
-preds_mecp2 = []
-preds_nacre = []
-ec50_diffs = []
-ec50_m_list = []
-ec50_n_list = []
-n_iterations = 10_000
 
-bounds = (
+initial_guesses_sig = [np.min(mecp2_ipsi_clean), np.max(mecp2_ipsi_clean), -1.0, 1.0]
+initial_guesses_lin = [0.0, np.mean(mecp2_contra_clean)]
+
+bounds_sig = (
     [0, 0, log_x.min()-1, 0.01],   
     [10, 10, log_x.max()+1, 5]
 )
+# Allowing slopes to be slightly positive or negative for the control
+bounds_lin = ([-2, 0], [2, 10]) 
 
+# --- Tracking Arrays for Bootstrap ---
+preds_mecp2_ipsi = []
+preds_nacre_ipsi = []
+preds_mecp2_contra = []
+preds_nacre_contra = []
+
+ec50_diffs = []
+ec50_m_list = []
+ec50_n_list = []
+slope_m_contra_list = []
+slope_n_contra_list = []
+r2_m_ipsi_list = []
+r2_n_ipsi_list = []
+r2_m_contra_list = []
+r2_n_contra_list = []
+rmse_m_ipsi_list = []
+rmse_n_ipsi_list = []
+rmse_m_contra_list = []
+rmse_n_contra_list = []
+
+n_iterations = 10_000
+
+print(f"Running {n_iterations:,} bootstrap iterations...")
 for i in range(n_iterations):
     boot_m = np.random.choice(n_mecp2, size=n_mecp2, replace=True)
     boot_n = np.random.choice(n_nacre, size=n_nacre, replace=True)
     
-    mean_m = np.mean(mecp2_ipsi_clean[boot_m, 0:intensity_stop], axis=0)
-    mean_n = np.mean(nacre_ipsi_clean[boot_n, 0:intensity_stop], axis=0)
+    # Calculate means for this bootstrap sample
+    mean_m_ipsi   = np.mean(mecp2_ipsi_clean[boot_m, 0:intensity_stop], axis=0)
+    mean_n_ipsi   = np.mean(nacre_ipsi_clean[boot_n, 0:intensity_stop], axis=0)
+    mean_m_contra = np.mean(mecp2_contra_clean[boot_m, 0:intensity_stop], axis=0)
+    mean_n_contra = np.mean(nacre_contra_clean[boot_n, 0:intensity_stop], axis=0)
     
     try:
-        popt_m, _ = curve_fit(sigmoidal_model, log_x, mean_m, p0=initial_guesses, bounds=bounds, maxfev=5000)
-        popt_n, _ = curve_fit(sigmoidal_model, log_x, mean_n, p0=initial_guesses, bounds=bounds, maxfev=5000)
+        # Fit Ipsilateral groups with Sigmoid
+        popt_m_i, _ = curve_fit(sigmoidal_model, log_x, mean_m_ipsi, p0=initial_guesses_sig, bounds=bounds_sig, maxfev=5000)
+        popt_n_i, _ = curve_fit(sigmoidal_model, log_x, mean_n_ipsi, p0=initial_guesses_sig, bounds=bounds_sig, maxfev=5000)
+        popt_m_c, _ = curve_fit(linear_model, log_x, mean_m_contra, p0=initial_guesses_lin, bounds=bounds_lin, maxfev=5000)
+        popt_n_c, _ = curve_fit(linear_model, log_x, mean_n_contra, p0=initial_guesses_lin, bounds=bounds_lin, maxfev=5000)
 
-        ec50_m = 10**popt_m[2]
-        ec50_n = 10**popt_n[2]
+        # Metrics extraction
+        ec50_m = 10**popt_m_i[2]
+        ec50_n = 10**popt_n_i[2]
         ec50_diffs.append(ec50_m - ec50_n)
         ec50_m_list.append(ec50_m) 
         ec50_n_list.append(ec50_n)
+        slope_m_contra_list.append(popt_m_c[0])
+        slope_n_contra_list.append(popt_n_c[0])
+
+        # goodness of fit
+        pred_m_i = sigmoidal_model(log_x, *popt_m_i)
+        pred_n_i = sigmoidal_model(log_x, *popt_n_i)
+        pred_m_c = linear_model(log_x, *popt_m_c)
+        pred_n_c = linear_model(log_x, *popt_n_c)
+        r2_m_ipsi_list.append(calculate_r_squared(mean_m_ipsi, pred_m_i))
+        r2_n_ipsi_list.append(calculate_r_squared(mean_n_ipsi, pred_n_i))
+        r2_m_contra_list.append(calculate_r_squared(mean_m_contra, pred_m_c))
+        r2_n_contra_list.append(calculate_r_squared(mean_n_contra, pred_n_c))
+        rmse_m_ipsi_list.append(calculate_rmse(mean_m_ipsi, pred_m_i))
+        rmse_n_ipsi_list.append(calculate_rmse(mean_n_ipsi, pred_n_i))
+        rmse_m_contra_list.append(calculate_rmse(mean_m_contra, pred_m_c))
+        rmse_n_contra_list.append(calculate_rmse(mean_n_contra, pred_n_c))
+
+        # Save continuous curve predictions over the smooth X grid
+        preds_mecp2_ipsi.append(sigmoidal_model(x_smooth, *popt_m_i))
+        preds_nacre_ipsi.append(sigmoidal_model(x_smooth, *popt_n_i))
+        preds_mecp2_contra.append(linear_model(x_smooth, *popt_m_c))
+        preds_nacre_contra.append(linear_model(x_smooth, *popt_n_c))
         
-        # Save the continuous curve prediction paths over our smooth X grid
-        preds_mecp2.append(sigmoidal_model(x_smooth, *popt_m))
-        preds_nacre.append(sigmoidal_model(x_smooth, *popt_n))
     except RuntimeError:
         continue
 
+# --- Process Statistics ---
 ec50_diffs = np.array(ec50_diffs)
 ec50_m_list = np.array(ec50_m_list)
 ec50_n_list = np.array(ec50_n_list)
+slope_m_contra_list = np.array(slope_m_contra_list)
+slope_n_contra_list = np.array(slope_n_contra_list)
+r2_m_ipsi_list = np.array(r2_m_ipsi_list)
+r2_n_ipsi_list = np.array(r2_n_ipsi_list)
+r2_m_contra_list = np.array(r2_m_contra_list)
+r2_n_contra_list = np.array(r2_n_contra_list)
+rmse_m_ipsi_list = np.array(rmse_m_ipsi_list)
+rmse_n_ipsi_list = np.array(rmse_n_ipsi_list)
+rmse_m_contra_list = np.array(rmse_m_contra_list)
+rmse_n_contra_list = np.array(rmse_n_contra_list)
+
 ci_lower = np.percentile(ec50_diffs, 2.5)
 ci_upper = np.percentile(ec50_diffs, 97.5)
 p_value = 2 * min(np.mean(ec50_diffs > 0), np.mean(ec50_diffs < 0))
 
+# Extract Confidence Intervals for Ipsilateral Curves
+preds_mecp2_ipsi = np.array(preds_mecp2_ipsi)
+preds_nacre_ipsi = np.array(preds_nacre_ipsi)
+med_m, low_m, high_m = np.percentile(preds_mecp2_ipsi, [50, 2.5, 97.5], axis=0)
+med_n, low_n, high_n = np.percentile(preds_nacre_ipsi, [50, 2.5, 97.5], axis=0)
+
+# Extract Confidence Intervals for Contralateral Curves
+preds_mecp2_contra = np.array(preds_mecp2_contra)
+preds_nacre_contra = np.array(preds_nacre_contra)
+med_m_c, low_m_c, high_m_c = np.percentile(preds_mecp2_contra, [50, 2.5, 97.5], axis=0)
+med_n_c, low_n_c, high_n_c = np.percentile(preds_nacre_contra, [50, 2.5, 97.5], axis=0)
+
+log_ec50_m_med = np.log10(np.median(ec50_m_list))
+log_ec50_m_low = np.log10(np.percentile(ec50_m_list, 2.5))
+log_ec50_m_high = np.log10(np.percentile(ec50_m_list, 97.5))
+log_ec50_n_med = np.log10(np.median(ec50_n_list))
+log_ec50_n_low = np.log10(np.percentile(ec50_n_list, 2.5))
+log_ec50_n_high = np.log10(np.percentile(ec50_n_list, 97.5))
+
+y_mid_m = np.min(med_m) + (np.max(med_m) - np.min(med_m)) / 2
+y_mid_n = np.min(med_n) + (np.max(med_n) - np.min(med_n)) / 2
+
+# --- Print Summary Status ---
 print("\n=== SUMMARY ===")
 print(f"mecp2 Group EC50: {np.median(ec50_m_list):.4f} [95% CI: {np.percentile(ec50_m_list, 2.5):.4f}, {np.percentile(ec50_m_list, 97.5):.4f}]")
 print(f"nacre Group EC50: {np.median(ec50_n_list):.4f} [95% CI: {np.percentile(ec50_n_list, 2.5):.4f}, {np.percentile(ec50_n_list, 97.5):.4f}]")
 print(f"Group Difference: {np.median(ec50_diffs):.4f} [95% CI: {ci_lower:.4f}, {ci_upper:.4f}]")
 print(f"Empirical P-value: {p_value:.4f}")
+print("\n=== CONTROL SLOPE VALIDATION ===")
+print(f"mecp2 Contra Slope: {np.median(slope_m_contra_list):.4f} [95% CI: {np.percentile(slope_m_contra_list, 2.5):.4f}, {np.percentile(slope_m_contra_list, 97.5):.4f}]")
+print(f"nacre Contra Slope: {np.median(slope_n_contra_list):.4f} [95% CI: {np.percentile(slope_n_contra_list, 2.5):.4f}, {np.percentile(slope_n_contra_list, 97.5):.4f}]")
+print("\n=== BOOTSTRAPPED GOODNESS OF FIT ===")
+print(f"mecp2 Ipsi Sigmoid $R^2$: {np.median(r2_m_ipsi_list):.4f} [95% CI: {np.percentile(r2_m_ipsi_list, 2.5):.4f}, {np.percentile(r2_m_ipsi_list, 97.5):.4f}]")
+print(f"nacre Ipsi Sigmoid $R^2$: {np.median(r2_n_ipsi_list):.4f} [95% CI: {np.percentile(r2_n_ipsi_list, 2.5):.4f}, {np.percentile(r2_n_ipsi_list, 97.5):.4f}]")
+print(f"mecp2 Contra Linear $R^2$: {np.median(r2_m_contra_list):.4f} [95% CI: {np.percentile(r2_m_contra_list, 2.5):.4f}, {np.percentile(r2_m_contra_list, 97.5):.4f}]")
+print(f"nacre Contra Linear $R^2$: {np.median(r2_n_contra_list):.4f} [95% CI: {np.percentile(r2_n_contra_list, 2.5):.4f}, {np.percentile(r2_n_contra_list, 97.5):.4f}]")
+print(f"mecp2 Ipsi Sigmoid RMSE: {np.median(rmse_m_ipsi_list):.4f} [95% CI: {np.percentile(rmse_m_ipsi_list, 2.5):.4f}, {np.percentile(rmse_m_ipsi_list, 97.5):.4f}]")
+print(f"nacre Ipsi Sigmoid RMSE: {np.median(rmse_n_ipsi_list):.4f} [95% CI: {np.percentile(rmse_n_ipsi_list, 2.5):.4f}, {np.percentile(rmse_n_ipsi_list, 97.5):.4f}]")
+print(f"mecp2 Contra Linear RMSE: {np.median(rmse_m_contra_list):.4f} [95% CI: {np.percentile(rmse_m_contra_list, 2.5):.4f}, {np.percentile(rmse_m_contra_list, 97.5):.4f}]")
+print(f"nacre Contra Linear RMSE: {np.median(rmse_n_contra_list):.4f} [95% CI: {np.percentile(rmse_n_contra_list, 2.5):.4f}, {np.percentile(rmse_n_contra_list, 97.5):.4f}]")
 
-# 2. Extract Confidence Interval Boundaries
-preds_mecp2 = np.array(preds_mecp2)
-preds_nacre = np.array(preds_nacre)
-med_m, low_m, high_m = np.percentile(preds_mecp2, [50, 2.5, 97.5], axis=0)
-med_n, low_n, high_n = np.percentile(preds_nacre, [50, 2.5, 97.5], axis=0)
+left_out_alpha = 0.4
 
+# --- PLOTTING ---
+plt.figure(figsize=(9, 6.5))
 
-plt.figure(figsize=(8, 5.5))
+# 1. Plot Ipsilateral Sigmoid Fits (Capture lines AND shading patches)
+line_m_ipsi, = plt.plot(x_smooth, med_m, color=COLOR_MECP2, lw=2.5, zorder=1)
+fill_m_ipsi = plt.fill_between(x_smooth, low_m, high_m, color=COLOR_MECP2, alpha=0.15, edgecolor=None, zorder=0)
 
-plt.plot(x_smooth, med_m, color=COLOR_MECP2, lw=2.5, label='mecp2-mutant')
-plt.fill_between(x_smooth, low_m, high_m, color=COLOR_MECP2, alpha=0.15, edgecolor=None)
-plt.plot(x_smooth, med_n, color=COLOR_WT, lw=2.5, label='wild type')
-plt.fill_between(x_smooth, low_n, high_n, color=COLOR_WT, alpha=0.15, edgecolor=None)
+line_n_ipsi, = plt.plot(x_smooth, med_n, color=COLOR_WT, lw=2.5, zorder=1)
+fill_n_ipsi = plt.fill_between(x_smooth, low_n, high_n, color=COLOR_WT, alpha=0.15, edgecolor=None, zorder=0)
 
-raw_mean_m = np.mean(mecp2_ipsi_clean, axis=0)
-raw_mean_n = np.mean(nacre_ipsi_clean, axis=0)
-plt.scatter(np.log10(uv_intensities)[intensity_stop:], raw_mean_m[intensity_stop:], color=COLOR_MECP2, edgecolor='k', zorder=4, label='mecp2-mutant', alpha=0.35)
-plt.scatter(np.log10(uv_intensities)[intensity_stop:], raw_mean_n[intensity_stop:], color=COLOR_WT, edgecolor='k', zorder=4, label='wild type', alpha=0.35)
-plt.scatter(log_x, raw_mean_m[:intensity_stop], color=COLOR_MECP2, edgecolor='k', zorder=4, label='mecp2-mutant')
-plt.scatter(log_x, raw_mean_n[:intensity_stop], color=COLOR_WT, edgecolor='k', zorder=4, label='wild type')
+# 2. Plot Contralateral Linear Fits (Dashed Lines)
+line_m_contra, = plt.plot(x_smooth, med_m_c, color=COLOR_MECP2, lw=1.5, linestyle='--', zorder=1)
+fill_m_contra = plt.fill_between(x_smooth, low_m_c, high_m_c, color=COLOR_MECP2, alpha=0.15, edgecolor=None, zorder=0)
 
+line_n_contra, = plt.plot(x_smooth, med_n_c, color=COLOR_WT, lw=1.5, linestyle='--', zorder=1)
+fill_n_contra = plt.fill_between(x_smooth, low_n_c, high_n_c, color=COLOR_WT, alpha=0.15, edgecolor=None, zorder=0)
+
+# 3. Handle EC50 Horizontal Error Bars
+plt.errorbar(
+    x=log_ec50_m_med, y=y_mid_m, 
+    xerr=[[log_ec50_m_med - log_ec50_m_low], [log_ec50_m_high - log_ec50_m_med]],
+    fmt='none', color=COLOR_MECP2, capsize=5, elinewidth=1.5, capthick=1.5, zorder=5
+)
+plt.errorbar(
+    x=log_ec50_n_med, y=y_mid_n, 
+    xerr=[[log_ec50_n_med - log_ec50_n_low], [log_ec50_n_high - log_ec50_n_med]],
+    fmt='none', color=COLOR_WT, capsize=5, elinewidth=1.5, capthick=1.5, zorder=5
+)
+
+# 4. Plot Raw Data Points
+raw_mean_m_ipsi = np.mean(mecp2_ipsi_clean, axis=0)
+raw_mean_n_ipsi = np.mean(nacre_ipsi_clean, axis=0)
+raw_mean_m_contra = np.mean(mecp2_contra_clean, axis=0)
+raw_mean_n_contra = np.mean(nacre_contra_clean, axis=0)
+
+# Excluded intensities (faded points)
+plt.scatter(np.log10(uv_intensities)[intensity_stop:], raw_mean_m_ipsi[intensity_stop:], color=COLOR_MECP2, edgecolor='k', zorder=5, alpha=left_out_alpha)
+plt.scatter(np.log10(uv_intensities)[intensity_stop:], raw_mean_n_ipsi[intensity_stop:], color=COLOR_WT, edgecolor='k', zorder=5, alpha=left_out_alpha)
+plt.scatter(np.log10(uv_intensities)[intensity_stop:], raw_mean_m_contra[intensity_stop:], marker='^', color=COLOR_MECP2, edgecolor='k', zorder=5, alpha=left_out_alpha)
+plt.scatter(np.log10(uv_intensities)[intensity_stop:], raw_mean_n_contra[intensity_stop:],  marker='^', color=COLOR_WT, edgecolor='k', zorder=5, alpha=left_out_alpha)
+
+# Included Ipsilateral Points (Circles)
+scat_m_ipsi = plt.scatter(log_x, raw_mean_m_ipsi[:intensity_stop], color=COLOR_MECP2, marker='o', edgecolor='k', s=45, zorder=5)
+scat_n_ipsi = plt.scatter(log_x, raw_mean_n_ipsi[:intensity_stop], color=COLOR_WT, marker='o', edgecolor='k', s=45, zorder=5)
+
+# Included Contralateral Points (Triangles)
+scat_m_contra = plt.scatter(log_x, raw_mean_m_contra[:intensity_stop], color=COLOR_MECP2, marker='^', edgecolor='k', s=45, zorder=5)
+scat_n_contra = plt.scatter(log_x, raw_mean_n_contra[:intensity_stop], color=COLOR_WT, marker='^', edgecolor='k', s=45, zorder=5)
+
+# 5. Aesthetics & Legibility
 regular_ticks = [0.01, 0.03, 0.1, 0.3, 1.0]
 plt.xticks(np.log10(regular_ticks), [str(t) for t in regular_ticks])
 plt.xlim(np.log10(0.008), np.log10(1.2))
 
-# 3. Aesthetics and Output
 plt.xlabel('UV Intensity')
 plt.ylabel('J-Turn frequency (Hz)')
 
-handles, labels = plt.gca().get_legend_handles_labels()
-by_label = dict(zip(labels, handles))
-plt.legend(by_label.values(), by_label.keys(), loc='upper left')
+# --- CUSTOM CLEAN LEGEND MAPPING ---
+# Superpose the shading block, line style, and marker shape on top of each other!
+legend_handles = [
+    (line_m_ipsi, scat_m_ipsi),
+    (line_n_ipsi, scat_n_ipsi),
+    (line_m_contra, scat_m_contra),
+    (line_n_contra, scat_n_contra)
+]
+legend_labels = [
+    'mecp2-mutant (Ipsi)',
+    'wild type (Ipsi)',
+    'mecp2-mutant (Contra)',
+    'wild type (Contra)'
+]
+
+plt.legend(
+    handles=legend_handles, 
+    labels=legend_labels, 
+    loc='upper left', 
+    frameon=True, 
+    facecolor='white', 
+    framealpha=0.9,
+    handler_map={tuple: handler.HandlerTuple(ndivide=None)}
+)
+
 plt.grid(True, which='both', linestyle='--', alpha=0.3) 
-plt.savefig("UV_Intensity_Sigmoid_Bootstrap_Fit.png", format='png', dpi=200, bbox_inches='tight')
+plt.savefig("UV_Intensity_Sigmoid_With_Linear_Controls.png", format='png', dpi=200, bbox_inches='tight')
 plt.show()
 
 #############
