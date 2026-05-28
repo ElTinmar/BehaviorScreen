@@ -5,6 +5,10 @@ import matplotlib.pyplot as plt
 from statsmodels.stats.multitest import multipletests
 from megabouts.utils import bouts_category_name_short
 
+# TODO t-stats is maybe not the right stat for count data
+# also reconsider cohen's d ?
+
+
 capture_strikes = ['LCS_L','LCS_R','SCS_L','SCS_R']
 sides = ['L', 'R']
 row_names = [f"{cat}_{str(side)}" for cat in bouts_category_name_short for side in sides]
@@ -31,7 +35,7 @@ def compute_t_and_d(group_a, group_b):
     
     return t_stat, cohen_d, zero_var
 
-
+# TODO use scipy.stats.permutation_test ?
 def permutation_analysis(a, b, n_perm=5000, alpha=0.05, rng=None):
 
     rng = np.random.default_rng(rng)
@@ -139,8 +143,8 @@ if __name__ == "__main__":
 
         
     ROOT = Path('/home/martin/Desktop/DATA')
-    ROOT = Path('/media/martin/DATA_18TB/Screen')
     ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/Screen')
+    ROOT = Path('/media/martin/DATA_18TB/Screen')
 
     alpha = 0.05
     effect_size_thresh = 0.5

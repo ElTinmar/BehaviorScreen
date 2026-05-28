@@ -41,6 +41,20 @@ python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
 - Try to correlate behavioral deficit to line expression voxels in the atlas (intersection/combination)
 - Try to see if there is a correlation structure in the deficits (S2 deficit always correlate with RT deficits for instance, or PTX deficit correlate with Looming deficits)
 
+
+data challenges:
+- pseudoreplication / correlation structure
+- non stationarity (time, trials)
+- count (rate) distributions / zero inflation
+
+
+Distribution shape / Zero inflation:
+- permutation test stat and effect size: choose better metrics than t-stat / cohen-d (variance estimates might be meaningless with that many zeros). Maybe log2 fold change 
+- check the proportion of fish that engaged in the behavior (non-zero)
+- check the mean/median after excluding zero counts
+
+
+
 ### pre-processing
 
 - stats : permutation tests, internal comparison (dark) vs external (vehicle, WT)
