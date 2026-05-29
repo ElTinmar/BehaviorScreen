@@ -207,7 +207,7 @@ for i, (mask, m_name) in enumerate(zip(e_masks, e_mask_names)):
 plt.tight_layout()
 plt.tight_layout()
 plt.savefig(f"distributions_spont.svg", format='svg', bbox_inches='tight')
-plt.savefig(f"distributions_spont.png", format='png', dpi=100, bbox_inches='tight')
+plt.savefig(f"distributions_spont.png", format='png', dpi=300, bbox_inches='tight')
 plt.show()
 
 ### TODO plot bout frequency during looming / total distance travelled (looming + recovery)
@@ -304,7 +304,7 @@ for idx, (g, gname, gcolor) in enumerate(zip(groups, groups_name, groups_color.v
 
 plt.tight_layout()
 plt.savefig(f"thigmotaxis_2d_hist.svg", format='svg', bbox_inches='tight')
-plt.savefig(f"thigmotaxis_2d_hist.png", format='png', dpi=100, bbox_inches='tight')
+plt.savefig(f"thigmotaxis_2d_hist.png", format='png', dpi=300, bbox_inches='tight')
 plt.show()
 
 ##### TODO distribution of eye vergence angles
@@ -350,7 +350,7 @@ plt.legend(frameon=False)
 plt.xlabel('eye vergence (deg)')
 plt.ylabel('density')
 plt.savefig(f"eye_vergence.svg", format='svg', bbox_inches='tight')
-plt.savefig(f"eye_vergence.png", format='png', dpi=100, bbox_inches='tight')
+plt.savefig(f"eye_vergence.png", format='png', dpi=300, bbox_inches='tight')
 plt.show()
 
 ###
@@ -469,7 +469,7 @@ def plot_heatmap(
                 ax.set_ylabel("Trial Number")
 
     plt.savefig(f"{label}_heatmap.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"{label}_heatmap.png", format='png', dpi=100, bbox_inches='tight')
+    plt.savefig(f"{label}_heatmap.png", format='png', dpi=300, bbox_inches='tight')
     plt.show()
 
 def pval_to_star(p):
@@ -631,7 +631,7 @@ def plot_barplot(
     plt.legend(frameon=False)
     plt.tight_layout()
     plt.savefig(f"{label}_barplot.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"{label}_barplot.png", format='png', dpi=100, bbox_inches='tight')
+    plt.savefig(f"{label}_barplot.png", format='png', dpi=300, bbox_inches='tight')
     plt.show()
 
     plt.figure(figsize=(6, 6))
@@ -641,7 +641,7 @@ def plot_barplot(
     plt.title("Ipsilateral")
     plt.legend()
     plt.savefig(f"{label}_kde.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"{label}_kde.png", format='png', dpi=100, bbox_inches='tight')
+    plt.savefig(f"{label}_kde.png", format='png', dpi=300, bbox_inches='tight')
     plt.show()
 
     plt.figure(figsize=(6, 6))
@@ -651,7 +651,7 @@ def plot_barplot(
     plt.title("Ipsilateral")
     plt.legend()
     plt.savefig(f"{label}_ecdf.svg", format='svg', bbox_inches='tight')
-    plt.savefig(f"{label}_ecdf.png", format='png', dpi=100, bbox_inches='tight')
+    plt.savefig(f"{label}_ecdf.png", format='png', dpi=300, bbox_inches='tight')
     plt.show()
 
 for data_type, data in [('Frequency (Hz)', JT_freq)]:
@@ -706,7 +706,9 @@ groups = ['mecp2/bouts.csv', 'nacre/bouts.csv']
 groups_name = ['mecp2-mutant', 'wild type']
 groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
 
+ROOT = Path('/media/martin/DATA/Behavioral_screen/DATA/PreyCapture_mecp2/uv_intensity')
 ROOT = Path('/media/martin/DATA_18TB/PreyCapture_mecp2/uv_intensity')
+
 JTURN = bouts_category_name_short.index('JT')
 ROUTINE_TURN = bouts_category_name_short.index('RT')
 
@@ -799,7 +801,8 @@ ax.set_ylabel('JT Frequency (Hz)')
 ax.legend(frameon=False, loc='upper left')
 sns.despine() 
 plt.tight_layout()
-plt.savefig(f"UV_intensity_JT_all.png", format='png', dpi=100, bbox_inches='tight')
+plt.savefig(f"UV_intensity_JT_IPSI_CONTRA.png", format='png', dpi=300, bbox_inches='tight')
+plt.savefig(f"UV_intensity_JT_IPSI_CONTRA.svg", format='svg', bbox_inches='tight')
 plt.show()
 
 fig, ax = plt.subplots(figsize=(8,6))
@@ -813,7 +816,7 @@ ax.set_ylabel('RT Frequency (Hz)')
 ax.legend(frameon=False, loc='upper left')
 sns.despine() 
 plt.tight_layout()
-plt.savefig(f"UV_intensity_RT.png", format='png', dpi=100, bbox_inches='tight')
+plt.savefig(f"UV_intensity_RT.png", format='png', dpi=300, bbox_inches='tight')
 plt.show()
 
 valence_index_stim_side_mecp2 = (JT_freq[0,:,0,:] - RT_freq[0,:,1,:]) / (JT_freq[0,:,0,:] + RT_freq[0,:,1,:])
@@ -832,7 +835,7 @@ ax.set_ylabel('VI')
 ax.legend(frameon=False, loc='upper left')
 sns.despine() 
 plt.tight_layout()
-plt.savefig(f"UV_intensity_VI.png", format='png', dpi=100, bbox_inches='tight')
+plt.savefig(f"UV_intensity_VI.png", format='png', dpi=300, bbox_inches='tight')
 plt.show()
 
 import numpy as np
@@ -921,7 +924,7 @@ cb.outline.set_visible(True)
 cb.outline.set_edgecolor('black')
 cb.outline.set_linewidth(1.0)
 
-plt.savefig("UV_Intensity_Heatmaps.png", format='png', dpi=200, bbox_inches='tight')
+plt.savefig("UV_Intensity_Heatmaps.png", format='png', dpi=300, bbox_inches='tight')
 plt.show()
 
 
@@ -932,6 +935,35 @@ import numpy as np
 import pandas as pd
 from scipy.stats import mannwhitneyu
 from statsmodels.stats.multitest import multipletests
+
+def plot_significance_spans(ax, x_values, is_significant, color='gray', alpha=0.15, zorder=0):
+
+    x_array = np.asarray(x_values)
+    sig_array = np.asarray(is_significant, dtype=bool)
+    if len(x_array) != len(sig_array):
+        raise ValueError("x_values and is_significant must have the same length.")
+        
+    log_x = np.log10(x_array)
+    widths = np.diff(log_x)
+
+    log_bounds = np.zeros(len(x_array) + 1)
+    log_bounds[1:-1] = log_x[:-1] + widths / 2.0
+    log_bounds[0] = log_x[0] - widths[0] / 2.0
+    log_bounds[-1] = log_x[-1] + widths[-1] / 2.0
+    bounds = 10**log_bounds
+
+    in_block = False
+    block_start = None
+    for i, sig in enumerate(sig_array):
+        if sig and not in_block:
+            block_start = bounds[i]
+            in_block = True
+        elif not sig and in_block:
+            ax.axvspan(block_start, bounds[i], color=color, alpha=alpha, zorder=zorder)
+            in_block = False
+            
+    if in_block:
+        ax.axvspan(block_start, bounds[-1], color=color, alpha=alpha, zorder=zorder)
 
 p_values = []
 u_statistics = []
@@ -969,39 +1001,38 @@ print(stats_df.to_string(index=False, formatters={
     'FDR_Corrected_p': '{:,.4e}'.format
 }))
 
-
+plot_contra = False
 
 fig, ax = plt.subplots(figsize=(8, 5))
 plot_with_shading(ax, uv_intensities, mecp2_ipsi_clean, COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
 plot_with_shading(ax, uv_intensities, nacre_ipsi_clean, COLOR_WT, 'wild type (Ipsi)', '-')
+if plot_contra:
+    plot_with_shading(ax, uv_intensities, mecp2_contra_jt, COLOR_MECP2, 'mecp2-mutant (Contra)', '--')
+    plot_with_shading(ax, uv_intensities, nacre_contra_jt, COLOR_WT, 'wild type (Contra)', '--')
+
 is_significant = np.array(p_values) < 0.05
-y_limits = ax.get_ylim()
-ax.fill_between(
-    uv_intensities, 
-    y_limits[0], y_limits[1], 
-    where=is_significant, 
-    color='gray', 
-    alpha=0.15, 
-    step='mid',   
-    zorder=1       
-)
+plot_significance_spans(ax, uv_intensities, is_significant, color='gray', alpha=0.15, zorder=0)
 ax.set_xscale('log') 
-ax.set_ylim(0, y_limits[1])
-ax.set_xlabel("UV Intensity", fontsize=11, fontweight='bold', labelpad=8)
-ax.set_ylabel("J-Turn Frequency (Hz)", fontsize=11, fontweight='bold', labelpad=8)
-ax.set_title("Ipsilateral J-Turn Profile: Mecp2 vs. Wild Type", fontsize=12, fontweight='bold', pad=12)
+ax.set_ylim(0, ax.get_ylim()[1])
+ax.set_xlabel("UV Intensity",)
+ax.set_ylabel("J-Turn Frequency (Hz)")
 for spine in ['top', 'right']:
     ax.spines[spine].set_visible(False)
-
-ax.legend(frameon=False, loc='upper left', fontsize=9)
+ax.legend(frameon=False, loc='upper left')
 plt.tight_layout()
-plt.savefig("UV_Intensity_Profile_With_Stats.png", format='png', dpi=200, bbox_inches='tight')
+
+filename = "UV_Intensity_ANOVA_IPSI"
+if plot_contra:
+    filename += "_CONTRA"
+plt.savefig(filename + ".png", format='png', dpi=300, bbox_inches='tight')
+plt.savefig(filename + ".svg", format='svg', bbox_inches='tight')
 plt.show()
 
 ############# Sigmoid
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import legend_handler as handler
 from scipy.optimize import curve_fit
 
 # 1. Clean your data arrays
@@ -1256,14 +1287,13 @@ plt.legend(
     handles=legend_handles, 
     labels=legend_labels, 
     loc='upper left', 
-    frameon=True, 
-    facecolor='white', 
-    framealpha=0.9,
+    frameon=False, 
     handler_map={tuple: handler.HandlerTuple(ndivide=None)}
 )
 
 plt.grid(True, which='both', linestyle='--', alpha=0.3) 
-plt.savefig("UV_Intensity_Sigmoid_With_Linear_Controls.png", format='png', dpi=200, bbox_inches='tight')
+plt.savefig("UV_Intensity_Sigmoid.png", format='png', dpi=300, bbox_inches='tight')
+plt.savefig("UV_Intensity_Sigmoid.svg", format='svg', bbox_inches='tight')
 plt.show()
 
 #############
@@ -1396,7 +1426,7 @@ ax.set_ylabel('VI')
 ax.legend(frameon=False, loc='upper left')
 sns.despine() 
 plt.tight_layout()
-plt.savefig(f"prey_size_VI.png", format='png', dpi=100, bbox_inches='tight')
+plt.savefig(f"prey_size_VI.png", format='png', dpi=300, bbox_inches='tight')
 plt.show()
 
 
