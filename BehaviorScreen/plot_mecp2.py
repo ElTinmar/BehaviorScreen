@@ -1196,10 +1196,12 @@ print(f"mecp2 Group EC50: {np.median(ec50_m_list):.4f} [95% CI: {np.percentile(e
 print(f"nacre Group EC50: {np.median(ec50_n_list):.4f} [95% CI: {np.percentile(ec50_n_list, 2.5):.4f}, {np.percentile(ec50_n_list, 97.5):.4f}]")
 print(f"Group Difference: {np.median(ec50_diffs):.4f} [95% CI: {ci_lower:.4f}, {ci_upper:.4f}]")
 print(f"Empirical P-value: {p_value:.4f}")
+
 print("\n=== CONTROL SLOPE VALIDATION ===")
 print(f"mecp2 Contra Slope: {np.median(slope_m_contra_list):.4f} [95% CI: {np.percentile(slope_m_contra_list, 2.5):.4f}, {np.percentile(slope_m_contra_list, 97.5):.4f}]")
 print(f"nacre Contra Slope: {np.median(slope_n_contra_list):.4f} [95% CI: {np.percentile(slope_n_contra_list, 2.5):.4f}, {np.percentile(slope_n_contra_list, 97.5):.4f}]")
 print("\n=== BOOTSTRAPPED GOODNESS OF FIT ===")
+
 print(f"mecp2 Ipsi Sigmoid $R^2$: {np.median(r2_m_ipsi_list):.4f} [95% CI: {np.percentile(r2_m_ipsi_list, 2.5):.4f}, {np.percentile(r2_m_ipsi_list, 97.5):.4f}]")
 print(f"nacre Ipsi Sigmoid $R^2$: {np.median(r2_n_ipsi_list):.4f} [95% CI: {np.percentile(r2_n_ipsi_list, 2.5):.4f}, {np.percentile(r2_n_ipsi_list, 97.5):.4f}]")
 print(f"mecp2 Contra Linear $R^2$: {np.median(r2_m_contra_list):.4f} [95% CI: {np.percentile(r2_m_contra_list, 2.5):.4f}, {np.percentile(r2_m_contra_list, 97.5):.4f}]")
