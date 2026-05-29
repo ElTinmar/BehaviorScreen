@@ -888,7 +888,7 @@ for matrix_data, ax_target, col in heatmap_configs:
         vmin=0.0,
         vmax=global_vmax,
         xticklabels=x_labels,
-        yticklabels=False,  
+        yticklabels=True,  
         cbar=False,
         robust=True
     )
@@ -903,8 +903,19 @@ for ax in axes.flat:
 
 axes[0, 0].set_title("ipsilateral", fontsize=12, fontweight='bold')
 axes[0, 1].set_title("contralateral", fontsize=12, fontweight='bold')
-axes[0, 0].set_ylabel("mecp2-mutant", fontsize=12, fontweight='bold', color=COLOR_MECP2)
-axes[1, 0].set_ylabel("wild type", fontsize=12, fontweight='bold', color=COLOR_WT)
+axes[0, 0].text(-0.15, 0.5, "mecp2-mutant", color=COLOR_MECP2, fontsize=12, 
+                fontweight='bold', ha='center', va='center', rotation=90, transform=axes[0,0].transAxes)
+axes[0, 0].text(-0.075, 0.5, f"#Larvae (n = {mecp2_ipsi_clean.shape[0]})", color='black', 
+                fontweight='bold', ha='center', va='center', rotation=90, transform=axes[0,0].transAxes)
+axes[1, 0].text(-0.15, 0.5, "wild type", color=COLOR_WT, fontsize=12, 
+                fontweight='bold', ha='center', va='center', rotation=90, transform=axes[1,0].transAxes)
+axes[1, 0].text(-0.075, 0.5, f"#Larvae (n = {nacre_ipsi_clean.shape[0]})", color='black',  
+                fontweight='bold', ha='center', va='center', rotation=90, transform=axes[1,0].transAxes)
+
+axes[0, 0].set_yticklabels([])
+axes[1, 0].set_yticklabels([])
+axes[0, 1].set_yticks([])
+axes[1, 1].set_yticks([])
 
 # Configure the bottom row x-axis labels layout cleanly
 for ax in axes[-1, :]:
@@ -925,9 +936,8 @@ cb.outline.set_edgecolor('black')
 cb.outline.set_linewidth(1.0)
 
 plt.savefig("UV_Intensity_Heatmaps.png", format='png', dpi=300, bbox_inches='tight')
+plt.savefig("UV_Intensity_Heatmaps.svg", format='svg', bbox_inches='tight')
 plt.show()
-
-
 
 ######### stats
 
