@@ -1038,6 +1038,43 @@ plt.savefig(filename + ".png", format='png', dpi=300, bbox_inches='tight')
 plt.savefig(filename + ".svg", format='svg', bbox_inches='tight')
 plt.show()
 
+import statsmodels.api as sm
+from statsmodels.formula.api import ols
+
+def anova(quantity, xrange):
+
+    q1 = quantity[0][:, xrange]
+    q2 = quantity[1][:, xrange]
+    
+    stim1 = np.tile(np.arange(1, q1.shape[1] + 1), (q1.shape[0], 1))
+    stim2 = np.tile(np.arange(1, q2.shape[1] + 1), (q2.shape[0], 1))
+    stim = np.vstack([stim1, stim2]).flatten()
+    
+    cond1 = np.ones(q1.shape)
+    cond2 = 2 * np.ones(q2.shape)
+    cond = np.vstack([cond1, cond2]).flatten()
+    
+    quant = np.vstack([q1, q2]).flatten()
+    
+    df = pd.DataFrame({
+        'quant': quant,
+        'cond': pd.Categorical(cond),  # Treat as categorical/factors
+        'stim': pd.Categorical(stim)
+    })
+    
+    # The formula 'quant ~ cond + stim' specifies a two-way ANOVA without interaction
+    model = ols('quant ~ cond + stim', data=df).fit()
+    tbl = sm.stats.anova_lm(model, typ=1)  # typ=1 matches MATLAB's default sequential SSE
+    
+    # Extract p-values for 'cond' and 'stim'
+    p = tbl['PR(>F)'].dropna().tolist()
+    
+    return p, tbl
+
+quantity = [mecp2_ipsi_clean, nacre_ipsi_clean]
+xrange = np.arange(18)
+anova(quantity, xrange)
+
 ############# Sigmoid
 
 import numpy as np
