@@ -1002,7 +1002,7 @@ stats_df = pd.DataFrame({
 })
 
 print("=========================================================")
-print("  GENOTYPE COMPARISON: MECP2 (N=40) vs. NACRE (N=38)     ")
+print("  GENOTYPE COMPARISON: MECP2 (N=40) vs. NACRE (N=40)     ")
 print("=========================================================")
 print(stats_df.to_string(index=False, formatters={
     'Mecp2_Mean_Hz': '{:,.3f}'.format,
@@ -1013,7 +1013,7 @@ print(stats_df.to_string(index=False, formatters={
 
 plot_contra = True
 
-fig, ax = plt.subplots(figsize=(8, 5))
+fig, ax = plt.subplots(figsize=(12, 5))
 plot_with_shading(ax, uv_intensities, mecp2_ipsi_clean, COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
 plot_with_shading(ax, uv_intensities, nacre_ipsi_clean, COLOR_WT, 'wild type (Ipsi)', '-')
 if plot_contra:
