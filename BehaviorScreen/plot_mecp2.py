@@ -1011,7 +1011,7 @@ print(stats_df.to_string(index=False, formatters={
     'FDR_Corrected_p': '{:,.4e}'.format
 }))
 
-plot_contra = False
+plot_contra = True
 
 fig, ax = plt.subplots(figsize=(8, 5))
 plot_with_shading(ax, uv_intensities, mecp2_ipsi_clean, COLOR_MECP2, 'mecp2-mutant (Ipsi)', '-')
