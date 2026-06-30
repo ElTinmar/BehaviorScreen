@@ -1011,6 +1011,16 @@ print(stats_df.to_string(index=False, formatters={
     'FDR_Corrected_p': '{:,.4e}'.format
 }))
 
+np.savez(
+    'mecp2_JT.npz', 
+    uv_intensities = uv_intensities,
+    mecp2_ipsi_clean = mecp2_ipsi_clean,
+    nacre_ipsi_clean = nacre_ipsi_clean,
+    mecp2_contra_clean = mecp2_contra_clean,
+    nacre_contra_clean = nacre_contra_clean,
+    p_values = p_values
+)
+
 plot_contra = True
 
 fig, ax = plt.subplots(figsize=(12, 5))
