@@ -161,6 +161,7 @@ def get_trials(
 
         row = {
             "stim_select": stim_select,
+            "epoch_name": stim_dict.get("name", ""),
             "start_timestamp": start_timestamp,
             "stop_timestamp": stop_timestamp,
             "looming_center_mm_x": stim_dict.get("looming_center_mm", [pd.NA, pd.NA])[0],

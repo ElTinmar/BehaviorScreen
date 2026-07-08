@@ -195,6 +195,7 @@ def get_bout_metrics(
                         'time_start': start_time,
                         'time_stop': stop_time,
                         'stim': stim_select,
+                        'epoch_name': row.epoch_name,
                         'looming_center_mm_x': row.looming_center_mm_x,
                         'looming_center_mm_y': row.looming_center_mm_y,
                         'foreground_color': row.foreground_color,
