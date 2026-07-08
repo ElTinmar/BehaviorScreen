@@ -1,115 +1,64 @@
 from pathlib import Path
-from BehaviorScreen.load import load_stimuli, stimuli_filename_regexp, parse_filename
+from BehaviorScreen.load import load_stimuli
 from BehaviorScreen.core import Stim
-from datetime import datetime
-import pandas as pd
+import json
+from typing import List, Dict
 
 ROOT = Path("/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen")
-protocol_change_data = datetime(2026, 1, 28)
+ROOT = Path("/media/martin/DATA_18TB/Screen")
 
-# old protocol
-labels_old = ["adaptation", "ramp 0"]
-labels_old += 5 * ["prey capture left", "prey capture break 0", "prey capture right", "prey capture break 1"]
-labels_old += ["ramp 1"]
-labels_old += 10 * ["phototaxis bright 0.2 right", "phototaxis break 0", "phototaxis bright 0.2 left", "phototaxis break 1"]
-labels_old += ["ramp 2"]
-labels_old += 10 * ["spontaneous dark"]
-labels_old += ["ramp 3"]
-labels_old += 5 * ["flash dark", "flash ramp", "flash bright"]
-labels_old += ["ramp 4"]
-labels_old += 5 * ["grating right", "grating break 0", "grating left", "grating break 1", "grating forward", "grating break 2"]
-labels_old += ["ramp 5"]
-labels_old += 10 * ["spontaneous bright"]
-labels_old += ["ramp 6"]
-labels_old += 5 * ["pinwheel counter-clockwise", "pinwheel break 0", "pinwheel clockwise", "pinwheel break 1"]
-labels_old += ["ramp 7"]
-labels_old += 7 * ["looming left", "looming break 0", "looming right", "looming break 1"]
-
-# new protocol
-labels_new = ["adaptation", "ramp 0"]
-labels_new += 5 * ["prey capture left", "prey capture break 0", "prey capture right", "prey capture break 1"]
-labels_new += ["ramp 1"]
-labels_new += 10 * ["phototaxis bright 0.1 right", "phototaxis break 0", "phototaxis bright 0.1 left", "phototaxis break 1"]
-labels_new += ["ramp 2"]
-labels_new += 10 * ["spontaneous dark"]
-labels_new += ["ramp 3"]
-labels_new += 5 * ["flash dark", "flash ramp", "flash bright"]
-labels_new += ["ramp 4"]
-labels_new += 5 * ["grating right", "grating break 0", "grating left", "grating break 1", "grating forward", "grating break 2"]
-labels_new += ["ramp 5"]
-labels_new += 10 * ["spontaneous bright"]
-labels_new += ["ramp 6"]
-labels_new += 5 * ["pinwheel counter-clockwise", "pinwheel break 0", "pinwheel clockwise", "pinwheel break 1"]
-labels_new += ["ramp 7"]
-labels_new += 7 * ["looming left", "looming break 0", "looming right", "looming break 1"]
+# TODO check that on the setup
+labels_full = ["adaptation", "ramp 0"]
+labels_full += 5 * ["prey capture right", "prey capture break 0", "prey capture left", "prey capture break 1"]
+labels_full += ["ramp 1"]
+labels_full += 10 * ["phototaxis bright right", "phototaxis break 0", "phototaxis bright left", "phototaxis break 1"]
+labels_full += ["ramp 2"]
+labels_full += 10 * ["spontaneous dark"]
+labels_full += ["ramp 3"]
+labels_full += 5 * ["flash dark", "flash ramp", "flash bright"]
+labels_full += ["ramp 4"]
+labels_full += 5 * ["grating left", "grating break 0", "grating right", "grating break 1", "grating forward", "grating break 2"]
+labels_full += ["ramp 5"]
+labels_full += 10 * ["spontaneous bright"]
+labels_full += ["ramp 6"]
+labels_full += 5 * ["pinwheel clockwise", "pinwheel break 0", "pinwheel counter-clockwise", "pinwheel break 1"]
+labels_full += ["ramp 7"]
+labels_full += 7 * ["looming right", "looming break 0", "looming left", "looming break 1"]
 
 # phototaxis only
 labels_ptx = ["adaptation"]
-labels_ptx += 10 * ["phototaxis bright 0.1 right", "phototaxis break 0", "phototaxis bright 0.1 left", "phototaxis break 1"]
+labels_ptx += 10 * ["phototaxis bright right", "phototaxis break 0", "phototaxis bright left", "phototaxis break 1"]
 
-def old_protocol(stim, file_info) -> bool:
+def save_stimuli(stim_file: Path, stimuli: List[Dict]) -> None:
+    with open(stim_file, 'w') as f:
+        for stim in stimuli:
+            f.write(json.dumps(stim) + '\n')
 
-    after_change = file_info.to_datetime() > protocol_change_data 
-    if after_change:
-        return False
-    
-    num_stim = len(stim)
-    if num_stim != 182:
-        return False
-    
-    if stim[23]['stim_select'] != Stim.PHOTOTAXIS:
-        return False
-    
-    if stim[23]['foreground_color'] != [0.2, 0.2, 0.0, 1.0]:
-        return False
-
-    return True
-
-def new_protocol(stim, file_info) -> bool:
-
-    before_change = file_info.to_datetime() < protocol_change_data 
-    if before_change:
-        return False
-    
-    num_stim = len(stim)
-    if num_stim != 182:
-        return False
-    
-    if stim[23]['stim_select'] != Stim.PHOTOTAXIS:
-        return False
-    
-    if stim[23]['foreground_color'] != [0.1, 0.1, 0.0, 1.0]:
-        return False
-
-    return True
-
-def new_phototaxis(stim, file_info) -> bool:
-
-    before_change = file_info.to_datetime() < protocol_change_data 
-    if before_change:
-        return False
-    
-    num_stim = len(stim)
-    if num_stim != 41:
-        return False
-    
-    if stim[1]['stim_select'] != Stim.PHOTOTAXIS:
-        return False
-    
-    if stim[1]['foreground_color'] != [0.1, 0.1, 0.0, 1.0]:
-        return False
-    
-    return True
-
-stim_items = []
 for file in ROOT.rglob("stim_*.json"):
-    if "results" in file.parts:
-        stim = load_stimuli(file)
-        file_info = parse_filename(file, stimuli_filename_regexp)
-        stim_items.append((
-            old_protocol(stim, file_info),
-            new_protocol(stim, file_info),
-            new_phototaxis(stim, file_info)
-        ))
 
-df = pd.DataFrame(stim_items, columns=("old", "new", "ptx"))
+    if not "results" in file.parts:
+        continue
+
+    stim = load_stimuli(file) # this is rounding float to 6th decimal
+    num_stim = len(stim)
+
+    labels = labels_ptx if num_stim == 41 else labels_full
+    for s,l in zip(stim, labels):
+        if s['stim_select'] == Stim.PHOTOTAXIS:
+            l += f" {s['foreground_color'][0]}"
+        s['name'] = l
+    
+    backup_file = file.with_stem(file.stem + '_old')
+    file.rename(backup_file)
+
+    save_stimuli(file, stim)
+
+
+# revert
+# for backup_file in ROOT.rglob("stim_*_old.json"):
+
+#     if "results" not in backup_file.parts:
+#         continue
+
+#     original_file = backup_file.with_stem(backup_file.stem[:-4])
+#     backup_file.replace(original_file)
