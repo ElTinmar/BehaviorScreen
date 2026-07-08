@@ -1,5 +1,6 @@
 from pathlib import Path
 from BehaviorScreen.load import load_stimuli, stimuli_filename_regexp, parse_filename
+from BehaviorScreen.core import Stim
 from datetime import datetime
 import pandas as pd
 
@@ -47,40 +48,68 @@ labels_ptx = ["adaptation"]
 labels_ptx += 10 * ["phototaxis bright 0.1 right", "phototaxis break 0", "phototaxis bright 0.1 left", "phototaxis break 1"]
 
 def old_protocol(stim, file_info) -> bool:
-    before_change = file_info.to_datetime() <= protocol_change_data 
+
+    after_change = file_info.to_datetime() > protocol_change_data 
+    if after_change:
+        return False
+    
     num_stim = len(stim)
-    return (num_stim == 182) and before_change
+    if num_stim != 182:
+        return False
+    
+    if stim[23]['stim_select'] != Stim.PHOTOTAXIS:
+        return False
+    
+    if stim[23]['foreground_color'] != [0.2, 0.2, 0.0, 1.0]:
+        return False
+
+    return True
 
 def new_protocol(stim, file_info) -> bool:
-    after_change = file_info.to_datetime() > protocol_change_data 
+
+    before_change = file_info.to_datetime() < protocol_change_data 
+    if before_change:
+        return False
+    
     num_stim = len(stim)
-    return (num_stim == 182) and after_change
+    if num_stim != 182:
+        return False
+    
+    if stim[23]['stim_select'] != Stim.PHOTOTAXIS:
+        return False
+    
+    if stim[23]['foreground_color'] != [0.1, 0.1, 0.0, 1.0]:
+        return False
+
+    return True
 
 def new_phototaxis(stim, file_info) -> bool:
-    after_change = file_info.to_datetime() > protocol_change_data
+
+    before_change = file_info.to_datetime() < protocol_change_data 
+    if before_change:
+        return False
+    
     num_stim = len(stim)
-    # TODO check intensity levels
-    return (num_stim == 41) and after_change
+    if num_stim != 41:
+        return False
+    
+    if stim[1]['stim_select'] != Stim.PHOTOTAXIS:
+        return False
+    
+    if stim[1]['foreground_color'] != [0.1, 0.1, 0.0, 1.0]:
+        return False
+    
+    return True
 
 stim_items = []
 for file in ROOT.rglob("stim_*.json"):
     if "results" in file.parts:
         stim = load_stimuli(file)
         file_info = parse_filename(file, stimuli_filename_regexp)
+        stim_items.append((
+            old_protocol(stim, file_info),
+            new_protocol(stim, file_info),
+            new_phototaxis(stim, file_info)
+        ))
 
-        if old_protocol(stim, file_info):
-            break
-            
-        if new_protocol(stim, file_info):
-            break
-
-        if new_phototaxis(stim, file_info):
-            break
-
-        # stim_items.append((
-        #     old_protocol(stim, file_info),
-        #     new_protocol(stim, file_info),
-        #     new_phototaxis(stim, file_info)
-        # ))
-
-#pd.DataFrame(stim_items, columns=("old", "new", "ptx"))
+df = pd.DataFrame(stim_items, columns=("old", "new", "ptx"))
