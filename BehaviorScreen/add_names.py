@@ -48,8 +48,8 @@ for file in ROOT.rglob("stim_*.json"):
             l += f" {s['foreground_color'][0]}"
         s['name'] = l
     
-    # backup_file = file.with_stem(file.stem + '_old')
-    # file.rename(backup_file)
+    backup_file = file.with_stem(file.stem + '_old')
+    file.rename(backup_file)
 
     save_stimuli(file, stim)
 
