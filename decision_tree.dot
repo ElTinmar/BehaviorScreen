@@ -1,79 +1,367 @@
-digraph G {
-    // General Graph Settings
-    brainfact=true;
-    nodesep=0.5;
-    ranksep=0.4;
-    compound=true;
-    fontname="Helvetica,Arial,sans-serif";
-    
-    // Default Node Settings
-    node [fontname="Helvetica,Arial,sans-serif", fontsize=11, shape=box, style=filled, fillcolor="#F3F4F6", color="#374151", penwidth=1.5];
-    edge [fontname="Helvetica,Arial,sans-serif", fontsize=10, color="#4B5563", penwidth=1.5];
+digraph EventModelSelection {
 
-    // Core Pipeline Nodes
-    Start [label="START\nTimestamped Event Data", shape=ellipse, fillcolor="#ECFDF5", color="#059669"];
-    
-    // Decision Nodes (Diamonds)
-    Q_Stationary [label="Is the process Stationary?\n\n[Check: Linear regression slope\nof event density over time]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
-    
-    Q_Overdisp_Stat [label="Is there Overdispersion?\n\n[Check: Global Dispersion Index\nVariance / Mean > 1]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
-    Q_Overdisp_Non  [label="Is there Residual Overdispersion?\n\n[Check: Pearson Residuals ratio\nafter detrending time decay]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
-    
-    Q_Hist_Stat  [label="Does History Matter?\n\n[Check: Lag-1 Autocorrelation\nof inter-arrival times]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
-    Q_Hist_Non   [label="Does History Matter?\n\n[Check: Residual autocorrelation\nafter detrending time decay]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
-    
-    Q_Dir_Stat   [label="Direction of History Effect?", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
-    Q_Dir_Non    [label="Direction of History Effect?", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
-    Q_Inhib      [label="Is it a 'cooldown' after\nthe SINGLE last event?", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
-    
-    // FIXED: Choice of f(t) structure integrated into the tree routing
-    Q_Trend_Type [label="Is the time-drop trend simple or complex?\n\n[Check: Does it follow a known physical curve\nor is it highly irregular/non-linear?]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
+    graph [
+        rankdir=TB,
+        nodesep=0.5,
+        ranksep=0.6,
+        splines=true,
+        fontname="Helvetica"
+    ];
 
-    // Final Model Destinations with Math/GLM context equations
-    M_Poisson       [label="Homogeneous Poisson Process\n\nlog(E[Y]) = β₀ + β₁·G\n• Equidispersed count regression", fillcolor="#FEF3C7", color="#D97706"];
-    M_NegBin_Stat   [label="Negative Binomial Regression\n\nlog(E[Y]) = β₀ + β₁·G\n• Var[Y] = μ + α·μ²\n• Absorbs subject-level frailty", fillcolor="#FEF3C7", color="#D97706"];
-    M_Hawkes_Stat   [label="Standard Hawkes Process\n\nλ(t) = exp(β₀ + β₁·G) + α · Σ exp(-β·(t - tᵢ))\n• Constant baseline\n• Self-excitation explains overdispersion", fillcolor="#FEF3C7", color="#D97706"];
-    M_Renew_Stat    [label="Standard Renewal Process\n\nlog(E[Xᵢ]) = β₀ + β₁·G\n• Models inter-arrival times Xᵢ\n• Underdispersed (Variance < Mean)", fillcolor="#FEF3C7", color="#D97706"];
-    
-    M_Inhom_Poi_Param [label="Inhomogeneous Poisson (Parametric)\n\nlog(λ(t)) = β₀ + β₁·G + β₂·t\n• e.g., Linear/Exponential functional drop\n• Clean, predictable behavior at infinity", fillcolor="#FEF3C7", color="#D97706"];
-    M_Inhom_Poi_Spline [label="Inhomogeneous Poisson (Non-Parametric)\n\nlog(λ(t)) = β₀ + β₁·G + s(t)\n• Uses smooth splines / GAMs\n• Captures complex, fluctuating time decay", fillcolor="#FEF3C7", color="#D97706"];
-    
-    M_Inhom_NB      [label="Inhomogeneous Negative Binomial\n\nlog(E[Yₜ]) = β₀ + β₁·G + f(t) + log(Offset)\n• Mixed parametric/spline trend control\n• Absorbs unexplained subject variance", fillcolor="#FEF3C7", color="#D97706"];
-    M_Inhom_Hawk    [label="Inhomogeneous Hawkes Process\n\nλ(t) = exp(β₀ + β₁·G + f(t)) + α(G) · Σ exp(-β·(t - tᵢ))\n• Parametric f(t) protects bounds\n• History clustering explains variance", fillcolor="#FEF3C7", color="#D97706"];
-    M_Inhom_Ren     [label="Inhomogeneous Renewal Process\n\nλ(t) = (α/β) · (t/β)^(α-1) · exp(β₀ + β₁·G)\n• Non-stationary Weibull intensity setup\n• Time gaps rescale with overall baseline", fillcolor="#FEF3C7", color="#D97706"];
-    M_Cox           [label="Cox Recurrent Events Model\n\nλ(t) = λ₀(t) · exp(β₁·G + β₂·History(t) + wᵢ)\n• Pure Non-Parametric baseline λ₀(t)\n• Time decay absorbed without explicit equations", fillcolor="#FEF3C7", color="#D97706"];
+    node [
+        shape=box,
+        style=filled,
+        fillcolor="#F3F4F6",
+        color="#374151",
+        penwidth=1.5,
+        fontname="Helvetica",
+        fontsize=11
+    ];
 
-    // --- GRAPH CONNECTIONS ---
-    Start -> Q_Stationary;
-    
-    // STATIONARY BRANCH
-    Q_Stationary -> Q_Overdisp_Stat [label="YES\n(Constant Rate)", weight=2];
-    
-    Q_Overdisp_Stat -> Q_Hist_Stat [label="YES\n(Overdispersed)"];
-    Q_Overdisp_Stat -> M_Poisson [label="NO\n(Variance ≈ Mean)"];
-    
-    Q_Hist_Stat -> M_NegBin_Stat [label="NO\n(Latent Heterogeneity / Frailty)"];
-    Q_Hist_Stat -> Q_Dir_Stat [label="YES\n(True History Dependency)"];
-    
-    Q_Dir_Stat -> M_Hawkes_Stat [label="Positive\n(Clustering)"];
-    Q_Dir_Stat -> M_Renew_Stat [label="Negative\n(Inhibition)"];
-    
-    // NON-STATIONARY BRANCH
-    Q_Stationary -> Q_Overdisp_Non [label="NO\n(Rate Drops Over Time)"];
-    
-    Q_Overdisp_Non -> Q_Hist_Non [label="YES\n(Residual Overdispersion)"];
-    
-    // Route clean Poisson to trend-type selection
-    Q_Overdisp_Non -> Q_Trend_Type [label="NO\n(Trend explains variance)"];
-    Q_Trend_Type -> M_Inhom_Poi_Param [label="Simple / Bounded\n(Exponential/Power)"];
-    Q_Trend_Type -> M_Inhom_Poi_Spline [label="Complex / Irregular\n(Splines/GAMs)"];
-    
-    Q_Hist_Non -> M_Inhom_NB [label="NO\n(Unexplained subject-level frailty)"];
-    Q_Hist_Non -> Q_Dir_Non [label="YES\n(Time + History matter)"];
-    
-    Q_Dir_Non -> M_Inhom_Hawk [label="Positive\n(Self-Exciting Clusters)"];
-    Q_Dir_Non -> Q_Inhib [label="Negative\n(Inhibition / Cooldown)"];
-    
-    Q_Inhib -> M_Inhom_Ren [label="YES\n(Resets window)"];
-    Q_Inhib -> M_Cox [label="NO\n(Complex/Cumulative history)"];
+    edge [
+        color="#4B5563",
+        penwidth=1.3,
+        fontname="Helvetica",
+        fontsize=10
+    ];
+
+
+    //===========================================================
+    // START
+    //===========================================================
+
+    Start [
+        shape=ellipse,
+        fillcolor="#DCFCE7",
+        color="#15803D",
+        label="START\nTimestamped event data"
+    ];
+
+    QTemporal [
+        shape=diamond,
+        fillcolor="#DBEAFE",
+        color="#2563EB",
+        label="Is event timing itself\nbiologically meaningful?\n\nDo we care about:\n• bursts\n• refractory periods\n• event history?"
+    ];
+
+
+    //===========================================================
+    // BINNED COUNTS BRANCH
+    //===========================================================
+
+    Bin [
+        fillcolor="#E0F2FE",
+        color="#0284C7",
+        label="Bin events\n\nChoose Δt so within-bin\nrate is ~constant\nConvert timestamps → counts"
+    ];
+
+    Exposure [
+        fillcolor="#E0F2FE",
+        color="#0284C7",
+        label="Unequal observation windows\nacross bins/subjects?\n\nAdd offset(log(exposure))"
+    ];
+
+    QTrendBin [
+        shape=diamond,
+        fillcolor="#DBEAFE",
+        color="#2563EB",
+        label="Is baseline event rate\nstable over time?"
+    ];
+
+    CountTimeModel [
+        fillcolor="#E0F2FE",
+        color="#0284C7",
+        label="Include time trend f(time)\n\nLinear / spline / GAM"
+    ];
+
+    QDispersion [
+        shape=diamond,
+        fillcolor="#DBEAFE",
+        color="#2563EB",
+        label="Are counts\noverdispersed?\n\nVariance >> Mean"
+    ];
+
+    PoissonGLM [
+        fillcolor="#FEF3C7",
+        color="#D97706",
+        label="Poisson regression\n\nlog(E[Y]) =\nβ0 + βGroup·Group + f(time)"
+    ];
+
+    NegBinGLMM [
+        fillcolor="#FEF3C7",
+        color="#D97706",
+        label="Negative Binomial GLM(M)\n\nlog(E[Y]) =\nβ0 + βGroup·Group + f(time)"
+    ];
+
+    QZero [
+        shape=diamond,
+        fillcolor="#DBEAFE",
+        color="#2563EB",
+        label="Structural excess zeros?\n(more zeros than\nPoisson/NB predicts)"
+    ];
+
+    ZeroInflated [
+        fillcolor="#FEF3C7",
+        color="#D97706",
+        label="Zero-inflated / hurdle model\n\nSeparate:\nabsence vs. event rate"
+    ];
+
+
+    //===========================================================
+    // POINT PROCESS BRANCH
+    //===========================================================
+
+    EstimateLambda [
+        fillcolor="#E0F2FE",
+        color="#0284C7",
+        label="Estimate baseline intensity μ(t)\n\nKernel / spline / moving window"
+    ];
+
+    QStationaryPP [
+        shape=diamond,
+        fillcolor="#DBEAFE",
+        color="#2563EB",
+        label="Is baseline intensity\nμ(t) stable?"
+    ];
+
+    ModelLambda [
+        fillcolor="#E0F2FE",
+        color="#0284C7",
+        label="Model μ(t)\n\nParametric decay\nor spline/GAM"
+    ];
+
+    // --- split into two independent QHistory nodes, one per μ(t) branch ---
+
+    QHistoryConst [
+        shape=diamond,
+        fillcolor="#DBEAFE",
+        color="#2563EB",
+        label="μ(t) constant.\nDoes event history\nmodify future intensity?"
+    ];
+
+    QHistoryVar [
+        shape=diamond,
+        fillcolor="#DBEAFE",
+        color="#2563EB",
+        label="μ(t) time-varying.\nAfter removing μ(t),\ndoes event history\nmodify future intensity?"
+    ];
+
+    HomogeneousPoisson [
+        fillcolor="#FEF3C7",
+        color="#D97706",
+        label="Homogeneous Poisson Process\n\nλ(t) = constant\nIndependent events"
+    ];
+
+    InhomogeneousPoisson [
+        fillcolor="#FEF3C7",
+        color="#D97706",
+        label="Inhomogeneous Poisson Process\n\nλ(t) = μ(t)\nNo history effect"
+    ];
+
+    // --- history dependence framed by which object is fundamental, not by direction ---
+
+    QHistoryStructure [
+        shape=diamond,
+        fillcolor="#DBEAFE",
+        color="#2563EB",
+        label="What structure describes\nthe dependence?\n\nIs conditional intensity a direct\nfunction of past event times,\nor are inter-event intervals\nthemselves the modeled object?"
+    ];
+
+    Hawkes [
+        fillcolor="#FEF3C7",
+        color="#D97706",
+        label="Hawkes / self-exciting process\n\nλ(t) = μ(t) + Σ g(t−ti), g ≥ 0\nAdditive excitation kernel\n(clustering, branching ratio)"
+    ];
+
+    SelfCorrecting [
+        fillcolor="#FEF3C7",
+        color="#D97706",
+        label="Self-correcting / inhibitory process\n\nλ(t) = μ(t) − Σ h(t−ti)\nSubtractive full-history term\n(active suppression, not just\nthe last interval)"
+    ];
+
+    Renewal [
+        fillcolor="#FEF3C7",
+        color="#D97706",
+        label="Renewal process\n\nInter-event intervals ~ i.i.d.\n(gamma, Weibull, log-normal...)\nMemory-1: only last event matters\nDirection set by hazard shape\n(shape<1 bursty, shape>1 regular)"
+    ];
+
+    QPointGOF [
+        shape=diamond,
+        fillcolor="#FCE7F3",
+        color="#BE185D",
+        label="Point-process GOF check\n\nTime-rescaling theorem:\nare rescaled inter-event\ntimes ~ Exp(1)?"
+    ];
+
+
+    //===========================================================
+    // SUBJECT VARIABILITY
+    //===========================================================
+
+    QSubject [
+        shape=diamond,
+        fillcolor="#EDE9FE",
+        color="#7C3AED",
+        label="Important\nbetween-subject variability?\n(repeated bins/events\nper subject)"
+    ];
+
+    Mixed [
+        fillcolor="#F5F3FF",
+        color="#7C3AED",
+        label="Hierarchical model / GEE\n\nRandom subject effect\nor frailty term\n(avoids pseudo-replication)"
+    ];
+
+    Fixed [
+        fillcolor="#F5F3FF",
+        color="#7C3AED",
+        label="Fixed effects only\n\n(one subject/session\nper group, or already\ncollapsed to one\nrate per subject)"
+    ];
+
+
+    //===========================================================
+    // VALIDATION
+    //===========================================================
+
+    Validate [
+        shape=diamond,
+        fillcolor="#FCE7F3",
+        color="#BE185D",
+        label="Good model fit?\n\nResiduals\nGoodness-of-fit\nPosterior predictive checks"
+    ];
+
+    Refine [
+        fillcolor="#FCE7F3",
+        color="#BE185D",
+        label="Refine within current branch:\nadd trend / switch dispersion\nfamily / add history term /\nreconsider bin width\n\n(loop back to nearest\nrelevant decision, not to START)"
+    ];
+
+
+    //===========================================================
+    // INFERENCE
+    //===========================================================
+
+    QParamVector [
+        shape=diamond,
+        fillcolor="#DCFCE7",
+        color="#15803D",
+        label="Which parameter(s)\ndoes Group modify?\n\nbaseline rate only, or also\nkernel/branching ratio,\nshape, decay?"
+    ];
+
+    Group [
+        fillcolor="#DCFCE7",
+        color="#15803D",
+        label="Estimate group effect(s)\n\nβGroup (single param)\nor θGroup (vector)"
+    ];
+
+    Test [
+        fillcolor="#DCFCE7",
+        color="#15803D",
+        label="Inference\n\nLikelihood ratio test\n(nested models)\nWald test / CIs"
+    ];
+
+    Bootstrap [
+        fillcolor="#DCFCE7",
+        color="#15803D",
+        label="Bootstrap\n\nResample subjects\n(not events)"
+    ];
+
+    Permutation [
+        fillcolor="#DCFCE7",
+        color="#15803D",
+        label="Permutation test\n\nShuffle group labels\n(distribution-free check)"
+    ];
+
+    RobustnessNote [
+        shape=note,
+        fillcolor="#F0FDF4",
+        color="#15803D",
+        fontsize=9,
+        label="Bootstrap and permutation are\ncomplementary robustness checks,\nnot both mandatory — pick based on\nhow much you trust parametric\nassumptions and independence."
+    ];
+
+
+    //===========================================================
+    // CONNECTIONS
+    //===========================================================
+
+    Start -> QTemporal;
+
+    //---------------------------
+    // Counts branch
+    //---------------------------
+
+    QTemporal -> Bin [label="NO"];
+    Bin -> Exposure;
+    Exposure -> QTrendBin;
+
+    QTrendBin -> QDispersion [label="YES\nstable rate"];
+    QTrendBin -> CountTimeModel [label="NO"];
+    CountTimeModel -> QDispersion;
+
+    QDispersion -> PoissonGLM [label="NO"];
+    QDispersion -> NegBinGLMM [label="YES"];
+
+    PoissonGLM -> QZero;
+    NegBinGLMM -> QZero;
+
+    QZero -> ZeroInflated [label="YES"];
+    QZero -> QSubject [label="NO"];
+    ZeroInflated -> QSubject;
+
+    //---------------------------
+    // Point process branch
+    //---------------------------
+
+    QTemporal -> EstimateLambda [label="YES"];
+    EstimateLambda -> QStationaryPP;
+
+    QStationaryPP -> QHistoryConst [label="YES\nconstant μ"];
+    QStationaryPP -> ModelLambda [label="NO\nchanging μ"];
+    ModelLambda -> QHistoryVar;
+
+    QHistoryConst -> HomogeneousPoisson [label="NO"];
+    QHistoryConst -> QHistoryStructure [label="YES"];
+
+    QHistoryVar -> InhomogeneousPoisson [label="NO"];
+    QHistoryVar -> QHistoryStructure [label="YES"];
+
+    QHistoryStructure -> Hawkes [label="intensity = f(past events),\nadditive, non-negative kernel"];
+    QHistoryStructure -> SelfCorrecting [label="intensity = f(past events),\nsubtractive, full history"];
+    QHistoryStructure -> Renewal [label="intervals themselves\nare i.i.d. (memory-1)"];
+
+    HomogeneousPoisson -> QPointGOF;
+    InhomogeneousPoisson -> QPointGOF;
+    Hawkes -> QPointGOF;
+    SelfCorrecting -> QPointGOF;
+    Renewal -> QPointGOF;
+
+    QPointGOF -> Refine [label="NO, poor fit"];
+    QPointGOF -> QSubject [label="YES"];
+
+    //---------------------------
+    // Merge: subject variability
+    //---------------------------
+
+    QSubject -> Mixed [label="YES"];
+    QSubject -> Fixed [label="NO"];
+
+    Mixed -> Validate;
+    Fixed -> Validate;
+
+    Validate -> Refine [label="NO"];
+    Validate -> QParamVector [label="YES"];
+
+    Refine -> QTrendBin [label="counts branch"];
+    Refine -> QStationaryPP [label="point process branch"];
+
+    //---------------------------
+    // Inference
+    //---------------------------
+
+    QParamVector -> Group;
+    Group -> Test;
+
+    Test -> Bootstrap;
+    Test -> Permutation;
+    Bootstrap -> RobustnessNote [style=dashed, arrowhead=none];
+    Permutation -> RobustnessNote [style=dashed, arrowhead=none];
 }
