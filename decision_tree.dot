@@ -25,18 +25,23 @@ digraph G {
     Q_Dir_Stat   [label="Direction of History Effect?", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
     Q_Dir_Non    [label="Direction of History Effect?", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
     Q_Inhib      [label="Is it a 'cooldown' after\nthe SINGLE last event?", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
-
-    // Final Model Destinations (Yellow Boxes)
-    M_Poisson       [label="Homogeneous Poisson Process\n\n• Standard Count Regression\n• Data is independent & equidispersed", fillcolor="#FEF3C7", color="#D97706"];
-    M_NegBin_Stat   [label="Negative Binomial Regression\n\n• Handles subject-level frailty\n• No temporal history effects", fillcolor="#FEF3C7", color="#D97706"];
-    M_Hawkes_Stat   [label="Standard Hawkes Process\n\n• Self-excitation (bursty)\n• History explains the overdispersion", fillcolor="#FEF3C7", color="#D97706"];
-    M_Renew_Stat    [label="Standard Renewal Process\n\n• Local history inhibition\n• Underdispersed (Variance < Mean)", fillcolor="#FEF3C7", color="#D97706"];
     
-    M_Inhom_Poi     [label="Inhomogeneous Poisson Process\n\n• Time-dependent rate λ(t)\n• Equidispersed after trend-removal", fillcolor="#FEF3C7", color="#D97706"];
-    M_Inhom_NB      [label="Inhomogeneous Negative Binomial\n\n• Time-dependent rate λ(t) via Offset\n• Absorbs unexplained subject variance", fillcolor="#FEF3C7", color="#D97706"];
-    M_Inhom_Hawk    [label="Inhomogeneous Hawkes Process\n\n• Decaying baseline μ(t)\n• History-driven clustering explains variance", fillcolor="#FEF3C7", color="#D97706"];
-    M_Inhom_Ren     [label="Inhomogeneous Renewal Process\n\n• Time-scaled intervals\n• e.g., Parametric Weibull process", fillcolor="#FEF3C7", color="#D97706"];
-    M_Cox           [label="Cox Recurrent Events Model\n\n• Non-parametric baseline hazard\n• SAFE: Add Frailty term for subject variance", fillcolor="#FEF3C7", color="#D97706"];
+    // FIXED: Choice of f(t) structure integrated into the tree routing
+    Q_Trend_Type [label="Is the time-drop trend simple or complex?\n\n[Check: Does it follow a known physical curve\nor is it highly irregular/non-linear?]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
+
+    // Final Model Destinations with Math/GLM context equations
+    M_Poisson       [label="Homogeneous Poisson Process\n\nlog(E[Y]) = β₀ + β₁·G\n• Equidispersed count regression", fillcolor="#FEF3C7", color="#D97706"];
+    M_NegBin_Stat   [label="Negative Binomial Regression\n\nlog(E[Y]) = β₀ + β₁·G\n• Var[Y] = μ + α·μ²\n• Absorbs subject-level frailty", fillcolor="#FEF3C7", color="#D97706"];
+    M_Hawkes_Stat   [label="Standard Hawkes Process\n\nλ(t) = exp(β₀ + β₁·G) + α · Σ exp(-β·(t - tᵢ))\n• Constant baseline\n• Self-excitation explains overdispersion", fillcolor="#FEF3C7", color="#D97706"];
+    M_Renew_Stat    [label="Standard Renewal Process\n\nlog(E[Xᵢ]) = β₀ + β₁·G\n• Models inter-arrival times Xᵢ\n• Underdispersed (Variance < Mean)", fillcolor="#FEF3C7", color="#D97706"];
+    
+    M_Inhom_Poi_Param [label="Inhomogeneous Poisson (Parametric)\n\nlog(λ(t)) = β₀ + β₁·G + β₂·t\n• e.g., Linear/Exponential functional drop\n• Clean, predictable behavior at infinity", fillcolor="#FEF3C7", color="#D97706"];
+    M_Inhom_Poi_Spline [label="Inhomogeneous Poisson (Non-Parametric)\n\nlog(λ(t)) = β₀ + β₁·G + s(t)\n• Uses smooth splines / GAMs\n• Captures complex, fluctuating time decay", fillcolor="#FEF3C7", color="#D97706"];
+    
+    M_Inhom_NB      [label="Inhomogeneous Negative Binomial\n\nlog(E[Yₜ]) = β₀ + β₁·G + f(t) + log(Offset)\n• Mixed parametric/spline trend control\n• Absorbs unexplained subject variance", fillcolor="#FEF3C7", color="#D97706"];
+    M_Inhom_Hawk    [label="Inhomogeneous Hawkes Process\n\nλ(t) = exp(β₀ + β₁·G + f(t)) + α(G) · Σ exp(-β·(t - tᵢ))\n• Parametric f(t) protects bounds\n• History clustering explains variance", fillcolor="#FEF3C7", color="#D97706"];
+    M_Inhom_Ren     [label="Inhomogeneous Renewal Process\n\nλ(t) = (α/β) · (t/β)^(α-1) · exp(β₀ + β₁·G)\n• Non-stationary Weibull intensity setup\n• Time gaps rescale with overall baseline", fillcolor="#FEF3C7", color="#D97706"];
+    M_Cox           [label="Cox Recurrent Events Model\n\nλ(t) = λ₀(t) · exp(β₁·G + β₂·History(t) + wᵢ)\n• Pure Non-Parametric baseline λ₀(t)\n• Time decay absorbed without explicit equations", fillcolor="#FEF3C7", color="#D97706"];
 
     // --- GRAPH CONNECTIONS ---
     Start -> Q_Stationary;
@@ -54,15 +59,19 @@ digraph G {
     Q_Dir_Stat -> M_Renew_Stat [label="Negative\n(Inhibition)"];
     
     // NON-STATIONARY BRANCH
-    Q_Stationary -> Q_Overdisp_Non [label="NO\n(Rate Drops Over Time)", color="#DC2626", penwidth=2.5];
+    Q_Stationary -> Q_Overdisp_Non [label="NO\n(Rate Drops Over Time)"];
     
     Q_Overdisp_Non -> Q_Hist_Non [label="YES\n(Residual Overdispersion)"];
-    Q_Overdisp_Non -> M_Inhom_Poi [label="NO\n(Trend perfectly explains variance)"];
+    
+    // Route clean Poisson to trend-type selection
+    Q_Overdisp_Non -> Q_Trend_Type [label="NO\n(Trend explains variance)"];
+    Q_Trend_Type -> M_Inhom_Poi_Param [label="Simple / Bounded\n(Exponential/Power)"];
+    Q_Trend_Type -> M_Inhom_Poi_Spline [label="Complex / Irregular\n(Splines/GAMs)"];
     
     Q_Hist_Non -> M_Inhom_NB [label="NO\n(Unexplained subject-level frailty)"];
-    Q_Hist_Non -> Q_Dir_Non [label="YES\n(Time + History matter)", color="#DC2626", penwidth=2.5];
+    Q_Hist_Non -> Q_Dir_Non [label="YES\n(Time + History matter)"];
     
-    Q_Dir_Non -> M_Inhom_Hawk [label="Positive\n(Self-Exciting Clusters)", color="#DC2626", penwidth=2.5];
+    Q_Dir_Non -> M_Inhom_Hawk [label="Positive\n(Self-Exciting Clusters)"];
     Q_Dir_Non -> Q_Inhib [label="Negative\n(Inhibition / Cooldown)"];
     
     Q_Inhib -> M_Inhom_Ren [label="YES\n(Resets window)"];
