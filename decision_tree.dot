@@ -350,9 +350,6 @@ digraph EventModelSelection {
     Validate -> Refine [label="NO"];
     Validate -> QParamVector [label="YES"];
 
-    Refine -> QTrendBin [label="counts branch"];
-    Refine -> QStationaryPP [label="point process branch"];
-
     //---------------------------
     // Inference
     //---------------------------
