@@ -17,13 +17,13 @@ labels_full += 10 * ["spontaneous dark"]
 labels_full += ["ramp 3"]
 labels_full += 5 * ["flash dark", "flash ramp", "flash bright"]
 labels_full += ["ramp 4"]
-labels_full += 5 * ["grating left", "grating break 0", "grating right", "grating break 1", "grating forward", "grating break 2"]
+labels_full += 5 * ["grating right", "grating break 0", "grating left", "grating break 1", "grating forward", "grating break 2"]
 labels_full += ["ramp 5"]
 labels_full += 10 * ["spontaneous bright"]
 labels_full += ["ramp 6"]
 labels_full += 5 * ["pinwheel clockwise", "pinwheel break 0", "pinwheel counter-clockwise", "pinwheel break 1"]
 labels_full += ["ramp 7"]
-labels_full += 7 * ["looming right", "looming break 0", "looming left", "looming break 1"]
+labels_full += 7 * ["looming left", "looming break 0", "looming right", "looming break 1"]
 
 # phototaxis only
 labels_ptx = ["adaptation"]
@@ -48,8 +48,8 @@ for file in ROOT.rglob("stim_*.json"):
             l += f" {s['foreground_color'][0]}"
         s['name'] = l
     
-    backup_file = file.with_stem(file.stem + '_old')
-    file.rename(backup_file)
+    # backup_file = file.with_stem(file.stem + '_old')
+    # file.rename(backup_file)
 
     save_stimuli(file, stim)
 
