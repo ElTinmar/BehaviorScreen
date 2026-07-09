@@ -1,0 +1,70 @@
+digraph G {
+    // General Graph Settings
+    brainfact=true;
+    nodesep=0.5;
+    ranksep=0.4;
+    compound=true;
+    fontname="Helvetica,Arial,sans-serif";
+    
+    // Default Node Settings
+    node [fontname="Helvetica,Arial,sans-serif", fontsize=11, shape=box, style=filled, fillcolor="#F3F4F6", color="#374151", penwidth=1.5];
+    edge [fontname="Helvetica,Arial,sans-serif", fontsize=10, color="#4B5563", penwidth=1.5];
+
+    // Core Pipeline Nodes
+    Start [label="START\nTimestamped Event Data", shape=ellipse, fillcolor="#ECFDF5", color="#059669"];
+    
+    // Decision Nodes (Diamonds)
+    Q_Stationary [label="Is the process Stationary?\n\n[Check: Linear regression slope\nof event density over time]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
+    
+    Q_Overdisp_Stat [label="Is there Overdispersion?\n\n[Check: Global Dispersion Index\nVariance / Mean > 1]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
+    Q_Overdisp_Non  [label="Is there Residual Overdispersion?\n\n[Check: Pearson Residuals ratio\nafter detrending time decay]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
+    
+    Q_Hist_Stat  [label="Does History Matter?\n\n[Check: Lag-1 Autocorrelation\nof inter-arrival times]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
+    Q_Hist_Non   [label="Does History Matter?\n\n[Check: Residual autocorrelation\nafter detrending time decay]", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
+    
+    Q_Dir_Stat   [label="Direction of History Effect?", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
+    Q_Dir_Non    [label="Direction of History Effect?", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
+    Q_Inhib      [label="Is it a 'cooldown' after\nthe SINGLE last event?", shape=diamond, fillcolor="#EFF6FF", color="#2563EB"];
+
+    // Final Model Destinations (Yellow Boxes)
+    M_Poisson       [label="Homogeneous Poisson Process\n\n• Standard Count Regression\n• Data is independent & equidispersed", fillcolor="#FEF3C7", color="#D97706"];
+    M_NegBin_Stat   [label="Negative Binomial Regression\n\n• Handles subject-level frailty\n• No temporal history effects", fillcolor="#FEF3C7", color="#D97706"];
+    M_Hawkes_Stat   [label="Standard Hawkes Process\n\n• Self-excitation (bursty)\n• History explains the overdispersion", fillcolor="#FEF3C7", color="#D97706"];
+    M_Renew_Stat    [label="Standard Renewal Process\n\n• Local history inhibition\n• Underdispersed (Variance < Mean)", fillcolor="#FEF3C7", color="#D97706"];
+    
+    M_Inhom_Poi     [label="Inhomogeneous Poisson Process\n\n• Time-dependent rate λ(t)\n• Equidispersed after trend-removal", fillcolor="#FEF3C7", color="#D97706"];
+    M_Inhom_NB      [label="Inhomogeneous Negative Binomial\n\n• Time-dependent rate λ(t) via Offset\n• Absorbs unexplained subject variance", fillcolor="#FEF3C7", color="#D97706"];
+    M_Inhom_Hawk    [label="Inhomogeneous Hawkes Process\n\n• Decaying baseline μ(t)\n• History-driven clustering explains variance", fillcolor="#FEF3C7", color="#D97706"];
+    M_Inhom_Ren     [label="Inhomogeneous Renewal Process\n\n• Time-scaled intervals\n• e.g., Parametric Weibull process", fillcolor="#FEF3C7", color="#D97706"];
+    M_Cox           [label="Cox Recurrent Events Model\n\n• Non-parametric baseline hazard\n• SAFE: Add Frailty term for subject variance", fillcolor="#FEF3C7", color="#D97706"];
+
+    // --- GRAPH CONNECTIONS ---
+    Start -> Q_Stationary;
+    
+    // STATIONARY BRANCH
+    Q_Stationary -> Q_Overdisp_Stat [label="YES\n(Constant Rate)", weight=2];
+    
+    Q_Overdisp_Stat -> Q_Hist_Stat [label="YES\n(Overdispersed)"];
+    Q_Overdisp_Stat -> M_Poisson [label="NO\n(Variance ≈ Mean)"];
+    
+    Q_Hist_Stat -> M_NegBin_Stat [label="NO\n(Latent Heterogeneity / Frailty)"];
+    Q_Hist_Stat -> Q_Dir_Stat [label="YES\n(True History Dependency)"];
+    
+    Q_Dir_Stat -> M_Hawkes_Stat [label="Positive\n(Clustering)"];
+    Q_Dir_Stat -> M_Renew_Stat [label="Negative\n(Inhibition)"];
+    
+    // NON-STATIONARY BRANCH
+    Q_Stationary -> Q_Overdisp_Non [label="NO\n(Rate Drops Over Time)", color="#DC2626", penwidth=2.5];
+    
+    Q_Overdisp_Non -> Q_Hist_Non [label="YES\n(Residual Overdispersion)"];
+    Q_Overdisp_Non -> M_Inhom_Poi [label="NO\n(Trend perfectly explains variance)"];
+    
+    Q_Hist_Non -> M_Inhom_NB [label="NO\n(Unexplained subject-level frailty)"];
+    Q_Hist_Non -> Q_Dir_Non [label="YES\n(Time + History matter)", color="#DC2626", penwidth=2.5];
+    
+    Q_Dir_Non -> M_Inhom_Hawk [label="Positive\n(Self-Exciting Clusters)", color="#DC2626", penwidth=2.5];
+    Q_Dir_Non -> Q_Inhib [label="Negative\n(Inhibition / Cooldown)"];
+    
+    Q_Inhib -> M_Inhom_Ren [label="YES\n(Resets window)"];
+    Q_Inhib -> M_Cox [label="NO\n(Complex/Cumulative history)"];
+}
