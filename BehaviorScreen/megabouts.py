@@ -1,10 +1,11 @@
 import numpy as np
 import pandas as pd
-from typing import NamedTuple, Dict, List
+from typing import NamedTuple, Dict, List, Tuple
 import argparse
 from pathlib import Path
 import pickle
 from tqdm import tqdm
+import re
 
 from megabouts.tracking_data import TrackingConfig, FullTrackingData
 from megabouts.pipeline import FullTrackingPipeline
@@ -14,13 +15,16 @@ from megabouts.segmentation.segmentation import SegmentationResult
 from megabouts.preprocessing.tail_preprocessing import TailPreprocessingResult
 from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 
-from BehaviorScreen.core import Stim, GROUPING_PARAMETER
+from BehaviorScreen.core import Stim
+from BehaviorScreen.protocol import STIM_LATERALITY
 from BehaviorScreen.load import (
+    base_regexp, 
+    FileNameInfo,
     Directories, 
-    BehaviorData,
+    BehaviorData, 
     BehaviorFiles,
-    find_files, 
-    load_data
+    load_data,
+    find_files
 )
 from BehaviorScreen.process import (
     get_trials, 
@@ -85,6 +89,33 @@ def megabout_fulltracking_pipeline(
 
     return megabout_results
 
+def parse_fish(fish: str) -> FileNameInfo:
+
+    fish_regexp = re.compile(base_regexp)
+    m = fish_regexp.match(fish)
+    if m is None:
+        raise RuntimeError(f"failed to parse: {fish}")
+    g = m.groupdict()
+
+    return FileNameInfo(
+        fish_id = int(g["fish_id"]),
+        age = int(g["age"]),
+        line = g["line"],
+        weekday = g["weekday"],
+        day = int(g["day"]),
+        month = g["month"],
+        year = int(g["year"]),
+        hour = int(g["hour"]),
+        minute = int(g["minute"]),
+        second = int(g["second"]),
+        extra = g["extra"]
+    )
+
+def cosinor(info: FileNameInfo) -> Tuple[float, float]:
+    seconds = info.hour*3600 + info.minute*60 + info.second
+    theta = 2 * np.pi * (seconds / (24 * 3600))
+    return (np.cos(theta), np.sin(theta))
+
 def get_bout_metrics(
         directories: Directories,
         behavior_data: BehaviorData, 
@@ -92,6 +123,10 @@ def get_bout_metrics(
         megabout: MegaboutResults,
         rollover_time_s: int = 3600
     ) -> List[Dict]:
+
+    fish = behavior_files.metadata.stem
+    fish_info = parse_fish(fish)
+    cos_daytime, sin_daytime = cosinor(fish_info)
 
     cx,cy,_ = get_well_coords_mm(directories, behavior_files, behavior_data)
     fps = behavior_data.metadata['camera']['framerate_value']
@@ -105,147 +140,146 @@ def get_bout_metrics(
     online_tracking_heading =  behavior_data.tracking[['pc1_x','pc1_y']].to_numpy()
     posthoc_tracking_heading = behavior_data.full_tracking.Head[['x', 'y']].to_numpy() - posthoc_tracking_centroid
     posthoc_tracking_heading = posthoc_tracking_heading / np.linalg.norm(posthoc_tracking_heading, axis=1, keepdims=True)
-    
+
     rows = []
 
-    for stim_select, stim_data in stim_trials.groupby('stim_select'):
-        
-        stim = Stim(stim_select)
-        if not stim in GROUPING_PARAMETER:
-                    continue
-        
-        for condition, condition_data in stim_data.groupby(GROUPING_PARAMETER[stim]):
+    for epoch_name, epoch_data in stim_trials.groupby('epoch_name'):
+        for trial_idx, (epoch_idx, row) in enumerate(epoch_data.iterrows()):
 
-            for trial_idx, (trial, row) in enumerate(condition_data.iterrows()):
+            bout_mask = (bout_start > row.start_timestamp) & (bout_stop < row.stop_timestamp) 
 
-                mask = (bout_start > row.start_timestamp) & (bout_stop < row.stop_timestamp) 
+            off_previous = 0
+            for on, off, category, sign, proba, bout_index in zip(
+                megabout.bouts.onset[bout_mask], 
+                megabout.bouts.offset[bout_mask],
+                megabout.bouts.category[bout_mask],
+                megabout.bouts.sign[bout_mask],
+                megabout.bouts.proba[bout_mask],
+                np.flatnonzero(bout_mask)
+            ):
 
-                off_previous = 0
-                for on, off, category, sign, proba, bout_index in zip(
-                    megabout.bouts.onset[mask], 
-                    megabout.bouts.offset[mask],
-                    megabout.bouts.category[mask],
-                    megabout.bouts.sign[mask],
-                    megabout.bouts.proba[mask],
-                    np.flatnonzero(mask)
-                ):
+                # heading change
+                heading_change = megabout.traj.yaw_smooth[off] - megabout.traj.yaw_smooth[on]
 
-                    # heading change
-                    heading_change = megabout.traj.yaw_smooth[off] - megabout.traj.yaw_smooth[on]
+                # distance 
+                delta_x =  np.diff(megabout.traj.x_smooth[on:off])
+                delta_y = np.diff(megabout.traj.y_smooth[on:off])
+                distance = np.sum(np.sqrt(delta_x**2 + delta_y**2))
+                radial_distance = np.sqrt((megabout.traj.x_smooth[on]-cx)**2 + (megabout.traj.y_smooth[on]-cy)**2)
 
-                    # distance 
-                    delta_x =  np.diff(megabout.traj.x_smooth[on:off])
-                    delta_y = np.diff(megabout.traj.y_smooth[on:off])
-                    distance = np.sum(np.sqrt(delta_x**2 + delta_y**2))
-                    radial_distance = np.sqrt((megabout.traj.x_smooth[on]-cx)**2 + (megabout.traj.y_smooth[on]-cy)**2)
+                # bout duration
+                bout_duration = (off-on)/fps
 
-                    # bout duration
-                    bout_duration = (off-on)/fps
+                # interbout duration
+                interbout_duration = (on-off_previous)/fps
 
-                    # interbout duration
-                    interbout_duration = (on-off_previous)/fps
+                # peak axial speed
+                axial_speed = megabout.traj.axial_speed[on:off]
+                peak_axial_speed = axial_speed[np.argmax(np.abs(axial_speed))]
 
-                    # peak axial speed
-                    axial_speed = megabout.traj.axial_speed[on:off]
-                    peak_axial_speed = axial_speed[np.argmax(np.abs(axial_speed))]
+                # peak yaw speed
+                yaw_speed = megabout.traj.yaw_speed[on:off]
+                peak_yaw_speed = yaw_speed[np.argmax(np.abs(yaw_speed))]
 
-                    # peak yaw speed
-                    yaw_speed = megabout.traj.yaw_speed[on:off]
-                    peak_yaw_speed = yaw_speed[np.argmax(np.abs(yaw_speed))]
+                # time
+                trial_time = 1e-9*(megabout.timestamp[on] - row.start_timestamp)
+                start_time = 1e-9*(megabout.timestamp[on] - megabout.timestamp[0])
+                stop_time = 1e-9*(megabout.timestamp[off] - megabout.timestamp[0])
 
-                    # time
-                    trial_time = 1e-9*(megabout.timestamp[on] - row.start_timestamp)
-                    start_time = 1e-9*(megabout.timestamp[on] - megabout.timestamp[0])
-                    stop_time = 1e-9*(megabout.timestamp[off] - megabout.timestamp[0])
+                # Quality control: posthoc vs online tracking during interbout + bout
+                centroid_distance = np.linalg.norm(online_tracking_centroid[off_previous:off,:] - posthoc_tracking_centroid[off_previous:off,:], axis=1)
+                centroid_mismatch_avg = centroid_distance.sum() / (off-off_previous)
+                centroid_mismatch_max = centroid_distance.max()
 
-                    # Stimulus phase
-                    stim_phase = np.nan
-                    if stim == Stim.PREY_CAPTURE:
-                        stim_phase = prey_capture_arc_stimulus_cosine(
-                            row.start_time_sec,
-                            trial_time,
-                            rollover_time_s,
-                            row.prey_arc_start_deg,
-                            row.prey_arc_stop_deg,
-                            row.prey_speed_deg_s
-                        )
+                dot = np.sum(online_tracking_heading[off_previous:off,:] * posthoc_tracking_heading[off_previous:off,:], axis=1)
+                dot = np.clip(dot, -1.0, 1.0)
+                angular_distance = np.rad2deg(np.arccos(dot))
+                heading_mismatch_avg = angular_distance.sum() / (off-off_previous)
+                heading_mismatch_max = angular_distance.max() 
+                heading_flip = np.any(angular_distance > 160)
+                    
+                off_previous = off
 
-                    # Quality control: posthoc vs online tracking during interbout + bout
-                    centroid_distance = np.linalg.norm(online_tracking_centroid[off_previous:off,:] - posthoc_tracking_centroid[off_previous:off,:], axis=1)
-                    centroid_mismatch_avg = centroid_distance.sum() / (off-off_previous)
-                    centroid_mismatch_max = centroid_distance.max()
+                # if stim is directional, is bout in same or opposite direction?
+                laterality = STIM_LATERALITY[(row.epoch_name, sign)]
 
-                    dot = np.sum(online_tracking_heading[off_previous:off,:] * posthoc_tracking_heading[off_previous:off,:], axis=1)
-                    dot = np.clip(dot, -1.0, 1.0)
-                    angular_distance = np.rad2deg(np.arccos(dot))
-                    heading_mismatch_avg = angular_distance.sum() / (off-off_previous)
-                    heading_mismatch_max = angular_distance.max() 
-                    heading_flip = np.any(angular_distance > 160)
+                # stimulus specific actions
+                stim_phase = np.nan
+                if row.stim_select == Stim.PREY_CAPTURE:
+                    stim_phase = prey_capture_arc_stimulus_cosine(
+                        row.start_time_sec,
+                        trial_time,
+                        rollover_time_s,
+                        row.prey_arc_start_deg,
+                        row.prey_arc_stop_deg,
+                        row.prey_speed_deg_s
+                    )
 
-                    # prepare next iteration
-                    off_previous = off
-
-                    # TODO add laterality (ipsi, contra) based on stim side and bout sign?
-
-                    rows.append({
-                        'file': behavior_files.metadata.stem,
-                        'bout_index': bout_index,
-                        'frame_start': on,
-                        'frame_stop': off,
-                        'time_start': start_time,
-                        'time_stop': stop_time,
-                        'stim': stim_select,
-                        'epoch_name': row.epoch_name,
-                        'looming_center_mm_x': row.looming_center_mm_x,
-                        'looming_center_mm_y': row.looming_center_mm_y,
-                        'foreground_color': row.foreground_color,
-                        'background_color': row.background_color,
-                        'looming_angle_start_deg': row.looming_angle_start_deg,
-                        'looming_angle_stop_deg': row.looming_angle_stop_deg,
-                        'looming_distance_to_screen_mm': row.looming_distance_to_screen_mm,
-                        'looming_expansion_speed_deg_per_sec': row.looming_expansion_speed_deg_per_sec,
-                        'looming_expansion_speed_mm_per_sec': row.looming_expansion_speed_mm_per_sec,
-                        'looming_expansion_time_sec': row.looming_expansion_time_sec,
-                        'looming_period_sec': row.looming_period_sec,
-                        'looming_size_to_speed_ratio_ms': row.looming_size_to_speed_ratio_ms,
-                        'looming_type': row.looming_type,
-                        'n_preys': row.n_preys,
-                        'okr_spatial_frequency_deg': row.okr_spatial_frequency_deg,
-                        'okr_speed_deg_per_sec': row.okr_speed_deg_per_sec,
-                        'omr_angle_deg': row.omr_angle_deg,
-                        'omr_spatial_period_mm': row.omr_spatial_period_mm,
-                        'omr_speed_mm_per_sec': row.omr_speed_mm_per_sec,
-                        'phototaxis_polarity': row.phototaxis_polarity,
-                        'prey_arc_start_deg': row.prey_arc_start_deg,
-                        'prey_arc_stop_deg': row.prey_arc_stop_deg,
-                        'prey_capture_type': row.prey_capture_type,
-                        'prey_radius_mm': row.prey_radius_mm,
-                        'prey_speed_deg_s': row.prey_speed_deg_s,
-                        'prey_speed_mm_s': row.prey_speed_mm_s,
-                        'prey_trajectory_radius_mm': row.prey_trajectory_radius_mm,
-                        'ramp_duration_sec': row.ramp_duration_sec,
-                        'ramp_powerlaw_exponent': row.ramp_powerlaw_exponent,
-                        'ramp_type': row.ramp_type,
-                        'stim_start_time': 1e-9*(row.start_timestamp - stim_trials.start_timestamp[0]),
-                        'trial_num': trial_idx,
-                        'trial_time': trial_time,
-                        'heading_change': heading_change,
-                        'distance': distance,
-                        'distance_center': radial_distance,
-                        'bout_duration': bout_duration,
-                        'stim_phase': stim_phase,
-                        'interbout_duration': interbout_duration,
-                        'peak_axial_speed': peak_axial_speed,
-                        'peak_yaw_speed': peak_yaw_speed,
-                        'centroid_mismatch_avg': centroid_mismatch_avg,
-                        'heading_mismatch_avg': heading_mismatch_avg,
-                        'centroid_mismatch_max': centroid_mismatch_max,
-                        'heading_mismatch_max': heading_mismatch_max,
-                        'heading_flip': heading_flip,
-                        'category': category,
-                        'sign': sign,
-                        'proba': proba
-                    })
+                rows.append({
+                    'file': fish,
+                    'dpf': fish_info.age,
+                    'day': f"{fish_info.day}.{fish_info.month}.{fish_info.year}",
+                    'cos_daytime': cos_daytime,
+                    'sin_daytime': sin_daytime,
+                    'bout_index': bout_index,
+                    'frame_start': on,
+                    'frame_stop': off,
+                    'time_start': start_time,
+                    'time_stop': stop_time,
+                    'stim': row.stim_select,
+                    'epoch_name': epoch_name,
+                    'epoch_idx': epoch_idx,
+                    'looming_center_mm_x': row.looming_center_mm_x,
+                    'looming_center_mm_y': row.looming_center_mm_y,
+                    'foreground_color': row.foreground_color,
+                    'background_color': row.background_color,
+                    'looming_angle_start_deg': row.looming_angle_start_deg,
+                    'looming_angle_stop_deg': row.looming_angle_stop_deg,
+                    'looming_distance_to_screen_mm': row.looming_distance_to_screen_mm,
+                    'looming_expansion_speed_deg_per_sec': row.looming_expansion_speed_deg_per_sec,
+                    'looming_expansion_speed_mm_per_sec': row.looming_expansion_speed_mm_per_sec,
+                    'looming_expansion_time_sec': row.looming_expansion_time_sec,
+                    'looming_period_sec': row.looming_period_sec,
+                    'looming_size_to_speed_ratio_ms': row.looming_size_to_speed_ratio_ms,
+                    'looming_type': row.looming_type,
+                    'n_preys': row.n_preys,
+                    'okr_spatial_frequency_deg': row.okr_spatial_frequency_deg,
+                    'okr_speed_deg_per_sec': row.okr_speed_deg_per_sec,
+                    'omr_angle_deg': row.omr_angle_deg,
+                    'omr_spatial_period_mm': row.omr_spatial_period_mm,
+                    'omr_speed_mm_per_sec': row.omr_speed_mm_per_sec,
+                    'phototaxis_polarity': row.phototaxis_polarity,
+                    'prey_arc_start_deg': row.prey_arc_start_deg,
+                    'prey_arc_stop_deg': row.prey_arc_stop_deg,
+                    'prey_capture_type': row.prey_capture_type,
+                    'prey_radius_mm': row.prey_radius_mm,
+                    'prey_speed_deg_s': row.prey_speed_deg_s,
+                    'prey_speed_mm_s': row.prey_speed_mm_s,
+                    'prey_trajectory_radius_mm': row.prey_trajectory_radius_mm,
+                    'ramp_duration_sec': row.ramp_duration_sec,
+                    'ramp_powerlaw_exponent': row.ramp_powerlaw_exponent,
+                    'ramp_type': row.ramp_type,
+                    'stim_start_time': 1e-9*(row.start_timestamp - stim_trials.start_timestamp[0]),
+                    'trial_num': trial_idx,
+                    'trial_time': trial_time,
+                    'heading_change': heading_change,
+                    'distance': distance,
+                    'distance_center': radial_distance,
+                    'bout_duration': bout_duration,
+                    'stim_phase': stim_phase,
+                    'interbout_duration': interbout_duration,
+                    'peak_axial_speed': peak_axial_speed,
+                    'peak_yaw_speed': peak_yaw_speed,
+                    'centroid_mismatch_avg': centroid_mismatch_avg,
+                    'heading_mismatch_avg': heading_mismatch_avg,
+                    'centroid_mismatch_max': centroid_mismatch_max,
+                    'heading_mismatch_max': heading_mismatch_max,
+                    'heading_flip': heading_flip,
+                    'category': category,
+                    'sign': sign,
+                    'proba': proba,
+                    'laterality': laterality,
+                })
 
     return rows
 
