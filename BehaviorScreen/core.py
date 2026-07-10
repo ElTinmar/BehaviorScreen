@@ -5,14 +5,22 @@ TIME_TOLERANCE_S: float = 40
 
 CAMERA_BOTTOM = True
 
-class BoutSign(IntEnum):
-    LEFT = -1 if CAMERA_BOTTOM else 1
-    RIGHT = 1 if CAMERA_BOTTOM else -1
-
+class MyIntEnum(IntEnum):
     def __str__(self):
         return self.name
     
-class Stim(IntEnum):
+class BoutSign(MyIntEnum):
+    LEFT = -1 if CAMERA_BOTTOM else 1
+    RIGHT = 1 if CAMERA_BOTTOM else -1
+
+class Laterality(MyIntEnum):
+    IPSILATERAL = 1
+    NONDIRECTIONAL = 0
+    CONTRALATERAL = -1
+
+## Stim and stim parameters (from ZebVR)
+
+class Stim(MyIntEnum):
     DARK = 0
     BRIGHT = 1
     PHOTOTAXIS = 2
@@ -25,28 +33,6 @@ class Stim(IntEnum):
     IMAGE = 9
     RAMP = 10
     TURING = 11
-
-    def __str__(self):
-        return self.name
-
-class WellDimensions(TypedDict):
-    well_radius_mm: float
-    distance_between_well_centers_mm: float
-    
-AGAROSE_WELL_DIMENSIONS: WellDimensions = {
-    'well_radius_mm': 19.5/2,
-    'distance_between_well_centers_mm': 22
-}
-
-GROUPING_PARAMETER = {
-    Stim.DARK: 'background_color',
-    Stim.BRIGHT: 'foreground_color',
-    Stim.PHOTOTAXIS: 'phototaxis_polarity',
-    Stim.OMR: 'omr_angle_deg',
-    Stim.OKR: 'okr_speed_deg_per_sec',
-    Stim.LOOMING: 'looming_center_mm_x',
-    Stim.PREY_CAPTURE: 'prey_arc_start_deg'
-}
 
 STIM_PARAMETERS = [
     'looming_angle_start_deg',
@@ -78,3 +64,15 @@ STIM_PARAMETERS = [
     'ramp_type',
     'start_time_sec'
 ]
+
+## Physical dimensions of the experimental arenas
+
+class WellDimensions(TypedDict):
+    well_radius_mm: float
+    distance_between_well_centers_mm: float
+    
+AGAROSE_WELL_DIMENSIONS: WellDimensions = {
+    'well_radius_mm': 19.5/2,
+    'distance_between_well_centers_mm': 22
+}
+
