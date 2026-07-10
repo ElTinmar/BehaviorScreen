@@ -413,6 +413,7 @@ def run_megabouts(
     )
 
 def main(args: argparse.Namespace) -> None:
+    
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
