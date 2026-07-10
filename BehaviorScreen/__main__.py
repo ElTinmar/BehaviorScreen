@@ -6,6 +6,7 @@ from BehaviorScreen.megabouts import run_megabouts
 from BehaviorScreen.pose_estimation import estimate_pose, export_cropped_eyes_video
 from BehaviorScreen.plot import run_plot
 from BehaviorScreen.qc import quality_control
+from BehaviorScreen.filter_bouts import filter
 
 # TODO separate analysis and plotting
 # TODO linear mixed effects analysis to get within and between individual variability
@@ -54,7 +55,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bouts-csv",
         default='bouts.csv',
-        help="Output CSV file",
+        help="Bouts CSV file",
+    )
+
+    parser.add_argument(
+        "--filtered-bouts-csv",
+        default='filtered_bouts.csv',
+        help="Filtered bouts CSV file",
     )
 
     parser.add_argument(
@@ -214,6 +221,14 @@ def main(args: argparse.Namespace) -> None:
         results=args.results,
         plots=args.plots,
         cpu=args.cpu
+    )
+
+    print("5. filter bouts", flush=True)
+    filter(
+        input_csv = args.root / args.bouts_csv,
+        config_yaml = args.yaml,
+        quality_control = args.root / args.qc,
+        output_csv = args.root / args.filtered_bouts_csv
     )
 
     print("5. extract eye metrics", flush=True)
