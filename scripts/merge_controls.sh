@@ -36,5 +36,4 @@ id2b/vehicle/bouts.csv \
 pcbp3/vehicle/bouts.csv \
 cort/vehicle/bouts.csv \
 lhx2b/vehicle/bouts.csv \
-1010Kaede-X-81C/vehicle/bouts.csv \
 mpn318/vehicle/bouts.csv 
