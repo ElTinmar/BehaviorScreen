@@ -1,0 +1,40 @@
+python -m BehaviorScreen.merge_csv /media/martin/DATA_18TB/Screen \
+-o bouts_control.csv \
+ccka/vehicle/bouts.csv \
+lhx9/vehicle/bouts.csv \
+y532/vehicle/bouts.csv \
+pth2/vehicle/bouts.csv \
+itpr1b/vehicle/bouts.csv \
+chata/vehicle/bouts.csv \
+1026/vehicle/bouts.csv \
+cart2/vehicle/bouts.csv \
+opn4b/vehicle/bouts.csv \
+WT/danieau/bouts.csv \
+WT/ronidazole/bouts.csv \
+tbr1b_run3/vehicle/bouts.csv \
+gbx/vehicle/bouts.csv \
+mpn310/vehicle/bouts.csv \
+tbr1b/vehicle/bouts.csv \
+pmchl/vehicle/bouts.csv \
+rspo1/vehicle/bouts.csv \
+gfra/vehicle/bouts.csv \
+drd2a/vehicle/bouts.csv \
+isl1/vehicle/bouts.csv \
+atf5b/vehicle/bouts.csv \
+mafaa-switchNTR-Huc-Cre/vehicle/bouts.csv \
+mpn206/vehicle/bouts.csv \
+th/vehicle/bouts.csv \
+mpn302/vehicle/bouts.csv \
+mafaa/vehicle/bouts.csv \
+242A/vehicle/bouts.csv \
+pmch2/vehicle/bouts.csv \
+1010/vehicle/bouts.csv \
+y359/vehicle/bouts.csv \
+mafaa-switchNTR-ath5-Cre/vehicle/bouts.csv \
+insm2/vehicle/bouts.csv \
+id2b/vehicle/bouts.csv \
+pcbp3/vehicle/bouts.csv \
+cort/vehicle/bouts.csv \
+lhx2b/vehicle/bouts.csv \
+1010Kaede-X-81C/vehicle/bouts.csv \
+mpn318/vehicle/bouts.csv 
