@@ -78,8 +78,12 @@ ax_contra.grid(True, linestyle=':', alpha=0.5)
 plt.tight_layout()
 plt.savefig(
     'temporal_dynamics_okr.svg', 
-    bbox_inches='tight',
-    transparent=True 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_okr.png',
+    dpi=300, 
+    bbox_inches='tight'
 )
 plt.show()
 
@@ -104,7 +108,11 @@ ax.axhline(0.0, color='grey', linestyle='--', alpha=0.7)
 plt.tight_layout()
 plt.savefig(
     'temporal_dynamics_okr_index.svg', 
-    bbox_inches='tight',
-    transparent=True 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_okr_index.png',
+    dpi=300, 
+    bbox_inches='tight'
 )
 plt.show()

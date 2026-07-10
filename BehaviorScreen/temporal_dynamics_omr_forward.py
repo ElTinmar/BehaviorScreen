@@ -6,12 +6,12 @@ import matplotlib.pyplot as plt
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
 
-rt_index = bouts_category_name_short.index("RT")
-hat_index = bouts_category_name_short.index("HAT")
+s1_index = bouts_category_name_short.index("S1")
+s2_index = bouts_category_name_short.index("S2")
+bs_index = bouts_category_name_short.index("BS")
 
 ROOT = Path('/media/martin/DATA_18TB/Screen')
 df = pd.read_csv(ROOT / 'bouts_control.csv')
-
 
 print(f"#fish: {len(df.file.unique())}")
 
@@ -19,10 +19,10 @@ fine_dt = 0.02
 time_bins = np.arange(0, 10 + fine_dt, fine_dt)
 window_size_steps = int(1.0 / fine_dt)
 
-sub_df = df[df['stim'] == Stim.OMR].copy()
+sub_df = df[df['epoch_name'] == "grating forward"].copy()
 
-sub_df['ipsi_rt'] = ((sub_df['category'] == rt_index) | (sub_df['category'] == hat_index)) & (sub_df['laterality'] == Laterality.IPSILATERAL)
-sub_df['contra_rt'] = ((sub_df['category'] == rt_index) | (sub_df['category'] == hat_index)) & (sub_df['laterality'] == Laterality.CONTRALATERAL)
+sub_df['ipsi_rt'] = ((sub_df['category'] == s1_index) | (sub_df['category'] == s2_index))
+sub_df['contra_rt'] = ((sub_df['category'] == s1_index) | (sub_df['category'] == s2_index)) 
 sub_df['time_bin'] = pd.cut(sub_df['trial_time'], bins=time_bins, right=False)
 
 
@@ -78,8 +78,12 @@ ax_contra.grid(True, linestyle=':', alpha=0.5)
 plt.tight_layout()
 plt.savefig(
     'temporal_dynamics_omr.svg', 
-    bbox_inches='tight',
-    transparent=True 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_omr.png',
+    dpi=300, 
+    bbox_inches='tight'
 )
 plt.show()
 
@@ -104,7 +108,11 @@ ax.axhline(0.0, color='grey', linestyle='--', alpha=0.7)
 plt.tight_layout()
 plt.savefig(
     'temporal_dynamics_omr_index.svg', 
-    bbox_inches='tight',
-    transparent=True 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_omr_index.png',
+    dpi=300, 
+    bbox_inches='tight'
 )
 plt.show()

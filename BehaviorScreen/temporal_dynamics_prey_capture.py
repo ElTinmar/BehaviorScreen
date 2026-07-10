@@ -125,8 +125,12 @@ ax_contra.grid(True, linestyle=':', alpha=0.5)
 plt.tight_layout()
 plt.savefig(
     'temporal_dynamics_prey_capture_JT.svg', 
-    bbox_inches='tight',
-    transparent=True 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_prey_capture_JT.png',
+    dpi=300, 
+    bbox_inches='tight'
 )
 plt.show()
 
@@ -155,7 +159,11 @@ ax_contra.grid(True, linestyle=':', alpha=0.5)
 plt.tight_layout()
 plt.savefig(
     'temporal_dynamics_prey_capture_RT_HAT.svg', 
-    bbox_inches='tight',
-    transparent=True 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_prey_capture_RT_HAT.png',
+    dpi=300, 
+    bbox_inches='tight'
 )
 plt.show()

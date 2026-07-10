@@ -79,8 +79,12 @@ ax_contra.grid(True, linestyle=':', alpha=0.5)
 plt.tight_layout()
 plt.savefig(
     'temporal_dynamics_looming.svg', 
-    bbox_inches='tight',
-    transparent=True 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_looming.png',
+    dpi=300, 
+    bbox_inches='tight'
 )
 plt.show()
 
