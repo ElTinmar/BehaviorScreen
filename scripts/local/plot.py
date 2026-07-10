@@ -3,11 +3,10 @@ from BehaviorScreen.plot import plot_heatmap
 from multiprocessing import Pool, cpu_count
 
 def process_folder(folder):
-    target = ROOT / folder
-    print(f"processing {target}")
+    print(f"processing {folder}")
 
-    input_csv = target / "bouts.csv"
-    output_png = target / "bouts.png"
+    input_csv = folder / "bouts.csv"
+    output_png = folder / "bouts.png"
 
     plot_heatmap(input_csv, CONFIG_YAML, output_png)
     
