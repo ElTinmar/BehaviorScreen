@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from statsmodels.stats.multitest import multipletests
+import pickle
 
 from BehaviorScreen.core import Stim, AGAROSE_WELL_DIMENSIONS
 from BehaviorScreen.load import (
@@ -18,6 +19,7 @@ from BehaviorScreen.load import (
 )
 from BehaviorScreen.plot import get_eye_traces, read_stim_specs, load_yaml_config
 from BehaviorScreen.process import get_circle_hough, get_background_image
+from BehaviorScreen.megabouts import MegaboutResults
 from megabouts.utils import bouts_category_name_short
 
 ROOT = Path('/media/martin/DATA_18TB/Screen/WT/danieau')
@@ -41,6 +43,9 @@ directories = Directories(
 files: List[BehaviorFiles] = find_files(directories)
 behavior_file = files[0]
 behavior_data: BehaviorData = load_data(behavior_file)
+megabout_file = behavior_file.metadata.with_suffix('.pkl')
+with open(megabout_file, 'rb') as fp:
+    megabout: MegaboutResults = pickle.load(fp)
 
 # ----------------------------
 fs = 120
