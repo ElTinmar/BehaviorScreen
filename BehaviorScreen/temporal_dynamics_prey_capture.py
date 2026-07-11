@@ -167,3 +167,58 @@ plt.savefig(
     bbox_inches='tight'
 )
 plt.show()
+
+### RATIO
+
+
+counts['asymmetry_index_JT'] = (counts['jt_ipsi_hz'] - counts['jt_contra_hz']) / (counts['jt_ipsi_hz'] + counts['jt_contra_hz'])
+fig = plt.figure(figsize=(12, 10))
+ax = fig.gca()
+
+sns.lineplot(
+    data=counts, x='time_sec', y='asymmetry_index_JT',
+    hue='trial_num', errorbar='se', palette='viridis', ax=ax, zorder=3,
+)
+ax.set_xlabel('Trial Time (s)', fontsize=12)
+ax.set_ylabel('Asymmetry Index\n(← contra | ipsi →)', fontsize=12, fontweight='bold')
+ax.set_ylim(-1.05, 1.05)
+ax.grid(True, linestyle=':', alpha=0.5)
+ax.axhline(0.0, color='grey', linestyle='--', alpha=0.7)
+
+plt.tight_layout()
+plt.savefig(
+    'temporal_dynamics_prey_capture_JT_index.svg', 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_prey_capture_JT_index.png',
+    dpi=300, 
+    bbox_inches='tight'
+)
+plt.show()
+
+counts['asymmetry_index_RT'] = (counts['rt_ipsi_hz'] - counts['rt_contra_hz']) / (counts['rt_ipsi_hz'] + counts['rt_contra_hz'])
+fig = plt.figure(figsize=(12, 10))
+ax = fig.gca()
+
+sns.lineplot(
+    data=counts, x='time_sec', y='asymmetry_index_RT',
+    hue='trial_num', errorbar='se', palette='viridis', ax=ax, zorder=3,
+)
+ax.set_xlabel('Trial Time (s)', fontsize=12)
+ax.set_ylabel('Asymmetry Index\n(← contra | ipsi →)', fontsize=12, fontweight='bold')
+ax.set_ylim(-1.05, 1.05)
+ax.grid(True, linestyle=':', alpha=0.5)
+ax.axhline(0.0, color='grey', linestyle='--', alpha=0.7)
+
+plt.tight_layout()
+plt.savefig(
+    'temporal_dynamics_prey_capture_RT_HAT_index.svg', 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_prey_capture_RT_HAT_index.png',
+    dpi=300, 
+    bbox_inches='tight'
+)
+plt.show()
