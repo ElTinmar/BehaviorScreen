@@ -529,55 +529,56 @@ plt.show()
 
 
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from scipy.stats import ks_1samp, uniform
-
 # ==========================================
-# 1. COMPUTE TIME-RESCALED INTERVALS
+# FIXED: TRUE INDIVIDUAL PHASE DIAGNOSTICS
 # ==========================================
-# Reconstruct a dataframe of events sorted chronologically within each trial
 df_ev = pd.DataFrame({
+    'file': decay_events['file'].values,       
+    'k': decay_events['trial_num'].values,    
     't': spike_times, 
-    'k': spike_trials,
-    'sin': spike_sin,
-    'cos': spike_cos
-}).sort_values(['k', 't'])
+    'sin': spike_sin,   # Exact raw phase at event start
+    'cos': spike_cos    # Exact raw phase at event end
+})
 
 rescaled_intervals = []
 
-# Loop through each trial to calculate the integral of lambda between events
-for k_idx, group in df_ev.groupby('k'):
+for (fish_id, k_idx), group in df_ev.groupby(['file', 'k']):
+    group = group.sort_values('t')
     times = group['t'].values
+    
     if len(times) < 2:
         continue
+        
+    trial_raw = pc_df[(pc_df['file'] == fish_id) & (pc_df['trial_num'] == k_idx)].copy()
+    trial_raw['t_rel'] = trial_raw['trial_time'] - T_start
+    
+    raw_t = trial_raw['t_rel'].values
+    raw_sin = trial_raw['phase_sin'].values
+    raw_cos = trial_raw['phase_cos'].values
     
     for i in range(len(times) - 1):
         t_start, t_end = times[i], times[i+1]
         
-        # Isolate the segment of our pre-calculated grid that falls between these two events
-        grid_mask = (t_grid >= t_start) & (t_grid <= t_end)
+        # 1. Grab the raw, un-averaged grid lines for this specific trial execution
+        grid_mask = (raw_t >= t_start) & (raw_t <= t_end)
+        sub_t = raw_t[grid_mask]
         
-        # If the interval is wider than our bin size (0.02s), integrate numerically
-        if np.sum(grid_mask) > 0:
-            sub_t = t_grid[grid_mask]
-            sub_sin = grid_sin[grid_mask]
-            sub_cos = grid_cos[grid_mask]
-            
-            # Evaluate lambda across this small slice
-            rates_slice = lambda_t_phase(sub_t, k_idx, sub_sin, sub_cos, A_p, tau_p, B_p, alpha_p, b1_p, b2_p)
-            z_i = np.sum(rates_slice) * dt
-        else:
-            # If the events are closer than 20ms, approximate with a single step midpoint
-            mid_t = (t_start + t_end) / 2
-            mid_sin = (group['sin'].iloc[i] + group['sin'].iloc[i+1]) / 2
-            mid_cos = (group['cos'].iloc[i] + group['cos'].iloc[i+1]) / 2
-            z_i = lambda_t_phase(mid_t, k_idx, mid_sin, mid_cos, A_p, tau_p, B_p, alpha_p, b1_p, b2_p) * (t_end - t_start)
+        # 2. Attach the exact event bounds
+        sub_t = np.unique(np.concatenate([[t_start], sub_t, [t_end]]))
+        
+        # 3. Interpolate from the true, un-averaged individual trial phase vectors
+        sub_sin = np.interp(sub_t, raw_t, raw_sin)
+        sub_cos = np.interp(sub_t, raw_t, raw_cos)
+        
+        # 4. Evaluate lambda using the true individual phase tracking
+        rates_slice = lambda_t_phase(sub_t, k_idx, sub_sin, sub_cos, A_p, tau_p, B_p, alpha_p, b1_p, b2_p)
+        
+        # 5. Integrate using the Trapezoidal Rule
+        z_i = np.trapz(rates_slice, sub_t)
             
         rescaled_intervals.append(z_i)
 
-# Transform rescaled intervals to a uniform distribution: u_i = 1 - exp(-z_i)
+# Transform and sort for the KS Plot
 u = 1 - np.exp(-np.array(rescaled_intervals))
 u_sorted = np.sort(u)
 N_intervals = len(u_sorted)
