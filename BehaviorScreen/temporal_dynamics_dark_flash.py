@@ -16,7 +16,10 @@ print(f"#fish: {len(df.file.unique())}")
 
 fine_dt = 0.02
 time_bins = np.arange(0, 5 + fine_dt, fine_dt)
-window_size_steps = int(1.0 / fine_dt)
+window_duration = 0.1
+window_size_steps = int(window_duration / fine_dt)
+window_size_steps |= 1
+
 
 sub_df = df[df['epoch_name'] == "flash dark"].copy()
 
@@ -46,7 +49,7 @@ counts = counts.reset_index()
 counts['time_sec'] = counts['time_bin'].apply(lambda x: x.left).astype(float)
 
 # Calculate true instantaneous frequency (Bouts per second)
-counts['o-bend_hz'] = counts['rolling_o-bend'] / 1.0
+counts['o-bend_hz'] = counts['rolling_o-bend'] / window_duration
 
 fig = plt.figure(figsize=(12, 10))
 ax = fig.gca()
@@ -70,3 +73,10 @@ plt.savefig(
 )
 plt.show()
 
+#################
+#
+#
+#   MODEL
+#
+#
+#################
