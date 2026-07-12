@@ -6,8 +6,7 @@ import matplotlib.pyplot as plt
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
 from scipy.optimize import minimize
-from scipy.integrate import quad
-from scipy.stats import ks_1samp, uniform, kstest, chi2
+
 
 rt_index = bouts_category_name_short.index("RT")
 hat_index = bouts_category_name_short.index("HAT")
@@ -349,12 +348,11 @@ spike_trials = events['trial_num'].values
 num_trials = len(sub_df.groupby(['file', 'trial_num']))
 
 # ==========================================
-# DIFFERENCE OF EXPONENTIALS FUNCTIONS
+# EXPONENTIALS FUNCTIONS
 # ==========================================
 def lambda_t_diff_exp(t, B, A_dip, tau_dip):
     t_safe = np.maximum(t, 0)
     
-    # Core dual-exponential engine
     dip = A_dip * np.exp(-t_safe / tau_dip)
     
     rate = B - dip
