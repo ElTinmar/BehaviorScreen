@@ -4,7 +4,7 @@ import numpy as np
 import seaborn as sns
 from scipy.optimize import minimize
 from scipy.integrate import quad
-from scipy.stats import ks_1samp, uniform, kstest
+from scipy.stats import ks_1samp, uniform, kstest, chi2
 import matplotlib.pyplot as plt
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
@@ -226,15 +226,212 @@ plt.savefig(
 )
 plt.show()
 
-#### MODEL
+#################################################
+#
+#
+#                   MODELS
+#
+#
+################################################
+
 
 T_start = 0.0 
-T_end = 25.0  
+T_end = 24.0  
 T_duration = T_end - T_start
+
+
+######################### homogeneous poisson process  ########################
+
+### IPSI
 
 decay_events = pc_df[pc_df['ipsi_jturn'] & (pc_df['trial_time'] >= T_start) & (pc_df['trial_time'] <= T_end)]
 spike_times = (decay_events['trial_time'] - T_start).values
 num_trials = len(pc_df.groupby(['file', 'trial_num']))
+
+# Calculate analytical MLE constant rate (Total Events / Total Tracking Space)
+n_events = len(spike_times)
+total_time_per_trial = T_duration
+total_operational_space = num_trials * total_time_per_trial
+
+C_mle = n_events / total_operational_space
+
+# Compute the exact baseline Negative Log-Likelihood
+nll_hpp = -(n_events * np.log(np.maximum(C_mle, 1e-9)) - C_mle * total_operational_space)
+
+print("--- Homogeneous Poisson Process (Null Model) ---")
+print(f"Constant Baseline Rate (C): {C_mle:.3f} bouts/sec")
+print(f"HPP Null Model NLL: {nll_hpp:.3f}")
+
+
+# ==========================================
+# 3. PLOT HOMOGENEOUS POISSON BASELINE DASHBOARD
+# ==========================================
+# Average rolling counts across all fish and trials to get the mean population curve
+mean_rolling = counts.groupby('time_sec')['rolling_jt_ipsi'].mean()
+
+# Isolate the time points matching your decay window
+t_smoothed_window = mean_rolling.index[(mean_rolling.index >= T_start) & (mean_rolling.index <= T_end)]
+smoothed_rates_window = mean_rolling.loc[t_smoothed_window]
+
+# Generate points for the flat, constant HPP baseline rate
+t_model_hpp = np.linspace(0, T_duration, 200)
+fitted_rate_hpp = np.full_like(t_model_hpp, C_mle)
+
+# Create a 2-row layout matching your standard dashboard framework
+fig, (ax1, ax2) = plt.subplots(
+    2, 1, 
+    figsize=(10, 8), 
+    gridspec_kw={'height_ratios': [3, 1.2]},
+    sharex=False
+)
+
+# --- TOP ROW: DATA AXIS ---
+ax1.plot(t_smoothed_window - T_start, smoothed_rates_window, color='darkgray', lw=2, label='Your Rolling Average Data')
+ax1.plot(t_model_hpp, fitted_rate_hpp, color='royalblue', lw=3, ls='--', label='HPP Null Model Fit')
+ax1.set_ylabel('Ipsilateral J-turn rate $\lambda(t)$  (Hz)')
+ax1.set_xlabel('Time from Peak (seconds)')
+ax1.set_title(r"$\lambda(t) = C$ (Constant Rate Assumption)", fontsize=12)
+ax1.legend(loc='upper right')
+ax1.grid(True, alpha=0.2)
+ax1.set_ylim((0, 0.6))  # Force y-axis to start at 0 to honestly show the flat baseline comparison
+
+# --- BOTTOM ROW: ANNOTATION DASHBOARD AXIS ---
+ax2.axis('off')
+
+# Clean HPP summary notation string using safe raw-string concatenation
+latex_annotation_hpp = r"""Null Model Formula: $\lambda(t) = C$
+
+Fitted Parameters & Interpretations:
+$C$ = """ + f"{C_mle:.3f}" + r""" Hz [Constant Baseline Rate: Represents the global average firing intensity across all time points]
+
+Statistical Meaning:
+This model assumes behavioral probability is completely independent of time, stimulus onset, or phase cycles. 
+It serves as the formal baseline (Null Hypothesis) for your Likelihood Ratio Tests. Overturning this model 
+proves that your experimental features possess statistically significant temporal structures."""
+
+# Render the text directly inside the blank bottom panel
+ax2.text(
+    0.01, 0.95,                  
+    latex_annotation_hpp, 
+    transform=ax2.transAxes,
+    fontsize=10, 
+    verticalalignment='top',
+    horizontalalignment='left',
+    multialignment='left'
+)
+
+plt.tight_layout()
+plt.savefig(
+    'temporal_dynamics_prey_capture_model_HPP_ipsi.svg', 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_prey_capture_model_HPP_ipsi.png',
+    dpi=300, 
+    bbox_inches='tight'
+)
+plt.show()
+
+
+### CONTRA
+
+
+decay_events = pc_df[pc_df['contra_jturn'] & (pc_df['trial_time'] >= T_start) & (pc_df['trial_time'] <= T_end)]
+spike_times = (decay_events['trial_time'] - T_start).values
+num_trials = len(pc_df.groupby(['file', 'trial_num']))
+
+# Calculate analytical MLE constant rate (Total Events / Total Tracking Space)
+n_events = len(spike_times)
+total_time_per_trial = T_duration
+total_operational_space = num_trials * total_time_per_trial
+
+C_mle = n_events / total_operational_space
+
+# Compute the exact baseline Negative Log-Likelihood
+nll_hpp = -(n_events * np.log(np.maximum(C_mle, 1e-9)) - C_mle * total_operational_space)
+
+print("--- Homogeneous Poisson Process (Null Model) ---")
+print(f"Constant Baseline Rate (C): {C_mle:.3f} bouts/sec")
+print(f"HPP Null Model NLL: {nll_hpp:.3f}")
+
+
+# ==========================================
+# 3. PLOT HOMOGENEOUS POISSON BASELINE DASHBOARD
+# ==========================================
+# Average rolling counts across all fish and trials to get the mean population curve
+mean_rolling = counts.groupby('time_sec')['rolling_jt_contra'].mean()
+
+# Isolate the time points matching your decay window
+t_smoothed_window = mean_rolling.index[(mean_rolling.index >= T_start) & (mean_rolling.index <= T_end)]
+smoothed_rates_window = mean_rolling.loc[t_smoothed_window]
+
+# Generate points for the flat, constant HPP baseline rate
+t_model_hpp = np.linspace(0, T_duration, 200)
+fitted_rate_hpp = np.full_like(t_model_hpp, C_mle)
+
+# Create a 2-row layout matching your standard dashboard framework
+fig, (ax1, ax2) = plt.subplots(
+    2, 1, 
+    figsize=(10, 8), 
+    gridspec_kw={'height_ratios': [3, 1.2]},
+    sharex=False
+)
+
+# --- TOP ROW: DATA AXIS ---
+ax1.plot(t_smoothed_window - T_start, smoothed_rates_window, color='darkgray', lw=2, label='Your Rolling Average Data')
+ax1.plot(t_model_hpp, fitted_rate_hpp, color='royalblue', lw=3, ls='--', label='HPP Null Model Fit')
+ax1.set_ylabel('Contralateral J-turn rate $\lambda(t)$  (Hz)')
+ax1.set_xlabel('Time from Peak (seconds)')
+ax1.set_title(r"$\lambda(t) = C$ (Constant Rate Assumption)", fontsize=12)
+ax1.legend(loc='upper right')
+ax1.grid(True, alpha=0.2)
+ax1.set_ylim((0, 0.6))  # Force y-axis to start at 0 to honestly show the flat baseline comparison
+
+# --- BOTTOM ROW: ANNOTATION DASHBOARD AXIS ---
+ax2.axis('off')
+
+# Clean HPP summary notation string using safe raw-string concatenation
+latex_annotation_hpp = r"""Null Model Formula: $\lambda(t) = C$
+
+Fitted Parameters & Interpretations:
+$C$ = """ + f"{C_mle:.3f}" + r""" Hz [Constant Baseline Rate: Represents the global average firing intensity across all time points]
+
+Statistical Meaning:
+This model assumes behavioral probability is completely independent of time, stimulus onset, or phase cycles. 
+It serves as the formal baseline (Null Hypothesis) for your Likelihood Ratio Tests. Overturning this model 
+proves that your experimental features possess statistically significant temporal structures."""
+
+# Render the text directly inside the blank bottom panel
+ax2.text(
+    0.01, 0.95,                  
+    latex_annotation_hpp, 
+    transform=ax2.transAxes,
+    fontsize=10, 
+    verticalalignment='top',
+    horizontalalignment='left',
+    multialignment='left'
+)
+
+plt.tight_layout()
+plt.savefig(
+    'temporal_dynamics_prey_capture_model_HPP_contra.svg', 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_prey_capture_model_HPP_contra.png',
+    dpi=300, 
+    bbox_inches='tight'
+)
+plt.show()
+
+######################## Non homogeneous poisson ##################################
+
+
+##### Exponential
+decay_events = pc_df[pc_df['ipsi_jturn'] & (pc_df['trial_time'] >= T_start) & (pc_df['trial_time'] <= T_end)]
+spike_times = (decay_events['trial_time'] - T_start).values
+num_trials = len(pc_df.groupby(['file', 'trial_num']))
+
 
 def lambda_t(t, A, tau, B):
     # Bound below by a tiny number to avoid log(0)
@@ -271,29 +468,70 @@ print(f"Amplitude (A): {A_fit:.3f} bouts/sec")
 print(f"Time Constant (tau): {tau_fit:.3f} seconds (or {tau_fit*1000:.1f} ms)")
 print(f"Baseline (B): {B_fit:.3f} bouts/sec")
 
-
-
-# Average your rolling counts across all fish and trials to get the mean population curve
+# ==========================================
+# 3. PLOT AVERAGED PROPENSITY WITH DASHBOARD BELOW
+# ==========================================
+# Average rolling counts across all fish and trials to get the mean population curve
 mean_rolling = counts.groupby('time_sec')['rolling_jt_ipsi'].mean()
 
 # Isolate the time points matching your decay window
 t_smoothed_window = mean_rolling.index[(mean_rolling.index >= T_start) & (mean_rolling.index <= T_end)]
 smoothed_rates_window = mean_rolling.loc[t_smoothed_window]
 
-# Generate points for your new parametric model fit
+# Generate points for your parametric model fit
 t_model = np.linspace(0, T_duration, 200)
 fitted_rate = A_fit * np.exp(-t_model / tau_fit) + B_fit
 
-# Plot
-plt.figure(figsize=(9, 5))
-plt.plot(t_smoothed_window - T_start, smoothed_rates_window, color='darkgray', lw=2, label='Your Rolling Average Data')
-plt.plot(t_model, fitted_rate, color='crimson', lw=3, label='Poisson MLE Fit')
-plt.xlabel('Time from Peak (seconds)')
-plt.ylabel('Bout Rate (Hz)')
-plt.title('Ipsi J-Turn Fitting Results')
-plt.legend()
-plt.show()
+# Create a 2-row layout. 
+fig, (ax1, ax2) = plt.subplots(
+    2, 1, 
+    figsize=(10, 8), 
+    gridspec_kw={'height_ratios': [3, 1.2]},
+    sharex=False
+)
 
+# --- TOP ROW: DATA AXIS ---
+ax1.plot(t_smoothed_window - T_start, smoothed_rates_window, color='darkgray', lw=2, label='Your Rolling Average Data')
+ax1.plot(t_model, fitted_rate, color='crimson', lw=3, label='Poisson MLE Fit')
+ax1.set_ylabel('Bout Rate $\lambda(t)$  (Hz)')
+ax1.set_xlabel('Time from Peak (seconds)')
+ax1.set_title(r"$\lambda(t) = \max \left( A \cdot e^{-t/\tau} + B ,\, 10^{-9} \right)$", fontsize=12)
+ax1.legend(loc='upper right')
+ax1.grid(True, alpha=0.2)
+ax1.set_ylim(bottom=0)  # Force y-axis to start at 0
+
+# --- BOTTOM ROW: ANNOTATION DASHBOARD AXIS ---
+ax2.axis('off')
+
+# Concise exponential summary annotation using safe raw-string concatenation
+latex_annotation = r"""
+Fitted Parameters & Interpretations:
+$A$ = """ + f"{A_fit:.3f}" + r""" Hz [Scales the initial height of the behavioral response peak at $t=0$]
+$B$ = """ + f"{B_fit:.3f}" + r""" Hz [The stable background baseline rate floor after the response decays]
+$\tau$ = """ + f"{tau_fit:.3f}" + r""" sec (""" + f"{tau_fit*1000:.1f}" + r""" ms) [The characteristic time constant governing the rate of exponential decay]"""
+
+# Render the text directly inside the blank bottom panel
+ax2.text(
+    0.01, 0.95,                  
+    latex_annotation, 
+    transform=ax2.transAxes,
+    fontsize=10, 
+    verticalalignment='top',
+    horizontalalignment='left',
+    multialignment='left'
+)
+
+plt.tight_layout()
+plt.savefig(
+    'temporal_dynamics_prey_capture_model_NHPP_ipsi_0.svg', 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_prey_capture_model_NHPP_ipsi_0.png',
+    dpi=300, 
+    bbox_inches='tight'
+)
+plt.show()
 
 ################## Include trial num in the model
 
@@ -1346,7 +1584,17 @@ ax2.text(
 
 # Use tight_layout to automatically space the panels so they don't overlap
 plt.tight_layout()
+plt.savefig(
+    'temporal_dynamics_prey_capture_model_NHPP_ipsi_1.svg', 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_prey_capture_model_NHPP_ipsi_1.png',
+    dpi=300, 
+    bbox_inches='tight'
+)
 plt.show()
+
 
 # ==========================================
 # 4. TRUE INDIVIDUAL PHASE DIAGNOSTICS
@@ -1560,4 +1808,55 @@ $\alpha_{\gamma}$ = """ + f"{a_g:.4f}" + r""" [Entrainment Tuning Change: Change
 
 ax2.text(0.01, 0.95, latex_annotation, transform=ax2.transAxes, fontsize=9.5, verticalalignment='top', horizontalalignment='left', multialignment='left')
 plt.tight_layout()
+plt.savefig(
+    'temporal_dynamics_prey_capture_model_NHPP_ipsi_2.svg', 
+    bbox_inches='tight'
+)
+plt.savefig(
+    'temporal_dynamics_prey_capture_model_NHPP_ipsi_2.png',
+    dpi=300, 
+    bbox_inches='tight'
+)
 plt.show()
+
+
+
+
+################################
+
+def run_likelihood_ratio_test(nll_null, nll_complex, df_null, df_complex):
+    """
+    Computes Wilks' Chi-Squared test statistic to compare nested architectures.
+    """
+    # Test statistic D = 2 * (LL_complex - LL_null) = 2 * (NLL_null - NLL_complex)
+    dev_statistic = 2.0 * (nll_null - nll_complex)
+    
+    # Degrees of freedom delta
+    df_delta = df_complex - df_null
+    
+    # Calculate the upper-tail probability (p-value) of Chi-squared distribution
+    p_value = chi2.sf(dev_statistic, df_delta)
+    
+    print("\n==========================================")
+    print("       LIKELIHOOD RATIO TEST RESULTS      ")
+    print("==========================================")
+    print(f"Null Model NLL:     {nll_null:.3f}  (df={df_null})")
+    print(f"Complex Model NLL:  {nll_complex:.3f}  (df={df_complex})")
+    print(f"Degrees of Freedom: {df_delta}")
+    print(f"Chi-Square Stat (D): {dev_statistic:.3f}")
+    
+    if p_value < 0.001:
+        print(f"LRT p-value:        p = {p_value:.5f} < 0.001 (Highly Significant) 🌟")
+    else:
+        print(f"LRT p-value:        p = {p_value:.5f}")
+        
+    if dev_statistic > 0 and p_value < 0.05:
+        print("\nConclusion: Reject the Null Hypothesis. The additional parameters")
+        print("provide a statistically superior description of the data.")
+    else:
+        print("\nConclusion: Fail to reject the Null Hypothesis. The complex parameters")
+        print("do not justify the added mathematical complexity.")
+    print("==========================================")
+    
+    return dev_statistic, p_value
+
