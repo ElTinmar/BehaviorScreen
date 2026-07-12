@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 from scipy.optimize import minimize
+from scipy.integrate import quad
+from scipy.stats import ks_1samp, uniform, kstest
 import matplotlib.pyplot as plt
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
@@ -31,7 +33,7 @@ pc_df['contra_rt'] = ((pc_df['category'] == rt_index) | (pc_df['category'] == ha
 pc_df['phase_sin'] = np.sin(pc_df['stim_phase'])
 pc_df['phase_cos'] = np.cos(pc_df['stim_phase'])
 
-# Bin the raw continuous timestamps
+# Bin the raw continuous timestamps'
 pc_df['time_bin'] = pd.cut(pc_df['trial_time'], bins=time_bins, right=False)
 
 
@@ -247,9 +249,10 @@ def negative_log_likelihood(params, t_events, T, N_trials):
     # Term 2: Integral of expected events per trial * total trials
     # Integral of A*e^(-t/tau) + B from 0 to T
     integral = (-A * tau * np.exp(-T / tau) + B * T) - (-A * tau)
-    total_expected_events = N_trials * integral
+
+    #integral,_ = quad(lambda_t,0,T,args=(A, tau, B))
     
-    return -(sum_log_rates - total_expected_events)
+    return -(sum_log_rates - N_trials*integral)
 
 initial_guesses = [2.0, 1.5, 0.1] 
 bounds = ((0, None), (0.01, None), (0, None)) # Parameters must be positive
@@ -382,6 +385,11 @@ plt.show()
 # ==========================================
 # 0. EXTRACT RAW EVENTS (THE SPIKE VARIABLES)
 # ==========================================
+
+T_start = 0.0 
+T_end = 24.0  
+T_duration = T_end - T_start
+
 behavior_mask = pc_df['ipsi_jturn'] == True
 
 # Filter for events occurring exactly within our decay window
@@ -446,7 +454,7 @@ def phase_negative_log_likelihood_corrected(params, t_events, trial_events, s_si
 # 3. RUN THE BOUNDED OPTIMIZATION
 # ==========================================
 # Start with phase parameters slightly off-zero so the optimizer sees a clear initial gradient direction
-initial_guesses_phase = [0.56, 1.15, 0.40, -0.15, 0.1, 0.1]
+initial_guesses_phase = [0.56, 1.15, 0.40, -0.15, 0.0, 0.0]
 bounds_phase = (
     (0.01, 10.0),    # A
     (0.1, 5.0),      # tau
@@ -558,24 +566,11 @@ for (fish_id, k_idx), group in df_ev.groupby(['file', 'k']):
     
     for i in range(len(times) - 1):
         t_start, t_end = times[i], times[i+1]
-        
-        # 1. Grab the raw, un-averaged grid lines for this specific trial execution
-        grid_mask = (raw_t >= t_start) & (raw_t <= t_end)
-        sub_t = raw_t[grid_mask]
-        
-        # 2. Attach the exact event bounds
-        sub_t = np.unique(np.concatenate([[t_start], sub_t, [t_end]]))
-        
-        # 3. Interpolate from the true, un-averaged individual trial phase vectors
+        sub_t = np.linspace(t_start, t_end, num=20)
         sub_sin = np.interp(sub_t, raw_t, raw_sin)
         sub_cos = np.interp(sub_t, raw_t, raw_cos)
-        
-        # 4. Evaluate lambda using the true individual phase tracking
         rates_slice = lambda_t_phase(sub_t, k_idx, sub_sin, sub_cos, A_p, tau_p, B_p, alpha_p, b1_p, b2_p)
-        
-        # 5. Integrate using the Trapezoidal Rule
         z_i = np.trapz(rates_slice, sub_t)
-            
         rescaled_intervals.append(z_i)
 
 # Transform and sort for the KS Plot
@@ -615,4 +610,954 @@ plt.ylabel('Empirical Cumulative Quantiles')
 plt.title('KS Diagnostic Plot via Time-Rescaling')
 plt.legend(loc='lower right')
 plt.grid(True, alpha=0.15)
+plt.show()
+
+
+
+######## Alpha function instead of pure exponential
+
+
+def lambda_t_phase_alpha(t, trial_k, s_sin, s_cos, A, tau, B, alpha, b1, b2):
+    # Alpha Activation: t * exp(-t/tau) allows the rate to start at B, 
+    # rise smoothly to a peak at t = tau, and then decay.
+    base_rate = A * (t / tau) * np.exp(-t / tau) + B
+    
+    trial_modulation = np.exp(alpha * trial_k)
+    phase_modulation = np.exp(np.clip(b1 * s_sin + b2 * s_cos, -5, 5))
+    return np.maximum(base_rate * trial_modulation * phase_modulation, 1e-9)
+
+def phase_negative_log_likelihood_alpha(params, t_events, trial_events, s_sin, s_cos, unique_trials, t_grid, grid_sin, grid_cos, dt):
+    A, tau, B, alpha, b1, b2 = params
+    
+    # Term 1: Log-rates at exact event times using Alpha dynamics
+    rates = lambda_t_phase_alpha(t_events, trial_events, s_sin, s_cos, A, tau, B, alpha, b1, b2)
+    sum_log_rates = np.sum(np.log(rates))
+    
+    # Term 2: Numerical Riemann Integral across the single template grid
+    # Crucial: Must mirror the exact same alpha activation formula used above!
+    grid_base_rate = A * (t_grid / tau) * np.exp(-t_grid / tau) + B
+    grid_phase_mod = np.exp(np.clip(b1 * grid_sin + b2 * grid_cos, -5, 5))
+    
+    # Area under the curve for a single baseline trial (k=0)
+    single_trial_integral = np.sum(grid_base_rate * grid_phase_mod) * dt
+    
+    # Total expected events scaled across all unique trials and pooled fish
+    total_expected_events = single_trial_integral * np.sum(np.exp(alpha * unique_trials))
+    
+    nll = -(sum_log_rates - total_expected_events)
+    return nll if np.isfinite(nll) else 1e10
+
+
+initial_guesses_phase = [0.56, 1.15, 0.40, -0.15, 0.0, 0.0]
+bounds_phase = (
+    (0.01, 10.0),    # A
+    (0.1, 5.0),      # tau
+    (0.01, 5.0),     # B
+    (-2.0, 2.0),     # alpha
+    (-3.0, 3.0),     # b1
+    (-3.0, 3.0)      # b2
+)
+
+phase_result = minimize(
+    phase_negative_log_likelihood_alpha, 
+    x0=initial_guesses_phase, 
+    # Appended global template grid variables to the optimization args
+    args=(spike_times, spike_trials, spike_sin, spike_cos, unique_trial_counts, t_grid, grid_sin, grid_cos, dt),
+    method='L-BFGS-B',
+    bounds=bounds_phase
+)
+
+A_p, tau_p, B_p, alpha_p, b1_p, b2_p = phase_result.x
+
+gamma = np.sqrt(b1_p**2 + b2_p**2)
+phi_pref = np.arctan2(b1_p, b2_p)
+
+print("\n--- Alpha Phase Model Results ---")
+print(f"Base Amplitude (A): {A_p:.3f} bouts/sec")
+print(f"Time Constant (tau): {tau_p:.3f} seconds")
+print(f"Base Baseline (B): {B_p:.3f} bouts/sec")
+print(f"Trial Modulation (alpha): {alpha_p:.4f}")
+print(f"Phase Tuning Strength (gamma): {gamma:.3f}")
+print(f"Preferred Phase Angle (degrees): {np.degrees(phi_pref):.1f}°")
+
+# ==========================================
+# 4. PLOT EMPIRICAL VS MODEL PROPENSITY
+# ==========================================
+unique_trials = np.sort(counts['trial_num'].unique())
+num_colors = len(unique_trials)
+cmap = plt.get_cmap('viridis')
+colors = [cmap(i) for i in np.linspace(0, 0.85, num_colors)] 
+
+plt.figure(figsize=(10, 6))
+
+for t_num, color in zip(unique_trials, colors):
+    # 1. Extract empirical rolling data
+    trial_data = counts[counts['trial_num'] == t_num]
+    mean_data = trial_data.groupby('time_sec').agg(
+        r_smooth=('rolling_jt_ipsi', 'mean'),
+        mean_sin=('mean_sin', 'mean'),
+        mean_cos=('mean_cos', 'mean')
+    )
+    
+    window_mask = (mean_data.index >= T_start) & (mean_data.index <= T_end)
+    t_smooth = mean_data.index[window_mask] - T_start
+    r_smooth = mean_data.loc[window_mask, 'r_smooth'].values
+    
+    s_sin = mean_data.loc[window_mask, 'mean_sin'].values
+    s_cos = mean_data.loc[window_mask, 'mean_cos'].values
+    
+    # 2. Calculate Alpha-Modulated Model Rate
+    # UPDATED: Implemented the non-monotonic rise time base rate here
+    base_rate = A_p * (t_smooth / tau_p) * np.exp(-t_smooth / tau_p) + B_p
+    trial_mod = np.exp(alpha_p * t_num)
+    phase_mod = np.exp(np.clip(b1_p * s_sin + b2_p * s_cos, -5, 5))
+    
+    r_model = base_rate * trial_mod * phase_mod
+    
+    # 3. Handle Labels
+    label = f'Trial {t_num}' if t_num in [unique_trials[0], unique_trials[num_colors//2], unique_trials[-1]] else ""
+    
+    # 4. Plot
+    plt.plot(t_smooth, r_smooth, '--', color=color, alpha=0.3, label=f'Data {label}' if label else "")
+    plt.plot(t_smooth, r_model, '-', color=color, lw=2, label=f'Alpha Model {label}' if label else "")
+
+plt.xlabel('Time from Peak Response (seconds)')
+plt.ylabel('Bout Rate (Hz)')
+plt.title(f'Alpha-Activated Unified Model Fit Across Trials (alpha = {alpha_p:.4f})')
+plt.legend()
+plt.grid(True, alpha=0.2)
+plt.show()
+
+# ==========================================
+# FIXED: TRUE INDIVIDUAL PHASE DIAGNOSTICS
+# ==========================================
+df_ev = pd.DataFrame({
+    'file': decay_events['file'].values,       
+    'k': decay_events['trial_num'].values,    
+    't': spike_times, 
+    'sin': spike_sin,   
+    'cos': spike_cos    
+})
+
+rescaled_intervals = []
+
+for (fish_id, k_idx), group in df_ev.groupby(['file', 'k']):
+    group = group.sort_values('t')
+    times = group['t'].values
+    
+    if len(times) < 2:
+        continue
+        
+    trial_raw = pc_df[(pc_df['file'] == fish_id) & (pc_df['trial_num'] == k_idx)].copy()
+    trial_raw['t_rel'] = trial_raw['trial_time'] - T_start
+    
+    raw_t = trial_raw['t_rel'].values
+    raw_sin = trial_raw['phase_sin'].values
+    raw_cos = trial_raw['phase_cos'].values
+    
+    for i in range(len(times) - 1):
+        t_start, t_end = times[i], times[i+1]
+        sub_t = np.linspace(t_start, t_end, num=20)
+        sub_sin = np.interp(sub_t, raw_t, raw_sin)
+        sub_cos = np.interp(sub_t, raw_t, raw_cos)
+        
+        # UPDATED: Slicing integration via Alpha-activation parameters
+        rates_slice = lambda_t_phase_alpha(sub_t, k_idx, sub_sin, sub_cos, A_p, tau_p, B_p, alpha_p, b1_p, b2_p)
+        z_i = np.trapz(rates_slice, sub_t)
+        rescaled_intervals.append(z_i)
+
+# Transform and sort for the KS Plot
+u = 1 - np.exp(-np.array(rescaled_intervals))
+u_sorted = np.sort(u)
+N_intervals = len(u_sorted)
+eCDF = np.arange(1, N_intervals + 1) / N_intervals
+
+# FIXED: Standardized natively via scipy's 1-sample uniform distribution test
+ks_stat, p_val = kstest(u, 'uniform')
+
+print("\n--- Diagnostic Results ---")
+print(f"Number of analyzed inter-event intervals: {N_intervals}")
+print(f"Kolmogorov-Smirnov Statistic: {ks_stat:.4f}")
+print(f"KS Test p-value: {p_val:.4f} (p > 0.05 means model fully captures data structure)")
+
+# ==========================================
+# 5. GENERATE THE DIAGNOSTIC KS-PLOT
+# ==========================================
+plt.figure(figsize=(6, 6))
+
+# Perfect model line
+plt.plot([0, 1], [0, 1], 'k--', label='Perfect Inhomogeneous Poisson Process')
+
+# 95% Confidence Bounds
+c_bound = 1.36 / np.sqrt(N_intervals)
+plt.plot([0, 1], [c_bound, 1+c_bound], 'r:', alpha=0.5, label='95% Confidence Bounds')
+plt.plot([0, 1], [-c_bound, 1-c_bound], 'r:', alpha=0.5)
+
+# Our model profile
+plt.plot(u_sorted, eCDF, color='crimson', lw=2.5, label=f'Alpha Model (p={p_val:.3f})')
+
+plt.xlim([0, 1])
+plt.ylim([0, 1])
+plt.xlabel('Theoretical Cumulative Quantiles')
+plt.ylabel('Empirical Cumulative Quantiles')
+plt.title('KS Diagnostic Plot via Alpha Time-Rescaling')
+plt.legend(loc='lower right')
+plt.grid(True, alpha=0.15)
+plt.show()
+
+
+############## gamma activation
+
+# ==========================================
+# 1. INTENSITY & LOG-LIKELIHOOD FUNCTIONS (GAMMA)
+# ==========================================
+def lambda_t_phase_gamma(t, trial_k, s_sin, s_cos, A, tau, k, B, alpha, b1, b2):
+    # Gamma Activation: (t^k) * exp(-t/tau) decouple rise time from decay.
+    # np.maximum(t, 0) shields the optimizer from taking fractional roots of negative numbers.
+    t_safe = np.maximum(t, 0)
+    base_rate = A * (t_safe ** k) * np.exp(-t_safe / tau) + B
+    
+    trial_modulation = np.exp(alpha * trial_k)
+    phase_modulation = np.exp(np.clip(b1 * s_sin + b2 * s_cos, -5, 5))
+    return np.maximum(base_rate * trial_modulation * phase_modulation, 1e-9)
+
+def phase_negative_log_likelihood_gamma(params, t_events, trial_events, s_sin, s_cos, unique_trials, t_grid, grid_sin, grid_cos, dt):
+    A, tau, k, B, alpha, b1, b2 = params
+    
+    # Term 1: Log-rates at exact event times using Gamma dynamics
+    rates = lambda_t_phase_gamma(t_events, trial_events, s_sin, s_cos, A, tau, k, B, alpha, b1, b2)
+    sum_log_rates = np.sum(np.log(rates))
+    
+    # Term 2: Numerical Riemann Integral across the single template grid
+    t_grid_safe = np.maximum(t_grid, 0)
+    grid_base_rate = A * (t_grid_safe ** k) * np.exp(-t_grid_safe / tau) + B
+    grid_phase_mod = np.exp(np.clip(b1 * grid_sin + b2 * grid_cos, -5, 5))
+    
+    # Area under the curve for a single baseline trial (k=0)
+    single_trial_integral = np.sum(grid_base_rate * grid_phase_mod) * dt
+    
+    # Total expected events scaled across all unique trials
+    total_expected_events = single_trial_integral * np.sum(np.exp(alpha * unique_trials))
+    
+    nll = -(sum_log_rates - total_expected_events)
+    return nll if np.isfinite(nll) else 1e10
+
+# ==========================================
+# 2. RUN THE BOUNDED OPTIMIZATION
+# ==========================================
+# Parameters structured as: [A, tau, k, B, alpha, b1, b2]
+# Starting k at 2.0 allows a smooth, suppressed onset at t=0 to stop overshooting
+initial_guesses_phase = [0.56, 1.15, 2.0, 0.40, -0.15, 0.0, 0.0]
+bounds_phase = (
+    (0.01, 10.0),    # A
+    (0.1, 5.0),      # tau
+    (0.5, 10.0),     # k (Keep >= 0.5 to keep gradients stable near t=0)
+    (0.01, 5.0),     # B
+    (-2.0, 2.0),     # alpha
+    (-3.0, 3.0),     # b1
+    (-3.0, 3.0)      # b2
+)
+
+phase_result = minimize(
+    phase_negative_log_likelihood_gamma, 
+    x0=initial_guesses_phase, 
+    args=(spike_times, spike_trials, spike_sin, spike_cos, unique_trial_counts, t_grid, grid_sin, grid_cos, dt),
+    method='L-BFGS-B',
+    bounds=bounds_phase
+)
+
+A_p, tau_p, k_p, B_p, alpha_p, b1_p, b2_p = phase_result.x
+
+gamma = np.sqrt(b1_p**2 + b2_p**2)
+phi_pref = np.arctan2(b1_p, b2_p)
+
+theta_pref = np.deg2rad(70) * ((1 - np.cos(phi_pref))/2) # check that
+
+print("\n--- Gamma Phase Model Results ---")
+print(f"Base Amplitude (A): {A_p:.3f}")
+print(f"Time Constant (tau): {tau_p:.3f} seconds")
+print(f"Shape Parameter (k): {k_p:.3f}")
+print(f"Peak time (k*tau): {k_p* tau_p:.3f} seconds")
+print(f"Base Baseline (B): {B_p:.3f} bouts/sec")
+print(f"Trial Modulation (alpha): {alpha_p:.4f}")
+print(f"Phase Tuning Strength (gamma): {gamma:.3f}")
+print(f"Preferred Phase Angle (degrees): {np.degrees(phi_pref):.1f}°")
+
+# ==========================================
+# 3. PLOT EMPIRICAL VS MODEL PROPENSITY
+# ==========================================
+unique_trials = np.sort(counts['trial_num'].unique())
+num_colors = len(unique_trials)
+cmap = plt.get_cmap('viridis')
+colors = [cmap(i) for i in np.linspace(0, 0.85, num_colors)] 
+
+plt.figure(figsize=(10, 6))
+
+for t_num, color in zip(unique_trials, colors):
+    trial_data = counts[counts['trial_num'] == t_num]
+    mean_data = trial_data.groupby('time_sec').agg(
+        r_smooth=('rolling_jt_ipsi', 'mean'),
+        mean_sin=('mean_sin', 'mean'),
+        mean_cos=('mean_cos', 'mean')
+    )
+    
+    window_mask = (mean_data.index >= T_start) & (mean_data.index <= T_end)
+    t_smooth = mean_data.index[window_mask] - T_start
+    r_smooth = mean_data.loc[window_mask, 'r_smooth'].values
+    
+    s_sin = mean_data.loc[window_mask, 'mean_sin'].values
+    s_cos = mean_data.loc[window_mask, 'mean_cos'].values
+    
+    # Calculate Gamma-Modulated Predicted Model Rate
+    t_smooth_safe = np.maximum(t_smooth, 0)
+    base_rate = A_p * (t_smooth_safe ** k_p) * np.exp(-t_smooth_safe / tau_p) + B_p
+    trial_mod = np.exp(alpha_p * t_num)
+    phase_mod = np.exp(np.clip(b1_p * s_sin + b2_p * s_cos, -5, 5))
+    
+    r_model = base_rate * trial_mod * phase_mod
+    
+    label = f'Trial {t_num}' if t_num in [unique_trials[0], unique_trials[num_colors//2], unique_trials[-1]] else ""
+    
+    plt.plot(t_smooth, r_smooth, '--', color=color, alpha=0.3, label=f'Data {label}' if label else "")
+    plt.plot(t_smooth, r_model, '-', color=color, lw=2, label=f'Gamma Model {label}' if label else "")
+
+plt.xlabel('Time from Peak Response (seconds)')
+plt.ylabel('Bout Rate (Hz)')
+plt.title(f'Gamma-Activated Unified Model Fit Across Trials (alpha = {alpha_p:.4f})')
+plt.legend()
+plt.grid(True, alpha=0.2)
+plt.show()
+
+# ==========================================
+# 4. TRUE INDIVIDUAL PHASE DIAGNOSTICS
+# ==========================================
+df_ev = pd.DataFrame({
+    'file': decay_events['file'].values,       
+    'k': decay_events['trial_num'].values,    
+    't': spike_times, 
+    'sin': spike_sin,   
+    'cos': spike_cos    
+})
+
+rescaled_intervals = []
+
+for (fish_id, k_idx), group in df_ev.groupby(['file', 'k']):
+    group = group.sort_values('t')
+    times = group['t'].values
+    
+    if len(times) < 2:
+        continue
+        
+    trial_raw = pc_df[(pc_df['file'] == fish_id) & (pc_df['trial_num'] == k_idx)].copy()
+    trial_raw['t_rel'] = trial_raw['trial_time'] - T_start
+    
+    raw_t = trial_raw['t_rel'].values
+    raw_sin = trial_raw['phase_sin'].values
+    raw_cos = trial_raw['phase_cos'].values
+    
+    for i in range(len(times) - 1):
+        t_start, t_end = times[i], times[i+1]
+        sub_t = np.linspace(t_start, t_end, num=20)
+        sub_sin = np.interp(sub_t, raw_t, raw_sin)
+        sub_cos = np.interp(sub_t, raw_t, raw_cos)
+        
+        # Integration slices utilizing Gamma-activation logic
+        rates_slice = lambda_t_phase_gamma(sub_t, k_idx, sub_sin, sub_cos, A_p, tau_p, k_p, B_p, alpha_p, b1_p, b2_p)
+        z_i = np.trapz(rates_slice, sub_t)
+        rescaled_intervals.append(z_i)
+
+u = 1 - np.exp(-np.array(rescaled_intervals))
+u_sorted = np.sort(u)
+N_intervals = len(u_sorted)
+eCDF = np.arange(1, N_intervals + 1) / N_intervals
+
+ks_stat, p_val = kstest(u, 'uniform')
+
+print("\n--- Diagnostic Results ---")
+print(f"Number of analyzed inter-event intervals: {N_intervals}")
+print(f"Kolmogorov-Smirnov Statistic: {ks_stat:.4f}")
+print(f"KS Test p-value: {p_val:.4f} (p > 0.05 means model fully captures data structure)")
+
+# ==========================================
+# 5. GENERATE THE DIAGNOSTIC KS-PLOT
+# ==========================================
+plt.figure(figsize=(6, 6))
+
+plt.plot([0, 1], [0, 1], 'k--', label='Perfect Inhomogeneous Poisson Process')
+
+c_bound = 1.36 / np.sqrt(N_intervals)
+plt.plot([0, 1], [c_bound, 1+c_bound], 'r:', alpha=0.5, label='95% Confidence Bounds')
+plt.plot([0, 1], [-c_bound, 1-c_bound], 'r:', alpha=0.5)
+
+plt.plot(u_sorted, eCDF, color='crimson', lw=2.5, label=f'Gamma Model (p={p_val:.3f})')
+
+plt.xlim([0, 1])
+plt.ylim([0, 1])
+plt.xlabel('Theoretical Cumulative Quantiles')
+plt.ylabel('Empirical Cumulative Quantiles')
+plt.title('KS Diagnostic Plot via Gamma Time-Rescaling')
+plt.legend(loc='lower right')
+plt.grid(True, alpha=0.15)
+plt.show()
+
+
+############### GAMMA / PHASE MULTIPLICATIVE / NO TRIALS
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+from scipy.stats import kstest
+
+# ==========================================
+# 1. INTENSITY & LOG-LIKELIHOOD FUNCTIONS (TRIAL AVERAGED)
+# ==========================================
+def lambda_t_phase_gamma_averaged(t, s_sin, s_cos, A, tau, k, B, b1, b2):
+    # Alpha/Gamma parameter vector dropped the alpha parameter. 
+    # Dynamics are now identical across all trial numbers.
+    t_safe = np.maximum(t, 0)
+    base_rate = A * (t_safe ** k) * np.exp(-t_safe / tau) + B
+    phase_modulation = np.exp(np.clip(b1 * s_sin + b2 * s_cos, -5, 5))
+    return np.maximum(base_rate * phase_modulation, 1e-9)
+
+def phase_negative_log_likelihood_gamma_averaged(params, t_events, s_sin, s_cos, total_num_trials, t_grid, grid_sin, grid_cos, dt):
+    # Parameter footprint reduced to 6 dimensions
+    A, tau, k, B, b1, b2 = params
+    
+    # Term 1: Log-rates at exact event times (unmodulated by trial progression)
+    rates = lambda_t_phase_gamma_averaged(t_events, s_sin, s_cos, A, tau, k, B, b1, b2)
+    sum_log_rates = np.sum(np.log(rates))
+    
+    # Term 2: Numerical Riemann Integral across the single template grid
+    t_grid_safe = np.maximum(t_grid, 0)
+    grid_base_rate = A * (t_grid_safe ** k) * np.exp(-t_grid_safe / tau) + B
+    grid_phase_mod = np.exp(np.clip(b1 * grid_sin + b2 * grid_cos, -5, 5))
+    
+    single_trial_integral = np.sum(grid_base_rate * grid_phase_mod) * dt
+    
+    # Total expected events = Area of 1 uniform trial * Total trial blocks tracked
+    total_expected_events = single_trial_integral * total_num_trials
+    
+    nll = -(sum_log_rates - total_expected_events)
+    return nll if np.isfinite(nll) else 1e10
+
+# ==========================================
+# 2. RUN THE BOUNDED OPTIMIZATION
+# ==========================================
+# Dropped alpha from vectors. Format: [A, tau, k, B, b1, b2]
+initial_guesses_phase = [0.56, 1.15, 2.0, 0.40, 0.0, 0.0]
+bounds_phase = (
+    (0.01, 10.0),    # A
+    (0.1, 5.0),      # tau
+    (0.5, 10.0),     # k 
+    (0.01, 5.0),     # B
+    (-3.0, 3.0),     # b1
+    (-3.0, 3.0)      # b2
+)
+
+# Extract total count of unique trial execution instances across dataset
+num_trials = len(pc_df.groupby(['file', 'trial_num']))
+
+phase_result = minimize(
+    phase_negative_log_likelihood_gamma_averaged, 
+    x0=initial_guesses_phase, 
+    # Adjusted arguments to feed the overall trial count scalar directly
+    args=(spike_times, spike_sin, spike_cos, num_trials, t_grid, grid_sin, grid_cos, dt),
+    method='L-BFGS-B',
+    bounds=bounds_phase
+)
+
+A_p, tau_p, k_p, B_p, b1_p, b2_p = phase_result.x
+
+gamma = np.sqrt(b1_p**2 + b2_p**2)
+phi_pref = np.arctan2(b1_p, b2_p)
+
+print("\n--- Trial-Averaged Gamma Phase Model Results ---")
+print(f"Base Amplitude (A): {A_p:.3f}")
+print(f"Time Constant (tau): {tau_p:.3f} seconds")
+print(f"Shape Parameter (k): {k_p:.3f}")
+print(f"Peak time (k*tau): {k_p * tau_p:.3f} seconds")
+print(f"Base Baseline (B): {B_p:.3f} bouts/sec")
+print(f"Phase Tuning Strength (gamma): {gamma:.3f}")
+print(f"Preferred Phase Angle (degrees): {np.degrees(phi_pref):.1f}°")
+
+# ==========================================
+# 3. PLOT EMPIRICAL VS UNIFORM MODEL PROPENSITY
+# ==========================================
+# Since trials are averaged, we aggregate empirical data globally over time bins
+mean_data = counts.groupby('time_sec').agg(
+    r_smooth=('rolling_jt_ipsi', 'mean'),
+    mean_sin=('mean_sin', 'mean'),
+    mean_cos=('mean_cos', 'mean')
+)
+
+window_mask = (mean_data.index >= T_start) & (mean_data.index <= T_end)
+t_smooth = mean_data.index[window_mask] - T_start
+r_smooth = mean_data.loc[window_mask, 'r_smooth'].values
+s_sin = mean_data.loc[window_mask, 'mean_sin'].values
+s_cos = mean_data.loc[window_mask, 'mean_cos'].values
+
+# Calculate single trial averaged trajectory
+t_smooth_safe = np.maximum(t_smooth, 0)
+base_rate = A_p * (t_smooth_safe ** k_p) * np.exp(-t_smooth_safe / tau_p) + B_p
+phase_mod = np.exp(np.clip(b1_p * s_sin + b2_p * s_cos, -5, 5))
+r_model = base_rate * phase_mod
+
+plt.figure(figsize=(10, 6))
+plt.plot(t_smooth, r_smooth, 'k--', alpha=0.5, label='Averaged Empirical Data')
+plt.plot(t_smooth, r_model, 'b-', lw=2.5, label='Trial-Averaged Gamma Model')
+
+plt.xlabel('Time from Peak Response (seconds)')
+plt.ylabel('Bout Rate (Hz)')
+plt.title('Trial-Averaged Gamma-Activated Unified Model Fit')
+plt.legend()
+plt.grid(True, alpha=0.2)
+plt.show()
+
+# ==========================================
+# 4. TRUE INDIVIDUAL PHASE DIAGNOSTICS
+# ==========================================
+df_ev = pd.DataFrame({
+    'file': decay_events['file'].values,       
+    'k': decay_events['trial_num'].values,    
+    't': spike_times, 
+    'sin': spike_sin,   
+    'cos': spike_cos    
+})
+
+rescaled_intervals = []
+
+for (fish_id, k_idx), group in df_ev.groupby(['file', 'k']):
+    group = group.sort_values('t')
+    times = group['t'].values
+    
+    if len(times) < 2:
+        continue
+        
+    trial_raw = pc_df[(pc_df['file'] == fish_id) & (pc_df['trial_num'] == k_idx)].copy()
+    trial_raw['t_rel'] = trial_raw['trial_time'] - T_start
+    
+    raw_t = trial_raw['t_rel'].values
+    raw_sin = trial_raw['phase_sin'].values
+    raw_cos = trial_raw['phase_cos'].values
+    
+    for i in range(len(times) - 1):
+        t_start, t_end = times[i], times[i+1]
+        sub_t = np.linspace(t_start, t_end, num=20)
+        sub_sin = np.interp(sub_t, raw_t, raw_sin)
+        sub_cos = np.interp(sub_t, raw_t, raw_cos)
+        
+        # Integration slices utilizing trial-averaged logic
+        rates_slice = lambda_t_phase_gamma_averaged(sub_t, sub_sin, sub_cos, A_p, tau_p, k_p, B_p, b1_p, b2_p)
+        z_i = np.trapz(rates_slice, sub_t)
+        rescaled_intervals.append(z_i)
+
+u = 1 - np.exp(-np.array(rescaled_intervals))
+u_sorted = np.sort(u)
+N_intervals = len(u_sorted)
+eCDF = np.arange(1, N_intervals + 1) / N_intervals
+
+ks_stat, p_val = kstest(u, 'uniform')
+
+print("\n--- Diagnostic Results ---")
+print(f"Number of analyzed inter-event intervals: {N_intervals}")
+print(f"Kolmogorov-Smirnov Statistic: {ks_stat:.4f}")
+print(f"KS Test p-value: {p_val:.4f}")
+
+# ==========================================
+# 5. GENERATE THE DIAGNOSTIC KS-PLOT
+# ==========================================
+plt.figure(figsize=(6, 6))
+plt.plot([0, 1], [0, 1], 'k--', label='Perfect Inhomogeneous Poisson Process')
+
+c_bound = 1.36 / np.sqrt(N_intervals)
+plt.plot([0, 1], [c_bound, 1+c_bound], 'r:', alpha=0.5, label='95% Confidence Bounds')
+plt.plot([0, 1], [-c_bound, 1-c_bound], 'r:', alpha=0.5)
+
+plt.plot(u_sorted, eCDF, color='crimson', lw=2.5, label=f'Averaged Gamma Model (p={p_val:.3f})')
+
+plt.xlim([0, 1])
+plt.ylim([0, 1])
+plt.xlabel('Theoretical Cumulative Quantiles')
+plt.ylabel('Empirical Cumulative Quantiles')
+plt.title('KS Diagnostic Plot via Averaged Time-Rescaling')
+plt.legend(loc='lower right')
+plt.grid(True, alpha=0.15)
+plt.show()
+
+
+################################ PHASE ADDITIVE / NO TRIALS / GAMMA
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+from scipy.stats import kstest
+
+# ==========================================
+# 1. LINEAR INTENSITY & LOG-LIKELIHOOD FUNCTIONS
+# ==========================================
+def lambda_t_phase_gamma_linear(t, s_sin, s_cos, A, tau, k, B, b1, b2):
+    t_safe = np.maximum(t, 0)
+    
+    transient_peak = A * (t_safe ** k) * np.exp(-t_safe / tau)
+    static_baseline = B
+    
+    # Strict Linear Phase: Phase components are strictly ADDED, not multiplied.
+    phase_ripple = b1 * s_sin + b2 * s_cos
+    
+    # Enforce global rate positivity cleanly across the entire sum
+    return np.maximum(transient_peak + static_baseline + phase_ripple, 1e-9)
+
+def phase_negative_log_likelihood_gamma_linear(params, t_events, s_sin, s_cos, total_pool_size, t_grid, grid_sin, grid_cos, dt):
+    A, tau, k, B, b1, b2 = params
+    
+    # Term 1: Log-rates at exact event times
+    rates = lambda_t_phase_gamma_linear(t_events, s_sin, s_cos, A, tau, k, B, b1, b2)
+    sum_log_rates = np.sum(np.log(rates))
+    
+    # Term 2: Numerical Riemann Integral across the single template grid
+    t_grid_safe = np.maximum(t_grid, 0)
+    grid_transient = A * (t_grid_safe ** k) * np.exp(-t_grid_safe / tau)
+    grid_phase = b1 * grid_sin + b2 * grid_cos
+    
+    # Integrated expected rate of a single uniform trial run
+    single_trial_integral = np.sum(np.maximum(grid_transient + B + grid_phase, 1e-9)) * dt
+    total_expected_events = single_trial_integral * total_pool_size
+    
+    nll = -(sum_log_rates - total_expected_events)
+    return nll if np.isfinite(nll) else 1e10
+
+# ==========================================
+# 2. RUN THE LINEAR OPTIMIZATION
+# ==========================================
+# Since b1 and b2 are no longer inside an exponent, their units change from log-rate shifts 
+# to direct additions in Hz. We shift initial guesses to 0.0 to let it discover this scale.
+initial_guesses_phase = [0.56, 1.15, 2.0, 0.40, 0.0, 0.0]
+bounds_phase = (
+    (0.01, 10.0),    # A
+    (0.1, 5.0),      # tau
+    (0.4, 10.0),     # k 
+    (0.01, 5.0),     # B
+    (-5.0, 5.0),     # b1 (expanded slightly since linear weights map to absolute Hz)
+    (-5.0, 5.0)      # b2
+)
+
+num_trials = len(pc_df.groupby(['file', 'trial_num']))
+num_trials = len(pc_df.groupby(['file']))*len(pc_df.groupby(['trial_num']))
+
+phase_result = minimize(
+    phase_negative_log_likelihood_gamma_linear, 
+    x0=initial_guesses_phase, 
+    args=(spike_times, spike_sin, spike_cos, num_trials, t_grid, grid_sin, grid_cos, dt),
+    method='L-BFGS-B',
+    bounds=bounds_phase
+)
+
+A_p, tau_p, k_p, B_p, b1_p, b2_p = phase_result.x
+
+# Note: In linear space, gamma directly represents the peak-to-trough amplitude in Hz!
+gamma = np.sqrt(b1_p**2 + b2_p**2)
+phi_pref = np.arctan2(b1_p, b2_p)
+
+# Physical spatial mapping for right eye stimulus (20 to 90 degrees)
+arc_start_deg = 20.0
+angle_range_deg = 90.0 - 20.0
+normalized_pos = (1.0 - np.cos(phi_pref)) / 2.0
+theta_pref_deg = arc_start_deg + (angle_range_deg * normalized_pos)
+
+print("\n--- Linear Gamma Phase Model Results ---")
+print(f"Base Amplitude (A): {A_p:.3f}")
+print(f"Time Constant (tau): {tau_p:.3f} seconds")
+print(f"Shape Parameter (k): {k_p:.3f}")
+print(f"Peak time (k*tau): {k_p * tau_p:.3f} seconds")
+print(f"Base Baseline (B): {B_p:.3f} bouts/sec")
+print(f"Phase Ripple Amplitude (gamma): {gamma:.3f} Hz modulation")
+print(f"Preferred Phase Angle (degrees): {np.degrees(phi_pref):.1f}°")
+print(f"Preferred Visual Angle (theta): {theta_pref_deg:.1f}° in right field")
+
+# ==========================================
+# 3. PLOT AVERAGED PROPENSITY WITH DASHBOARD BELOW
+# ==========================================
+mean_data = counts.groupby('time_sec').agg(
+    r_smooth=('rolling_jt_ipsi', 'mean'),
+    mean_sin=('mean_sin', 'mean'),
+    mean_cos=('mean_cos', 'mean')
+)
+
+window_mask = (mean_data.index >= T_start) & (mean_data.index <= T_end)
+t_smooth = mean_data.index[window_mask] - T_start
+r_smooth = mean_data.loc[window_mask, 'r_smooth'].values
+s_sin = mean_data.loc[window_mask, 'mean_sin'].values
+s_cos = mean_data.loc[window_mask, 'mean_cos'].values
+
+# Calculate linear model trajectory
+r_model = lambda_t_phase_gamma_linear(t_smooth, s_sin, s_cos, A_p, tau_p, k_p, B_p, b1_p, b2_p)
+
+# Create a 2-row layout. 
+# height_ratios=[3, 1] means the top plot gets 75% of the height, bottom axis gets 25%.
+fig, (ax1, ax2) = plt.subplots(
+    2, 1, 
+    figsize=(10, 8), 
+    gridspec_kw={'height_ratios': [3, 1]},
+    sharex=False
+)
+
+# --- TOP ROW: DATA AXIS ---
+ax1.plot(t_smooth, r_smooth, 'k--', alpha=0.5, label='Averaged Empirical Data')
+ax1.plot(t_smooth, r_model, 'darkorange', lw=2.5, label='Strict Linear Phase Gamma Model')
+ax1.set_ylabel('Bout Rate $\lambda(t)$  (Hz)')
+ax1.set_xlabel('time (s)')
+ax1.set_title(r"$\lambda(t) = \max \left( A \cdot t^k e^{-t/\tau} + B + b_1 \sin(\phi) + b_2 \cos(\phi),\, 10^{-9} \right)$")
+ax1.legend(loc='upper right')
+ax1.grid(True, alpha=0.2)
+ax1.set_ylim(bottom=0)
+
+# --- BOTTOM ROW: ANNOTATION DASHBOARD AXIS ---
+# Hide the structural axis elements (ticks, spine box, labels) to create a clean white slate
+ax2.axis('off')
+
+# --- REFACTORED DASHBOARD WITH SYSTEMATIC INTERPRETATIONS ---
+latex_annotation = r"""
+$\text{Peak Time} = \tau \cdot k$ [Time from stimulus onset to max transient response]
+$\gamma = \sqrt{b_1^2 + b_2^2}$ [Single-sided oscillation amplitude]
+$\phi_{\text{pref}} = \text{atan2}(b_1, b_2)$ [Preferred phase coordinate]
+
+Fitted Parameters & Interpretations:
+$A$ = """ + f"{A_p:.3f}" + r""" Hz [Scales the height of the initial stimulus-evoked peak]
+$B$ = """ + f"{B_p:.3f}" + r""" Hz [Stable baseline rate floor after the initial transient activation settles down]
+
+$\tau$ = """ + f"{tau_p:.3f}" + r""" sec [Exponential decay rate]
+$k$ = """ + f"{k_p:.3f}" + r""" [Initial acceleration ramp ]
+Peak Time = """ + f"{tau_p * k_p:.3f}" + r""" sec [Exact time delay where the transient response reaches its absolute maximum]
+
+$2\gamma$ = """ + f"{2*gamma:.3f}" + r""" Hz [The full peak-to-trough variation window forced by the back-and-forth movement of the target]
+$\theta_{\text{pref}}$ = """ + f"{theta_pref_deg:.1f}" + r"""$^\circ$ [The physical position in the visual field where the target triggers the highest response probability]"""
+
+# Render the text directly inside the blank bottom panel
+ax2.text(
+    0.01, 0.95,                  # Position slightly inset from the upper-left of ax2
+    latex_annotation, 
+    transform=ax2.transAxes,
+    fontsize=10, 
+    verticalalignment='top',
+    horizontalalignment='left',
+    multialignment='left'
+)
+
+# Use tight_layout to automatically space the panels so they don't overlap
+plt.tight_layout()
+plt.show()
+
+# ==========================================
+# 4. TRUE INDIVIDUAL PHASE DIAGNOSTICS
+# ==========================================
+df_ev = pd.DataFrame({
+    'file': decay_events['file'].values,       
+    'k': decay_events['trial_num'].values,    
+    't': spike_times, 
+    'sin': spike_sin,   
+    'cos': spike_cos    
+})
+
+rescaled_intervals = []
+
+for (fish_id, k_idx), group in df_ev.groupby(['file', 'k']):
+    group = group.sort_values('t')
+    times = group['t'].values
+    
+    if len(times) < 2:
+        continue
+        
+    trial_raw = pc_df[(pc_df['file'] == fish_id) & (pc_df['trial_num'] == k_idx)].copy()
+    trial_raw['t_rel'] = trial_raw['trial_time'] - T_start
+    
+    raw_t = trial_raw['t_rel'].values
+    raw_sin = trial_raw['phase_sin'].values
+    raw_cos = trial_raw['phase_cos'].values
+    
+    for i in range(len(times) - 1):
+        t_start, t_end = times[i], times[i+1]
+        sub_t = np.linspace(t_start, t_end, num=20)
+        sub_sin = np.interp(sub_t, raw_t, raw_sin)
+        sub_cos = np.interp(sub_t, raw_t, raw_cos)
+        
+        # Integration slices utilizing linear addition logic
+        rates_slice = lambda_t_phase_gamma_linear(sub_t, sub_sin, sub_cos, A_p, tau_p, k_p, B_p, b1_p, b2_p)
+        z_i = np.trapz(rates_slice, sub_t)
+        rescaled_intervals.append(z_i)
+
+u = 1 - np.exp(-np.array(rescaled_intervals))
+u_sorted = np.sort(u)
+N_intervals = len(u_sorted)
+eCDF = np.arange(1, N_intervals + 1) / N_intervals
+
+ks_stat, p_val = kstest(u, 'uniform')
+
+print("\n--- Diagnostic Results ---")
+print(f"Number of analyzed inter-event intervals: {N_intervals}")
+print(f"Kolmogorov-Smirnov Statistic: {ks_stat:.4f}")
+print(f"KS Test p-value: {p_val:.4f}")
+
+plt.figure(figsize=(6, 6))
+plt.plot([0, 1], [0, 1], 'k--', label='Perfect Inhomogeneous Poisson Process')
+
+c_bound = 1.36 / np.sqrt(N_intervals)
+plt.plot([0, 1], [c_bound, 1+c_bound], 'r:', alpha=0.5, label='95% Confidence Bounds')
+plt.plot([0, 1], [-c_bound, 1-c_bound], 'r:', alpha=0.5)
+
+plt.plot(u_sorted, eCDF, color='crimson', lw=2.5, label=f'Averaged Gamma Model (p={p_val:.3f})')
+
+plt.xlim([0, 1])
+plt.ylim([0, 1])
+plt.xlabel('Theoretical Cumulative Quantiles')
+plt.ylabel('Empirical Cumulative Quantiles')
+plt.title('KS Diagnostic Plot via Averaged Time-Rescaling')
+plt.legend(loc='lower right')
+plt.grid(True, alpha=0.15)
+plt.show()
+
+
+
+########################## WITH TRIALS
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+from scipy.stats import kstest
+
+# ==========================================
+# 1. TRI-MODULATED INTENSITY & LOG-LIKELIHOOD
+# ==========================================
+def lambda_t_phase_gamma_tri_modulated(t, trial_k, s_sin, s_cos, A, tau, k, B, b1, b2, alpha_A, alpha_B, alpha_gamma):
+    t_safe = np.maximum(t, 0)
+    
+    # Each structural parameter module is scaled by its unique trial-decay coefficient
+    transient_peak = (A * (t_safe ** k) * np.exp(-t_safe / tau)) * np.exp(alpha_A * trial_k)
+    static_baseline = B * np.exp(alpha_B * trial_k)
+    phase_ripple = (b1 * s_sin + b2 * s_cos) * np.exp(alpha_gamma * trial_k)
+    
+    return np.maximum(transient_peak + static_baseline + phase_ripple, 1e-9)
+
+def phase_negative_log_likelihood_tri_modulated(params, t_events, trial_events, s_sin, s_cos, unique_trials, n_fish, t_grid, grid_sin, grid_cos, dt):
+    A, tau, k, B, b1, b2, alpha_A, alpha_B, alpha_gamma = params
+    
+    # Term 1: Event Log-Rates
+    rates = lambda_t_phase_gamma_tri_modulated(t_events, trial_events, s_sin, s_cos, A, tau, k, B, b1, b2, alpha_A, alpha_B, alpha_gamma)
+    sum_log_rates = np.sum(np.log(rates))
+    
+    # Term 2: Numerical Riemann Integral across all sequential trials
+    t_grid_safe = np.maximum(t_grid, 0)
+    
+    # Evaluate a baseline template for each core process component over the grid
+    grid_transient = A * (t_grid_safe ** k) * np.exp(-t_grid_safe / tau)
+    grid_phase = b1 * grid_sin + b2 * grid_cos
+    
+    total_expected_events = 0.0
+    for tk in unique_trials:
+        # Reconstruct the exact rate profile for trial index tk
+        trial_grid_rate = np.maximum(
+            grid_transient * np.exp(alpha_A * tk) + 
+            B * np.exp(alpha_B * tk) + 
+            grid_phase * np.exp(alpha_gamma * tk), 
+            1e-9
+        )
+        total_expected_events += np.sum(trial_grid_rate) * dt
+        
+    # Scale across entire fish pool population
+    total_expected_events *= n_fish
+    
+    nll = -(sum_log_rates - total_expected_events)
+    return nll if np.isfinite(nll) else 1e10
+
+# ==========================================
+# 2. RUN THE TRI-MODULATED OPTIMIZATION
+# ==========================================
+# Parameter footprint: [A, tau, k, B, b1, b2, alpha_A, alpha_B, alpha_gamma]
+initial_guesses_phase = [0.56, 1.15, 2.0, 0.40, 0.0, 0.0, -0.05, -0.05, -0.05]
+bounds_phase = (
+    (0.01, 10.0),    # A
+    (0.1, 5.0),      # tau
+    (0.4, 10.0),     # k 
+    (0.01, 5.0),     # B
+    (-5.0, 5.0),     # b1 
+    (-5.0, 5.0),     # b2
+    (-2.0, 2.0),     # alpha_A
+    (-2.0, 2.0),     # alpha_B
+    (-2.0, 2.0)      # alpha_gamma
+)
+
+unique_trials = np.sort(counts['trial_num'].unique())
+num_fish = len(decay_events['file'].unique())
+
+phase_result = minimize(
+    phase_negative_log_likelihood_tri_modulated, 
+    x0=initial_guesses_phase, 
+    args=(spike_times, spike_trials, spike_sin, spike_cos, unique_trials, num_fish, t_grid, grid_sin, grid_cos, dt),
+    method='L-BFGS-B',
+    bounds=bounds_phase
+)
+
+A_p, tau_p, k_p, B_p, b1_p, b2_p, a_A, a_B, a_g = phase_result.x
+
+gamma = np.sqrt(b1_p**2 + b2_p**2)
+phi_pref = np.arctan2(b1_p, b2_p)
+theta_pref_deg = 20.0 + 70.0 * ((1.0 - np.cos(phi_pref)) / 2.0)
+
+# ==========================================
+# 3. DIAGNOSTIC VISUALIZATION DASHBOARD (CLEANED NOTATION)
+# ==========================================
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 9), gridspec_kw={'height_ratios': [2.8, 1.4]})
+
+# Plot the progression of the first, middle, and final trials to visualize the decay patterns
+select_trials = [unique_trials[0], unique_trials[len(unique_trials)//2], unique_trials[-1]]
+colors = ['#1f77b4', '#d62728', '#2ca02c']
+
+for tm, col in zip(select_trials, colors):
+    trial_data = counts[counts['trial_num'] == tm]
+    mean_data = trial_data.groupby('time_sec').agg(
+        r_smooth=('rolling_jt_ipsi', 'mean'), mean_sin=('mean_sin', 'mean'), mean_cos=('mean_cos', 'mean')
+    )
+    w_mask = (mean_data.index >= T_start) & (mean_data.index <= T_end)
+    t_smooth = mean_data.index[w_mask] - T_start
+    
+    # Passing the trial index 'tm' cleanly
+    r_model = lambda_t_phase_gamma_tri_modulated(
+        t_smooth, tm, mean_data.loc[w_mask, 'mean_sin'].values, mean_data.loc[w_mask, 'mean_cos'].values,
+        A_p, tau_p, k_p, B_p, b1_p, b2_p, a_A, a_B, a_g
+    )
+    
+    ax1.plot(t_smooth, mean_data.loc[w_mask, 'r_smooth'].values, '--', color=col, alpha=0.35)
+    ax1.plot(t_smooth, r_model, '-', color=col, lw=2.5, label=f'Trial {tm} Model')
+
+ax1.set_ylabel('Bout Rate $\lambda(t, m)$  (Hz)')
+ax1.set_xlabel('Time (s)')
+
+# --- UPDATED TITLE: 'm' USED FOR TRIAL NUMBER INDEX ---
+ax1.set_title(r"$\lambda(t, m) = \max\left( A e^{\alpha_A \cdot m} t^k e^{-t/\tau} + B e^{\alpha_B \cdot m} + (b_1 \sin(\phi) + b_2 \cos(\phi)) e^{\alpha_\gamma \cdot m},\, 10^{-9}\right)$", fontsize=11)
+
+ax1.legend(loc='upper right')
+ax1.grid(True, alpha=0.2)
+ax1.set_ylim(bottom=0)
+
+ax2.axis('off')
+
+# --- UPDATED DASHBOARD TEXT: 'm' USED FOR TRIAL NUMBER INDEX ---
+latex_annotation = r"""$\text{Peak Time} = \tau \cdot k$ [Transient Max Delay]  |  $\gamma = \sqrt{b_1^2 + b_2^2}$ [Phase Swing]  |  $\phi_{\text{pref}} = \text{atan2}(b_1, b_2)$ [Phase Angle]
+
+Fitted Parameters & Baseline Variables:
+$m$ = trial number (ordinal tracking index of consecutive stimulus exposures)
+$A$ = """ + f"{A_p:.3f}" + r""" Hz [Scales the height of the initial stimulus-evoked peak]
+$B$ = """ + f"{B_p:.3f}" + r""" Hz [Stable baseline rate floor after the initial transient activation settles down]
+$2\gamma$ = """ + f"{2*gamma:.3f}" + r""" Hz [The full peak-to-trough variation window forced by target movement]
+$\tau$ = """ + f"{tau_p:.3f}" + r""" sec  |  $k$ = """ + f"{k_p:.3f}" + r"""  |  Peak Time = """ + f"{tau_p * k_p:.3f}" + r""" sec
+$\theta_{\text{pref}}$ = """ + f"{theta_pref_deg:.1f}" + r"""$^\circ$ [The physical position in the visual field where the target triggers the highest response probability]
+
+Trial-by-Trial Modulators:
+$\alpha_A$ = """ + f"{a_A:.4f}" + r""" [Sensory Adaptation: Rates of habituation/sensitization of the initial explosive peak over trials]
+$\alpha_B$ = """ + f"{a_B:.4f}" + r""" [Baseline Motivational Shift: Long-term continuous background driving rate decay or ramp]
+$\alpha_{\gamma}$ = """ + f"{a_g:.4f}" + r""" [Entrainment Tuning Change: Change in directional spatial phase response sensitivity over time]"""
+
+ax2.text(0.01, 0.95, latex_annotation, transform=ax2.transAxes, fontsize=9.5, verticalalignment='top', horizontalalignment='left', multialignment='left')
+plt.tight_layout()
 plt.show()
