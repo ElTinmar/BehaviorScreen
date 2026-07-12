@@ -19,7 +19,9 @@ print(f"#fish: {len(df.file.unique())}")
 
 fine_dt = 0.02
 time_bins = np.arange(0, 25 + fine_dt, fine_dt)
-window_size_steps = int(1.0 / fine_dt)
+window_duration = 0.33
+window_size_steps = int(window_duration / fine_dt)
+window_size_steps |= 1
 
 
 pc_df = df[df['stim'] == Stim.PREY_CAPTURE].copy()
@@ -79,10 +81,10 @@ counts = counts.reset_index()
 counts['time_sec'] = counts['time_bin'].apply(lambda x: x.left).astype(float)
 
 # Calculate true instantaneous frequency (Bouts per second)
-counts['jt_ipsi_hz'] = counts['rolling_jt_ipsi'] / 1.0
-counts['jt_contra_hz'] = counts['rolling_jt_contra'] / 1.0
-counts['rt_ipsi_hz'] = counts['rolling_rt_ipsi'] / 1.0
-counts['rt_contra_hz'] = counts['rolling_rt_contra'] / 1.0
+counts['jt_ipsi_hz'] = counts['rolling_jt_ipsi'] / window_duration
+counts['jt_contra_hz'] = counts['rolling_jt_contra'] / window_duration
+counts['rt_ipsi_hz'] = counts['rolling_rt_ipsi'] / window_duration
+counts['rt_contra_hz'] = counts['rolling_rt_contra'] / window_duration
 
 # Reconstruct the circular mean phase angle using the arctangent of vector components
 counts['avg_phase'] = np.arctan2(counts['mean_sin'], counts['mean_cos']) % (2 * np.pi)
@@ -267,7 +269,7 @@ print(f"HPP Null Model NLL: {nll_hpp:.3f}")
 # 3. PLOT HOMOGENEOUS POISSON BASELINE DASHBOARD
 # ==========================================
 # Average rolling counts across all fish and trials to get the mean population curve
-mean_rolling = counts.groupby('time_sec')['rolling_jt_ipsi'].mean()
+mean_rolling = counts.groupby('time_sec')['jt_ipsi_hz'].mean()
 
 # Isolate the time points matching your decay window
 t_smoothed_window = mean_rolling.index[(mean_rolling.index >= T_start) & (mean_rolling.index <= T_end)]
@@ -293,7 +295,7 @@ ax1.set_xlabel('Time from Peak (seconds)')
 ax1.set_title(r"$\lambda(t) = C$ (Constant Rate Assumption)", fontsize=12)
 ax1.legend(loc='upper right')
 ax1.grid(True, alpha=0.2)
-ax1.set_ylim((0, 0.6))  # Force y-axis to start at 0 to honestly show the flat baseline comparison
+ax1.set_ylim((0, 1.2))  # Force y-axis to start at 0 to honestly show the flat baseline comparison
 
 # --- BOTTOM ROW: ANNOTATION DASHBOARD AXIS ---
 ax2.axis('off')
@@ -359,7 +361,7 @@ print(f"HPP Null Model NLL: {nll_hpp:.3f}")
 # 3. PLOT HOMOGENEOUS POISSON BASELINE DASHBOARD
 # ==========================================
 # Average rolling counts across all fish and trials to get the mean population curve
-mean_rolling = counts.groupby('time_sec')['rolling_jt_contra'].mean()
+mean_rolling = counts.groupby('time_sec')['jt_contra_hz'].mean()
 
 # Isolate the time points matching your decay window
 t_smoothed_window = mean_rolling.index[(mean_rolling.index >= T_start) & (mean_rolling.index <= T_end)]
@@ -385,7 +387,7 @@ ax1.set_xlabel('Time from Peak (seconds)')
 ax1.set_title(r"$\lambda(t) = C$ (Constant Rate Assumption)", fontsize=12)
 ax1.legend(loc='upper right')
 ax1.grid(True, alpha=0.2)
-ax1.set_ylim((0, 0.6))  # Force y-axis to start at 0 to honestly show the flat baseline comparison
+ax1.set_ylim((0, 1.2))  # Force y-axis to start at 0 to honestly show the flat baseline comparison
 
 # --- BOTTOM ROW: ANNOTATION DASHBOARD AXIS ---
 ax2.axis('off')
@@ -472,7 +474,8 @@ print(f"Baseline (B): {B_fit:.3f} bouts/sec")
 # 3. PLOT AVERAGED PROPENSITY WITH DASHBOARD BELOW
 # ==========================================
 # Average rolling counts across all fish and trials to get the mean population curve
-mean_rolling = counts.groupby('time_sec')['rolling_jt_ipsi'].mean()
+mean_rolling = counts.groupby('time_sec')['jt_ipsi_hz'].mean()
+
 
 # Isolate the time points matching your decay window
 t_smoothed_window = mean_rolling.index[(mean_rolling.index >= T_start) & (mean_rolling.index <= T_end)]
@@ -599,7 +602,7 @@ t_model = np.linspace(0, T_duration, 200)
 
 for t_num, color in zip(unique_trials, colors):
     trial_data = counts[counts['trial_num'] == t_num]
-    mean_rolling = trial_data.groupby('time_sec')['rolling_jt_ipsi'].mean()
+    mean_rolling = trial_data.groupby('time_sec')['jt_ipsi_hz'].mean()
     
     window_mask = (mean_rolling.index >= T_start) & (mean_rolling.index <= T_end)
     t_smooth = mean_rolling.index[window_mask] - T_start
@@ -737,7 +740,7 @@ for t_num, color in zip(unique_trials, colors):
     # 1. Extract empirical rolling data
     trial_data = counts[counts['trial_num'] == t_num]
     mean_data = trial_data.groupby('time_sec').agg(
-        r_smooth=('rolling_jt_ipsi', 'mean'),
+        r_smooth=('jt_ipsi_hz', 'mean'),
         mean_sin=('mean_sin', 'mean'),
         mean_cos=('mean_cos', 'mean')
     )
@@ -932,7 +935,7 @@ for t_num, color in zip(unique_trials, colors):
     # 1. Extract empirical rolling data
     trial_data = counts[counts['trial_num'] == t_num]
     mean_data = trial_data.groupby('time_sec').agg(
-        r_smooth=('rolling_jt_ipsi', 'mean'),
+        r_smooth=('jt_ipsi_hz', 'mean'),
         mean_sin=('mean_sin', 'mean'),
         mean_cos=('mean_cos', 'mean')
     )
@@ -1134,7 +1137,7 @@ plt.figure(figsize=(10, 6))
 for t_num, color in zip(unique_trials, colors):
     trial_data = counts[counts['trial_num'] == t_num]
     mean_data = trial_data.groupby('time_sec').agg(
-        r_smooth=('rolling_jt_ipsi', 'mean'),
+        r_smooth=('jt_ipsi_hz', 'mean'),
         mean_sin=('mean_sin', 'mean'),
         mean_cos=('mean_cos', 'mean')
     )
@@ -1323,7 +1326,7 @@ print(f"Preferred Phase Angle (degrees): {np.degrees(phi_pref):.1f}°")
 # ==========================================
 # Since trials are averaged, we aggregate empirical data globally over time bins
 mean_data = counts.groupby('time_sec').agg(
-    r_smooth=('rolling_jt_ipsi', 'mean'),
+    r_smooth=('jt_ipsi_hz', 'mean'),
     mean_sin=('mean_sin', 'mean'),
     mean_cos=('mean_cos', 'mean')
 )
@@ -1517,7 +1520,7 @@ print(f"Preferred Visual Angle (theta): {theta_pref_deg:.1f}° in right field")
 # 3. PLOT AVERAGED PROPENSITY WITH DASHBOARD BELOW
 # ==========================================
 mean_data = counts.groupby('time_sec').agg(
-    r_smooth=('rolling_jt_ipsi', 'mean'),
+    r_smooth=('jt_ipsi_hz', 'mean'),
     mean_sin=('mean_sin', 'mean'),
     mean_cos=('mean_cos', 'mean')
 )
@@ -1764,7 +1767,7 @@ colors = ['#1f77b4', '#d62728', '#2ca02c']
 for tm, col in zip(select_trials, colors):
     trial_data = counts[counts['trial_num'] == tm]
     mean_data = trial_data.groupby('time_sec').agg(
-        r_smooth=('rolling_jt_ipsi', 'mean'), mean_sin=('mean_sin', 'mean'), mean_cos=('mean_cos', 'mean')
+        r_smooth=('jt_ipsi_hz', 'mean'), mean_sin=('mean_sin', 'mean'), mean_cos=('mean_cos', 'mean')
     )
     w_mask = (mean_data.index >= T_start) & (mean_data.index <= T_end)
     t_smooth = mean_data.index[w_mask] - T_start
