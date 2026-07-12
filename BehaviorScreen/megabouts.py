@@ -30,7 +30,10 @@ from BehaviorScreen.process import (
     get_trials, 
     get_well_coords_mm
 )
-from BehaviorScreen.stimulus import prey_capture_arc_stimulus_cosine
+from BehaviorScreen.stimulus import (
+    prey_capture_arc_stimulus_cosine,
+    looming_constant_velocity_approach
+)
 
 class MegaboutResults(NamedTuple):
     timestamp: np.ndarray
@@ -205,6 +208,8 @@ def get_bout_metrics(
 
                 # stimulus specific actions
                 stim_phase = np.nan
+                looming_radius = np.nan
+
                 if row.stim_select == Stim.PREY_CAPTURE:
                     stim_phase = prey_capture_arc_stimulus_cosine(
                         row.start_time_sec,
@@ -214,6 +219,18 @@ def get_bout_metrics(
                         row.prey_arc_stop_deg,
                         row.prey_speed_deg_s
                     )
+
+                if row.stim_select == Stim.LOOMING:
+                    looming_radius = looming_constant_velocity_approach(
+                        row.start_time_sec,
+                        trial_time,
+                        rollover_time_s,
+                        row.looming_angle_start_deg,
+                        row.looming_angle_stop_deg,
+                        row.looming_size_to_speed_ratio_ms,
+                        row.looming_distance_to_screen_mm
+                    )
+
 
                 rows.append({
                     'file': fish,
@@ -242,6 +259,7 @@ def get_bout_metrics(
                     'looming_period_sec': row.looming_period_sec,
                     'looming_size_to_speed_ratio_ms': row.looming_size_to_speed_ratio_ms,
                     'looming_type': row.looming_type,
+                    'looming_radius': looming_radius,
                     'n_preys': row.n_preys,
                     'okr_spatial_frequency_deg': row.okr_spatial_frequency_deg,
                     'okr_speed_deg_per_sec': row.okr_speed_deg_per_sec,
