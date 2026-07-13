@@ -17,7 +17,10 @@ print(f"#fish: {len(df.file.unique())}")
 
 fine_dt = 0.02
 time_bins = np.arange(0, 10 + fine_dt, fine_dt)
-window_size_steps = int(1.0 / fine_dt)
+window_duration = 0.33
+window_size_steps = int(window_duration / fine_dt)
+window_size_steps |= 1
+
 
 sub_df = df[df['stim'] == Stim.OKR].copy()
 
@@ -54,8 +57,8 @@ counts = counts.reset_index()
 counts['time_sec'] = counts['time_bin'].apply(lambda x: x.left).astype(float)
 
 # Calculate true instantaneous frequency (Bouts per second)
-counts['rt_ipsi_hz'] = counts['rolling_rt_ipsi'] / 1.0
-counts['rt_contra_hz'] = counts['rolling_rt_contra'] / 1.0
+counts['rt_ipsi_hz'] = counts['rolling_rt_ipsi'] / window_duration
+counts['rt_contra_hz'] = counts['rolling_rt_contra'] / window_duration
 
 fig, (ax_ipsi, ax_contra) = plt.subplots(nrows=2, ncols=1, figsize=(12, 10), sharex=True, sharey=True)
 
