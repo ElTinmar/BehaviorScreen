@@ -38,3 +38,16 @@ for file in ROOT.rglob("stim_*.json"):
 
 #     original_file = backup_file.with_stem(backup_file.stem[:-4])
 #     backup_file.replace(original_file)
+
+
+# with open('ptx_protocol.txt','w') as fp:
+#     for file in ROOT.rglob("stim_*.json"):
+
+#         if not "results" in file.parts:
+#             continue
+
+#         stim = load_stimuli(file) # this is rounding float to 6th decimal
+#         num_stim = len(stim)
+
+#         if num_stim == 41:
+#             fp.write(str(file) + '\n')
