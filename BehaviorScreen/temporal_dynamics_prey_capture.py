@@ -13,6 +13,7 @@ rt_index = bouts_category_name_short.index("RT")
 hat_index = bouts_category_name_short.index("HAT")
 
 ROOT = Path('/media/martin/DATA_18TB/Screen')
+ROOT = Path('/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen')
 df = pd.read_csv(ROOT / 'bouts_control.csv')
 
 print(f"#fish: {len(df.file.unique())}")
@@ -34,6 +35,8 @@ pc_df['contra_rt'] = ((pc_df['category'] == rt_index) | (pc_df['category'] == ha
 # Transform circular phases to Cartesian vectors to calculate valid means later
 pc_df['phase_sin'] = np.sin(pc_df['stim_phase'])
 pc_df['phase_cos'] = np.cos(pc_df['stim_phase'])
+pc_df['phase_sin2'] = np.sin(2.0 * pc_df['stim_phase'])
+pc_df['phase_cos2'] = np.cos(2.0 * pc_df['stim_phase'])
 
 # Bin the raw continuous timestamps'
 pc_df['time_bin'] = pd.cut(pc_df['trial_time'], bins=time_bins, right=False)
@@ -49,7 +52,9 @@ counts = (
         rt_ipsi_count=('ipsi_rt', 'sum'),
         rt_contra_count=('contra_rt', 'sum'),
         mean_sin=('phase_sin', 'mean'),
-        mean_cos=('phase_cos', 'mean')
+        mean_cos=('phase_cos', 'mean'),
+        mean_sin2=('phase_sin2', 'mean'),
+        mean_cos2=('phase_cos2', 'mean')  
     )
 )
 
@@ -241,14 +246,36 @@ T_start = 0.0
 T_end = 24.0  
 T_duration = T_end - T_start
 
+decay_events = pc_df[pc_df['ipsi_jturn'] & (pc_df['trial_time'] >= T_start) & (pc_df['trial_time'] <= T_end)]
+spike_times = (decay_events['trial_time'] - T_start).values
+spike_trials = decay_events['trial_num'].values
+spike_sin = decay_events['phase_sin'].values
+spike_cos = decay_events['phase_cos'].values
+spike_sin2 = decay_events['phase_sin2'].values
+spike_cos2 = decay_events['phase_cos2'].values
+
+window_mask_bins = (counts['time_sec'] >= T_start) & (counts['time_sec'] <= T_end)
+timeline_template = counts[window_mask_bins].groupby('time_sec').agg(
+    bin_sin=('mean_sin', 'mean'),
+    bin_cos=('mean_cos', 'mean'),
+    bin_sin2=('mean_sin2', 'mean'),
+    bin_cos2=('mean_cos2', 'mean')
+).reset_index()
+
+t_grid = timeline_template['time_sec'].values - T_start
+grid_sin = timeline_template['bin_sin'].values
+grid_cos = timeline_template['bin_cos'].values
+grid_sin2 = timeline_template['bin_sin2'].values
+grid_cos2 = timeline_template['bin_cos2'].values
+dt = fine_dt 
+
+num_trials = len(pc_df.groupby(['file', 'trial_num']))
+
 
 ######################### homogeneous poisson process  ########################
 
 ### IPSI
 
-decay_events = pc_df[pc_df['ipsi_jturn'] & (pc_df['trial_time'] >= T_start) & (pc_df['trial_time'] <= T_end)]
-spike_times = (decay_events['trial_time'] - T_start).values
-num_trials = len(pc_df.groupby(['file', 'trial_num']))
 
 # Calculate analytical MLE constant rate (Total Events / Total Tracking Space)
 n_events = len(spike_times)
@@ -1822,9 +1849,206 @@ plt.savefig(
 )
 plt.show()
 
+########################## WITH TRIALS / TWO PHASE
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
 
+# ==========================================
+# 1. BI-MODAL INTENSITY & LOG-LIKELIHOOD
+# ==========================================
+def lambda_t_phase_gamma_tri_modulated(
+    t, trial_k, s_sin, s_cos, s_sin2, s_cos2, 
+    A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma
+):
+    t_safe = np.maximum(t, 0)
+    
+    # Transient peak and static baseline remain the same
+    transient_peak = (A * (t_safe ** k) * np.exp(-t_safe / tau)) * np.exp(alpha_A * trial_k)
+    static_baseline = B * np.exp(alpha_B * trial_k)
+    
+    # Expanded Phase Ripple: Fundamental + Second Harmonic components
+    phase_ripple = (
+        b1 * s_sin + b2 * s_cos + 
+        b3 * s_sin2 + b4 * s_cos2
+    ) * np.exp(alpha_gamma * trial_k)
+    
+    return np.maximum(transient_peak + static_baseline + phase_ripple, 1e-9)
 
+def phase_negative_log_likelihood_tri_modulated(
+    params, t_events, trial_events, s_sin, s_cos, s_sin2, s_cos2,
+    unique_trials, n_fish, t_grid, grid_sin, grid_cos, grid_sin2, grid_cos2, dt
+):
+    A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma = params
+    
+    # Term 1: Event Log-Rates (with second-harmonic inputs)
+    rates = lambda_t_phase_gamma_tri_modulated(
+        t_events, trial_events, s_sin, s_cos, s_sin2, s_cos2,
+        A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma
+    )
+    sum_log_rates = np.sum(np.log(rates))
+    
+    # Term 2: Numerical Riemann Integral across all sequential trials
+    t_grid_safe = np.maximum(t_grid, 0)
+    
+    grid_transient = A * (t_grid_safe ** k) * np.exp(-t_grid_safe / tau)
+    grid_phase = b1 * grid_sin + b2 * grid_cos + b3 * grid_sin2 + b4 * grid_cos2
+    
+    total_expected_events = 0.0
+    for tk in unique_trials:
+        trial_grid_rate = np.maximum(
+            grid_transient * np.exp(alpha_A * tk) + 
+            B * np.exp(alpha_B * tk) + 
+            grid_phase * np.exp(alpha_gamma * tk), 
+            1e-9
+        )
+        total_expected_events += np.sum(trial_grid_rate) * dt
+        
+    total_expected_events *= n_fish
+    
+    nll = -(sum_log_rates - total_expected_events)
+    return nll if np.isfinite(nll) else 1e10
 
+# ==========================================
+# 3. RUN THE OPTIMIZATION
+# ==========================================
+# Parameter footprint: [A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma]
+initial_guesses_phase = [0.56, 1.15, 2.0, 0.40, 0.0, 0.0, 0.0, 0.0, -0.05, -0.05, -0.05]
+bounds_phase = (
+    (0.01, 10.0),    # A
+    (0.1, 5.0),      # tau
+    (0.4, 10.0),     # k 
+    (0.01, 5.0),     # B
+    (-5.0, 5.0),     # b1 (Fundamental Sin)
+    (-5.0, 5.0),     # b2 (Fundamental Cos)
+    (-5.0, 5.0),     # b3 (Second-Harmonic Sin)
+    (-5.0, 5.0),     # b4 (Second-Harmonic Cos)
+    (-2.0, 2.0),     # alpha_A
+    (-2.0, 2.0),     # alpha_B
+    (-2.0, 2.0)      # alpha_gamma
+)
+
+unique_trials = np.sort(counts['trial_num'].unique())
+num_fish = len(decay_events['file'].unique())
+
+phase_result = minimize(
+    phase_negative_log_likelihood_tri_modulated, 
+    x0=initial_guesses_phase, 
+    args=(
+        spike_times, spike_trials, spike_sin, spike_cos, spike_sin2, spike_cos2,
+        unique_trials, num_fish, t_grid, grid_sin, grid_cos, grid_sin2, grid_cos2, dt
+    ),
+    method='L-BFGS-B',
+    bounds=bounds_phase
+)
+
+# Extract parameters
+A_p, tau_p, k_p, B_p, b1_p, b2_p, b3_p, b4_p, a_A, a_B, a_g = phase_result.x
+
+# ==========================================
+# 4. DECODING THE TWO PHASES
+# ==========================================
+# To find the two peak phase angles, evaluate the phase-only equation over 0 to 2*pi
+phi_eval = np.linspace(0, 2 * np.pi, 360)
+ripple_eval = (
+    b1_p * np.sin(phi_eval) + b2_p * np.cos(phi_eval) + 
+    b3_p * np.sin(2.0 * phi_eval) + b4_p * np.cos(2.0 * phi_eval)
+)
+
+# Find localized peak indices
+from scipy.signal import find_peaks
+peak_indices, _ = find_peaks(ripple_eval)
+peak_phases = phi_eval[peak_indices]
+
+print(f"Detected {len(peak_phases)} phase peaks in the cycle:")
+for i, phi in enumerate(peak_phases):
+    deg = np.degrees(phi)
+    # Convert phase angle back to physical coordinate (e.g., degrees or mm)
+    physical_val = 20.0 + 70.0 * ((1.0 - np.cos(phi)) / 2.0)
+    direction = "N->T" if np.sin(phi) > 0 else "T->N"
+    print(f"Peak {i+1}: Phase = {deg:.1f}° | Physical Value = {physical_val:.2f}, direction: {direction}")
+
+peak_str_1 = "N/A"
+peak_str_2 = "N/A"
+
+if len(peak_phases) >= 1:
+    p1_deg = np.degrees(peak_phases[0])
+    p1_phys = 20.0 + 70.0 * ((1.0 - np.cos(peak_phases[0])) / 2.0)
+    peak_str_1 = f"{p1_deg:.1f}° ({p1_phys:.1f} °) " + "N->T" if np.sin(peak_phases[0]) > 0 else "T->N"
+if len(peak_phases) >= 2:
+    p2_deg = np.degrees(peak_phases[1])
+    p2_phys = 20.0 + 70.0 * ((1.0 - np.cos(peak_phases[1])) / 2.0)
+    peak_str_2 = f"{p2_deg:.1f}° ({p2_phys:.1f} °) " + ("N->T" if np.sin(peak_phases[1]) > 0 else "T->N")
+
+fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(11, 9), gridspec_kw={'height_ratios': [2.8, 1.4]})
+
+select_trials = [unique_trials[0], unique_trials[len(unique_trials)//2], unique_trials[-1]]
+colors = ['#1f77b4', '#d62728', '#2ca02c']
+
+for tm, col in zip(select_trials, colors):
+    trial_data = counts[counts['trial_num'] == tm]
+    mean_data = trial_data.groupby('time_sec').agg(
+        r_smooth=('jt_ipsi_hz', 'mean'), 
+        mean_sin=('mean_sin', 'mean'), 
+        mean_cos=('mean_cos', 'mean'),
+        mean_sin2=('mean_sin2', 'mean'), # Extracted second harmonics
+        mean_cos2=('mean_cos2', 'mean')  # Extracted second harmonics
+    )
+    w_mask = (mean_data.index >= T_start) & (mean_data.index <= T_end)
+    t_smooth = mean_data.index[w_mask] - T_start
+    
+    # Passing fundamental AND second-harmonic grid vectors cleanly into the bi-modal function
+    r_model = lambda_t_phase_gamma_tri_modulated(
+        t_smooth, tm, 
+        mean_data.loc[w_mask, 'mean_sin'].values, mean_data.loc[w_mask, 'mean_cos'].values,
+        mean_data.loc[w_mask, 'mean_sin2'].values, mean_data.loc[w_mask, 'mean_cos2'].values,
+        A_p, tau_p, k_p, B_p, b1_p, b2_p, b3_p, b4_p, a_A, a_B, a_g
+    )
+    
+    ax1.plot(t_smooth, mean_data.loc[w_mask, 'r_smooth'].values, '--', color=col, alpha=0.35)
+    ax1.plot(t_smooth, r_model, '-', color=col, lw=2.5, label=f'Trial {tm} Model')
+
+ax1.set_ylabel('Bout Rate $\lambda(t, m)$  (Hz)')
+ax1.set_xlabel('Time (s)')
+
+# --- TITLE UPDATED TO REFLECT DETAILED FOURIER SECOND-HARMONIC EXPANSION ---
+ax1.set_title(r"$\lambda(t, m) = \max\left( A e^{\alpha_A \cdot m} t^k e^{-t/\tau} + B e^{\alpha_B \cdot m} + [b_1 \sin(\phi) + b_2 \cos(\phi) + b_3 \sin(2\phi) + b_4 \cos(2\phi)] e^{\alpha_\gamma \cdot m},\, 10^{-9}\right)$", fontsize=10.5)
+
+ax1.legend(loc='upper right')
+ax1.grid(True, alpha=0.2)
+ax1.set_ylim(bottom=0)
+
+overlay_phase_axis(ax1)
+
+ax2.axis('off')
+
+# --- ANNOTATION UPDATED TO MAP BI-MODAL WEIGHTS AND LOGISTICAL PEAKS ---
+latex_annotation = r"""$\text{Peak Time} = \tau \cdot k$ [Transient Delay]  |  Second Harmonic Fourier Expansion Profile (Bi-Modal Preference Tuning)
+
+Fitted Parameters & Baseline Variables:
+$m$ = trial number (ordinal tracking index of consecutive stimulus exposures)
+$A$ = """ + f"{A_p:.3f}" + r""" Hz [Transient peak height]  |  $B$ = """ + f"{B_p:.3f}" + r""" Hz [Stable background floor]
+$\tau$ = """ + f"{tau_p:.3f}" + r""" sec  |  $k$ = """ + f"{k_p:.3f}" + r"""  |  Kinetic Peak Time = """ + f"{tau_p * k_p:.3f}" + r""" sec
+
+Fourier Coefficients:
+1st Harmonic (Fundamental):  $b_1$ = """ + f"{b1_p:.3f}" + r""", $b_2$ = """ + f"{b2_p:.3f}" + r"""
+2nd Harmonic (Octave):       $b_3$ = """ + f"{b3_p:.3f}" + r""", $b_4$ = """ + f"{b4_p:.3f}" + r"""
+
+Decoded Spatial Response Maxima:
+Detected Peak 1 Angle/Position = """ + peak_str_1 + r"""
+Detected Peak 2 Angle/Position = """ + peak_str_2 + r"""
+
+Trial-by-Trial Modulators:
+$\alpha_A$ = """ + f"{a_A:.4f}" + r""" [Sensory Adaptation: Habituation/sensitization rate of explosive stimulus peak]
+$\alpha_B$ = """ + f"{a_B:.4f}" + r""" [Baseline Motivational Shift: Continuous background driving baseline drift]
+$\alpha_{\gamma}$ = """ + f"{a_g:.4f}" + r""" [Entrainment Tuning Change: Systemic modulation of spatial phase tuning power over time]"""
+
+ax2.text(0.01, 0.95, latex_annotation, transform=ax2.transAxes, fontsize=9.5, verticalalignment='top', horizontalalignment='left', multialignment='left')
+plt.tight_layout()
+plt.savefig('temporal_dynamics_prey_capture_bimodal_NHpsi_2.svg', bbox_inches='tight')
+plt.savefig('temporal_dynamics_prey_capture_bimodal_NHpsi_2.png', dpi=300, bbox_inches='tight')
+plt.show()
 ################################
 
 def run_likelihood_ratio_test(nll_null, nll_complex, df_null, df_complex):
