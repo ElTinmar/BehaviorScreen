@@ -2,6 +2,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import seaborn as sns
+from typing import Tuple
 from scipy.optimize import minimize
 from scipy.integrate import quad
 from scipy.stats import ks_1samp, uniform, kstest, chi2
@@ -17,7 +18,7 @@ def extract_dataframe(
         t_start: float = 0.0,
         t_end: float = 25.0,
         window_duration: float = 0.33
-    ) -> pd.DataFrame:
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
     csv = root / csv_file
     df = pd.read_csv(csv)
@@ -77,7 +78,7 @@ def extract_dataframe(
     counts['time_sec'] = counts['time_bin'].apply(lambda x: x.left).astype(float)
     counts['avg_phase'] = np.arctan2(counts['mean_sin'], counts['mean_cos']) % (2 * np.pi)
 
-    return counts
+    return sub_df, counts
 
 
 ROOT = Path('/media/martin/DATA_18TB/Screen')
@@ -87,8 +88,11 @@ df = pd.read_csv(ROOT / 'bouts_control.csv')
 
 print(f"#fish: {len(df.file.unique())}")
 
-counts = extract_dataframe(ROOT,'bouts_control.csv',Stim.PREY_CAPTURE)
-
+data, counts = extract_dataframe(
+    ROOT,
+    'bouts_control.csv',
+    Stim.PREY_CAPTURE
+)
 
 def overlay_phase_axis(parent_ax):
     """Helper function to cleanly superimpose the phase trace behind behavioral data."""
