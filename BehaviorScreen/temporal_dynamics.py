@@ -316,20 +316,11 @@ colors = ['#1f77b4', '#d62728', '#2ca02c']
 for tm, col in zip(select_trials, colors):
     trial_data = counts[counts['trial_num'] == tm]
     mean_data = trial_data.groupby('time_sec').agg(
-        r_smooth=('IPSILATERAL_JT_hz', 'mean'), 
-        mean_sin=('mean_sin', 'mean'), 
-        mean_cos=('mean_cos', 'mean'),
-        mean_sin2=('mean_sin2', 'mean'), # Extracted second harmonics
-        mean_cos2=('mean_cos2', 'mean')  # Extracted second harmonics
+        r_smooth=('IPSILATERAL_JT_hz', 'mean')
     )
     w_mask = (mean_data.index >= t_start) & (mean_data.index <= t_end)
     t_smooth = mean_data.index[w_mask] - t_start
-    
-    # Passing fundamental AND second-harmonic grid vectors cleanly into the bi-modal function
-    r_model = lambda_poisson(
-        t_smooth, tm, 
-        (A_p, tau_p, k_p, B_p, b1_p, b2_p, b3_p, b4_p, a_A, a_B, a_g)
-    )
+    r_model = lambda_poisson(t_smooth, tm, poisson_fit.x)
     
     ax1.plot(t_smooth, mean_data.loc[w_mask, 'r_smooth'].values, '--', color=col, alpha=0.35)
     ax1.plot(t_smooth, r_model, '-', color=col, lw=2.5, label=f'Trial {tm} Model')
