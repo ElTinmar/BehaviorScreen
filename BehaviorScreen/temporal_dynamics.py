@@ -63,6 +63,7 @@ def extract_dataframe(
     sub_df['phase_sin2'] = np.sin(2.0 * sub_df['stim_phase'])
     sub_df['phase_cos2'] = np.cos(2.0 * sub_df['stim_phase'])
 
+    # TODO: this is only used for avg phase RN, can it be done directly instead?
     agg_dict.update({
         'mean_sin': ('phase_sin', 'mean'),
         'mean_cos': ('phase_cos', 'mean'),
