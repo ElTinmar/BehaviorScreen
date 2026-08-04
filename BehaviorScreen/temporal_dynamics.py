@@ -174,7 +174,7 @@ t_grid = np.arange(t_start, t_end+dt, dt)
 unique_trials = np.sort(counts['trial_num'].unique())
 num_fish = len(counts['file'].unique())
 
-def lambda_poisson(t, trial, params, stim_freq=0.642857):
+def lambda_poisson(t, trial, params, stim_freq=prey_stim_freq):
 
     A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma = params
 
