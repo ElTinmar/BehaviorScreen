@@ -4,11 +4,14 @@ import numpy as np
 import seaborn as sns
 from typing import Tuple
 from scipy.optimize import minimize
-from scipy.integrate import quad
-from scipy.stats import ks_1samp, uniform, kstest, chi2
+from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
+
+ROOT = Path('/media/martin/DATA_18TB/Screen')
+ROOT = Path('/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen')
+ROOT = Path('/home/martin/Desktop/DATA')
 
 dt = 0.02
 t_start = 0.0 
@@ -16,8 +19,9 @@ t_end = 24.0
 window_duration = 0.33
 
 # prey capture stim parameters
-stim_speed_deg_per_s = 90
-stim_range_deg = 2*70
+prey_stim_speed_deg_per_s = 90
+prey_stim_range_deg = 2*70
+prey_stim_freq =  prey_stim_speed_deg_per_s / prey_stim_range_deg
 
 def extract_dataframe(
         root: Path, 
@@ -91,10 +95,6 @@ def extract_dataframe(
 
 #counts['asymmetry_index_JT'] = (counts['jt_ipsi_hz'] - counts['jt_contra_hz']) / (counts['jt_ipsi_hz'] + counts['jt_contra_hz'])
 
-ROOT = Path('/media/martin/DATA_18TB/Screen')
-ROOT = Path('/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen')
-ROOT = Path('/home/martin/Desktop/DATA')
-
 data, counts = extract_dataframe(
     ROOT,
     'bouts_control.csv',
@@ -166,25 +166,6 @@ event_phase_cos2 = events['phase_cos2'].values
 
 # grid for integration
 t_grid = np.arange(t_start, t_end+dt, dt)
-freq =  stim_speed_deg_per_s / stim_range_deg
-sin1_grid = np.sin(2*np.pi*freq*t_grid)
-sin2_grid = np.sin(2*np.pi*2*freq*t_grid)
-cos1_grid = np.cos(2*np.pi*freq*t_grid)
-cos2_grid = np.cos(2*np.pi*2*freq*t_grid)
-
-window_mask_bins = (counts['time_sec'] >= t_start) & (counts['time_sec'] <= t_end)
-timeline_template = counts[window_mask_bins].groupby('time_sec').agg(
-    bin_sin=('mean_sin', 'mean'),
-    bin_cos=('mean_cos', 'mean'),
-    bin_sin2=('mean_sin2', 'mean'),
-    bin_cos2=('mean_cos2', 'mean')
-).reset_index()
-t_grid = (timeline_template['time_sec'] - t_start).values
-grid_sin = timeline_template['bin_sin'].values
-grid_cos = timeline_template['bin_cos'].values
-grid_sin2 = timeline_template['bin_sin2'].values
-grid_cos2 = timeline_template['bin_cos2'].values
-
 
 def lambda_t_trial(
     t, trial_k, s_sin, s_cos, s_sin2, s_cos2, 
@@ -198,19 +179,15 @@ def lambda_t_trial(
         b3 * s_sin2 + b4 * s_cos2
     ) * np.exp(alpha_gamma * trial_k)
 
-    res = transient_peak + static_baseline + phase_ripple
-    if res < 0:
-        raise ValueError('negative rate')
-    
-    return transient_peak + static_baseline + phase_ripple
+    return np.maximum(transient_peak + static_baseline + phase_ripple, 1e-9)
 
 def negative_log_likelihood(
     params, t_events, trial_events, s_sin, s_cos, s_sin2, s_cos2,
-    unique_trials, n_fish, t_grid, grid_sin, grid_cos, grid_sin2, grid_cos2, dt
+    unique_trials, n_fish, t_grid, dt
 ):
     A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma = params
     
-    # Term 1: Event Log-Rates (with second-harmonic inputs)
+    # Term 1: Event Log-Rates
     rates = lambda_t_trial(
         t_events, trial_events, s_sin, s_cos, s_sin2, s_cos2,
         A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma
@@ -218,25 +195,23 @@ def negative_log_likelihood(
     sum_log_rates = np.sum(np.log(rates))
     
     # Term 2: Numerical Riemann Integral across all sequential trials
-    t_grid_safe = np.maximum(t_grid, 0)
+    sin1 = np.sin(2*np.pi*prey_stim_freq*t_grid)
+    sin2 = np.sin(2*np.pi*2*prey_stim_freq*t_grid)
+    cos1 = np.cos(2*np.pi*prey_stim_freq*t_grid)
+    cos2 = np.cos(2*np.pi*2*prey_stim_freq*t_grid)
     
-    grid_transient = A * (t_grid_safe ** k) * np.exp(-t_grid_safe / tau)
-    grid_phase = b1 * grid_sin + b2 * grid_cos + b3 * grid_sin2 + b4 * grid_cos2
+    grid_transient = A * (t_grid ** k) * np.exp(-t_grid / tau)
+    grid_phase = b1 * sin1 + b2 * cos1 + b3 * sin2 + b4 * cos2
     
     total_expected_events = 0.0
     for tk in unique_trials:
-        trial_grid_rate = np.maximum(
-            grid_transient * np.exp(alpha_A * tk) + 
-            B * np.exp(alpha_B * tk) + 
-            grid_phase * np.exp(alpha_gamma * tk), 
-            1e-9
-        )
+        trial_grid_rate = grid_transient * np.exp(alpha_A * tk) + B * np.exp(alpha_B * tk) + grid_phase * np.exp(alpha_gamma * tk)
         total_expected_events += np.sum(trial_grid_rate) * dt
         
     total_expected_events *= n_fish
     
     nll = -(sum_log_rates - total_expected_events)
-    return nll if np.isfinite(nll) else 1e10
+    return nll 
 
 # ==========================================
 # 3. RUN THE OPTIMIZATION
@@ -265,7 +240,7 @@ phase_result = minimize(
     x0=initial_guesses_phase, 
     args=(
         event_times, event_trials, event_phase_sin, event_phase_cos, event_phase_sin2, event_phase_cos2,
-        unique_trials, num_fish, t_grid, grid_sin, grid_cos, grid_sin2, grid_cos2, dt
+        unique_trials, num_fish, t_grid, dt
     ),
     method='L-BFGS-B',
     bounds=bounds_phase
@@ -285,7 +260,6 @@ ripple_eval = (
 )
 
 # Find localized peak indices
-from scipy.signal import find_peaks
 peak_indices, _ = find_peaks(ripple_eval)
 peak_phases = phi_eval[peak_indices]
 
@@ -317,7 +291,7 @@ colors = ['#1f77b4', '#d62728', '#2ca02c']
 for tm, col in zip(select_trials, colors):
     trial_data = counts[counts['trial_num'] == tm]
     mean_data = trial_data.groupby('time_sec').agg(
-        r_smooth=('jt_ipsi_hz', 'mean'), 
+        r_smooth=('IPSILATERAL_JT_hz', 'mean'), 
         mean_sin=('mean_sin', 'mean'), 
         mean_cos=('mean_cos', 'mean'),
         mean_sin2=('mean_sin2', 'mean'), # Extracted second harmonics
@@ -327,7 +301,7 @@ for tm, col in zip(select_trials, colors):
     t_smooth = mean_data.index[w_mask] - t_start
     
     # Passing fundamental AND second-harmonic grid vectors cleanly into the bi-modal function
-    r_model = lambda_t_phase_gamma_tri_modulated(
+    r_model = lambda_t_trial(
         t_smooth, tm, 
         mean_data.loc[w_mask, 'mean_sin'].values, mean_data.loc[w_mask, 'mean_cos'].values,
         mean_data.loc[w_mask, 'mean_sin2'].values, mean_data.loc[w_mask, 'mean_cos2'].values,
@@ -377,41 +351,4 @@ plt.tight_layout()
 plt.savefig('temporal_dynamics_prey_capture_bimodal_NHpsi_2.svg', bbox_inches='tight')
 plt.savefig('temporal_dynamics_prey_capture_bimodal_NHpsi_2.png', dpi=300, bbox_inches='tight')
 plt.show()
-################################
-
-def run_likelihood_ratio_test(nll_null, nll_complex, df_null, df_complex):
-    """
-    Computes Wilks' Chi-Squared test statistic to compare nested architectures.
-    """
-    # Test statistic D = 2 * (LL_complex - LL_null) = 2 * (NLL_null - NLL_complex)
-    dev_statistic = 2.0 * (nll_null - nll_complex)
-    
-    # Degrees of freedom delta
-    df_delta = df_complex - df_null
-    
-    # Calculate the upper-tail probability (p-value) of Chi-squared distribution
-    p_value = chi2.sf(dev_statistic, df_delta)
-    
-    print("\n==========================================")
-    print("       LIKELIHOOD RATIO TEST RESULTS      ")
-    print("==========================================")
-    print(f"Null Model NLL:     {nll_null:.3f}  (df={df_null})")
-    print(f"Complex Model NLL:  {nll_complex:.3f}  (df={df_complex})")
-    print(f"Degrees of Freedom: {df_delta}")
-    print(f"Chi-Square Stat (D): {dev_statistic:.3f}")
-    
-    if p_value < 0.001:
-        print(f"LRT p-value:        p = {p_value:.5f} < 0.001 (Highly Significant) 🌟")
-    else:
-        print(f"LRT p-value:        p = {p_value:.5f}")
-        
-    if dev_statistic > 0 and p_value < 0.05:
-        print("\nConclusion: Reject the Null Hypothesis. The additional parameters")
-        print("provide a statistically superior description of the data.")
-    else:
-        print("\nConclusion: Fail to reject the Null Hypothesis. The complex parameters")
-        print("do not justify the added mathematical complexity.")
-    print("==========================================")
-    
-    return dev_statistic, p_value
 
