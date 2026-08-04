@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import seaborn as sns
 from typing import Tuple
+from scipy.integrate import simpson
 from scipy.optimize import minimize
 from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
@@ -167,58 +168,79 @@ event_phase_cos2 = events['phase_cos2'].values
 # grid for integration
 t_grid = np.arange(t_start, t_end+dt, dt)
 
-def lambda_t_trial(
-    t, trial_k, s_sin, s_cos, s_sin2, s_cos2, 
-    A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma
-):
-    
-    transient_peak = (A * (t ** k) * np.exp(-t / tau)) * np.exp(alpha_A * trial_k)
-    static_baseline = B * np.exp(alpha_B * trial_k)    
-    phase_ripple = (
-        b1 * s_sin + b2 * s_cos + 
-        b3 * s_sin2 + b4 * s_cos2
-    ) * np.exp(alpha_gamma * trial_k)
+unique_trials = np.sort(counts['trial_num'].unique())
+num_fish = len(events['file'].unique())
 
-    return np.maximum(transient_peak + static_baseline + phase_ripple, 1e-9)
 
-def negative_log_likelihood(
-    params, t_events, trial_events, s_sin, s_cos, s_sin2, s_cos2,
-    unique_trials, n_fish, t_grid, dt
-):
+def lambda_poisson(t, trial, params, stim_freq=0.642857):
+
     A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma = params
-    
-    # Term 1: Event Log-Rates
-    rates = lambda_t_trial(
-        t_events, trial_events, s_sin, s_cos, s_sin2, s_cos2,
-        A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma
-    )
-    sum_log_rates = np.sum(np.log(rates))
-    
-    # Term 2: Numerical Riemann Integral across all sequential trials
-    sin1 = np.sin(2*np.pi*prey_stim_freq*t_grid)
-    sin2 = np.sin(2*np.pi*2*prey_stim_freq*t_grid)
-    cos1 = np.cos(2*np.pi*prey_stim_freq*t_grid)
-    cos2 = np.cos(2*np.pi*2*prey_stim_freq*t_grid)
-    
-    grid_transient = A * (t_grid ** k) * np.exp(-t_grid / tau)
-    grid_phase = b1 * sin1 + b2 * cos1 + b3 * sin2 + b4 * cos2
-    
-    total_expected_events = 0.0
-    for tk in unique_trials:
-        trial_grid_rate = grid_transient * np.exp(alpha_A * tk) + B * np.exp(alpha_B * tk) + grid_phase * np.exp(alpha_gamma * tk)
-        total_expected_events += np.sum(trial_grid_rate) * dt
-        
-    total_expected_events *= n_fish
-    
-    nll = -(sum_log_rates - total_expected_events)
-    return nll 
 
-# ==========================================
-# 3. RUN THE OPTIMIZATION
-# ==========================================
-# Parameter footprint: [A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma]
-initial_guesses_phase = [0.56, 1.15, 2.0, 0.40, 0.0, 0.0, 0.0, 0.0, -0.05, -0.05, -0.05]
-bounds_phase = (
+    w = 2.0 * np.pi * stim_freq
+    phase = w * t
+    
+    transient = A * (t ** k) * np.exp(-t / tau) * np.exp(alpha_A * trial)
+    baseline = B * np.exp(alpha_B * trial)
+    phase_ripple = (
+        b1 * np.sin(phase) + b2 * np.cos(phase) + 
+        b3 * np.sin(2.0 * phase) + b4 * np.cos(2.0 * phase)
+    ) * np.exp(alpha_gamma * trial)
+
+    return transient + baseline + phase_ripple
+
+def poisson_nll(params, lambda_func, t_events, trial_events, unique_trials, t_grid, n_fish=1.0):
+    """
+    Modular Negative Log-Likelihood engine for Inhomogeneous Poisson Processes.
+    
+    Parameters
+    ----------
+    params : array-like
+        Vector of parameters to optimize.
+    lambda_func : callable
+        Signature: lambda_func(t, trial, params)
+        Must support NumPy array broadcasting.
+    t_events : np.ndarray
+        1D array of event timestamps.
+    trial_events : np.ndarray
+        1D array of trial IDs for each event.
+    unique_trials : np.ndarray
+        1D array of all unique trial indices in the experiment.
+    t_grid : np.ndarray
+        1D array specifying the uniform integration time grid [t_start, t_end].
+    n_fish : float
+        Multiplicative scale factor for number of subjects.
+    """
+    # -------------------------------------------------------------
+    # Term 1: Sum of Log-Rates at Observed Event Times
+    # -------------------------------------------------------------
+    event_rates = lambda_func(t_events, trial_events, params)
+    
+    # Consistent non-negativity floor
+    event_rates = np.maximum(event_rates, 1e-9)
+    sum_log_rates = np.sum(np.log(event_rates))
+    
+    # -------------------------------------------------------------
+    # Term 2: Numerical Integration Across (Trial x Time) Space
+    # -------------------------------------------------------------
+    # Broadcast t_grid (1, N_time) and unique_trials (N_trials, 1) to form 2D mesh
+    t_2d = t_grid[None, :]          # Shape: (1, N_time)
+    trials_2d = unique_trials[:, None] # Shape: (N_trials, 1)
+    
+    # Evaluate 2D rate surface: shape (N_trials, N_time)
+    rate_surface = lambda_func(t_2d, trials_2d, params)
+    rate_surface = np.maximum(rate_surface, 1e-9)
+    
+    # Integrate across the time axis (axis=1) using Simpson's Rule
+    trial_integrals = simpson(rate_surface, x=t_grid, axis=1)
+    
+    # Sum total expected events across all trials and scale by n_fish
+    total_expected_events = np.sum(trial_integrals) * n_fish
+    
+    return -(sum_log_rates - total_expected_events)
+
+
+initial_guesses = [0.56, 1.15, 2.0, 0.40, 0.0, 0.0, 0.0, 0.0, -0.05, -0.05, -0.05]
+bounds = (
     (0.01, 10.0),    # A
     (0.1, 5.0),      # tau
     (0.4, 10.0),     # k 
@@ -232,22 +254,25 @@ bounds_phase = (
     (-2.0, 2.0)      # alpha_gamma
 )
 
-unique_trials = np.sort(counts['trial_num'].unique())
-num_fish = len(events['file'].unique())
 
-phase_result = minimize(
-    negative_log_likelihood, 
-    x0=initial_guesses_phase, 
+poisson_fit = minimize(
+    poisson_nll,
+    x0=initial_guesses,
     args=(
-        event_times, event_trials, event_phase_sin, event_phase_cos, event_phase_sin2, event_phase_cos2,
-        unique_trials, num_fish, t_grid, dt
+        lambda_poisson, 
+        event_times, 
+        event_trials, 
+        unique_trials, 
+        t_grid, 
+        num_fish
     ),
     method='L-BFGS-B',
-    bounds=bounds_phase
+    bounds=bounds
 )
 
+
 # Extract parameters
-A_p, tau_p, k_p, B_p, b1_p, b2_p, b3_p, b4_p, a_A, a_B, a_g = phase_result.x
+A_p, tau_p, k_p, B_p, b1_p, b2_p, b3_p, b4_p, a_A, a_B, a_g = poisson_fit.x
 
 # ==========================================
 # 4. DECODING THE TWO PHASES
@@ -301,11 +326,9 @@ for tm, col in zip(select_trials, colors):
     t_smooth = mean_data.index[w_mask] - t_start
     
     # Passing fundamental AND second-harmonic grid vectors cleanly into the bi-modal function
-    r_model = lambda_t_trial(
+    r_model = lambda_poisson(
         t_smooth, tm, 
-        mean_data.loc[w_mask, 'mean_sin'].values, mean_data.loc[w_mask, 'mean_cos'].values,
-        mean_data.loc[w_mask, 'mean_sin2'].values, mean_data.loc[w_mask, 'mean_cos2'].values,
-        A_p, tau_p, k_p, B_p, b1_p, b2_p, b3_p, b4_p, a_A, a_B, a_g
+        (A_p, tau_p, k_p, B_p, b1_p, b2_p, b3_p, b4_p, a_A, a_B, a_g)
     )
     
     ax1.plot(t_smooth, mean_data.loc[w_mask, 'r_smooth'].values, '--', color=col, alpha=0.35)
