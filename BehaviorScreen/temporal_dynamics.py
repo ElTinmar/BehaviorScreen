@@ -10,9 +10,12 @@ import matplotlib.pyplot as plt
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
 
-ROOT = Path('/media/martin/DATA_18TB/Screen')
-ROOT = Path('/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen')
-ROOT = Path('/home/martin/Desktop/DATA')
+possible_roots = [
+    Path('/home/martin/Desktop/DATA'),
+    Path('/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen'),
+    Path('/media/martin/DATA_18TB/Screen'),
+]
+ROOT = next((p for p in possible_roots if p.exists()), possible_roots[0])
 
 dt = 0.02
 t_start = 0.0 
@@ -169,8 +172,7 @@ event_phase_cos2 = events['phase_cos2'].values
 t_grid = np.arange(t_start, t_end+dt, dt)
 
 unique_trials = np.sort(counts['trial_num'].unique())
-num_fish = len(events['file'].unique())
-
+num_fish = len(counts['file'].unique())
 
 def lambda_poisson(t, trial, params, stim_freq=0.642857):
 
@@ -190,7 +192,7 @@ def lambda_poisson(t, trial, params, stim_freq=0.642857):
 
 def poisson_nll(params, lambda_func, t_events, trial_events, unique_trials, t_grid, n_fish=1.0):
     """
-    Modular Negative Log-Likelihood engine for Inhomogeneous Poisson Processes.
+    Negative Log-Likelihood for Inhomogeneous Poisson Processes
     
     Parameters
     ----------
@@ -302,7 +304,7 @@ peak_str_2 = "N/A"
 if len(peak_phases) >= 1:
     p1_deg = np.degrees(peak_phases[0])
     p1_phys = 20.0 + 70.0 * ((1.0 - np.cos(peak_phases[0])) / 2.0)
-    peak_str_1 = f"{p1_deg:.1f}° ({p1_phys:.1f} °) " + "N->T" if np.sin(peak_phases[0]) > 0 else "T->N"
+    peak_str_1 = f"{p1_deg:.1f}° ({p1_phys:.1f} °) " + ("N->T" if np.sin(peak_phases[0]) > 0 else "T->N")
 if len(peak_phases) >= 2:
     p2_deg = np.degrees(peak_phases[1])
     p2_phys = 20.0 + 70.0 * ((1.0 - np.cos(peak_phases[1])) / 2.0)
