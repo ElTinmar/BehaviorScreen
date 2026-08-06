@@ -35,13 +35,13 @@ def extract_dataframe(
         t_start: float = 0.0,
         t_end: float = 25.0,
         window_duration: float = 0.33
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    ) -> Tuple[np.ndarray, pd.DataFrame, pd.DataFrame]:
 
     csv = root / csv_file
     df = pd.read_csv(csv)
     sub_df = df[df['stim'] == stim].copy()
 
-    time_bins = np.arange(t_start, t_end + dt, dt)
+    t_grid = np.arange(t_start, t_end + dt, dt)
     window_size_steps = int(window_duration / dt)
     window_size_steps |= 1
 
@@ -55,24 +55,7 @@ def extract_dataframe(
         for laterality in Laterality
     }
 
-    sub_df['time_bin'] = pd.cut(sub_df['trial_time'], bins=time_bins, right=False)
-
-    # PC
-    sub_df['phase_sin'] = np.sin(sub_df['stim_phase'])
-    sub_df['phase_cos'] = np.cos(sub_df['stim_phase'])
-    sub_df['phase_sin2'] = np.sin(2.0 * sub_df['stim_phase'])
-    sub_df['phase_cos2'] = np.cos(2.0 * sub_df['stim_phase'])
-
-    # TODO: this is only used for avg phase RN, can it be done directly instead?
-    agg_dict.update({
-        'mean_sin': ('phase_sin', 'mean'),
-        'mean_cos': ('phase_cos', 'mean'),
-        'mean_sin2': ('phase_sin2', 'mean'),
-        'mean_cos2': ('phase_cos2', 'mean'),
-    })
-
-    # LOOMINGS
-    # TODO add later
+    sub_df['time_bin'] = pd.cut(sub_df['trial_time'], bins=t_grid, right=False)
     
     # groupby 
     counts = (
@@ -92,15 +75,13 @@ def extract_dataframe(
     counts = counts.reset_index()
 
     counts[hz_cols] = counts[rolling_cols] / window_duration
-
     counts['time_sec'] = counts['time_bin'].apply(lambda x: x.left).astype(float)
-    counts['avg_phase'] = np.arctan2(counts['mean_sin'], counts['mean_cos']) % (2 * np.pi)
 
-    return sub_df, counts
+    return t_grid, sub_df, counts
 
 #counts['asymmetry_index_JT'] = (counts['jt_ipsi_hz'] - counts['jt_contra_hz']) / (counts['jt_ipsi_hz'] + counts['jt_contra_hz'])
 
-data, counts = extract_dataframe(
+t_grid, data, counts = extract_dataframe(
     ROOT,
     'bouts_control.csv',
     Stim.PREY_CAPTURE,
@@ -110,25 +91,30 @@ data, counts = extract_dataframe(
     window_duration = 0.33
 )
 
-def overlay_phase_axis(parent_ax):
-    """Helper function to cleanly superimpose the phase trace behind behavioral data."""
+def plot_phase_axis(
+    parent_ax, 
+    t_grid: np.ndarray,
+    stim_freq: float = prey_stim_freq, 
+):
+
     twin_ax = parent_ax.twinx()
-    sns.lineplot(
-        data=counts, x='time_sec', y='avg_phase',
-        color='crimson', linewidth=1.2, linestyle='--', alpha=0.4,
-        errorbar=None, ax=twin_ax
+    phase = (2.0 * np.pi * stim_freq * t_grid) % (2.0 * np.pi)
+    twin_ax.plot(
+        t_grid, phase,
+        color='crimson', linewidth=1.2, linestyle='--', alpha=0.4
     )
+
     twin_ax.set_ylabel('Average Stim Phase (rad)', color='crimson', fontsize=11)
     twin_ax.tick_params(axis='y', labelcolor='crimson')
     twin_ax.set_ylim(0, 2 * np.pi)
-    twin_ax.set_yticks([0, np.pi/2, np.pi, 3*np.pi/2, 2*np.pi])
+    twin_ax.set_yticks([0, np.pi / 2, np.pi, 3 * np.pi / 2, 2 * np.pi])
     twin_ax.set_yticklabels(['0', 'π/2', 'π', '3π/2', '2π'])
-    return twin_ax
 
+    return twin_ax
 
 fig, (ax_ipsi, ax_contra) = plt.subplots(nrows=2, ncols=1, figsize=(12, 10), sharex=True, sharey=True)
 
-ax_ipsi_twin = overlay_phase_axis(ax_ipsi)
+ax_ipsi_twin = plot_phase_axis(ax_ipsi, t_grid)
 sns.lineplot(
     data=counts, x='time_sec', y='IPSILATERAL_JT_hz',
     hue='trial_num', errorbar='se', palette='viridis', ax=ax_ipsi, zorder=3
@@ -136,7 +122,7 @@ sns.lineplot(
 ax_ipsi.set_ylabel('Ipsi J-turn Frequency (Hz)', fontsize=12, fontweight='bold')
 ax_ipsi.grid(True, linestyle=':', alpha=0.5)
 
-ax_contra_twin = overlay_phase_axis(ax_contra)
+ax_contra_twin = plot_phase_axis(ax_contra, t_grid)
 sns.lineplot(
     data=counts, x='time_sec', y='CONTRALATERAL_JT_hz',
     hue='trial_num', errorbar='se', palette='viridis', ax=ax_contra, zorder=3,
@@ -164,18 +150,13 @@ events = data[mask]
 
 event_times = (events['trial_time'] - t_start).values
 event_trials = events['trial_num'].values
-event_phase_sin = events['phase_sin'].values
-event_phase_cos = events['phase_cos'].values
-event_phase_sin2 = events['phase_sin2'].values
-event_phase_cos2 = events['phase_cos2'].values
 
 # grid for integration
-t_grid = np.arange(t_start, t_end+dt, dt)
 
 unique_trials = np.sort(counts['trial_num'].unique())
 num_fish = len(counts['file'].unique())
 
-def lambda_poisson(t, trial, params, stim_freq=prey_stim_freq):
+def lambda_prey_capture(t, trial, params, stim_freq=prey_stim_freq):
 
     A, tau, k, B, b1, b2, b3, b4, alpha_A, alpha_B, alpha_gamma = params
 
@@ -262,7 +243,7 @@ poisson_fit = minimize(
     poisson_nll,
     x0=initial_guesses,
     args=(
-        lambda_poisson, 
+        lambda_prey_capture, 
         event_times, 
         event_trials, 
         unique_trials, 
@@ -323,7 +304,7 @@ for tm, col in zip(select_trials, colors):
     )
     w_mask = (mean_data.index >= t_start) & (mean_data.index <= t_end)
     t_smooth = mean_data.index[w_mask] - t_start
-    r_model = lambda_poisson(t_smooth, tm, poisson_fit.x)
+    r_model = lambda_prey_capture(t_smooth, tm, poisson_fit.x)
     
     ax1.plot(t_smooth, mean_data.loc[w_mask, 'r_smooth'].values, '--', color=col, alpha=0.35)
     ax1.plot(t_smooth, r_model, '-', color=col, lw=2.5, label=f'Trial {tm} Model')
@@ -338,7 +319,7 @@ ax1.legend(loc='upper right')
 ax1.grid(True, alpha=0.2)
 ax1.set_ylim(bottom=0)
 
-overlay_phase_axis(ax1)
+plot_phase_axis(ax1, t_grid)
 
 ax2.axis('off')
 
