@@ -27,6 +27,9 @@ prey_stim_speed_deg_per_s = 90
 prey_stim_range_deg = 2*70
 prey_stim_freq =  prey_stim_speed_deg_per_s / prey_stim_range_deg
 
+# looming stim prameters
+# TODO 
+
 def extract_dataframe(
         root: Path, 
         csv_file: str, 
@@ -73,7 +76,6 @@ def extract_dataframe(
     )
 
     counts = counts.reset_index()
-
     counts[hz_cols] = counts[rolling_cols] / window_duration
     counts['time_sec'] = counts['time_bin'].apply(lambda x: x.left).astype(float)
 
@@ -143,16 +145,11 @@ plt.savefig(
 )
 plt.show()
 
-#################################################
 
 mask = data['IPSILATERAL_JT'] & (data['trial_time'] >= t_start) & (data['trial_time'] <= t_end)
 events = data[mask]
-
 event_times = (events['trial_time'] - t_start).values
 event_trials = events['trial_num'].values
-
-# grid for integration
-
 unique_trials = np.sort(counts['trial_num'].unique())
 num_fish = len(counts['file'].unique())
 
@@ -253,7 +250,6 @@ poisson_fit = minimize(
     method='L-BFGS-B',
     bounds=bounds
 )
-
 
 # Extract parameters
 A_p, tau_p, k_p, B_p, b1_p, b2_p, b3_p, b4_p, a_A, a_B, a_g = poisson_fit.x
