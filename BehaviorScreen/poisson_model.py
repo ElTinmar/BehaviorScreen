@@ -5,11 +5,13 @@ import numpy as np
 import pandas as pd
 from scipy.integrate import simpson
 from scipy.optimize import minimize
+from scipy.stats import chi2
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
+
 
 @dataclass
 class PoissonDataset:
@@ -317,6 +319,68 @@ class KernelFactory:
 class ModelComparator:
 
     @staticmethod
+    def likelihood_ratio_test(
+        model_null: PoissonProcess, 
+        model_alt: PoissonProcess
+    ) -> Dict[str, Union[str, int, float, bool]]:
+        """
+        Performs a Likelihood Ratio Test (LRT) between two nested Poisson Process models.
+        
+        Null Model (H0): Restricted model with k_null parameters.
+        Alt Model  (H1): Complex model with k_alt parameters (k_alt > k_null).
+        """
+        k_null = len(model_null.params_)
+        k_alt = len(model_alt.params_)
+
+        if k_alt <= k_null:
+            raise ValueError(
+                f"LRT requires the alternative model to have more parameters than the null model. "
+                f"Got k_null={k_null}, k_alt={k_alt}."
+            )
+
+        ll_null = model_null.log_likelihood
+        ll_alt = model_alt.log_likelihood
+
+        # LRT Statistic: D = 2 * (LL_alt - LL_null)
+        lr_stat = 2.0 * (ll_alt - ll_null)
+        
+        # Ensure numerical safety if optimization converged slightly off
+        lr_stat_clamped = max(0.0, lr_stat)
+        df = k_alt - k_null
+        p_val = float(chi2.sf(lr_stat_clamped, df))
+
+        return {
+            "Null Model": model_null.kernel.name,
+            "Alt Model": model_alt.kernel.name,
+            "LL Null": ll_null,
+            "LL Alt": ll_alt,
+            "Deviance (2*ΔLL)": lr_stat,
+            "Δk (df)": df,
+            "p-value": p_val,
+            "Significant (α=0.05)": p_val < 0.05
+        }
+
+    @staticmethod
+    def sequential_lrt(
+        fitted_models: Dict[str, PoissonProcess]
+    ) -> pd.DataFrame:
+        """
+        Runs sequential LRT comparisons across an ordered chain of nested models.
+        Assumes models are passed in ascending order of complexity.
+        """
+        model_items = list(fitted_models.items())
+        results = []
+
+        for i in range(len(model_items) - 1):
+            _, m_null = model_items[i]
+            _, m_alt = model_items[i + 1]
+
+            res = ModelComparator.likelihood_ratio_test(m_null, m_alt)
+            results.append(res)
+
+        return pd.DataFrame(results)
+
+    @staticmethod
     def compare(
         kernels: List[RateKernel], 
         dataset_or_t_events: Union[PoissonDataset, np.ndarray],
@@ -334,7 +398,6 @@ class ModelComparator:
         for kernel in kernels:
             model = PoissonProcess(kernel)
             
-            # Polymorphic dispatch straight to model.fit()
             if isinstance(dataset_or_t_events, PoissonDataset):
                 model.fit(dataset_or_t_events, method=method, **kwargs)
             else:
@@ -369,6 +432,7 @@ class ModelComparator:
         df = df.sort_values(by="AIC").reset_index(drop=True)
         return df, models
 
+
 class PoissonVisualizer:
 
     @staticmethod
@@ -385,7 +449,7 @@ class PoissonVisualizer:
         """
         fig, ax = plt.subplots(figsize=figsize)
 
-        # 1. Compute & Plot Empirical PSTH (mean firing rate across trials)
+        # 1. Compute & Plot Empirical PSTH
         hz_col = f"{dataset.laterality}_{dataset.bout_name}_hz"
         if selected_trials is not None:
             df_sub = dataset.binned_counts[dataset.binned_counts['trial_num'].isin(selected_trials)]
@@ -413,17 +477,13 @@ class PoissonVisualizer:
         colors = plt.cm.tab10(np.linspace(0, 1, len(fitted_models)))
 
         for idx, (model_name, model) in enumerate(fitted_models.items()):
-            # Evaluate model across time grid and average across specified trials
             t_2d = dataset.t_grid[None, :]               # Shape: (1, N_time)
             trials_2d = trials_to_eval[:, None]          # Shape: (N_trials, 1)
 
             rate_surface = model.predict(t_2d, trials_2d) # Shape: (N_trials, N_time)
             mean_rate = np.mean(rate_surface, axis=0)     # Shape: (N_time,)
 
-            # Label with AIC and Delta AIC info
-            aic_val = model.aic
-            label = f"{model_name} (AIC: {aic_val:.1f})"
-
+            label = f"{model_name} (AIC: {model.aic:.1f})"
             ax.plot(dataset.t_grid, mean_rate, label=label, linewidth=2.5, color=colors[idx])
 
         # 3. Formatting
@@ -576,6 +636,20 @@ if __name__ == '__main__':
 
     print("\n================ MODEL COMPARISON TABLE ================")
     print(summary_table.to_string(index=False))
+
+    # 3. Sequential Likelihood Ratio Tests
+    lrt_table = ModelComparator.sequential_lrt(fitted_models)
+    print("\n================ SEQUENTIAL LIKELIHOOD RATIO TESTS ================")
+    print(lrt_table.to_string(index=False))
+
+    # 4. Direct Pairwise LRT Example (Homogeneous vs Full Plasticity)
+    m_null = fitted_models[candidate_kernels[0].name]
+    m_alt = fitted_models[candidate_kernels[2].name]
+    pairwise_lrt = ModelComparator.likelihood_ratio_test(m_null, m_alt)
+    
+    print("\n================ PAIRWISE LRT (Homogeneous vs Full) ================")
+    for k, v in pairwise_lrt.items():
+        print(f"{k}: {v}")
 
     # Plot 1: Compare PSTH with all model fits overlaid
     fig1, ax1 = PoissonVisualizer.plot_model_fits(
