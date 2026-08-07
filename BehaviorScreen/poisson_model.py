@@ -258,7 +258,7 @@ class KernelFactory:
             param_names=["A", "tau", "k", "B", "b1", "b2", "b3", "b4"],
             initial_guesses=[0.56, 1.15, 2.0, 0.40, 0.0, 0.0, 0.0, 0.0],
             bounds=[
-                (0.01, 10.0), (0.1, 5.0), (0.4, 10.0), (0.01, 5.0),
+                (0.01, 10.0), (0.1, 5.0), (0.05, 10.0), (0.01, 5.0),
                 (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)
             ],
             stimulus_type="Prey Capture",
@@ -287,7 +287,7 @@ class KernelFactory:
             param_names=["A", "tau", "k", "B", "b1", "b2", "b3", "b4", "alpha_A", "alpha_B", "alpha_gamma"],
             initial_guesses=[0.56, 1.15, 2.0, 0.40, 0.0, 0.0, 0.0, 0.0, -0.05, -0.05, -0.05],
             bounds=[
-                (0.01, 10.0), (0.1, 5.0), (0.4, 10.0), (0.01, 5.0),
+                (0.01, 10.0), (0.1, 5.0), (0.05, 10.0), (0.01, 5.0),
                 (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0),
                 (-2.0, 2.0), (-2.0, 2.0), (-2.0, 2.0)
             ],
@@ -316,6 +316,112 @@ class KernelFactory:
         )
 
 
+class PoissonBootstrapper:
+    """
+    Performs Non-Parametric Trial-Level Resampling (Cluster Bootstrap) 
+    for fitted PoissonProcess models.
+    """
+    def __init__(
+        self, 
+        model: PoissonProcess, 
+        n_bootstraps: int = 200, 
+        random_state: Optional[int] = 42
+    ):
+        self.model = model
+        self.n_bootstraps = n_bootstraps
+        self.rng = np.random.default_rng(random_state)
+        self.bootstrap_params_: Optional[np.ndarray] = None  # Shape: (N_boot, N_params)
+        self.summary_df_: Optional[pd.DataFrame] = None
+
+    def fit(self, dataset: PoissonDataset) -> "PoissonBootstrapper":
+        """Resamples trials with replacement and refits the kernel."""
+        unique_trials = dataset.unique_trials
+        n_trials = len(unique_trials)
+
+        # Pre-index event times per trial for high-speed resampling
+        events_by_trial = {
+            tr: dataset.event_times[dataset.event_trials == tr]
+            for tr in unique_trials
+        }
+
+        boot_params = []
+
+        for b in range(self.n_bootstraps):
+            # 1. Resample trials with replacement
+            sampled_trials = self.rng.choice(unique_trials, size=n_trials, replace=True)
+
+            # 2. Reconstruct event arrays with virtual trial indices (0 to n_trials - 1)
+            boot_event_times = []
+            boot_event_trials = []
+
+            for new_trial_idx, original_trial in enumerate(sampled_trials):
+                t_ev = events_by_trial[original_trial]
+                boot_event_times.extend(t_ev)
+                boot_event_trials.extend([new_trial_idx] * len(t_ev))
+
+            boot_event_times = np.array(boot_event_times)
+            boot_event_trials = np.array(boot_event_trials)
+            boot_unique_trials = np.arange(n_trials)
+
+            # 3. Fit fresh model instance
+            boot_model = PoissonProcess(self.model.kernel)
+            try:
+                boot_model.fit(
+                    dataset_or_t_events=boot_event_times,
+                    trial_events=boot_event_trials,
+                    unique_trials=boot_unique_trials,
+                    t_grid=dataset.t_grid,
+                    n_fish=dataset.num_fish
+                )
+                if boot_model.fit_result.success:
+                    boot_params.append(boot_model.params_)
+            except Exception:
+                continue
+
+        self.bootstrap_params_ = np.array(boot_params)
+        self._compute_summary()
+        return self
+
+    def _compute_summary(self):
+        """Computes point estimates, standard errors, and percentile 95% CIs."""
+        param_names = self.model.kernel.param_names
+        means = np.mean(self.bootstrap_params_, axis=0)
+        stds = np.std(self.bootstrap_params_, axis=0)
+        ci_lower = np.percentile(self.bootstrap_params_, 2.5, axis=0)
+        ci_upper = np.percentile(self.bootstrap_params_, 97.5, axis=0)
+
+        self.summary_df_ = pd.DataFrame({
+            "Parameter": param_names,
+            "MLE Estimate": self.model.params_,
+            "Boot Mean": means,
+            "Std Error": stds,
+            "95% CI Lower": ci_lower,
+            "95% CI Upper": ci_upper
+        })
+
+    def predict_interval(
+        self, 
+        t: np.ndarray, 
+        trial: Union[float, np.ndarray], 
+        alpha: float = 0.05
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Evaluates rate curves across all bootstrapped parameter sets.
+        Returns (mean_rate, lower_ci, upper_ci).
+        """
+        rates = []
+        for params in self.bootstrap_params_:
+            r = self.model.kernel.evaluate(t, trial, params)
+            rates.append(r)
+        rates = np.array(rates)
+
+        mean_rate = np.mean(rates, axis=0)
+        lower = np.percentile(rates, 100 * (alpha / 2.0), axis=0)
+        upper = np.percentile(rates, 100 * (1.0 - alpha / 2.0), axis=0)
+
+        return mean_rate, lower, upper
+
+    
 class ModelComparator:
 
     @staticmethod
@@ -599,6 +705,56 @@ class PoissonVisualizer:
         return fig, np.array([ax_emp, ax_mod])
 
 
+    @staticmethod
+    def plot_bootstrapped_fit(
+        dataset: PoissonDataset,
+        bootstrapper: PoissonBootstrapper,
+        figsize: Tuple[int, int] = (12, 5)
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """Plots empirical PSTH alongside bootstrapped mean rate and 95% CI band."""
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # 1. Plot Empirical PSTH
+        hz_col = f"{dataset.laterality}_{dataset.bout_name}_hz"
+        psth = dataset.binned_counts.groupby('time_sec')[hz_col].agg(['mean', 'sem']).reset_index()
+
+        ax.bar(
+            psth['time_sec'], psth['mean'], 
+            width=dataset.t_grid[1] - dataset.t_grid[0],
+            color='lightgray', edgecolor='darkgray', alpha=0.6,
+            label='Empirical PSTH (Data)', align='edge'
+        )
+
+        # 2. Evaluate Bootstrapped Prediction Surface over all trials
+        t_2d = dataset.t_grid[None, :]
+        trials_2d = dataset.unique_trials[:, None]
+
+        mean_surface, lower_surface, upper_surface = bootstrapper.predict_interval(
+            t_2d, trials_2d, alpha=0.05
+        )
+
+        # Average across trials to compare with overall PSTH
+        mean_rate = np.mean(mean_surface, axis=0)
+        lower_ci = np.mean(lower_surface, axis=0)
+        upper_ci = np.mean(upper_surface, axis=0)
+
+        # 3. Overlay Fit & Confidence Band
+        kernel_name = bootstrapper.model.kernel.name
+        ax.plot(dataset.t_grid, mean_rate, color='crimson', linewidth=2, label=f'{kernel_name} (Boot Mean)')
+        ax.fill_between(
+            dataset.t_grid, lower_ci, upper_ci, 
+            color='crimson', alpha=0.25, label='95% Bootstrap CI'
+        )
+
+        ax.set_xlabel("Time in Trial (s)", fontsize=11)
+        ax.set_ylabel("Event Rate (Hz)", fontsize=11)
+        ax.set_title(f"Bootstrapped Model Fit: {dataset.bout_name} ({dataset.laterality})", fontweight='bold')
+        ax.legend(frameon=True, facecolor='white')
+        ax.grid(True, linestyle='--', alpha=0.4)
+
+        plt.tight_layout()
+        return fig, ax
+
 if __name__ == '__main__':
 
     possible_roots = [
@@ -667,5 +823,21 @@ if __name__ == '__main__':
         dataset=ipsi_jt_data,
         model=best_model,
         cmap="plasma"
+    )
+    plt.show()
+
+    print("\n================ RUNNING BOOTSTRAP RESAMPLING ================")
+    best_model = fitted_models[summary_table.iloc[0]["Model Name"]]
+    
+    bootstrapper = PoissonBootstrapper(best_model, n_bootstraps=200, random_state=42)
+    bootstrapper.fit(ipsi_jt_data)
+
+    print("\n--- PARAMETER CONFIDENCE INTERVALS ---")
+    print(bootstrapper.summary_df_.to_string(index=False))
+
+    # 6. Plot Bootstrapped Intensity Curve with 95% Confidence Band
+    fig3, ax3 = PoissonVisualizer.plot_bootstrapped_fit(
+        dataset=ipsi_jt_data,
+        bootstrapper=bootstrapper
     )
     plt.show()
