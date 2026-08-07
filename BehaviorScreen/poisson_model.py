@@ -826,9 +826,7 @@ if __name__ == '__main__':
     )
     plt.show()
 
-    print("\n================ RUNNING BOOTSTRAP RESAMPLING ================")
-    best_model = fitted_models[summary_table.iloc[0]["Model Name"]]
-    
+    print("\n================ RUNNING BOOTSTRAP RESAMPLING ================")    
     bootstrapper = PoissonBootstrapper(best_model, n_bootstraps=200, random_state=42)
     bootstrapper.fit(ipsi_jt_data)
 
