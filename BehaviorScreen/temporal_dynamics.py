@@ -346,3 +346,4 @@ plt.savefig('temporal_dynamics_prey_capture_bimodal_NHpsi_2.svg', bbox_inches='t
 plt.savefig('temporal_dynamics_prey_capture_bimodal_NHpsi_2.png', dpi=300, bbox_inches='tight')
 plt.show()
 
+
