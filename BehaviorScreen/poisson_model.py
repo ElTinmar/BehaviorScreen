@@ -6,6 +6,7 @@ import pandas as pd
 from scipy.integrate import simpson
 from scipy.optimize import minimize
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
@@ -438,67 +439,104 @@ class PoissonVisualizer:
 
         plt.tight_layout()
         return fig, ax
-
+    
     @staticmethod
     def plot_raster_and_surface(
         dataset: PoissonDataset,
         model: PoissonProcess,
         figsize: Tuple[int, int] = (14, 5),
-        cmap: str = "viridis"
+        cmap: str = "viridis",
+        raster_color: str = "white",
+        raster_alpha: float = 0.7,
+        raster_size: float = 14
     ) -> Tuple[plt.Figure, np.ndarray]:
         """
-        Plot a 2-panel figure:
-          Panel 1: Event Raster plot across trials.
-          Panel 2: Model 2D Intensity Surface lambda(t, trial).
+        Symmetric 2-panel visualizer overlaying empirical raster onto rate surfaces:
+          Panel 1: Empirical Rate Surface + Overlaid Event Raster (Data)
+          Panel 2: Model Predicted Rate Surface lambda(t, m) + Overlaid Event Raster (Model)
         """
-        fig, (ax_raster, ax_surface) = plt.subplots(1, 2, figsize=figsize, sharey=True)
+        fig, (ax_emp, ax_mod) = plt.subplots(1, 2, figsize=figsize, sharey=True)
 
         # -------------------------------------------------------------
-        # Panel 1: Event Raster Plot
+        # 1. Compute Empirical Firing Rate Surface Matrix
         # -------------------------------------------------------------
-        ax_raster.scatter(
-            dataset.event_times, 
-            dataset.event_trials, 
-            color='black', s=12, alpha=0.7, marker='|', label='Events'
+        hz_col = f"{dataset.laterality}_{dataset.bout_name}_hz"
+        pivoted = (
+            dataset.binned_counts
+            .groupby(['trial_num', 'time_sec'])[hz_col]
+            .mean()
+            .unstack(level='time_sec')
         )
-        ax_raster.set_title("Empirical Event Raster", fontsize=12, fontweight='bold')
-        ax_raster.set_xlabel("Time in Trial (s)", fontsize=11)
-        ax_raster.set_ylabel("Trial Number", fontsize=11)
-        ax_raster.grid(True, linestyle=':', alpha=0.5)
-        ax_raster.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
+        pivoted = pivoted.reindex(index=dataset.unique_trials).fillna(0.0)
+        empirical_surface = pivoted.values
+        time_sec_bins = pivoted.columns.values
 
         # -------------------------------------------------------------
-        # Panel 2: Model Predicted Rate Surface lambda(t, trial)
+        # 2. Compute Model Rate Surface Matrix
         # -------------------------------------------------------------
-        t_2d = dataset.t_grid[None, :]                 # Shape: (1, N_time)
-        trials_2d = dataset.unique_trials[:, None]    # Shape: (N_trials, 1)
-        
-        # Guaranteed shape: (N_trials, N_time)
-        rate_surface = model.predict(t_2d, trials_2d)
+        t_2d = time_sec_bins[None, :]                  # Shape: (1, N_time_bins)
+        trials_2d = dataset.unique_trials[:, None]      # Shape: (N_trials, 1)
+        model_surface = model.predict(t_2d, trials_2d)  # Shape: (N_trials, N_time_bins)
 
-        mesh = ax_surface.pcolormesh(
-            dataset.t_grid, 
+        # -------------------------------------------------------------
+        # 3. Shared Color Scale for Direct Visual Comparison
+        # -------------------------------------------------------------
+        vmax = max(np.max(empirical_surface), np.max(model_surface))
+        vmin = 0.0
+
+        # -------------------------------------------------------------
+        # Panel 1: Data (Empirical Surface + Raster)
+        # -------------------------------------------------------------
+        mesh_emp = ax_emp.pcolormesh(
+            time_sec_bins, 
             dataset.unique_trials, 
-            rate_surface, 
+            empirical_surface, 
             shading='auto', 
-            cmap=cmap
+            cmap=cmap,
+            vmin=vmin, 
+            vmax=vmax
         )
-        cbar = fig.colorbar(mesh, ax=ax_surface)
-        cbar.set_label("Predicted Rate $\lambda(t, m)$ [Hz]", fontsize=10)
-
-        # Overlay events on top of the surface
-        ax_surface.scatter(
+        ax_emp.scatter(
             dataset.event_times, 
             dataset.event_trials, 
-            color='white', s=6, alpha=0.5, marker='o'
+            color=raster_color, s=raster_size, alpha=raster_alpha, marker='|'
         )
+        ax_emp.set_title("Empirical Data & Raster", fontsize=12, fontweight='bold')
+        ax_emp.set_xlabel("Time in Trial (s)", fontsize=11)
+        ax_emp.set_ylabel("Trial Number", fontsize=11)
+        ax_emp.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
 
-        ax_surface.set_title(f"Model Surface: {model.kernel.name}", fontsize=12, fontweight='bold')
-        ax_surface.set_xlabel("Time in Trial (s)", fontsize=11)
-        ax_surface.grid(False)
+        # -------------------------------------------------------------
+        # Panel 2: Model (Predicted Surface + Raster)
+        # -------------------------------------------------------------
+        mesh_mod = ax_mod.pcolormesh(
+            time_sec_bins, 
+            dataset.unique_trials, 
+            model_surface, 
+            shading='auto', 
+            cmap=cmap,
+            vmin=vmin, 
+            vmax=vmax
+        )
+        ax_mod.scatter(
+            dataset.event_times, 
+            dataset.event_trials, 
+            color=raster_color, s=raster_size, alpha=raster_alpha, marker='|'
+        )
+        ax_mod.set_title(f"Fitted Model: {model.kernel.name}", fontsize=12, fontweight='bold')
+        ax_mod.set_xlabel("Time in Trial (s)", fontsize=11)
+        ax_mod.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
+
+        # -------------------------------------------------------------
+        # 4. Colorbar Tucked Tightly to the Right Panel
+        # -------------------------------------------------------------
+        divider = make_axes_locatable(ax_mod)
+        cax = divider.append_axes("right", size="3%", pad=0.12)
+        cbar = fig.colorbar(mesh_mod, cax=cax)
+        cbar.set_label("Event Rate [Hz]", fontsize=10)
 
         plt.tight_layout()
-        return fig, np.array([ax_raster, ax_surface])
+        return fig, np.array([ax_emp, ax_mod])
 
 
 if __name__ == '__main__':
@@ -539,7 +577,6 @@ if __name__ == '__main__':
     print("\n================ MODEL COMPARISON TABLE ================")
     print(summary_table.to_string(index=False))
 
-    
     # Plot 1: Compare PSTH with all model fits overlaid
     fig1, ax1 = PoissonVisualizer.plot_model_fits(
         dataset=ipsi_jt_data,
