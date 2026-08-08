@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Callable, List, Tuple, Dict, Optional, Union
 import numpy as np
 import pandas as pd
+import gc
 from scipy.integrate import simpson
 from scipy.optimize import minimize
 from scipy.stats import chi2
@@ -1064,7 +1065,6 @@ if __name__ == '__main__':
     }
 
     all_summaries = []
-    processed_experiments = {}
 
     for exp_name, config in model_config.items():
         print(f"\n==================================================")
@@ -1082,11 +1082,6 @@ if __name__ == '__main__':
         
         summary_table.insert(0, "Condition", exp_name)
         all_summaries.append(summary_table)
-        processed_experiments[exp_name] = {
-            "dataset": dataset,
-            "models": fitted_models,
-            "summary": summary_table
-        }
 
         print("\n--- MODEL COMPARISON TABLE ---")
         print(summary_table.to_string(index=False))
@@ -1114,6 +1109,13 @@ if __name__ == '__main__':
             cmap="plasma"
         )
         plt.show()
+
+        del dataset
+        del fitted_models
+        del best_model
+        del summary_table
+        plt.close('all') 
+        gc.collect()
 
     master_summary_df = pd.concat(all_summaries, ignore_index=True)
     print("\n================ MASTER MODEL COMPARISON TABLE ================")
