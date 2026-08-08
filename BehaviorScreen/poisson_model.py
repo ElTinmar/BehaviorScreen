@@ -31,17 +31,27 @@ class BehavioralDataLoader:
 
     def prepare_dataset(
         self,
-        stim: Stim,
         bout_name: str,
         laterality: Laterality,
+        stim: Optional[Union[Stim, str]] = None,
+        epoch_name: Optional[Union[str, List[str]]] = None,
         dt: float = 0.02,
         t_start: float = 0.0,
         t_end: float = 24.0,
         window_duration: float = 0.33
     ) -> PoissonDataset:
 
-        # 1. Filter by stimulus
-        sub_df = self.raw_df[self.raw_df['stim'] == stim].copy()
+        # 1. Filter by stimulus or epoch_name
+        sub_df = self.raw_df.copy()
+        if stim is not None:
+            sub_df = sub_df[sub_df['stim'] == stim].copy()
+        elif epoch_name is not None:
+            if isinstance(epoch_name, list):
+                sub_df = sub_df[sub_df['epoch_name'].isin(epoch_name)].copy()
+            else:
+                sub_df = sub_df[sub_df['epoch_name'] == epoch_name].copy()
+        else:
+            raise ValueError("Either 'stim' or 'epoch_name' must be provided to filter dataset.")
 
         # 2. Setup Time Grid
         t_grid = np.arange(t_start, t_end + dt, dt)
@@ -113,7 +123,7 @@ class RateKernel:
     func: Callable[[np.ndarray, np.ndarray, List[float]], np.ndarray]
     param_names: List[str]
     initial_guesses: List[float]
-    bounds: List[Tuple[float, float]]
+    bounds: List[Tuple[Union[float, None], Union[float, None]]]
     stimulus_type: str = "General"
     description: str = ""
 
@@ -296,6 +306,49 @@ class KernelFactory:
         )
 
     @staticmethod
+    def phototaxis() -> RateKernel:
+        def _func(t, trial, params):
+            B, A_dip, tau_dip, alpha_B, alpha_dip = params
+
+            mod_B = B * np.exp(alpha_B * trial)
+            mod_dip = A_dip * np.exp(alpha_dip * trial) * np.exp(-t / tau_dip)
+
+            return mod_B - mod_dip
+
+        return RateKernel(
+            name="Phototaxis λ(t, m)",
+            func=_func,
+            param_names=["B", "A_dip", "tau_dip", "alpha_B", "alpha_dip"],
+            initial_guesses=[0.4, 0.3, 0.5, 0.0, 0.0],
+            bounds=[
+                (0.01, 10.0), (0.0, 5.0), (0.01, 5.0), (-0.1, 0.1),
+                (-0.1, 0.1)
+            ],
+            stimulus_type="Phototaxis",
+            description="Full kinetics and trial-by-trial plasticity."
+        )
+
+    @staticmethod
+    def omr_forward() -> RateKernel:
+        def _func(t, trial, params):
+            B, A_dip, tau_dip = params
+
+            dip = A_dip * np.exp(-t / tau_dip)
+            return B - dip
+
+        return RateKernel(
+            name="OMR forward λ(t)",
+            func=_func,
+            param_names=["B", "A_dip", "tau_dip"],
+            initial_guesses=[0.4, 0.5, 0.5],
+            bounds=[
+                (0.01, 5.0), (0.0, 5.0), (0.01, 5.0)
+            ],
+            stimulus_type="OMR forward",
+            description=""
+        )
+            
+    @staticmethod
     def looming_exponential(lv_ratio: float = 0.1) -> RateKernel:
         def _func(t, trial, params):
             A, tau, t_collision, B, alpha = params
@@ -315,6 +368,54 @@ class KernelFactory:
             description="Non-linear escape bout triggering driven by visual expansion rates."
         )
 
+    @staticmethod
+    def looming_gaussian(t_critical: float = 5) -> RateKernel:
+        def _func(t, trial, params):
+            B, H, alpha, mu, sigma = params
+
+            height = H * np.exp(alpha * trial)
+            exponent = -0.5 * ((t - mu) / sigma)**2
+            return B + (height * np.exp(exponent))
+
+        return RateKernel(
+            name="Looming Gaussian λ(t, m)",
+            func=_func,
+            param_names=["B", "H", "alpha", "mu", "sigma"],
+            initial_guesses=[0.1, 1.2, 0.0, 5.0, 0.2],
+            bounds=[
+                (0.0, 10.0), (0.001, 10.0), (-2.0, 2.0), 
+                (t_critical-1.5, t_critical+1.5), (0.01, 1.0)
+            ],
+            stimulus_type="Looming",
+            description=""
+        )
+
+    @staticmethod
+    def dark_flash() -> RateKernel:
+        def _func(t, trial, params):
+            A, k, tau, B, alpha_1, alpha_2, alpha_B = params
+            x = t / tau
+
+            kernel = np.power(x / k, k) * np.exp(k - x)
+            rational_scale = (1.0 + alpha_1 * trial) / (1.0 + alpha_2 * trial**2)
+            mod_A = A * rational_scale
+            mod_B = B * np.exp(alpha_B * trial)
+
+            return mod_A * kernel + mod_B
+
+        return RateKernel(
+            name="Dark Flash λ(t, m)",
+            func=_func,
+            param_names=["A", "k", "tau", "B", "alpha_1", "alpha_2", "alpha_B"],
+            initial_guesses=[10.0, 2.0, 0.25, 0.2, 1.5, 0.5, 0.0],
+            bounds=[
+                (0.0, None), (0.1, 10.0), (0.01, None), (0.0, None),
+                (0.0, 10.0), (0.0, 5.0), (-0.2, 0.2)
+            ],
+            stimulus_type="Dark flash",
+            description=""
+        )
+    
 
 class PoissonBootstrapper:
     """
@@ -771,71 +872,249 @@ if __name__ == '__main__':
 
     # 1. Load Data
     loader = BehavioralDataLoader(ROOT / 'bouts_control.csv')
-    ipsi_jt_data = loader.prepare_dataset(
-        stim=Stim.PREY_CAPTURE,
-        bout_name='JT',
-        laterality=Laterality.IPSILATERAL,
-        dt=0.02, t_start=0.0, t_end=24.0, window_duration=0.33
-    )
 
-    # 2. Define Kernels & Run Comparison
-    candidate_kernels = [
-        KernelFactory.homogeneous_poisson(),
-        KernelFactory.prey_capture_time_only(stim_freq=prey_stim_freq),
-        KernelFactory.prey_capture_full(stim_freq=prey_stim_freq)
-    ]
+    model_config = {
 
-    summary_table, fitted_models = ModelComparator.compare(
-        kernels=candidate_kernels,
-        dataset_or_t_events=ipsi_jt_data
-    )
+        'prey_capture_ipsi': {
+            'dataset': {
+                'stim':Stim.PREY_CAPTURE,
+                'bout_name':'JT',
+                'laterality':Laterality.IPSILATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':24.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson(),
+                KernelFactory.prey_capture_time_only(stim_freq=prey_stim_freq),
+                KernelFactory.prey_capture_full(stim_freq=prey_stim_freq)
+            ]
+        },
 
-    print("\n================ MODEL COMPARISON TABLE ================")
-    print(summary_table.to_string(index=False))
+        'prey_capture_contra': {
+            'dataset': {
+                'stim':Stim.PREY_CAPTURE,
+                'bout_name':'JT',
+                'laterality':Laterality.CONTRALATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':24.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson(),
+            ]
+        },
 
-    # 3. Sequential Likelihood Ratio Tests
-    lrt_table = ModelComparator.sequential_lrt(fitted_models)
-    print("\n================ SEQUENTIAL LIKELIHOOD RATIO TESTS ================")
-    print(lrt_table.to_string(index=False))
+        'phototaxis_ipsi': {
+            'dataset': {
+                'stim':Stim.PHOTOTAXIS,
+                'bout_name':'RT',
+                'laterality':Laterality.IPSILATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':24.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson(),
+                KernelFactory.phototaxis()
+            ]
+        },
 
-    # 4. Direct Pairwise LRT Example (Homogeneous vs Full Plasticity)
-    m_null = fitted_models[candidate_kernels[0].name]
-    m_alt = fitted_models[candidate_kernels[2].name]
-    pairwise_lrt = ModelComparator.likelihood_ratio_test(m_null, m_alt)
-    
-    print("\n================ PAIRWISE LRT (Homogeneous vs Full) ================")
-    for k, v in pairwise_lrt.items():
-        print(f"{k}: {v}")
+        'phototaxis_contra': {
+            'dataset': {
+                'stim':Stim.PHOTOTAXIS,
+                'bout_name':'RT',
+                'laterality':Laterality.CONTRALATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':24.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson(),
+            ]
+        },
 
-    # Plot 1: Compare PSTH with all model fits overlaid
-    fig1, ax1 = PoissonVisualizer.plot_model_fits(
-        dataset=ipsi_jt_data,
-        fitted_models=fitted_models,
-        title="Ipsilateral J-Turn Event Rates vs. Model Fits"
-    )
-    plt.show()
+        'omr_lateral_ipsi': {
+            'dataset': {
+                'epoch_name':["grating right", "grating left"],
+                'bout_name':'RT',
+                'laterality':Laterality.IPSILATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':10.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson()
+            ]
+        },
 
-    # Plot 2: Raster vs. 2D Rate Surface for the best-fitting model
-    best_model_name = summary_table.iloc[0]["Model Name"]
-    best_model = fitted_models[best_model_name]
+        'omr_lateral_contra': {
+            'dataset': {
+                'epoch_name':["grating right", "grating left"],
+                'bout_name':'RT',
+                'laterality':Laterality.CONTRALATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':10.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson()
+            ]
+        },
 
-    fig2, axes2 = PoissonVisualizer.plot_raster_and_surface(
-        dataset=ipsi_jt_data,
-        model=best_model,
-        cmap="plasma"
-    )
-    plt.show()
+        'omr_forward': {
+            'dataset': {
+                'epoch_name':"grating forward",
+                'bout_name':'BS',
+                'laterality':Laterality.NONDIRECTIONAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':10.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson(),
+                KernelFactory.omr_forward()
+            ]
+        },
 
-    print("\n================ RUNNING BOOTSTRAP RESAMPLING ================")    
-    bootstrapper = PoissonBootstrapper(best_model, n_bootstraps=200, random_state=42)
-    bootstrapper.fit(ipsi_jt_data)
+        'okr_ipsi': {
+            'dataset': {
+                'stim':Stim.OKR,
+                'bout_name':'S1',
+                'laterality':Laterality.IPSILATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':10.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson()
+            ]
+        },
 
-    print("\n--- PARAMETER CONFIDENCE INTERVALS ---")
-    print(bootstrapper.summary_df_.to_string(index=False))
+        'okr_contra': {
+            'dataset': {
+                'stim':Stim.OKR,
+                'bout_name':'S1',
+                'laterality':Laterality.CONTRALATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':10.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson()
+            ]
+        },
 
-    # 6. Plot Bootstrapped Intensity Curve with 95% Confidence Band
-    fig3, ax3 = PoissonVisualizer.plot_bootstrapped_fit(
-        dataset=ipsi_jt_data,
-        bootstrapper=bootstrapper
-    )
-    plt.show()
+        'looming_ipsi': {
+            'dataset': {
+                'stim':Stim.LOOMING,
+                'bout_name':'SLC',
+                'laterality':Laterality.IPSILATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':10.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson(),
+                KernelFactory.looming_gaussian()
+            ]
+        },
+
+        'looming_contra': {
+            'dataset': {
+                'stim':Stim.LOOMING,
+                'bout_name':'SLC',
+                'laterality':Laterality.CONTRALATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':10.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson(),
+                KernelFactory.looming_gaussian()
+            ]
+        },
+
+        'dark_flash': {
+            'dataset': {
+                'epoch_name':"flash dark",
+                'bout_name':'SLC',
+                'laterality':Laterality.IPSILATERAL,
+                'dt':0.02, 
+                't_start':0.0, 
+                't_end':10.0, 
+                'window_duration':0.33
+            },
+            'kernels': [
+                KernelFactory.homogeneous_poisson(),
+                KernelFactory.dark_flash()
+            ]
+        },
+    }
+
+    all_summaries = []
+    processed_experiments = {}
+
+    for exp_name, config in model_config.items():
+        print(f"\n==================================================")
+        print(f" PROCESSING EXPERIMENT: {exp_name.upper()}")
+        print(f"==================================================")
+
+        # A. Prepare Dataset
+        dataset = loader.prepare_dataset(**config['dataset'])
+
+        # B. Run Model Comparison
+        summary_table, fitted_models = ModelComparator.compare(
+            kernels=config['kernels'],
+            dataset_or_t_events=dataset
+        )
+        
+        summary_table.insert(0, "Condition", exp_name)
+        all_summaries.append(summary_table)
+        processed_experiments[exp_name] = {
+            "dataset": dataset,
+            "models": fitted_models,
+            "summary": summary_table
+        }
+
+        print("\n--- MODEL COMPARISON TABLE ---")
+        print(summary_table.to_string(index=False))
+
+        # C. Sequential Likelihood Ratio Tests (if multiple models are compared)
+        if len(config['kernels']) > 1:
+            lrt_table = ModelComparator.sequential_lrt(fitted_models)
+            print("\n--- SEQUENTIAL LIKELIHOOD RATIO TESTS ---")
+            print(lrt_table.to_string(index=False))
+
+        # D. Visualizations
+        fig1, ax1 = PoissonVisualizer.plot_model_fits(
+            dataset=dataset,
+            fitted_models=fitted_models,
+            title=f"Condition: {exp_name} | {dataset.bout_name} ({dataset.laterality})"
+        )
+        plt.show()
+
+        best_model_name = summary_table.iloc[0]["Model Name"]
+        best_model = fitted_models[best_model_name]
+
+        fig2, axes2 = PoissonVisualizer.plot_raster_and_surface(
+            dataset=dataset,
+            model=best_model,
+            cmap="plasma"
+        )
+        plt.show()
+
+    master_summary_df = pd.concat(all_summaries, ignore_index=True)
+    print("\n================ MASTER MODEL COMPARISON TABLE ================")
+    print(master_summary_df.to_string(index=False))
