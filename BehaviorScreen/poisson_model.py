@@ -331,8 +331,8 @@ class KernelFactory:
             param_names=["B", "A_dip", "tau_dip", "A_peak", "tau_peak", "alpha_B", "alpha_dip", "alpha_peak"],
             initial_guesses=[0.4, 0.5, 0.5, 0.5, 3.0, 0.0, 0.0, 0.0],
             bounds=[
-                (0.01, 5.0), (0.0, 5.0), (0.001, 10.0), (0.0, 5.0),
-                (0.001, 10.0), (-0.2, 0.2), (-0.2, 0.2), (-0.2, 0.2)
+                (0.01, 5.0), (0.0, 5.0), (0.001, 30.0), (0.0, 5.0),
+                (0.001, 30.0), (-0.2, 0.2), (-0.2, 0.2), (-0.2, 0.2)
             ],
             stimulus_type="Phototaxis",
             description="Full kinetics and trial-by-trial plasticity."
