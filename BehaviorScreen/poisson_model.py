@@ -331,8 +331,8 @@ class KernelFactory:
             param_names=["B", "A_dip", "tau_dip", "A_peak", "tau_peak", "alpha_B", "alpha_dip", "alpha_peak"],
             initial_guesses=[0.4, 0.5, 0.5, 0.5, 3.0, 0.0, 0.0, 0.0],
             bounds=[
-                (0.01, 5.0), (0.0, 5.0), (0.01, 5.0), (0.0, 5.0),
-                (0.1, 15.0), (-0.1, 0.1), (-0.1, 0.1), (-0.1, 0.1)
+                (0.01, 5.0), (0.0, 5.0), (0.001, 10.0), (0.0, 5.0),
+                (0.001, 10.0), (-0.2, 0.2), (-0.2, 0.2), (-0.2, 0.2)
             ],
             stimulus_type="Phototaxis",
             description="Full kinetics and trial-by-trial plasticity."
@@ -378,6 +378,26 @@ class KernelFactory:
                 (0.01, 5.0), (0.0, 5.0), (0.01, 5.0)
             ],
             stimulus_type="OMR forward",
+            description=""
+        )
+
+    @staticmethod
+    def omr_lateral_contra() -> RateKernel:
+        def _func(t, trial, params):
+            B, A_dip, tau_dip = params
+
+            dip = A_dip * np.exp(-t / tau_dip)
+            return B - dip
+
+        return RateKernel(
+            name="OMR lateral contra λ(t)",
+            func=_func,
+            param_names=["B", "A_dip", "tau_dip"],
+            initial_guesses=[0.4, 0.5, 0.5],
+            bounds=[
+                (0.01, 5.0), (0.0, 5.0), (0.01, 5.0)
+            ],
+            stimulus_type="OMR lateral contra",
             description=""
         )
             
@@ -978,7 +998,8 @@ if __name__ == '__main__':
                 'window_duration':0.33
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson()
+                KernelFactory.homogeneous_poisson(),
+                KernelFactory.omr_lateral_contra()
             ]
         },
 
