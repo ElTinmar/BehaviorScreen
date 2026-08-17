@@ -339,61 +339,6 @@ class KernelFactory:
         )
 
     @staticmethod
-    def phototaxis_ipsi_alpha() -> RateKernel:
-        def _func(t, trial, params):
-            B, A, tau, alpha_B, alpha_A = params
-
-            mod_B = B * np.exp(alpha_B * trial)
-            # Peak occurs exactly at t = tau with height A
-            transient = A * np.exp(alpha_A * trial) * (t / tau) * np.exp(1.0 - t / tau)
-
-            return mod_B + transient
-
-        return RateKernel(
-            name="Phototaxis Ipsi Alpha λ(t, m)",
-            func=_func,
-            param_names=["B", "A", "tau", "alpha_B", "alpha_A"],
-            initial_guesses=[0.4, 1.5, 0.2, 0.0, 0.0],
-            bounds=[
-                (0.01, 5.0),   # B
-                (0.0, 10.0),   # A
-                (0.01, 2.0),   # tau (time-to-peak)
-                (-0.2, 0.2),   # alpha_B
-                (-0.2, 0.2),   # alpha_A
-            ],
-            stimulus_type="Phototaxis",
-            description="Normalized alpha function asymmetric peak."
-        )
-
-    @staticmethod
-    def phototaxis_ipsi_biexp() -> RateKernel:
-        def _func(t, trial, params):
-            B, A, tau_rise, tau_decay, alpha_B, alpha_A = params
-
-            mod_B = B * np.exp(alpha_B * trial)
-            # Prevents tau_rise >= tau_decay instability during optimization
-            transient = A * np.exp(alpha_A * trial) * (np.exp(-t / tau_decay) - np.exp(-t / tau_rise))
-
-            return mod_B + np.maximum(0, transient)
-
-        return RateKernel(
-            name="Phototaxis Ipsi Bi-Exp λ(t, m)",
-            func=_func,
-            param_names=["B", "A", "tau_rise", "tau_decay", "alpha_B", "alpha_A"],
-            initial_guesses=[0.4, 2.0, 0.05, 0.4, 0.0, 0.0],
-            bounds=[
-                (0.01, 5.0),   # B (baseline)
-                (0.0, 10.0),   # A (peak scaling)
-                (0.001, 0.5),  # tau_rise (fast rise phase)
-                (0.05, 5.0),   # tau_decay (slower decay to baseline)
-                (-0.2, 0.2),   # alpha_B
-                (-0.2, 0.2),   # alpha_A
-            ],
-            stimulus_type="Phototaxis",
-            description="Bi-exponential asymmetric peak with baseline decay."
-        )
-
-    @staticmethod
     def phototaxis_ipsi_minimal() -> RateKernel:
         def _func(t, trial, params):
             B, A_dip, A_peak, tau, alpha_B, alpha_transient = params
@@ -1034,9 +979,7 @@ if __name__ == '__main__':
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
-                KernelFactory.phototaxis_ipsi_alpha(),
                 KernelFactory.phototaxis_ipsi_minimal(),
-                #KernelFactory.phototaxis_ipsi_biexp(),
                 KernelFactory.phototaxis_ipsi(),
             ]
         },
