@@ -1051,7 +1051,7 @@ if __name__ == '__main__':
             'dataset': {
                 'epoch_name':"flash dark",
                 'bout_name':'SLC',
-                'laterality':Laterality.IPSILATERAL,
+                'laterality':Laterality.NONDIRECTIONAL,
                 'dt':0.02, 
                 't_start':0.0, 
                 't_end':10.0, 
