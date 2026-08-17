@@ -314,32 +314,9 @@ class KernelFactory:
             description="Full kinetics, second-harmonic spatial tuning, and trial-by-trial plasticity."
         )
 
+
     @staticmethod
     def phototaxis_ipsi() -> RateKernel:
-        def _func(t, trial, params):
-            B, A_dip, tau_dip, A_peak, tau_peak, alpha_B, alpha_dip, alpha_peak = params
-
-            mod_B = B * np.exp(alpha_B * trial)
-            mod_dip = A_dip * np.exp(alpha_dip * trial) * np.exp(-t / tau_dip)
-            mod_peak = A_peak * np.exp(alpha_peak * trial) * np.exp(-t / tau_peak)
-
-            return mod_B - mod_dip + mod_peak
-
-        return RateKernel(
-            name="Phototaxis Ipsi λ(t, m)",
-            func=_func,
-            param_names=["B", "A_dip", "tau_dip", "A_peak", "tau_peak", "alpha_B", "alpha_dip", "alpha_peak"],
-            initial_guesses=[0.4, 0.5, 0.5, 1.0, 0.1, 0.0, 0.0, 0.0],
-            bounds=[
-                (0.01, 5.0), (0.0, 10.0), (0.001, 5.0), (0.01, 10.0),
-                (0.001, 1.0), (-0.2, 0.2), (-0.2, 0.2), (-0.2, 0.2)
-            ],
-            stimulus_type="Phototaxis",
-            description="Full kinetics and trial-by-trial plasticity."
-        )
-
-    @staticmethod
-    def phototaxis_ipsi_minimal() -> RateKernel:
         def _func(t, trial, params):
             B, A_dip, A_peak, tau, alpha_B, alpha_transient = params
 
@@ -979,7 +956,6 @@ if __name__ == '__main__':
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
-                KernelFactory.phototaxis_ipsi_minimal(),
                 KernelFactory.phototaxis_ipsi(),
             ]
         },
