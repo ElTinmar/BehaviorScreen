@@ -56,7 +56,7 @@ class BehavioralDataLoader:
                 sub_df = sub_df[sub_df['epoch_name'].isin(epoch_name)].copy()
             else:
                 sub_df = sub_df[sub_df['epoch_name'] == epoch_name].copy()
-                
+
         else:
             raise ValueError("Either 'stim' or 'epoch_name' must be provided to filter dataset.")
 
@@ -238,6 +238,7 @@ class PoissonProcess:
         return k * np.log(self.n_events_) - 2 * self.log_likelihood
 
 
+# TODO add latex formula str?
 class KernelFactory:
 
     @staticmethod
@@ -314,7 +315,31 @@ class KernelFactory:
         )
 
     @staticmethod
-    def phototaxis() -> RateKernel:
+    def phototaxis_ipsi() -> RateKernel:
+        def _func(t, trial, params):
+            B, A_dip, tau_dip, A_peak, tau_peak, alpha_B, alpha_dip, alpha_peak = params
+
+            mod_B = B * np.exp(alpha_B * trial)
+            mod_dip = A_dip * np.exp(alpha_dip * trial) * np.exp(-t / tau_dip)
+            mod_peak = A_peak * np.exp(alpha_peak * trial) * np.exp(-t / tau_peak)
+
+            return mod_B - mod_dip + mod_peak
+
+        return RateKernel(
+            name="Phototaxis Ipsi λ(t, m)",
+            func=_func,
+            param_names=["B", "A_dip", "tau_dip", "A_peak", "tau_peak", "alpha_B", "alpha_dip", "alpha_peak"],
+            initial_guesses=[0.4, 0.5, 0.5, 0.5, 3.0, 0.0, 0.0, 0.0],
+            bounds=[
+                (0.01, 5.0), (0.0, 5.0), (0.01, 5.0), (0.0, 5.0),
+                (0.1, 15.0), (-0.1, 0.1), (-0.1, 0.1), (-0.1, 0.1)
+            ],
+            stimulus_type="Phototaxis",
+            description="Full kinetics and trial-by-trial plasticity."
+        )
+
+    @staticmethod
+    def phototaxis_contra() -> RateKernel:
         def _func(t, trial, params):
             B, A_dip, tau_dip, alpha_B, alpha_dip = params
 
@@ -324,7 +349,7 @@ class KernelFactory:
             return mod_B - mod_dip
 
         return RateKernel(
-            name="Phototaxis λ(t, m)",
+            name="Phototaxis Contra λ(t, m)",
             func=_func,
             param_names=["B", "A_dip", "tau_dip", "alpha_B", "alpha_dip"],
             initial_guesses=[0.4, 0.3, 0.5, 0.0, 0.0],
@@ -335,7 +360,7 @@ class KernelFactory:
             stimulus_type="Phototaxis",
             description="Full kinetics and trial-by-trial plasticity."
         )
-
+    
     @staticmethod
     def omr_forward() -> RateKernel:
         def _func(t, trial, params):
@@ -927,11 +952,10 @@ if __name__ == '__main__':
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
-                KernelFactory.phototaxis()
+                KernelFactory.phototaxis_ipsi()
             ]
         },
 
-        # exp rise?
         'phototaxis_contra': {
             'dataset': {
                 'stim':Stim.PHOTOTAXIS,
@@ -944,6 +968,7 @@ if __name__ == '__main__':
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
+                KernelFactory.phototaxis_contra()
             ]
         },
 
