@@ -924,6 +924,7 @@ if __name__ == '__main__':
             ]
         },
 
+        # exp rise?
         'phototaxis_contra': {
             'dataset': {
                 'stim':Stim.PHOTOTAXIS,
@@ -1050,7 +1051,7 @@ if __name__ == '__main__':
         'dark_flash': {
             'dataset': {
                 'epoch_name':"flash dark",
-                'bout_name':'SLC',
+                'bout_name':'O',
                 'laterality':Laterality.NONDIRECTIONAL,
                 'dt':0.02, 
                 't_start':0.0, 
