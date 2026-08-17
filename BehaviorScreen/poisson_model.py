@@ -46,13 +46,20 @@ class BehavioralDataLoader:
         sub_df = self.raw_df.copy()
         if stim is not None:
             sub_df = sub_df[sub_df['stim'] == stim].copy()
+
+            # handle special cases
+            if stim == Stim.PHOTOTAXIS:
+                sub_df = sub_df[sub_df['foreground_color'] == '[0.1, 0.1, 0.0, 1.0]']
+
         elif epoch_name is not None:
             if isinstance(epoch_name, list):
                 sub_df = sub_df[sub_df['epoch_name'].isin(epoch_name)].copy()
             else:
                 sub_df = sub_df[sub_df['epoch_name'] == epoch_name].copy()
+                
         else:
             raise ValueError("Either 'stim' or 'epoch_name' must be provided to filter dataset.")
+
 
         # 2. Setup Time Grid
         t_grid = np.arange(t_start, t_end + dt, dt)
@@ -385,7 +392,7 @@ class KernelFactory:
             initial_guesses=[0.1, 1.2, 0.0, 5.0, 0.2],
             bounds=[
                 (0.0, 10.0), (0.001, 10.0), (-2.0, 2.0), 
-                (t_critical-1.5, t_critical+1.5), (0.01, 1.0)
+                (t_critical-1.5, t_critical+1), (0.01, 1.0)
             ],
             stimulus_type="Looming",
             description=""
