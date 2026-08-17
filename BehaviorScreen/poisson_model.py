@@ -394,6 +394,33 @@ class KernelFactory:
         )
 
     @staticmethod
+    def phototaxis_ipsi_minimal() -> RateKernel:
+        def _func(t, trial, params):
+            B, A_dip, A_peak, tau, alpha_B, alpha_transient = params
+
+            mod_B = B * np.exp(alpha_B * trial)
+            transient = (A_peak * (t / tau) - A_dip) * np.exp(-t / tau) * np.exp(alpha_transient * trial)
+
+            return mod_B + transient
+
+        return RateKernel(
+            name="Phototaxis Minimal Dip+Peak λ(t, m)",
+            func=_func,
+            param_names=["B", "A_dip", "A_peak", "tau", "alpha_B", "alpha_transient"],
+            initial_guesses=[0.4, 0.2, 1.5, 0.2, 0.0, 0.0],
+            bounds=[
+                (0.01, 5.0),   # B (baseline)
+                (0.0, 2.0),    # A_dip (depth below baseline at t=0)
+                (0.0, 10.0),   # A_peak (peak height factor)
+                (0.01, 2.0),   # tau (shared timescale for dip recovery & peak decay)
+                (-0.2, 0.2),   # alpha_B
+                (-0.2, 0.2)    # alpha_transient (shared plasticity for transient shape)
+            ],
+            stimulus_type="Phototaxis",
+            description="Minimal 6-parameter model for initial dip + asymmetric peak + baseline decay."
+        )
+
+    @staticmethod
     def phototaxis_contra() -> RateKernel:
         def _func(t, trial, params):
             B, A_dip, tau_dip, alpha_B, alpha_dip = params
@@ -1008,7 +1035,8 @@ if __name__ == '__main__':
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
                 KernelFactory.phototaxis_ipsi_alpha(),
-                KernelFactory.phototaxis_ipsi_biexp(),
+                KernelFactory.phototaxis_ipsi_minimal(),
+                #KernelFactory.phototaxis_ipsi_biexp(),
                 KernelFactory.phototaxis_ipsi(),
             ]
         },
@@ -1189,7 +1217,7 @@ if __name__ == '__main__':
             fitted_models=fitted_models,
             title=f"Condition: {exp_name} | {dataset.bout_name} ({dataset.laterality})"
         )
-        plt.show()
+        plt.show(block=False)
 
         best_model_name = summary_table.iloc[0]["Model Name"]
         best_model = fitted_models[best_model_name]
@@ -1199,7 +1227,7 @@ if __name__ == '__main__':
             model=best_model,
             cmap="plasma"
         )
-        plt.show()
+        plt.show(block=False)
 
         del dataset
         del fitted_models
