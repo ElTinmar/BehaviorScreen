@@ -1176,7 +1176,6 @@ if __name__ == '__main__':
         del fitted_models
         del best_model
         del summary_table
-        plt.close('all') 
         gc.collect()
 
     master_summary_df = pd.concat(all_summaries, ignore_index=True)
