@@ -382,27 +382,7 @@ class KernelFactory:
         )
             
     @staticmethod
-    def looming_exponential(lv_ratio: float = 0.1) -> RateKernel:
-        def _func(t, trial, params):
-            A, tau, t_collision, B, alpha = params
-            time_to_collision = np.maximum(t_collision - t, 0.001)
-            expansion_rate = (lv_ratio / (time_to_collision ** 2 + lv_ratio ** 2))
-            
-            looming_drive = A * np.exp(expansion_rate / tau) * np.exp(alpha * trial)
-            return looming_drive + B
-
-        return RateKernel(
-            name="Looming Expansion Model λ(t, m)",
-            func=_func,
-            param_names=["A", "tau", "t_collision", "B", "alpha"],
-            initial_guesses=[0.1, 1.0, 5.0, 0.1, -0.05],
-            bounds=[(0.001, 10.0), (0.1, 10.0), (1.0, 20.0), (0.001, 5.0), (-2.0, 2.0)],
-            stimulus_type="Looming",
-            description="Non-linear escape bout triggering driven by visual expansion rates."
-        )
-
-    @staticmethod
-    def looming_gaussian(t_critical: float = 5) -> RateKernel:
+    def looming_gaussian(t_critical: float = 5.0) -> RateKernel:
         def _func(t, trial, params):
             B, H, alpha, mu, sigma = params
 
@@ -414,10 +394,10 @@ class KernelFactory:
             name="Looming Gaussian λ(t, m)",
             func=_func,
             param_names=["B", "H", "alpha", "mu", "sigma"],
-            initial_guesses=[0.1, 1.2, 0.0, 5.0, 0.2],
+            initial_guesses=[0.1, 1.2, 0.0, 5.0, 0.1],
             bounds=[
                 (0.0, 10.0), (0.001, 10.0), (-2.0, 2.0), 
-                (t_critical-1.5, t_critical+1), (0.01, 1.0)
+                (t_critical-1.5, t_critical+1), (0.001, 3.0)
             ],
             stimulus_type="Looming",
             description=""
