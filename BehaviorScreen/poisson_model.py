@@ -1036,7 +1036,7 @@ if __name__ == '__main__':
                 'dt':0.02, 
                 't_start':0.0, 
                 't_end':10.0, 
-                'window_duration':0.33
+                'window_duration':0.175
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -1052,7 +1052,7 @@ if __name__ == '__main__':
                 'dt':0.02, 
                 't_start':0.0, 
                 't_end':10.0, 
-                'window_duration':0.33
+                'window_duration':0.175
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -1068,7 +1068,7 @@ if __name__ == '__main__':
                 'dt':0.02, 
                 't_start':0.0, 
                 't_end':10.0, 
-                'window_duration':0.33
+                'window_duration':0.1
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
