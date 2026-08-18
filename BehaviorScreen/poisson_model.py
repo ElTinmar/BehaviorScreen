@@ -260,11 +260,11 @@ class KernelFactory:
     @staticmethod
     def prey_capture_time_only(stim_freq: float) -> RateKernel:
         def _func(t, trial, params):
-            A, tau, k, B, b1, b2, b3, b4 = params
+            A, tau, B, b1, b2, b3, b4 = params
             w = 2.0 * np.pi * stim_freq
             phase = w * t
 
-            transient = A * (t ** k) * np.exp(-t / tau)
+            transient = A * np.exp(-t / tau)
             baseline = B
             phase_ripple = (
                 b1 * np.sin(phase) + b2 * np.cos(phase) +
@@ -275,13 +275,13 @@ class KernelFactory:
         return RateKernel(
             name="Prey Capture Time-Only λ(t)",
             func=_func,
-            param_names=["A", "tau", "k", "B", "b1", "b2", "b3", "b4"],
-            initial_guesses=[0.56, 1.15, 2.0, 0.40, 0.0, 0.0, 0.0, 0.0],
+            param_names=["A", "tau", "B", "b1", "b2", "b3", "b4"],
+            initial_guesses=[0.56, 1.15, 0.40, 0.0, 0.0, 0.0, 0.0],
             bounds=[
-                (0.01, 10.0), (0.1, 5.0), (0.05, 10.0), (0.01, 5.0),
+                (0.01, 10.0), (0.1, 5.0), (0.01, 5.0),
                 (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)
             ],
-            latex_formula=r"$\lambda(t) = A t^k e^{-t/\tau} + B + \sum_{n=1}^2 \left(b_{2n-1}\sin(n\omega t) + b_{2n}\cos(n\omega t)\right)$",
+            latex_formula=r"$\lambda(t) = A e^{-t/\tau} + B + \sum_{n=1}^2 \left(b_{2n-1}\sin(n\omega t) + b_{2n}\cos(n\omega t)\right)$",
         )
 
     @staticmethod
@@ -615,7 +615,7 @@ class PoissonVisualizer:
     def plot_model_fits(
         dataset: PoissonDataset,
         models: Dict[str, PoissonProcess],
-        figsize: Tuple[int, int] = (12, 5),
+        figsize: Tuple[int, int] = (12, 6),
         palette: Optional[Dict[str, Any]] = None
     ) -> Tuple[plt.Figure, plt.Axes]:
 
@@ -628,10 +628,10 @@ class PoissonVisualizer:
             color='black', 
             linewidth=2.0, 
             label='Empirical PSTH',
-            zorder=0
+            zorder=3  # Kept on top for visibility
         )
 
-        # 2. Evaluate Models across Trial Grid
+        # 2. Evaluate Models & Build Labels with LaTeX Formulas
         t_2d = dataset.t_centers[None, :]
         trials_2d = dataset.unique_trials[:, None]
         default_colors = plt.cm.tab10.colors
@@ -641,15 +641,24 @@ class PoissonVisualizer:
             mean_pred = np.average(pred_surface, axis=0, weights=dataset.n_fish_per_trial)
 
             color = palette.get(name) if palette else default_colors[idx % len(default_colors)]
+            
+            # Extract LaTeX formula from model kernel if available
+            latex_formula = getattr(getattr(model, 'kernel', None), 'latex_formula', None)
+            if latex_formula:
+                label = f"{name}:  {latex_formula}"
+            else:
+                label = f"Model: {name}"
+
             ax.plot(
                 dataset.t_centers, 
                 mean_pred, 
                 linestyle='--', 
                 linewidth=1.8, 
                 color=color, 
-                label=f"Model: {name}"
+                label=label
             )
 
+        # 3. Plot Formatting
         ax.set_title(
             f"Bout: {dataset.bout_name} (Laterality: {dataset.laterality})", 
             fontsize=12, 
@@ -660,7 +669,17 @@ class PoissonVisualizer:
         ax.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
         ax.set_ylim(bottom=0.0)
         ax.grid(True, linestyle=':', alpha=0.6)
-        ax.legend(frameon=True, facecolor='white', framealpha=0.9)
+
+        # 4. Legend below the axes
+        ax.legend(
+            loc='upper center', 
+            bbox_to_anchor=(0.5, -0.18), 
+            ncol=1,                     # 1 column so long formulas don't overlap horizontally
+            frameon=True, 
+            facecolor='white', 
+            framealpha=0.9,
+            fontsize=10
+        )
 
         plt.tight_layout()
         return fig, ax
