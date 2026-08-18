@@ -66,12 +66,16 @@ class BehavioralDataLoader:
         window_size_steps = int(window_duration / dt) | 1
 
         # 3. Create Event Masks for all categories
+        event_masks = {}
         for idx, b_name in enumerate(bouts_category_name_short):
             for lat in Laterality:
-                sub_df[f"{lat}_{b_name}"] = (
+                col_name = f"{lat}_{b_name}"
+                event_masks[col_name] = (
                     (sub_df['category'] == idx) & 
                     (sub_df['laterality'] == lat)
                 )
+
+        sub_df = pd.concat([sub_df, pd.DataFrame(event_masks, index=sub_df.index)], axis=1)
 
         # 4. Bin & Aggregate Counts
         agg_dict = {
@@ -91,13 +95,15 @@ class BehavioralDataLoader:
         rolling_cols = [f"rolling_{lat}_{b}" for b in bouts_category_name_short for lat in Laterality]
         hz_cols = [f"{lat}_{b}_hz" for b in bouts_category_name_short for lat in Laterality]
 
-        counts[rolling_cols] = (
-            counts.groupby(level=['file', 'trial_num'])[count_cols]
-            .transform(lambda x: x.rolling(window=window_size_steps, min_periods=1, center=True).sum())
+        rolling_df = counts.groupby(level=['file', 'trial_num'])[count_cols].transform(
+            lambda x: x.rolling(window=window_size_steps, min_periods=1, center=True).sum()
         )
+        rolling_df.columns = rolling_cols
 
-        counts = counts.reset_index()
-        counts[hz_cols] = counts[rolling_cols] / window_duration
+        hz_df = rolling_df / window_duration
+        hz_df.columns = hz_cols
+
+        counts = pd.concat([counts, rolling_df, hz_df], axis=1).reset_index()
         counts['time_sec'] = counts['time_bin'].apply(lambda x: x.left).astype(float)
 
         # 6. Extract target event times for Poisson fitting
@@ -1118,7 +1124,7 @@ if __name__ == '__main__':
             fitted_models=fitted_models,
             title=f"Condition: {exp_name} | {dataset.bout_name} ({dataset.laterality})"
         )
-        plt.show(block=False)
+        plt.show()
 
         best_model_name = summary_table.iloc[0]["Model Name"]
         best_model = fitted_models[best_model_name]
@@ -1128,7 +1134,7 @@ if __name__ == '__main__':
             model=best_model,
             cmap="plasma"
         )
-        plt.show(block=False)
+        plt.show()
 
         del dataset
         del fitted_models
