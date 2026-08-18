@@ -82,7 +82,7 @@ class BehavioralDataLoader:
         t_centers = 0.5 * (t_grid[:-1] + t_grid[1:])
         trial_edges = np.append(unique_trials - 0.5, unique_trials[-1] + 0.5)
 
-
+        # filter events
         target_col = f"{laterality}_{bout_name}"
         sub_df[target_col] = (
             (sub_df['category'] == bouts_category_name_short.index(bout_name)) & 
