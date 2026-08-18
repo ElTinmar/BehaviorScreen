@@ -45,7 +45,7 @@ class BehavioralDataLoader:
         # 1. Filter by stimulus or epoch_name
         sub_df = self.raw_df.copy()
         if stim is not None:
-            sub_df = sub_df[sub_df['stim'] == stim].copy()
+            sub_df = sub_df[sub_df['stim'] == stim]
 
             # handle special cases
             if stim == Stim.PHOTOTAXIS:
@@ -53,9 +53,9 @@ class BehavioralDataLoader:
 
         elif epoch_name is not None:
             if isinstance(epoch_name, list):
-                sub_df = sub_df[sub_df['epoch_name'].isin(epoch_name)].copy()
+                sub_df = sub_df[sub_df['epoch_name'].isin(epoch_name)]
             else:
-                sub_df = sub_df[sub_df['epoch_name'] == epoch_name].copy()
+                sub_df = sub_df[sub_df['epoch_name'] == epoch_name]
 
         else:
             raise ValueError("Either 'stim' or 'epoch_name' must be provided to filter dataset.")
