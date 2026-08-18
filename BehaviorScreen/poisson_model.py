@@ -4,18 +4,18 @@ from typing import Callable, List, Tuple, Dict, Optional, Union, Any
 import numpy as np
 import pandas as pd
 import gc
-from scipy.integrate import simpson
+
+from scipy.integrate import trapezoid
 from scipy.optimize import minimize
 from scipy.stats import chi2
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
 
 
-@dataclass
+@dataclass(frozen=True)
 class PoissonDataset:
     bout_name: str
     laterality: str
@@ -23,10 +23,10 @@ class PoissonDataset:
     event_trials: np.ndarray
     unique_trials: np.ndarray
     t_grid: np.ndarray
+    dt: float
     trial_edges: np.ndarray             # Shape: (N_trials + 1,)
     t_centers: np.ndarray               # Shape: (N_time_bins,)
     num_fish: int
-    num_file_trials: int  
     n_fish_per_trial: np.ndarray        # Shape: (N_trials,) 
     time_histogram_counts: np.ndarray   # Shape: (N_time_bins,) 
     time_histogram_hz: np.ndarray       # Shape: (N_time_bins,) 
@@ -35,7 +35,7 @@ class PoissonDataset:
 
 
 class BehavioralDataLoader:
-    def __init__(self, csv_path: Path):
+    def __init__(self, csv_path: Union[Path, str]):
         self.raw_df = pd.read_csv(csv_path)
 
     def prepare_dataset(
@@ -50,7 +50,7 @@ class BehavioralDataLoader:
     ) -> PoissonDataset:
 
         # 1. Filter by stimulus or epoch_name
-        sub_df = self.raw_df.copy()
+        sub_df = self.raw_df
         if stim is not None:
             sub_df = sub_df[sub_df['stim'] == stim]
 
@@ -83,16 +83,16 @@ class BehavioralDataLoader:
         t_centers = 0.5 * (t_grid[:-1] + t_grid[1:])
         trial_edges = np.append(unique_trials - 0.5, unique_trials[-1] + 0.5)
 
-        # filter events
-        target_col = f"{laterality}_{bout_name}"
-        sub_df[target_col] = (
-            (sub_df['category'] == bouts_category_name_short.index(bout_name)) & 
+        # filter events (strictly inside [t_start, t_end) to prevent edge bin leaks)
+        bout_idx = bouts_category_name_short.index(bout_name)
+        is_target_event = (
+            (sub_df['category'] == bout_idx) & 
             (sub_df['laterality'] == laterality)
         )
         event_mask = (
-            sub_df[target_col] & 
+            is_target_event & 
             (sub_df['trial_time'] >= t_start) & 
-            (sub_df['trial_time'] <= t_end)
+            (sub_df['trial_time'] < t_end)
         )
         events = sub_df[event_mask]
 
@@ -115,10 +115,10 @@ class BehavioralDataLoader:
             event_trials=events['trial_num'].values,
             unique_trials=unique_trials,
             t_grid=t_grid,
+            dt=dt,
             t_centers=t_centers,
             trial_edges=trial_edges,
             num_fish=num_fish,
-            num_file_trials=num_file_trials,
             n_fish_per_trial=n_fish_per_trial,
             time_histogram_counts=hist_counts,
             time_histogram_hz=hist_hz,
@@ -126,13 +126,14 @@ class BehavioralDataLoader:
             time_trial_histogram_hz=time_trial_histogram_hz,
         )
 
-@dataclass
+
+@dataclass(frozen=True)
 class RateKernel:
     name: str
     func: Callable[[np.ndarray, np.ndarray, List[float]], np.ndarray]
     param_names: List[str]
     initial_guesses: List[float]
-    bounds: List[Tuple[Union[float, None], Union[float, None]]]
+    bounds: List[Tuple[Optional[float], Optional[float]]]
     latex_formula: str = ""
 
     def evaluate(self, t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
@@ -145,15 +146,14 @@ class PoissonProcess:
     """
     Maximum Likelihood Estimator for Homogeneous and Inhomogeneous Poisson Processes.
     """
-    def __init__(self, kernel):
+    def __init__(self, kernel: RateKernel):
         self.kernel = kernel
         self.fit_result: Optional[dict] = None
         self.params_: Optional[np.ndarray] = None
         self.param_dict_: Dict[str, float] = {}
         self.n_events_: int = 0
-        self.n_observations_: int = 1
 
-    def _nll(self, params, t_events, trial_events, unique_trials, t_grid, num_file_trials):
+    def _nll(self, params, t_events, trial_events, unique_trials, t_grid, n_fish_per_trial, dt):
         # Term 1: Sum of Log Intensity at Observed Events
         event_rates = self.kernel.evaluate(t_events, trial_events, params)
         event_rates = np.maximum(event_rates, 1e-9)
@@ -166,12 +166,11 @@ class PoissonProcess:
         rate_surface = self.kernel.evaluate(t_2d, trials_2d, params)
         rate_surface = np.maximum(rate_surface, 1e-9)
 
-        # Integrate rate over time for each trial layout
-        trial_integrals = simpson(rate_surface, x=t_grid, axis=1)
+        # Fast uniform trapezoidal integration along time axis (axis=1)
+        trial_integrals = trapezoid(rate_surface, dx=dt, axis=1)
         
-        # Scale expected events by average per-trial integral times total observation units
-        avg_trial_integral = np.mean(trial_integrals)
-        total_expected_events = avg_trial_integral * num_file_trials
+        # Scale expected events by trial-specific observing fish count
+        total_expected_events = np.sum(trial_integrals * n_fish_per_trial)
 
         return -(sum_log_rates - total_expected_events)
 
@@ -181,7 +180,7 @@ class PoissonProcess:
         trial_events: Optional[np.ndarray] = None, 
         unique_trials: Optional[np.ndarray] = None, 
         t_grid: Optional[np.ndarray] = None, 
-        num_file_trials: int = 1, 
+        n_fish_per_trial: Optional[np.ndarray] = None,
         method: str = 'L-BFGS-B', 
         **kwargs
     ):
@@ -195,21 +194,24 @@ class PoissonProcess:
             trial_events = ds.event_trials
             unique_trials = ds.unique_trials
             t_grid = ds.t_grid
-            num_file_trials = ds.num_file_trials
+            dt = ds.dt
+            n_fish_per_trial = ds.n_fish_per_trial
         else:
             t_events = dataset_or_t_events
             if trial_events is None or unique_trials is None or t_grid is None:
                 raise ValueError(
                     "When passing raw arrays to .fit(), trial_events, unique_trials, and t_grid must be provided."
                 )
+            dt = float(np.diff(t_grid)[0])
+            if n_fish_per_trial is None:
+                n_fish_per_trial = np.ones_like(unique_trials, dtype=float)
 
         self.n_events_ = len(t_events)
-        self.n_observations_ = num_file_trials
 
         res = minimize(
             self._nll,
             x0=self.kernel.initial_guesses,
-            args=(t_events, trial_events, unique_trials, t_grid, num_file_trials),
+            args=(t_events, trial_events, unique_trials, t_grid, n_fish_per_trial, dt),
             method=method,
             bounds=self.kernel.bounds,
             **kwargs
@@ -446,7 +448,7 @@ class KernelFactory:
             latex_formula=r"$\lambda(t, m) = A \frac{1 + \alpha_1 m}{1 + \alpha_2 m^2} \left(\frac{t}{k\tau}\right)^k e^{k - t/\tau} + B e^{\alpha_B m}$",
         )
 
-    
+
 class ModelComparator:
 
     @staticmethod
@@ -456,9 +458,6 @@ class ModelComparator:
     ) -> Dict[str, Union[str, int, float, bool]]:
         """
         Performs a Likelihood Ratio Test (LRT) between two nested Poisson Process models.
-        
-        Null Model (H0): Restricted model with k_null parameters.
-        Alt Model  (H1): Complex model with k_alt parameters (k_alt > k_null).
         """
         k_null = len(model_null.params_)
         k_alt = len(model_alt.params_)
@@ -518,7 +517,7 @@ class ModelComparator:
         trial_events: Optional[np.ndarray] = None,
         unique_trials: Optional[np.ndarray] = None,
         t_grid: Optional[np.ndarray] = None,
-        n_fish: float = 1.0,
+        n_fish_per_trial: Optional[np.ndarray] = None,
         method: str = 'L-BFGS-B',
         **kwargs
     ) -> Tuple[pd.DataFrame, Dict[str, PoissonProcess]]:
@@ -537,7 +536,7 @@ class ModelComparator:
                     trial_events=trial_events,
                     unique_trials=unique_trials,
                     t_grid=t_grid,
-                    n_fish=n_fish,
+                    n_fish_per_trial=n_fish_per_trial,
                     method=method,
                     **kwargs
                 )
@@ -629,7 +628,7 @@ class PoissonVisualizer:
             color='black', 
             linewidth=2.0, 
             label='Empirical PSTH',
-            zorder=3  # Kept on top for visibility
+            zorder=4  # Kept on top for visibility
         )
 
         # 2. Evaluate Models & Build Labels with LaTeX Formulas
@@ -656,7 +655,8 @@ class PoissonVisualizer:
                 linestyle='--', 
                 linewidth=1.8, 
                 color=color, 
-                label=label
+                label=label,
+                zorder=3
             )
 
         # 3. Plot Formatting
@@ -696,10 +696,7 @@ class PoissonVisualizer:
         data_alpha: float = 0.35,
         model_alpha: float = 1.0
     ) -> Tuple[plt.Figure, plt.Axes]:
-        """
-        Plots empirical data as semi-transparent markers underneath 
-        continuous dashed model curves for selected trials.
-        """
+
         fig, ax = plt.subplots(figsize=figsize)
 
         # 1. Evaluate Model Surface: Shape (N_trials, N_time_bins)
