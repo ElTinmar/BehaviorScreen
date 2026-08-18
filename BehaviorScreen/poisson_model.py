@@ -285,13 +285,13 @@ class KernelFactory:
         )
 
     @staticmethod
-    def prey_capture_full(stim_freq: float) -> RateKernel:
+    def prey_capture_exp(stim_freq: float) -> RateKernel:
         def _func(t, trial, params):
-            A, tau, k, B, b1, b2, b3, b4, a_A, a_B, a_g = params
+            A, tau, B, b1, b2, b3, b4, a_A, a_B, a_g = params
             w = 2.0 * np.pi * stim_freq
             phase = w * t
 
-            transient = A * (t ** k) * np.exp(-t / tau) * np.exp(a_A * trial)
+            transient = A * np.exp(-t / tau) * np.exp(a_A * trial)
             baseline = B * np.exp(a_B * trial)
             phase_ripple = (
                 b1 * np.sin(phase) + b2 * np.cos(phase) +
@@ -301,18 +301,17 @@ class KernelFactory:
             return transient + baseline + phase_ripple
 
         return RateKernel(
-            name="Prey Capture Full Plasticity λ(t, m)",
+            name="Prey Capture exp decay λ(t, m)",
             func=_func,
-            param_names=["A", "tau", "k", "B", "b1", "b2", "b3", "b4", "alpha_A", "alpha_B", "alpha_gamma"],
-            initial_guesses=[0.56, 1.15, 2.0, 0.40, 0.0, 0.0, 0.0, 0.0, -0.05, -0.05, -0.05],
+            param_names=["A", "tau", "B", "b1", "b2", "b3", "b4", "alpha_A", "alpha_B", "alpha_gamma"],
+            initial_guesses=[0.56, 1.15, 0.40, 0.0, 0.0, 0.0, 0.0, -0.05, -0.05, -0.05],
             bounds=[
-                (0.01, 10.0), (0.1, 5.0), (0.05, 10.0), (0.01, 5.0),
+                (0.01, 10.0), (0.1, 5.0), (0.01, 5.0),
                 (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0),
                 (-2.0, 2.0), (-2.0, 2.0), (-2.0, 2.0)
             ],
-            latex_formula=r"$\lambda(t, m) = A t^k e^{-t/\tau} e^{\alpha_A m} + B e^{\alpha_B m} + \left[ \sum_{n=1}^{2} \left( b_{2n-1} \sin(n \omega t) + b_{2n} \cos(n \omega t) \right) \right] e^{\alpha_\gamma m}$",
+            latex_formula=r"$\lambda(t, m) = A e^{-t/\tau} e^{\alpha_A m} + B e^{\alpha_B m} + \left[ \sum_{n=1}^{2} \left( b_{2n-1} \sin(n \omega t) + b_{2n} \cos(n \omega t) \right) \right] e^{\alpha_\gamma m}$",
         )
-
 
     @staticmethod
     def phototaxis_ipsi() -> RateKernel:
@@ -698,7 +697,7 @@ if __name__ == '__main__':
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
                 KernelFactory.prey_capture_time_only(stim_freq=prey_stim_freq),
-                KernelFactory.prey_capture_full(stim_freq=prey_stim_freq)
+                KernelFactory.prey_capture_exp(stim_freq=prey_stim_freq),
             ]
         },
 
