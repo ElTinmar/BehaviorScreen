@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, List, Tuple, Dict, Optional, Union
+from typing import Callable, List, Tuple, Dict, Optional, Union, Any
 import numpy as np
 import pandas as pd
 import gc
@@ -16,17 +16,21 @@ from megabouts.utils import bouts_category_name_short
 
 @dataclass
 class PoissonDataset:
+    bout_name: str
+    laterality: str
     event_times: np.ndarray
     event_trials: np.ndarray
     unique_trials: np.ndarray
     t_grid: np.ndarray
+    trial_edges: np.ndarray             # Shape: (N_trials + 1,)
+    t_centers: np.ndarray               # Shape: (N_time_bins,)
     num_fish: int
     num_file_trials: int  
-    bout_name: str
-    laterality: str
-    binned_counts: pd.DataFrame
-    histogram_counts: np.ndarray 
-    histogram_hz: np.ndarray
+    n_fish_per_trial: np.ndarray        # Shape: (N_trials,) 
+    time_histogram_counts: np.ndarray   # Shape: (N_time_bins,) 
+    time_histogram_hz: np.ndarray       # Shape: (N_time_bins,) 
+    time_trial_histogram_counts: np.ndarray # Shape: (N_trials, N_time_bins) 
+    time_trial_histogram_hz: np.ndarray # Shape: (N_trials, N_time_bins) 
 
 
 class BehavioralDataLoader:
@@ -42,7 +46,6 @@ class BehavioralDataLoader:
         dt: float = 0.02,
         t_start: float = 0.0,
         t_end: float = 24.0,
-        window_duration: float = 0.33
     ) -> PoissonDataset:
 
         # 1. Filter by stimulus or epoch_name
@@ -63,54 +66,28 @@ class BehavioralDataLoader:
         else:
             raise ValueError("Either 'stim' or 'epoch_name' must be provided to filter dataset.")
 
+        # get numbers
+        unique_trials = np.sort(sub_df['trial_num'].unique())
+        num_fish = sub_df['file'].nunique()
+        num_file_trials = len(sub_df[['file', 'trial_num']].drop_duplicates())
+        n_fish_per_trial = (
+            sub_df.groupby('trial_num')['file']
+            .nunique()
+            .reindex(unique_trials, fill_value=1)
+            .values
+        )
 
-        # 2. Setup Time Grid
+        # make grids
         t_grid = np.arange(t_start, t_end + dt, dt)
-        window_size_steps = int(window_duration / dt) | 1
+        t_centers = 0.5 * (t_grid[:-1] + t_grid[1:])
+        trial_edges = np.append(unique_trials - 0.5, unique_trials[-1] + 0.5)
 
-        # 3. Create Event Masks for all categories
-        event_masks = {}
-        for idx, b_name in enumerate(bouts_category_name_short):
-            for lat in Laterality:
-                col_name = f"{lat}_{b_name}"
-                event_masks[col_name] = (
-                    (sub_df['category'] == idx) & 
-                    (sub_df['laterality'] == lat)
-                )
 
-        sub_df = pd.concat([sub_df, pd.DataFrame(event_masks, index=sub_df.index)], axis=1)
-
-        # 4. Bin & Aggregate Counts
-        agg_dict = {
-            f"count_{lat}_{b}": (f"{lat}_{b}", 'sum')
-            for b in bouts_category_name_short
-            for lat in Laterality
-        }
-        sub_df['time_bin'] = pd.cut(sub_df['trial_time'], bins=t_grid, right=False)
-        
-        counts = (
-            sub_df.groupby(['file', 'trial_num', 'time_bin'], observed=False)
-            .agg(**agg_dict)
-        )
-
-        # 5. Compute Rolling Hz
-        count_cols = [f"count_{lat}_{b}" for b in bouts_category_name_short for lat in Laterality]
-        rolling_cols = [f"rolling_{lat}_{b}" for b in bouts_category_name_short for lat in Laterality]
-        hz_cols = [f"{lat}_{b}_hz" for b in bouts_category_name_short for lat in Laterality]
-
-        rolling_df = counts.groupby(level=['file', 'trial_num'])[count_cols].transform(
-            lambda x: x.rolling(window=window_size_steps, min_periods=1, center=True).sum()
-        )
-        rolling_df.columns = rolling_cols
-
-        hz_df = rolling_df / window_duration
-        hz_df.columns = hz_cols
-
-        counts = pd.concat([counts, rolling_df, hz_df], axis=1).reset_index()
-        counts['time_sec'] = counts['time_bin'].apply(lambda x: x.left).astype(float)
-
-        # 6. Extract target event times for Poisson fitting
         target_col = f"{laterality}_{bout_name}"
+        sub_df[target_col] = (
+            (sub_df['category'] == bouts_category_name_short.index(bout_name)) & 
+            (sub_df['laterality'] == laterality)
+        )
         event_mask = (
             sub_df[target_col] & 
             (sub_df['trial_time'] >= t_start) & 
@@ -118,28 +95,35 @@ class BehavioralDataLoader:
         )
         events = sub_df[event_mask]
 
-        # compute histogram
-        num_file_trials = len(counts[['file', 'trial_num']].drop_duplicates())
+        # time histogram
         hist_counts, _ = np.histogram(events['trial_time'].values, bins=t_grid)
-        if num_file_trials > 0:
-            hist_hz = hist_counts / (num_file_trials * dt)
-        else:
-            hist_hz = np.zeros_like(hist_counts, dtype=float)
+        hist_hz = hist_counts / (num_file_trials * dt) if num_file_trials > 0 else np.zeros_like(hist_counts, dtype=float)
+
+        # time x trial histogram
+        time_trial_histogram_counts, _, _ = np.histogram2d(
+            events['trial_num'].values,
+            events['trial_time'].values,
+            bins=[trial_edges, t_grid]
+        )
+        time_trial_histogram_hz = time_trial_histogram_counts / (n_fish_per_trial[:, None] * dt)
 
         return PoissonDataset(
-            event_times=(events['trial_time'] - t_start).values,
-            event_trials=events['trial_num'].values,
-            unique_trials=np.sort(counts['trial_num'].unique()),
-            t_grid=t_grid,
-            num_fish=len(counts['file'].unique()),
-            num_file_trials=num_file_trials,
             bout_name=bout_name,
             laterality=str(laterality),
-            binned_counts=counts,
-            histogram_counts=hist_counts,
-            histogram_hz=hist_hz
+            event_times=(events['trial_time'] - t_start).values,
+            event_trials=events['trial_num'].values,
+            unique_trials=unique_trials,
+            t_grid=t_grid,
+            t_centers=t_centers,
+            trial_edges=trial_edges,
+            num_fish=num_fish,
+            num_file_trials=num_file_trials,
+            n_fish_per_trial=n_fish_per_trial,
+            time_histogram_counts=hist_counts,
+            time_histogram_hz=hist_hz,
+            time_trial_histogram_counts=time_trial_histogram_counts,
+            time_trial_histogram_hz=time_trial_histogram_hz,
         )
-
 
 @dataclass
 class RateKernel:
@@ -583,148 +567,32 @@ class ModelComparator:
 class PoissonVisualizer:
 
     @staticmethod
-    def plot_model_fits(
-        dataset: PoissonDataset,
-        fitted_models: Dict[str, PoissonProcess],
-        selected_trials: Optional[List[int]] = None,
-        figsize: Tuple[int, int] = (12, 5),
-        title: Optional[str] = None
-    ) -> Tuple[plt.Figure, plt.Axes]:
-
-        fig, ax = plt.subplots(figsize=figsize)
-        dt = dataset.t_grid[1] - dataset.t_grid[0]
-
-        # 1. Empirical PSTH Rate Calculation
-        if selected_trials is not None:
-            trials_to_eval = np.array(selected_trials)
-            trial_mask = np.isin(dataset.event_trials, trials_to_eval)
-            events = dataset.event_times[trial_mask]
-
-            # Calculate total observations matching the selected trials across all fish
-            file_trials_count = dataset.binned_counts[
-                dataset.binned_counts['trial_num'].isin(trials_to_eval)
-            ][['file', 'trial_num']].drop_duplicates().shape[0]
-
-            counts, bin_edges = np.histogram(events, bins=dataset.t_grid)
-            psth_hz = counts / (file_trials_count * dt) if file_trials_count > 0 else np.zeros_like(counts, dtype=float)
-        else:
-            trials_to_eval = dataset.unique_trials
-            bin_edges = dataset.t_grid
-            # Use pre-computed, correctly normalized PSTH from dataset
-            psth_hz = dataset.histogram_hz
-
-        # Plot empirical histogram
-        bin_centers = bin_edges[:-1]
-        ax.bar(
-            bin_centers, 
-            psth_hz, 
-            width=dt,
-            color='#D3D3D3', 
-            edgecolor='#A0A0A0', 
-            alpha=0.7,
-            label='Empirical PSTH (Histogram)', 
-            align='edge'
-        )
-
-        # 2. Evaluate and Overlay Model Intensity Curves
-        colors = plt.cm.tab10(np.linspace(0, 1, max(1, len(fitted_models))))
-
-        for idx, (model_name, model) in enumerate(fitted_models.items()):
-            t_2d = dataset.t_grid[None, :]               # Shape: (1, N_time)
-            trials_2d = trials_to_eval[:, None]          # Shape: (N_trials, 1)
-
-            rate_surface = model.predict(t_2d, trials_2d) # Shape: (N_trials, N_time)
-            mean_rate = np.mean(rate_surface, axis=0)     # Shape: (N_time,)
-
-            label = f"{model_name} (AIC: {model.aic:.1f})"
-            ax.plot(dataset.t_grid, mean_rate, label=label, linewidth=2.5, color=colors[idx])
-
-        # 3. Formatting
-        ax.set_xlabel("Time in Trial (s)", fontsize=11)
-        ax.set_ylabel("Event Rate (Hz)", fontsize=11)
-
-        main_title = title or f"Model Fits: {dataset.bout_name} ({dataset.laterality})"
-        ax.set_title(main_title, fontsize=13, fontweight='bold')
-        ax.legend(frameon=True, facecolor='white', framealpha=0.9, fontsize=9)
-        ax.grid(True, linestyle='--', alpha=0.4)
-        ax.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
-        ax.set_ylim(bottom=0)
-
-        plt.tight_layout()
-        return fig, ax
-
-    @staticmethod
     def plot_raster_and_surface(
         dataset: PoissonDataset,
         model: PoissonProcess,
         figsize: Tuple[int, int] = (14, 5),
-        cmap: str = "viridis",
+        cmap: str = "plasma",
         raster_color: str = "white",
         raster_alpha: float = 0.7,
         raster_size: float = 14
     ) -> Tuple[plt.Figure, np.ndarray]:
 
         fig, (ax_emp, ax_mod) = plt.subplots(1, 2, figsize=figsize, sharey=True)
-        dt = dataset.t_grid[1] - dataset.t_grid[0]
 
-        # 1. Compute Exact Un-smoothed Empirical Surface Matrix from Histogram
-        num_trials = len(dataset.unique_trials)
-        num_time_bins = len(dataset.t_grid) - 1
-        raw_counts = np.zeros((num_trials, num_time_bins), dtype=float)
-
-        # Map each trial to its matrix row index
-        trial_to_idx = {trial: idx for idx, trial in enumerate(dataset.unique_trials)}
-
-        # Bin events into (trial, time_bin) 2D matrix
-        for t_evt, trial_evt in zip(dataset.event_times, dataset.event_trials):
-            if trial_evt in trial_to_idx:
-                bin_idx = np.searchsorted(dataset.t_grid, t_evt, side='right') - 1
-                if 0 <= bin_idx < num_time_bins:
-                    raw_counts[trial_to_idx[trial_evt], bin_idx] += 1.0
-
-        # Calculate file-trials per trial index for exact normalization across fish
-        file_trials_per_trial = (
-            dataset.binned_counts.groupby('trial_num')[['file']]
-            .nunique()
-            .reindex(dataset.unique_trials)
-            .fillna(1.0)
-            .values.ravel()
-        )
-
-        # Convert counts to Rate (Hz) matrix: Shape (N_trials, N_time_bins)
-        empirical_surface = raw_counts / (file_trials_per_trial[:, None] * dt)
-
-        # 2. Compute Model Surface Matrix
-        t_centers = 0.5 * (dataset.t_grid[:-1] + dataset.t_grid[1:])
-        t_2d = t_centers[None, :]
+        # 1. Evaluate Model Surface using dataset grid
+        t_2d = dataset.t_centers[None, :]
         trials_2d = dataset.unique_trials[:, None]
         model_surface = model.predict(t_2d, trials_2d)
 
-        # 3. Define Y-axis grid boundaries (edges) for pcolormesh
-        # Shift boundaries by 0.5 so trial numbers align with row centers
-        trial_step = np.diff(dataset.unique_trials).mean() if num_trials > 1 else 1.0
-        y_grid = np.append(
-            dataset.unique_trials - 0.5 * trial_step, 
-            dataset.unique_trials[-1] + 0.5 * trial_step
-        )
-
-        # 4. Shared Color Scale
-        vmax = max(np.max(empirical_surface), np.max(model_surface))
-        vmin = 0.0
+        vmax = max(np.max(dataset.time_trial_histogram_hz), np.max(model_surface))
 
         # Panel 1: Empirical Data + Raster
-        mesh_emp = ax_emp.pcolormesh(
-            dataset.t_grid, 
-            y_grid, 
-            empirical_surface, 
-            shading='flat', 
-            cmap=cmap,
-            vmin=vmin, 
-            vmax=vmax
+        ax_emp.pcolormesh(
+            dataset.t_grid, dataset.trial_edges, dataset.time_trial_histogram_hz, 
+            shading='flat', cmap=cmap, vmin=0.0, vmax=vmax
         )
         ax_emp.scatter(
-            dataset.event_times, 
-            dataset.event_trials, 
+            dataset.event_times, dataset.event_trials, 
             color=raster_color, s=raster_size, alpha=raster_alpha, marker='|'
         )
         ax_emp.set_title("Empirical Surface & Raster", fontsize=12, fontweight='bold')
@@ -734,20 +602,15 @@ class PoissonVisualizer:
 
         # Panel 2: Model Surface + Raster
         mesh_mod = ax_mod.pcolormesh(
-            dataset.t_grid, 
-            y_grid, 
-            model_surface, 
-            shading='flat', 
-            cmap=cmap,
-            vmin=vmin, 
-            vmax=vmax
+            dataset.t_grid, dataset.trial_edges, model_surface, 
+            shading='flat', cmap=cmap, vmin=0.0, vmax=vmax
         )
         ax_mod.scatter(
-            dataset.event_times, 
-            dataset.event_trials, 
+            dataset.event_times, dataset.event_trials, 
             color=raster_color, s=raster_size, alpha=raster_alpha, marker='|'
         )
-        ax_mod.set_title(f"Fitted Model: {getattr(model.kernel, 'name', 'Poisson')}", fontsize=12, fontweight='bold')
+        kernel_name = getattr(getattr(model, 'kernel', None), 'name', 'Poisson Model')
+        ax_mod.set_title(f"Fitted Surface: {kernel_name}", fontsize=12, fontweight='bold')
         ax_mod.set_xlabel("Time in Trial (s)", fontsize=11)
         ax_mod.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
 
@@ -759,6 +622,60 @@ class PoissonVisualizer:
 
         plt.tight_layout()
         return fig, np.array([ax_emp, ax_mod])
+
+    @staticmethod
+    def plot_model_fits(
+        dataset: PoissonDataset,
+        models: Dict[str, PoissonProcess],
+        figsize: Tuple[int, int] = (12, 5),
+        palette: Optional[Dict[str, Any]] = None
+    ) -> Tuple[plt.Figure, plt.Axes]:
+
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # 1. Empirical PSTH
+        ax.plot(
+            dataset.t_centers, 
+            dataset.time_histogram_hz, 
+            color='black', 
+            linewidth=2.0, 
+            label='Empirical PSTH',
+            zorder=3
+        )
+
+        # 2. Evaluate Models across Trial Grid
+        t_2d = dataset.t_centers[None, :]
+        trials_2d = dataset.unique_trials[:, None]
+        default_colors = plt.cm.tab10.colors
+
+        for idx, (name, model) in enumerate(models.items()):
+            pred_surface = model.predict(t_2d, trials_2d)
+            mean_pred = np.average(pred_surface, axis=0, weights=dataset.n_fish_per_trial)
+
+            color = palette.get(name) if palette else default_colors[idx % len(default_colors)]
+            ax.plot(
+                dataset.t_centers, 
+                mean_pred, 
+                linestyle='--', 
+                linewidth=1.8, 
+                color=color, 
+                label=f"Model: {name}"
+            )
+
+        ax.set_title(
+            f"Bout: {dataset.bout_name} (Laterality: {dataset.laterality})", 
+            fontsize=12, 
+            fontweight='bold'
+        )
+        ax.set_xlabel("Time in Trial (s)", fontsize=11)
+        ax.set_ylabel("Firing Rate [Hz]", fontsize=11)
+        ax.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
+        ax.set_ylim(bottom=0.0)
+        ax.grid(True, linestyle=':', alpha=0.6)
+        ax.legend(frameon=True, facecolor='white', framealpha=0.9)
+
+        plt.tight_layout()
+        return fig, ax
 
 
 if __name__ == '__main__':
@@ -788,7 +705,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':24.0, 
-                'window_duration':0.33
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -805,7 +721,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':24.0, 
-                'window_duration':0.33
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -820,7 +735,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':24.0, 
-                'window_duration':0.33
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -836,7 +750,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':24.0, 
-                'window_duration':0.33
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -852,7 +765,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
-                'window_duration':0.33
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson()
@@ -867,7 +779,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
-                'window_duration':0.33
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -883,7 +794,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
-                'window_duration':0.33
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -899,7 +809,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
-                'window_duration':0.33
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson()
@@ -914,7 +823,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
-                'window_duration':0.33
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson()
@@ -929,7 +837,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
-                'window_duration':0.175
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -945,7 +852,6 @@ if __name__ == '__main__':
                 'dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
-                'window_duration':0.175
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -961,7 +867,6 @@ if __name__ == '__main__':
                 'dt':0.025, 
                 't_start':0.0, 
                 't_end':5.0, 
-                'window_duration':0.1
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
@@ -1001,8 +906,7 @@ if __name__ == '__main__':
         # D. Visualizations
         fig1, ax1 = PoissonVisualizer.plot_model_fits(
             dataset=dataset,
-            fitted_models=fitted_models,
-            title=f"Condition: {exp_name} | {dataset.bout_name} ({dataset.laterality})"
+            models=fitted_models,
         )
         plt.show()
 
@@ -1012,7 +916,6 @@ if __name__ == '__main__':
         fig2, axes2 = PoissonVisualizer.plot_raster_and_surface(
             dataset=dataset,
             model=best_model,
-            cmap="plasma"
         )
         plt.show()
 
