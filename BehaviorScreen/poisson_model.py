@@ -692,7 +692,7 @@ class PoissonVisualizer:
         trial_step: int = 2,
         figsize: Tuple[int, int] = (12, 6),
         cmap: str = "viridis",
-        marker_size: float = 20.0,
+        marker_size: float = 28.0,
         data_alpha: float = 0.35,
         model_alpha: float = 1.0
     ) -> Tuple[plt.Figure, plt.Axes]:
