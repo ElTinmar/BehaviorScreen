@@ -572,9 +572,6 @@ class PoissonVisualizer:
         model: PoissonProcess,
         figsize: Tuple[int, int] = (14, 5),
         cmap: str = "plasma",
-        raster_color: str = "white",
-        raster_alpha: float = 0.7,
-        raster_size: float = 14
     ) -> Tuple[plt.Figure, np.ndarray]:
 
         fig, (ax_emp, ax_mod) = plt.subplots(1, 2, figsize=figsize, sharey=True)
@@ -591,10 +588,6 @@ class PoissonVisualizer:
             dataset.t_grid, dataset.trial_edges, dataset.time_trial_histogram_hz, 
             shading='flat', cmap=cmap, vmin=0.0, vmax=vmax
         )
-        ax_emp.scatter(
-            dataset.event_times, dataset.event_trials, 
-            color=raster_color, s=raster_size, alpha=raster_alpha, marker='|'
-        )
         ax_emp.set_title("Empirical Surface & Raster", fontsize=12, fontweight='bold')
         ax_emp.set_xlabel("Time in Trial (s)", fontsize=11)
         ax_emp.set_ylabel("Trial Number", fontsize=11)
@@ -604,10 +597,6 @@ class PoissonVisualizer:
         mesh_mod = ax_mod.pcolormesh(
             dataset.t_grid, dataset.trial_edges, model_surface, 
             shading='flat', cmap=cmap, vmin=0.0, vmax=vmax
-        )
-        ax_mod.scatter(
-            dataset.event_times, dataset.event_trials, 
-            color=raster_color, s=raster_size, alpha=raster_alpha, marker='|'
         )
         kernel_name = getattr(getattr(model, 'kernel', None), 'name', 'Poisson Model')
         ax_mod.set_title(f"Fitted Surface: {kernel_name}", fontsize=12, fontweight='bold')
@@ -640,7 +629,7 @@ class PoissonVisualizer:
             color='black', 
             linewidth=2.0, 
             label='Empirical PSTH',
-            zorder=3
+            zorder=0
         )
 
         # 2. Evaluate Models across Trial Grid
