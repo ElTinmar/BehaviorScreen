@@ -123,17 +123,12 @@ class BehavioralDataLoader:
 
 @dataclass
 class RateKernel:
-    """
-    Standardized wrapper for rate kernels. 
-    Handles lambda(), lambda(t), and lambda(t, trial) seamlessly.
-    """
     name: str
     func: Callable[[np.ndarray, np.ndarray, List[float]], np.ndarray]
     param_names: List[str]
     initial_guesses: List[float]
     bounds: List[Tuple[Union[float, None], Union[float, None]]]
-    stimulus_type: str = "General"
-    description: str = ""
+    latex_formula: str = ""
 
     def evaluate(self, t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
         rate = self.func(t, trial, params)            
@@ -238,7 +233,6 @@ class PoissonProcess:
         return k * np.log(self.n_events_) - 2 * self.log_likelihood
 
 
-# TODO add latex formula str?
 class KernelFactory:
 
     @staticmethod
@@ -253,7 +247,7 @@ class KernelFactory:
             param_names=["μ"],
             initial_guesses=[0.5],
             bounds=[(0.001, 20.0)],
-            description="Constant background firing rate without temporal or trial modulation."
+            latex_formula=r"$\lambda = \mu$",
         )
 
     @staticmethod
@@ -280,8 +274,7 @@ class KernelFactory:
                 (0.01, 10.0), (0.1, 5.0), (0.05, 10.0), (0.01, 5.0),
                 (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)
             ],
-            stimulus_type="Prey Capture",
-            description="Time-varying kinetics and phase preferences without trial plasticity."
+            latex_formula=r"$\lambda(t) = A t^k e^{-t/\tau} + B + \sum_{n=1}^2 \left(b_{2n-1}\sin(n\omega t) + b_{2n}\cos(n\omega t)\right)$",
         )
 
     @staticmethod
@@ -310,8 +303,7 @@ class KernelFactory:
                 (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0),
                 (-2.0, 2.0), (-2.0, 2.0), (-2.0, 2.0)
             ],
-            stimulus_type="Prey Capture",
-            description="Full kinetics, second-harmonic spatial tuning, and trial-by-trial plasticity."
+            latex_formula=r"$\lambda(t, m) = A t^k e^{-t/\tau} e^{\alpha_A m} + B e^{\alpha_B m} + \left[ \sum_{n=1}^{2} \left( b_{2n-1} \sin(n \omega t) + b_{2n} \cos(n \omega t) \right) \right] e^{\alpha_\gamma m}$",
         )
 
 
@@ -338,8 +330,7 @@ class KernelFactory:
                 (-0.2, 0.2),   # alpha_B
                 (-0.2, 0.2)    # alpha_transient (shared plasticity for transient shape)
             ],
-            stimulus_type="Phototaxis",
-            description="Minimal 6-parameter model for initial dip + asymmetric peak + baseline decay."
+            latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} + \left(A_{\text{peak}} \frac{t}{\tau} - A_{\text{dip}}\right) e^{-t/\tau} e^{\alpha_{\text{transient}} m}$"
         )
 
     @staticmethod
@@ -361,8 +352,7 @@ class KernelFactory:
                 (0.01, 10.0), (0.0, 5.0), (0.01, 5.0), (-0.1, 0.1),
                 (-0.1, 0.1)
             ],
-            stimulus_type="Phototaxis",
-            description="Full kinetics and trial-by-trial plasticity."
+            latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} - A_{\text{dip}} e^{\alpha_{\text{dip}} m} e^{-t/\tau_{\text{dip}}}$",
         )
     
     @staticmethod
@@ -381,8 +371,7 @@ class KernelFactory:
             bounds=[
                 (0.01, 5.0), (0.0, 5.0), (0.01, 5.0)
             ],
-            stimulus_type="OMR forward",
-            description=""
+            latex_formula=r"$\lambda(t) = B - A_{\text{dip}} e^{-t/\tau_{\text{dip}}}$",
         )
 
     @staticmethod
@@ -401,8 +390,7 @@ class KernelFactory:
             bounds=[
                 (0.01, 5.0), (0.0, 5.0), (0.01, 5.0)
             ],
-            stimulus_type="OMR lateral contra",
-            description=""
+            latex_formula=r"$\lambda(t) = B - A_{\text{dip}} e^{-t/\tau_{\text{dip}}}$",
         )
             
     @staticmethod
@@ -423,8 +411,7 @@ class KernelFactory:
                 (0.0, 10.0), (0.001, 10.0), (-2.0, 2.0), 
                 (t_critical-1.5, t_critical+1), (0.001, 3.0)
             ],
-            stimulus_type="Looming",
-            description=""
+            latex_formula=r"$\lambda(t, m) = B + H e^{\alpha m} \exp\left(-\frac{(t - \mu)^2}{2\sigma^2}\right)$",
         )
 
     @staticmethod
@@ -449,8 +436,7 @@ class KernelFactory:
                 (0.0, None), (0.1, 10.0), (0.01, None), (0.0, None),
                 (0.0, 10.0), (0.0, 5.0), (-0.2, 0.2)
             ],
-            stimulus_type="Dark flash",
-            description=""
+            latex_formula=r"$\lambda(t, m) = A \frac{1 + \alpha_1 m}{1 + \alpha_2 m^2} \left(\frac{t}{k\tau}\right)^k e^{k - t/\tau} + B e^{\alpha_B m}$",
         )
     
 
@@ -733,7 +719,7 @@ class PoissonVisualizer:
         # 3. Formatting
         ax.set_xlabel("Time in Trial (s)", fontsize=11)
         ax.set_ylabel("Event Rate (Hz)", fontsize=11)
-        
+
         main_title = title or f"Model Fits: {dataset.bout_name} ({dataset.laterality})"
         ax.set_title(main_title, fontsize=13, fontweight='bold')
         ax.legend(frameon=True, facecolor='white', framealpha=0.9, fontsize=9)
@@ -754,11 +740,7 @@ class PoissonVisualizer:
         raster_alpha: float = 0.7,
         raster_size: float = 14
     ) -> Tuple[plt.Figure, np.ndarray]:
-        """
-        Symmetric 2-panel visualizer overlaying empirical raster onto rate surfaces:
-          Panel 1: Empirical Rate Surface + Overlaid Event Raster (Data)
-          Panel 2: Model Predicted Rate Surface lambda(t, m) + Overlaid Event Raster (Model)
-        """
+
         fig, (ax_emp, ax_mod) = plt.subplots(1, 2, figsize=figsize, sharey=True)
 
         # -------------------------------------------------------------
