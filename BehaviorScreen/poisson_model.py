@@ -8,6 +8,7 @@ from scipy.integrate import simpson
 from scipy.optimize import minimize
 from scipy.stats import chi2
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from BehaviorScreen.core import Stim, Laterality
@@ -684,6 +685,90 @@ class PoissonVisualizer:
         plt.tight_layout()
         return fig, ax
 
+    @staticmethod
+    def plot_trial_traces(
+        dataset: PoissonDataset,
+        model: PoissonProcess,
+        trial_step: int = 2,
+        figsize: Tuple[int, int] = (12, 6),
+        cmap: str = "viridis",
+        marker_size: float = 20.0,
+        data_alpha: float = 0.35,
+        model_alpha: float = 1.0
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Plots empirical data as semi-transparent markers underneath 
+        continuous dashed model curves for selected trials.
+        """
+        fig, ax = plt.subplots(figsize=figsize)
+
+        # 1. Evaluate Model Surface: Shape (N_trials, N_time_bins)
+        t_2d = dataset.t_centers[None, :]
+        trials_2d = dataset.unique_trials[:, None]
+        model_surface = model.predict(t_2d, trials_2d)
+
+        # 2. Color Mapping Setup
+        norm = plt.Normalize(vmin=dataset.unique_trials[0], vmax=dataset.unique_trials[-1])
+        base_cmap = plt.get_cmap(cmap)
+
+        # 3. Plot Selected Trials
+        selected_indices = range(0, len(dataset.unique_trials), trial_step)
+
+        for idx in selected_indices:
+            trial_idx = dataset.unique_trials[idx]
+            color = base_cmap(norm(trial_idx))
+
+            # Empirical Data (Markers Only, Semi-Transparent, Plotted Underneath)
+            ax.scatter(
+                dataset.t_centers,
+                dataset.time_trial_histogram_hz[idx, :],
+                color=color,
+                s=marker_size,
+                alpha=data_alpha,
+                linewidths=0,
+                zorder=2
+            )
+
+            # Model Fits (Continuous Dashed Line, Plotted On Top)
+            ax.plot(
+                dataset.t_centers,
+                model_surface[idx, :],
+                color=color,
+                linestyle='--',
+                linewidth=1.8,
+                alpha=model_alpha,
+                zorder=3
+            )
+
+        # 4. Legend to clarify Data vs. Model styling
+        ax.scatter([], [], color='gray', s=marker_size, alpha=0.5, label='Empirical Data (Points)')
+        ax.plot([], [], color='gray', linestyle='--', linewidth=1.8, label='Model Fit (Dashed Line)')
+
+        # Plot Formatting
+        kernel_name = getattr(getattr(model, 'kernel', None), 'name', 'Poisson Model')
+        ax.set_title(
+            f"Trial-by-Trial Overlay | {kernel_name} (Every {trial_step} Trials)", 
+            fontsize=12, 
+            fontweight='bold'
+        )
+        ax.set_xlabel("Time in Trial (s)", fontsize=11)
+        ax.set_ylabel("Firing Rate [Hz]", fontsize=11)
+        ax.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
+        ax.set_ylim(bottom=0.0)
+        ax.grid(True, linestyle=':', alpha=0.5)
+        ax.legend(loc='upper right', frameon=True, facecolor='white', framealpha=0.9)
+
+        # 5. Colorbar for Trial Progression
+        sm = plt.cm.ScalarMappable(cmap=base_cmap, norm=norm)
+        sm.set_array([])
+        
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="2.5%", pad=0.12)
+        cbar = fig.colorbar(sm, cax=cax)
+        cbar.set_label("Trial Index", fontsize=10)
+
+        plt.tight_layout()
+        return fig, ax
 
 if __name__ == '__main__':
 
@@ -915,7 +1000,7 @@ if __name__ == '__main__':
             dataset=dataset,
             models=fitted_models,
         )
-        plt.show()
+        plt.show(block=False)
 
         best_model_name = summary_table.iloc[0]["Model Name"]
         best_model = fitted_models[best_model_name]
@@ -924,12 +1009,19 @@ if __name__ == '__main__':
             dataset=dataset,
             model=best_model,
         )
-        plt.show()
+        plt.show(block=False)
+
+        fig2, axes3 = PoissonVisualizer.plot_trial_traces(
+            dataset=dataset,
+            model=best_model,
+        )
+        plt.show(block=True)
 
         del dataset
         del fitted_models
         del best_model
         del summary_table
+        plt.close('all')
         gc.collect()
 
     master_summary_df = pd.concat(all_summaries, ignore_index=True)
