@@ -7,7 +7,7 @@ import gc
 
 from scipy.integrate import trapezoid
 from scipy.optimize import minimize
-from scipy.stats import chi2
+from scipy.stats import chi2, norm, kstest
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -240,12 +240,200 @@ class PoissonProcess:
         k = len(self.params_)
         return 2 * k - 2 * self.log_likelihood
 
-    @property
-    def bic(self) -> float:
-        k = len(self.params_)
-        return k * np.log(self.n_events_) - 2 * self.log_likelihood
+    def compute_binned_residuals(self, dataset: PoissonDataset) -> Dict[str, np.ndarray]:
+        """Calculates 2D Pearson and Deviance residual matrices (Trial x Time)."""
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before computing residuals.")
 
+        y_obs = dataset.time_trial_histogram_counts  # Shape: (N_trials, N_time_bins)
+        t_2d = dataset.t_centers[None, :]
+        trials_2d = dataset.unique_trials[:, None]
 
+        rate_surface = self.predict(t_2d, trials_2d)
+        mu_pred = rate_surface * dataset.n_fish_per_trial[:, None] * dataset.dt
+
+        pearson_res = (y_obs - mu_pred) / np.sqrt(np.maximum(mu_pred, 1e-9))
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            term = np.where(y_obs > 0, y_obs * np.log(y_obs / np.maximum(mu_pred, 1e-9)), 0.0)
+            deviance_sq = 2.0 * (term - (y_obs - mu_pred))
+            deviance_res = np.sign(y_obs - mu_pred) * np.sqrt(np.maximum(0.0, deviance_sq))
+
+        return {
+            "y_obs": y_obs,
+            "mu_pred": mu_pred,
+            "pearson_residuals": pearson_res,
+            "deviance_residuals": deviance_res,
+        }
+
+    def compute_time_rescaling(self, dataset: PoissonDataset) -> Dict[str, Any]:
+        """Applies Time-Rescaling Theorem with fish-count scaling for pooled trial events."""
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before running time-rescaling analysis.")
+
+        rescaled_u_values = []
+        
+        for idx, m in enumerate(dataset.unique_trials):
+            mask = (dataset.event_trials == m)
+            t_ev = np.sort(dataset.event_times[mask])
+
+            if len(t_ev) == 0:
+                continue
+
+            # Add tiny jitter (1e-6) to resolve identical timestamps from simultaneous fish events
+            if len(t_ev) > 1 and np.any(np.diff(t_ev) == 0):
+                t_ev = t_ev + np.random.uniform(0, 1e-6, size=len(t_ev))
+                t_ev = np.sort(t_ev)
+
+            # Scale intensity by n_fish_per_trial for pooled trial events
+            n_fish = dataset.n_fish_per_trial[idx]
+            r_grid = self.predict(dataset.t_centers, m) * n_fish
+            cum_lambda = np.insert(np.cumsum(r_grid * dataset.dt), 0, 0.0)
+
+            # Interpolate integrated rate Λ(t) at exact event times
+            lambda_ev = np.interp(t_ev, dataset.t_grid, cum_lambda)
+
+            # Rescaled intervals τ_k = Λ(t_k) - Λ(t_{k-1})
+            tau_k = np.diff(np.insert(lambda_ev, 0, 0.0))
+
+            # Uniform transformation: U_k = 1 - exp(-τ_k)
+            u_k = 1.0 - np.exp(-tau_k)
+            rescaled_u_values.extend(u_k)
+
+        rescaled_u = np.sort(np.array(rescaled_u_values))
+        n_rescaled = len(rescaled_u)
+
+        ks_stat, ks_pval = kstest(rescaled_u, 'uniform') if n_rescaled > 0 else (np.nan, np.nan)
+
+        return {
+            "rescaled_u": rescaled_u,
+            "n_rescaled": n_rescaled,
+            "ks_stat": ks_stat,
+            "ks_pval": ks_pval,
+        }
+
+    def compute_autocorrelation(
+        self, 
+        deviance_res: np.ndarray, 
+        dt: float, 
+        max_lags: int = 40
+    ) -> Dict[str, Any]:
+        """Computes lag autocorrelation on trial-averaged time-binned deviance residuals."""
+        mean_res_t = np.mean(deviance_res, axis=0)
+        mean_res_centered = mean_res_t - np.mean(mean_res_t)
+
+        lags = np.arange(1, min(max_lags, len(mean_res_t) - 1))
+        c0 = np.sum(mean_res_centered**2)
+
+        if c0 > 0:
+            acf = np.array([np.sum(mean_res_centered[:-l] * mean_res_centered[l:]) / c0 for l in lags])
+        else:
+            acf = np.zeros_like(lags, dtype=float)
+
+        conf_limit = 1.96 / np.sqrt(len(mean_res_t)) if len(mean_res_t) > 0 else 0.0
+
+        return {
+            "mean_res_t": mean_res_t,
+            "lags": lags,
+            "lag_times": lags * dt,
+            "acf": acf,
+            "conf_limit": conf_limit,
+        }
+
+    def diagnose(
+        self, 
+        dataset: PoissonDataset, 
+        max_acf_lags: int = 40,
+        figsize: Tuple[int, int] = (14, 10)
+    ) -> Dict[str, Any]:
+        """Plots the 4-panel diagnostic dashboard by executing separate analysis methods."""
+        
+        # 1. Execute sub-analyses
+        res_data = self.compute_binned_residuals(dataset)
+        tr_data = self.compute_time_rescaling(dataset)
+        acf_data = self.compute_autocorrelation(res_data["deviance_residuals"], dataset.dt, max_acf_lags)
+
+        deviance_res = res_data["deviance_residuals"]
+
+        # 2. Render Plot Dashboard
+        fig, axes = plt.subplots(2, 2, figsize=figsize)
+        plt.subplots_adjust(hspace=0.3, wspace=0.3)
+
+        # Panel A: 2D Residual Surface
+        ax_heat = axes[0, 0]
+        vmax = np.percentile(np.abs(deviance_res), 98)
+        im = ax_heat.imshow(
+            deviance_res,
+            aspect='auto',
+            origin='lower',
+            extent=[dataset.t_grid[0], dataset.t_grid[-1], dataset.unique_trials[0], dataset.unique_trials[-1]],
+            cmap='coolwarm',
+            vmin=-vmax, vmax=vmax
+        )
+        ax_heat.set_title("Deviance Residual Surface $(m, t)$", fontsize=12, fontweight='bold')
+        ax_heat.set_xlabel("Time in Trial (s)")
+        ax_heat.set_ylabel("Trial Number")
+        divider = make_axes_locatable(ax_heat)
+        cax = divider.append_axes("right", size="3%", pad=0.08)
+        fig.colorbar(im, cax=cax, label="Deviance Residual")
+
+        # Panel B: Time-Rescaling Kolmogorov-Smirnov Plot
+        ax_ks = axes[0, 1]
+        n_rescaled = tr_data["n_rescaled"]
+        if n_rescaled > 0:
+            e_cdf = np.arange(1, n_rescaled + 1) / n_rescaled
+            ax_ks.plot(tr_data["rescaled_u"], e_cdf, label="Empirical CDF", color="crimson", lw=2)
+            ax_ks.plot([0, 1], [0, 1], 'k--', label="Uniform(0,1) Ideal", lw=1.5)
+
+            ks_bound = 1.36 / np.sqrt(n_rescaled)
+            ax_ks.plot([0, 1], [ks_bound, 1 + ks_bound], 'k:', alpha=0.5, label="95% KS Limits")
+            ax_ks.plot([0, 1], [-ks_bound, 1 - ks_bound], 'k:', alpha=0.5)
+
+            ax_ks.set_xlim([0, 1])
+            ax_ks.set_ylim([0, 1])
+            ax_ks.set_title(f"Time-Rescaling KS Plot (p={tr_data['ks_pval']:.4f})", fontsize=12, fontweight='bold')
+        else:
+            ax_ks.text(0.5, 0.5, "No events available for KS test", ha='center', va='center')
+        ax_ks.set_xlabel("Transformed Interval ($U_k$)")
+        ax_ks.set_ylabel("Cumulative Probability")
+        ax_ks.legend(loc="upper left")
+
+        # Panel C: Deviance Residual Distribution
+        ax_dist = axes[1, 0]
+        flat_dev = deviance_res.flatten()
+        ax_dist.hist(flat_dev, bins=40, density=True, alpha=0.6, color="steelblue", edgecolor="none")
+
+        x_norm = np.linspace(-4, 4, 200)
+        ax_dist.plot(x_norm, norm.pdf(x_norm), 'r--', lw=2, label="$\mathcal{N}(0, 1)$ Ref")
+        ax_dist.set_title("Deviance Residual Distribution", fontsize=12, fontweight='bold')
+        ax_dist.set_xlabel("Deviance Residual Value")
+        ax_dist.set_ylabel("Density")
+        ax_dist.legend(loc="upper right")
+
+        # Panel D: Residual Autocorrelation (ACF)
+        ax_acf = axes[1, 1]
+        ax_acf.vlines(acf_data["lag_times"], 0, acf_data["acf"], color="navy", lw=2)
+        ax_acf.axhline(0, color="black", lw=1)
+
+        conf_limit = acf_data["conf_limit"]
+        ax_acf.axhline(conf_limit, color="red", linestyle="--", alpha=0.7, label="95% Confidence")
+        ax_acf.axhline(-conf_limit, color="red", linestyle="--", alpha=0.7)
+
+        ax_acf.set_title("Residual Temporal Autocorrelation", fontsize=12, fontweight='bold')
+        ax_acf.set_xlabel("Lag (s)")
+        ax_acf.set_ylabel("Autocorrelation")
+        ax_acf.set_ylim([-0.5, 0.5])
+        ax_acf.legend(loc="upper right")
+
+        plt.show()
+
+        # 3. Return aggregated metric outputs
+        return {
+            "residuals": res_data,
+            "time_rescaling": tr_data,
+            "autocorrelation": acf_data,
+        }
+    
 class KernelFactory:
 
     @staticmethod
@@ -459,27 +647,21 @@ class ModelComparator:
         model_null: PoissonProcess, 
         model_alt: PoissonProcess
     ) -> Dict[str, Union[str, int, float, bool]]:
-        """
-        Performs a Likelihood Ratio Test (LRT) between two nested Poisson Process models.
-        """
+
+
+        is_nested = model_alt.kernel.is_nested_in(model_null.kernel)
+        if not is_nested:
+            raise ValueError(f"Models are not nested.")
+
         k_null = len(model_null.params_)
         k_alt = len(model_alt.params_)
-
-        if k_alt <= k_null:
-            raise ValueError(
-                f"LRT requires the alternative model to have more parameters than the null model. "
-                f"Got k_null={k_null}, k_alt={k_alt}."
-            )
+        df = k_alt - k_null
 
         ll_null = model_null.log_likelihood
         ll_alt = model_alt.log_likelihood
-
-        # LRT Statistic: D = 2 * (LL_alt - LL_null)
         lr_stat = 2.0 * (ll_alt - ll_null)
-        
-        # Ensure numerical safety if optimization converged slightly off
         lr_stat_clamped = max(0.0, lr_stat)
-        df = k_alt - k_null
+        
         p_val = float(chi2.sf(lr_stat_clamped, df))
 
         return {
@@ -550,7 +732,6 @@ class ModelComparator:
                 "Params (k)": len(kernel.param_names),
                 "Log-Likelihood": model.log_likelihood,
                 "AIC": model.aic,
-                "BIC": model.bic,
                 "Converged": model.fit_result.success
             })
 
