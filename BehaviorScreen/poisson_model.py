@@ -141,6 +141,9 @@ class RateKernel:
         target_shape = np.broadcast(t, trial).shape
         return np.broadcast_to(rate, target_shape)
 
+    def is_nested_in(self, parent_kernel: "RateKernel") -> bool:
+        return set(parent_kernel.param_names).issubset(set(self.param_names))
+
 
 class PoissonProcess:
     """
