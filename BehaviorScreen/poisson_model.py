@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import gc
 
+import joblib
 from scipy.integrate import trapezoid
 from scipy.optimize import minimize
 from scipy.stats import chi2, norm, kstest
@@ -17,21 +18,97 @@ from megabouts.utils import bouts_category_name_short
 
 @dataclass(frozen=True)
 class PoissonDataset:
-    bout_name: str
-    laterality: str
-    event_times: np.ndarray
-    event_trials: np.ndarray
-    unique_trials: np.ndarray
-    t_grid: np.ndarray
-    dt: float
-    trial_edges: np.ndarray             # Shape: (N_trials + 1,)
-    t_centers: np.ndarray               # Shape: (N_time_bins,)
-    num_fish: int
-    n_fish_per_trial: np.ndarray        # Shape: (N_trials,) 
-    time_histogram_counts: np.ndarray   # Shape: (N_time_bins,) 
-    time_histogram_hz: np.ndarray       # Shape: (N_time_bins,) 
-    time_trial_histogram_counts: np.ndarray # Shape: (N_trials, N_time_bins) 
-    time_trial_histogram_hz: np.ndarray # Shape: (N_trials, N_time_bins) 
+    event_times: np.ndarray             
+    event_trials: np.ndarray            
+    event_fish_idx: np.ndarray          
+    fish_trial_mask: np.ndarray
+
+    bout_name: str = ""
+    laterality: str = ""
+    unique_trials: np.ndarray = None
+    t_start: float = 0.0
+    t_end: float = 24.0
+    dt: float = 0.02
+
+    @property
+    def num_fish(self) -> int:
+        return self.fish_trial_mask.shape[0]
+
+    @property
+    def num_trials(self) -> int:
+        return self.fish_trial_mask.shape[1]
+
+    @property
+    def t_grid(self) -> np.ndarray:
+        return np.arange(self.t_start, self.t_end + self.dt, self.dt)
+
+    @property
+    def t_centers(self) -> np.ndarray:
+        return 0.5 * (self.t_grid[:-1] + self.t_grid[1:])
+
+    @property
+    def trial_edges(self) -> np.ndarray:
+        return np.arange(self.num_trials + 1) - 0.5
+
+    @property
+    def n_fish_per_trial(self) -> np.ndarray:
+        return self.fish_trial_mask.sum(axis=0).astype(float)
+
+    @property
+    def time_histogram_counts(self) -> np.ndarray:
+        counts, _ = np.histogram(self.event_times, bins=self.t_grid)
+        return counts
+
+    @property
+    def time_histogram_hz(self) -> np.ndarray:
+        total_exposure_time = np.sum(self.n_fish_per_trial) * self.dt
+        if total_exposure_time == 0:
+            return np.zeros_like(self.time_histogram_counts, dtype=float)
+        return self.time_histogram_counts / total_exposure_time
+
+    @property
+    def time_trial_histogram_counts(self) -> np.ndarray:
+        trial_edges = np.append(self.unique_trials - 0.5, self.unique_trials[-1] + 0.5)
+        counts, _, _ = np.histogram2d(
+            self.event_trials,
+            self.event_times,
+            bins=[trial_edges, self.t_grid]
+        )
+        return counts
+
+    @property
+    def time_trial_histogram_hz(self) -> np.ndarray:
+        counts = self.time_trial_histogram_counts
+        n_fish = self.n_fish_per_trial[:, None]
+        safe_denom = np.where(n_fish > 0, n_fish * self.dt, 1.0)
+        return np.where(n_fish > 0, counts / safe_denom, 0.0)
+    
+    def resample(self, rng: np.random.Generator) -> 'PoissonDataset':
+        n_fish = self.fish_trial_mask.shape[0]
+        boot_fish_idx = rng.choice(n_fish, size=n_fish, replace=True)
+
+        boot_times = []
+        boot_trials = []
+        boot_fish = []
+
+        for new_id, orig_id in enumerate(boot_fish_idx):
+            mask = (self.event_fish_idx == orig_id)
+            if np.any(mask):
+                boot_times.append(self.event_times[mask])
+                boot_trials.append(self.event_trials[mask])
+                boot_fish.append(np.full(np.sum(mask), new_id, dtype=int))
+
+        return PoissonDataset(
+            event_times=np.concatenate(boot_times) if boot_times else np.array([]),
+            event_trials=np.concatenate(boot_trials) if boot_trials else np.array([]),
+            event_fish_idx=np.concatenate(boot_fish) if boot_fish else np.array([]),
+            fish_trial_mask=self.fish_trial_mask[boot_fish_idx, :],
+            t_start=self.t_start,
+            t_end=self.t_end,
+            bout_name=self.bout_name,
+            laterality=self.laterality,
+            unique_trials=self.unique_trials
+        )
 
 
 class BehavioralDataLoader:
@@ -41,7 +118,7 @@ class BehavioralDataLoader:
     def prepare_dataset(
         self,
         bout_name: str,
-        laterality: Laterality,
+        laterality: Union[Laterality, str],
         stim: Optional[Union[Stim, str]] = None,
         epoch_name: Optional[Union[str, List[str]]] = None,
         dt: float = 0.02,
@@ -49,41 +126,38 @@ class BehavioralDataLoader:
         t_end: float = 24.0,
     ) -> PoissonDataset:
 
-        # 1. Filter by stimulus or epoch_name
+        # 1. Filter sub_df by stimulus or epoch_name
         sub_df = self.raw_df
         if stim is not None:
             sub_df = sub_df[sub_df['stim'] == stim]
-
-            # handle special cases
-            if stim == Stim.PHOTOTAXIS:
+            if stim == Stim.PHOTOTAXIS or stim == 'phototaxis':
                 sub_df = sub_df[sub_df['foreground_color'] == '[0.1, 0.1, 0.0, 1.0]']
-
         elif epoch_name is not None:
             if isinstance(epoch_name, list):
                 sub_df = sub_df[sub_df['epoch_name'].isin(epoch_name)]
             else:
                 sub_df = sub_df[sub_df['epoch_name'] == epoch_name]
-
         else:
             raise ValueError("Either 'stim' or 'epoch_name' must be provided to filter dataset.")
 
-        # get numbers
+        # 2. Extract metadata & build integer index mappings
+        all_fish_ids = np.sort(sub_df['file'].unique())
         unique_trials = np.sort(sub_df['trial_num'].unique())
-        num_fish = sub_df['file'].nunique()
-        num_file_trials = len(sub_df[['file', 'trial_num']].drop_duplicates())
-        n_fish_per_trial = (
-            sub_df.groupby('trial_num')['file']
-            .nunique()
-            .reindex(unique_trials, fill_value=1)
-            .values
-        )
 
-        # make grids
-        t_grid = np.arange(t_start, t_end + dt, dt)
-        t_centers = 0.5 * (t_grid[:-1] + t_grid[1:])
-        trial_edges = np.append(unique_trials - 0.5, unique_trials[-1] + 0.5)
+        fish_map = {f_id: idx for idx, f_id in enumerate(all_fish_ids)}
+        trial_map = {t_num: idx for idx, t_num in enumerate(unique_trials)}
 
-        # filter events (strictly inside [t_start, t_end) to prevent edge bin leaks)
+        # 3. Build (N_fish, N_trials) boolean presence matrix
+        n_fish = len(all_fish_ids)
+        n_trials = len(unique_trials)
+        fish_trial_mask = np.zeros((n_fish, n_trials), dtype=bool)
+
+        active_pairs = sub_df[['file', 'trial_num']].drop_duplicates()
+        f_indices = active_pairs['file'].map(fish_map).values
+        t_indices = active_pairs['trial_num'].map(trial_map).values
+        fish_trial_mask[f_indices, t_indices] = True
+
+        # 4. Filter target events
         bout_idx = bouts_category_name_short.index(bout_name)
         is_target_event = (
             (sub_df['category'] == bout_idx) & 
@@ -96,36 +170,23 @@ class BehavioralDataLoader:
         )
         events = sub_df[event_mask]
 
-        # time histogram
-        hist_counts, _ = np.histogram(events['trial_time'].values, bins=t_grid)
-        hist_hz = hist_counts / (num_file_trials * dt) if num_file_trials > 0 else np.zeros_like(hist_counts, dtype=float)
-
-        # time x trial histogram
-        time_trial_histogram_counts, _, _ = np.histogram2d(
-            events['trial_num'].values,
-            events['trial_time'].values,
-            bins=[trial_edges, t_grid]
-        )
-        time_trial_histogram_hz = time_trial_histogram_counts / (n_fish_per_trial[:, None] * dt)
+        # 5. Extract event arrays as integer indices & floats
+        event_times = (events['trial_time'] - t_start).values.astype(float)
+        event_trials = events['trial_num'].map(trial_map).values.astype(int)
+        event_fish_idx = events['file'].map(fish_map).values.astype(int)
 
         return PoissonDataset(
+            event_times=event_times,
+            event_trials=event_trials,
+            event_fish_idx=event_fish_idx,
+            fish_trial_mask=fish_trial_mask,
+            t_start=t_start,
+            t_end=t_end,
+            dt=dt,
             bout_name=bout_name,
             laterality=str(laterality),
-            event_times=(events['trial_time'] - t_start).values,
-            event_trials=events['trial_num'].values,
             unique_trials=unique_trials,
-            t_grid=t_grid,
-            dt=dt,
-            t_centers=t_centers,
-            trial_edges=trial_edges,
-            num_fish=num_fish,
-            n_fish_per_trial=n_fish_per_trial,
-            time_histogram_counts=hist_counts,
-            time_histogram_hz=hist_hz,
-            time_trial_histogram_counts=time_trial_histogram_counts,
-            time_trial_histogram_hz=time_trial_histogram_hz,
         )
-
 
 @dataclass(frozen=True)
 class RateKernel:
@@ -145,6 +206,16 @@ class RateKernel:
         return set(parent_kernel.param_names).issubset(set(self.param_names))
 
 
+def _fit_single_bootstrap(seed_seq, dataset, kernel):
+    rng = np.random.default_rng(seed_seq)
+    ds_boot = dataset.resample(rng)
+    boot_model = PoissonProcess(kernel)
+    try:
+        boot_model.fit(ds_boot)
+        return boot_model.params_
+    except Exception:
+        return None
+    
 class PoissonProcess:
     """
     Maximum Likelihood Estimator for Homogeneous and Inhomogeneous Poisson Processes.
@@ -224,6 +295,48 @@ class PoissonProcess:
         self.params_ = res.x
         self.param_dict_ = dict(zip(self.kernel.param_names, res.x))
         return self
+
+    def bootstrap(
+        self,
+        dataset: PoissonDataset,
+        n_boot: int = 500,
+        seed: int = 42,
+        ci: float = 95.0,
+        n_jobs: int = -1,  # -1 uses all available CPU cores
+    ) -> pd.DataFrame:
+
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before running bootstrap.")
+
+        seeds = np.random.SeedSequence(seed).spawn(n_boot)
+
+        boot_results = joblib.Parallel(n_jobs=n_jobs)(
+            joblib.delayed(_fit_single_bootstrap)(s, dataset, self.kernel)
+            for s in seeds
+        )
+        
+        valid_boot_params = [p for p in boot_results if p is not None]
+        if len(valid_boot_params) == 0:
+            raise RuntimeError("All bootstrap optimization attempts failed.")
+
+        boot_params = np.array(valid_boot_params)
+
+        alpha = (100.0 - ci) / 2.0
+        return pd.DataFrame(
+            [
+                {
+                    "parameter": name,
+                    "fitted_val": self.params_[i],
+                    "boot_mean": np.mean(boot_params[:, i]),
+                    "boot_std": np.std(boot_params[:, i]),
+                    f"ci_{alpha:.1f}%": np.percentile(boot_params[:, i], alpha),
+                    f"ci_{100-alpha:.1f}%": np.percentile(
+                        boot_params[:, i], 100 - alpha
+                    ),
+                }
+                for i, name in enumerate(self.kernel.param_names)
+            ]
+        )
 
     def predict(self, t: np.ndarray, trial: Union[float, np.ndarray]) -> np.ndarray:
         """Predicts expected rate intensity lambda(t, trial) per single trial observation."""
@@ -452,36 +565,64 @@ class KernelFactory:
         )
 
     @staticmethod
-    def prey_capture_time_only(stim_freq: float) -> RateKernel:
+    def prey_capture(stim_freq: float, plasticity: Optional[str] = None) -> RateKernel:
+        key = (plasticity or "").lower().replace(" ", "")
+
+        # Lookup table: (suffix, alpha_names, extractor_fn, latex_formula)
+        PRESETS = {
+            "": (
+                "TimeOnly",
+                [],
+                lambda p: (0.0, 0.0, 0.0),
+                r"$\lambda(t, m) = A e^{-t/\tau} + B + \text{Ripple}(t)$",
+            ),
+            "shared": (
+                "Shared",
+                ["alpha_shared"],
+                lambda p: (p[0], p[0], p[0]),
+                r"$\lambda(t, m) = \left[ A e^{-t/\tau} + B + \text{Ripple}(t) \right] e^{\alpha m}$",
+            ),
+            "rate_shared": (
+                "RateShared",
+                ["alpha_rate"],
+                lambda p: (p[0], p[0], 0.0),
+                r"$\lambda(t, m) = \left[ A e^{-t/\tau} + B \right] e^{\alpha_{\text{rate}} m} + \text{Ripple}(t)$",
+            ),
+            "rate_shared,gamma": (
+                "RateShared_Gamma",
+                ["alpha_rate", "alpha_gamma"],
+                lambda p: (p[0], p[0], p[1]),
+                r"$\lambda(t, m) = \left[ A e^{-t/\tau} + B \right] e^{\alpha_{\text{rate}} m} + \text{Ripple}(t) e^{\alpha_\gamma m}$",
+            ),
+        }
+
+        if key in PRESETS:
+            suffix, alpha_names, get_alphas, latex = PRESETS[key]
+        else:
+            active_terms = [t for t in ["a", "b", "gamma"] if t in key.split(",")]
+            alpha_names = [f"alpha_{'gamma' if t == 'gamma' else t.upper()}" for t in active_terms]
+            suffix = "_".join(n.replace("alpha_", "") for n in alpha_names) or "TimeOnly"
+
+            def get_alphas(p, names=alpha_names):
+                p_map = dict(zip(names, p))
+                return p_map.get("alpha_A", 0.0), p_map.get("alpha_B", 0.0), p_map.get("alpha_gamma", 0.0)
+
+            # Dynamic formula construction for term combinations
+            t_A = r"A e^{-t/\tau}" + (r" e^{\alpha_A m}" if "alpha_A" in alpha_names else "")
+            t_B = r"B" + (r" e^{\alpha_B m}" if "alpha_B" in alpha_names else "")
+            t_g = r"\text{Ripple}(t)" + (r" e^{\alpha_\gamma m}" if "alpha_gamma" in alpha_names else "")
+            latex = rf"$\lambda(t, m) = {t_A} + {t_B} + {t_g}$"
+
+        # Parameter setup
+        names = ["A", "tau", "B", "b1", "b2", "b3", "b4"] + alpha_names
+        n_alphas = len(alpha_names)
+        guesses = [0.56, 1.15, 0.40, 0.0, 0.0, 0.0, 0.0] + [-0.05] * n_alphas
+        bounds = [(0.01, 10.0), (0.1, 5.0), (0.01, 5.0)] + [(-5.0, 5.0)] * 4 + [(-2.0, 2.0)] * n_alphas
+
         def _func(t, trial, params):
-            A, tau, B, b1, b2, b3, b4 = params
-            w = 2.0 * np.pi * stim_freq
-            phase = w * t
+            A, tau, B, b1, b2, b3, b4 = params[:7]
+            a_A, a_B, a_g = get_alphas(params[7:])
 
-            transient = A * np.exp(-t / tau)
-            baseline = B
-            phase_ripple = (
-                b1 * np.sin(phase) + b2 * np.cos(phase) +
-                b3 * np.sin(2.0 * phase) + b4 * np.cos(2.0 * phase)
-            )
-            return transient + baseline + phase_ripple
-
-        return RateKernel(
-            name="Prey Capture Time-Only λ(t)",
-            func=_func,
-            param_names=["A", "tau", "B", "b1", "b2", "b3", "b4"],
-            initial_guesses=[0.56, 1.15, 0.40, 0.0, 0.0, 0.0, 0.0],
-            bounds=[
-                (0.01, 10.0), (0.1, 5.0), (0.01, 5.0),
-                (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0)
-            ],
-            latex_formula=r"$\lambda(t) = A e^{-t/\tau} + B + \sum_{n=1}^2 \left(b_{2n-1}\sin(n\omega t) + b_{2n}\cos(n\omega t)\right)$",
-        )
-
-    @staticmethod
-    def prey_capture_exp(stim_freq: float) -> RateKernel:
-        def _func(t, trial, params):
-            A, tau, B, b1, b2, b3, b4, a_A, a_B, a_g = params
             w = 2.0 * np.pi * stim_freq
             phase = w * t
 
@@ -495,16 +636,12 @@ class KernelFactory:
             return transient + baseline + phase_ripple
 
         return RateKernel(
-            name="Prey Capture exp decay λ(t, m)",
+            name=f"PreyCapture({suffix})",
             func=_func,
-            param_names=["A", "tau", "B", "b1", "b2", "b3", "b4", "alpha_A", "alpha_B", "alpha_gamma"],
-            initial_guesses=[0.56, 1.15, 0.40, 0.0, 0.0, 0.0, 0.0, -0.05, -0.05, -0.05],
-            bounds=[
-                (0.01, 10.0), (0.1, 5.0), (0.01, 5.0),
-                (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0), (-5.0, 5.0),
-                (-2.0, 2.0), (-2.0, 2.0), (-2.0, 2.0)
-            ],
-            latex_formula=r"$\lambda(t, m) = A e^{-t/\tau} e^{\alpha_A m} + B e^{\alpha_B m} + \left[ \sum_{n=1}^{2} \left( b_{2n-1} \sin(n \omega t) + b_{2n} \cos(n \omega t) \right) \right] e^{\alpha_\gamma m}$",
+            param_names=names,
+            initial_guesses=guesses,
+            bounds=bounds,
+            latex_formula=latex,
         )
 
     @staticmethod
@@ -981,8 +1118,12 @@ if __name__ == '__main__':
             },
             'kernels': [
                 KernelFactory.homogeneous_poisson(),
-                KernelFactory.prey_capture_time_only(stim_freq=prey_stim_freq),
-                KernelFactory.prey_capture_exp(stim_freq=prey_stim_freq),
+                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity=None),
+                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A"),
+                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B"),
+                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="rate_shared,gamma"),
+                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="shared"),
+                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma"),
             ]
         },
 
@@ -1170,11 +1311,11 @@ if __name__ == '__main__':
         print("\n--- MODEL COMPARISON TABLE ---")
         print(summary_table.to_string(index=False))
 
-        # C. Sequential Likelihood Ratio Tests (if multiple models are compared)
-        if len(config['kernels']) > 1:
-            lrt_table = ModelComparator.sequential_lrt(fitted_models)
-            print("\n--- SEQUENTIAL LIKELIHOOD RATIO TESTS ---")
-            print(lrt_table.to_string(index=False))
+        # # C. Sequential Likelihood Ratio Tests (if multiple models are compared)
+        # if len(config['kernels']) > 1:
+        #     lrt_table = ModelComparator.sequential_lrt(fitted_models)
+        #     print("\n--- SEQUENTIAL LIKELIHOOD RATIO TESTS ---")
+        #     print(lrt_table.to_string(index=False))
 
         # D. Visualizations
         fig1, ax1 = PoissonVisualizer.plot_model_fits(
