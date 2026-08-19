@@ -240,7 +240,7 @@ class PoissonProcess:
         k = len(self.params_)
         return 2 * k - 2 * self.log_likelihood
 
-    def compute_binned_residuals(self, dataset: PoissonDataset) -> Dict[str, np.ndarray]:
+    def binned_residuals(self, dataset: PoissonDataset) -> Dict[str, np.ndarray]:
         """Calculates 2D Pearson and Deviance residual matrices (Trial x Time)."""
         if self.params_ is None:
             raise ValueError("Model must be fitted before computing residuals.")
@@ -266,7 +266,7 @@ class PoissonProcess:
             "deviance_residuals": deviance_res,
         }
 
-    def compute_time_rescaling(self, dataset: PoissonDataset) -> Dict[str, Any]:
+    def time_rescaling(self, dataset: PoissonDataset) -> Dict[str, Any]:
         """Applies Time-Rescaling Theorem with fish-count scaling for pooled trial events."""
         if self.params_ is None:
             raise ValueError("Model must be fitted before running time-rescaling analysis.")
@@ -312,7 +312,7 @@ class PoissonProcess:
             "ks_pval": ks_pval,
         }
 
-    def compute_autocorrelation(
+    def autocorrelation(
         self, 
         deviance_res: np.ndarray, 
         dt: float, 
@@ -349,9 +349,9 @@ class PoissonProcess:
         """Plots the 4-panel diagnostic dashboard by executing separate analysis methods."""
         
         # 1. Execute sub-analyses
-        res_data = self.compute_binned_residuals(dataset)
-        tr_data = self.compute_time_rescaling(dataset)
-        acf_data = self.compute_autocorrelation(res_data["deviance_residuals"], dataset.dt, max_acf_lags)
+        res_data = self.binned_residuals(dataset)
+        tr_data = self.time_rescaling(dataset)
+        acf_data = self.autocorrelation(res_data["deviance_residuals"], dataset.dt, max_acf_lags)
 
         deviance_res = res_data["deviance_residuals"]
 
@@ -439,16 +439,16 @@ class KernelFactory:
     @staticmethod
     def homogeneous_poisson() -> RateKernel:
         def _func(t, trial, params):
-            mu = params[0]
-            return mu * np.ones_like(t + 0.0 * trial)
+            B = params[0]
+            return B * np.ones_like(t + 0.0 * trial)
 
         return RateKernel(
             name="Homogeneous Poisson λ()",
             func=_func,
-            param_names=["μ"],
+            param_names=["B"],
             initial_guesses=[0.5],
             bounds=[(0.001, 20.0)],
-            latex_formula=r"$\lambda = \mu$",
+            latex_formula=r"$\lambda = B$",
         )
 
     @staticmethod
@@ -1196,7 +1196,9 @@ if __name__ == '__main__':
             dataset=dataset,
             model=best_model,
         )
-        plt.show(block=True)
+        plt.show(block=False)
+
+        best_model.diagnose(dataset)
 
         del dataset
         del fitted_models
