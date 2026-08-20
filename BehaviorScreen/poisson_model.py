@@ -6,7 +6,7 @@ import pandas as pd
 import gc
 
 import joblib
-from scipy.integrate import trapezoid
+from scipy.integrate import trapezoid, cumulative_trapezoid
 from scipy.optimize import minimize
 from scipy.stats import chi2, norm, kstest
 import matplotlib.pyplot as plt
@@ -228,6 +228,38 @@ class RateKernel:
             # Preserve scalar input shape if a scalar trial was passed
             return integrals if np.iterable(trial) else integrals[0]
 
+    def cumulative_integrate(
+        self, 
+        t_start: float, 
+        t_events: np.ndarray, 
+        trial: Union[float, int], 
+        params: List[float], 
+        dt: float = 0.02
+    ) -> np.ndarray:
+        """
+        Computes cumulative integrated intensity Lambda(t_k) at specific event timestamps.
+        Used primarily for Time-Rescaling diagnostic transforms.
+        """
+        if len(t_events) == 0:
+            return np.array([], dtype=float)
+
+        # 1. Analytical route: use numpy vectorization for t_end
+        if self.integral_func is not None:
+            return self.integral_func(t_start, t_events, trial, params)
+
+        # 2. Numerical fallback using cumulative trapezoid
+        t_max = np.max(t_events)
+        if t_max <= t_start:
+            return np.zeros_like(t_events, dtype=float)
+
+        t_grid = np.arange(t_start, t_max + dt, dt)
+        trials_2d = np.atleast_1d(trial)[:, None]
+        rate_surface = np.maximum(self.evaluate(t_grid[None, :], trials_2d, params), 1e-9)
+
+        # Compute continuous cumulative surface & interpolate exact event timestamps
+        cum_integral = cumulative_trapezoid(rate_surface, t_grid, initial=0.0, axis=1)[0]
+        return np.interp(t_events, t_grid, cum_integral)
+
     def is_nested_in(self, parent_kernel: "RateKernel") -> bool:
         return set(parent_kernel.param_names).issubset(set(self.param_names))
 
@@ -391,7 +423,7 @@ class PoissonProcess:
             "deviance_residuals": deviance_res,
         }
 
-    def time_rescaling(self, dataset: PoissonDataset) -> Dict[str, Any]:
+    def time_rescaling(self, dataset: PoissonDataset, dt: float = 0.02) -> Dict[str, Any]:
         """Applies Time-Rescaling Theorem with fish-count scaling for pooled trial events."""
         if self.params_ is None:
             raise ValueError("Model must be fitted before running time-rescaling analysis.")
@@ -405,18 +437,15 @@ class PoissonProcess:
             if len(t_ev) == 0:
                 continue
 
-            # Add tiny jitter (1e-6) to resolve identical timestamps from simultaneous fish events
-            if len(t_ev) > 1 and np.any(np.diff(t_ev) == 0):
-                t_ev = t_ev + np.random.uniform(0, 1e-6, size=len(t_ev))
-                t_ev = np.sort(t_ev)
-
             # Scale intensity by n_fish_per_trial for pooled trial events
             n_fish = dataset.n_fish_per_trial[idx]
-            r_grid = self.predict(dataset.t_centers, m) * n_fish
-            cum_lambda = np.insert(np.cumsum(r_grid * dataset.dt), 0, 0.0)
-
-            # Interpolate integrated rate Λ(t) at exact event times
-            lambda_ev = np.interp(t_ev, dataset.t_grid, cum_lambda)
+            lambda_ev = self.kernel.cumulative_integrate(
+                t_start=dataset.t_start,
+                t_events=t_ev,
+                trial=m,
+                params=self.params_,
+                dt=dt
+            ) * n_fish
 
             # Rescaled intervals τ_k = Λ(t_k) - Λ(t_{k-1})
             tau_k = np.diff(np.insert(lambda_ev, 0, 0.0))
