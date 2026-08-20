@@ -105,6 +105,7 @@ class PoissonDataset:
             fish_trial_mask=self.fish_trial_mask[boot_fish_idx, :],
             t_start=self.t_start,
             t_end=self.t_end,
+            dt=self.dt,
             bout_name=self.bout_name,
             laterality=self.laterality,
             unique_trials=self.unique_trials
@@ -196,11 +197,36 @@ class RateKernel:
     initial_guesses: List[float]
     bounds: List[Tuple[Optional[float], Optional[float]]]
     latex_formula: str = ""
+    integral_func: Optional[Callable[[float, float, np.ndarray, List[float]], np.ndarray]] = None
 
     def evaluate(self, t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
         rate = self.func(t, trial, params)            
         target_shape = np.broadcast(t, trial).shape
         return np.broadcast_to(rate, target_shape)
+
+    def integrate(
+            self, 
+            t_start: float, 
+            t_end: float, 
+            trial: np.ndarray, 
+            params: List[float], 
+            dt: float = 0.02
+        ) -> np.ndarray:
+            
+            if self.integral_func is not None:
+                return self.integral_func(t_start, t_end, trial, params)
+
+            t_grid = np.arange(t_start, t_end + dt, dt)
+            t_2d = t_grid[None, :]                     # Shape: (1, N_time)
+            trials_2d = np.atleast_1d(trial)[:, None]  # Shape: (N_trials, 1)
+
+            rate_surface = self.evaluate(t_2d, trials_2d, params)
+            rate_surface = np.maximum(rate_surface, 1e-9)
+
+            integrals = trapezoid(rate_surface, dx=dt, axis=1)
+
+            # Preserve scalar input shape if a scalar trial was passed
+            return integrals if np.iterable(trial) else integrals[0]
 
     def is_nested_in(self, parent_kernel: "RateKernel") -> bool:
         return set(parent_kernel.param_names).issubset(set(self.param_names))
@@ -227,21 +253,31 @@ class PoissonProcess:
         self.param_dict_: Dict[str, float] = {}
         self.n_events_: int = 0
 
-    def _nll(self, params, t_events, trial_events, unique_trials, t_grid, n_fish_per_trial, dt):
+    def _nll(
+            self, 
+            params: List[float], 
+            t_events: np.ndarray, 
+            trial_events: np.ndarray, 
+            unique_trials: np.ndarray, 
+            n_fish_per_trial: np.ndarray, 
+            t_start: float, 
+            t_end: float, 
+            dt: float
+        ):
+        
         # Term 1: Sum of Log Intensity at Observed Events
         event_rates = self.kernel.evaluate(t_events, trial_events, params)
         event_rates = np.maximum(event_rates, 1e-9)
         sum_log_rates = np.sum(np.log(event_rates))
 
         # Term 2: Expected Total Events (Surface Integration over Time)
-        t_2d = t_grid[None, :]               # Shape: (1, N_time)
-        trials_2d = unique_trials[:, None]   # Shape: (N_trials, 1)
-
-        rate_surface = self.kernel.evaluate(t_2d, trials_2d, params)
-        rate_surface = np.maximum(rate_surface, 1e-9)
-
-        # Fast uniform trapezoidal integration along time axis (axis=1)
-        trial_integrals = trapezoid(rate_surface, dx=dt, axis=1)
+        trial_integrals = self.kernel.integrate(
+            t_start=t_start, 
+            t_end=t_end, 
+            trial=unique_trials, 
+            params=params, 
+            dt=dt
+        )
         
         # Scale expected events by trial-specific observing fish count
         total_expected_events = np.sum(trial_integrals * n_fish_per_trial)
@@ -250,42 +286,18 @@ class PoissonProcess:
 
     def fit(
         self, 
-        dataset_or_t_events: Union[PoissonDataset, np.ndarray], 
-        trial_events: Optional[np.ndarray] = None, 
-        unique_trials: Optional[np.ndarray] = None, 
-        t_grid: Optional[np.ndarray] = None, 
-        n_fish_per_trial: Optional[np.ndarray] = None,
+        dataset: PoissonDataset, 
+        dt: float = 0.02,
         method: str = 'L-BFGS-B', 
         **kwargs
     ):
-        """
-        Fits kernel parameters to event data.
-        Accepts either a PoissonDataset instance OR raw NumPy arrays.
-        """
-        if isinstance(dataset_or_t_events, PoissonDataset):
-            ds = dataset_or_t_events
-            t_events = ds.event_times
-            trial_events = ds.event_trials
-            unique_trials = ds.unique_trials
-            t_grid = ds.t_grid
-            dt = ds.dt
-            n_fish_per_trial = ds.n_fish_per_trial
-        else:
-            t_events = dataset_or_t_events
-            if trial_events is None or unique_trials is None or t_grid is None:
-                raise ValueError(
-                    "When passing raw arrays to .fit(), trial_events, unique_trials, and t_grid must be provided."
-                )
-            dt = float(np.diff(t_grid)[0])
-            if n_fish_per_trial is None:
-                n_fish_per_trial = np.ones_like(unique_trials, dtype=float)
 
-        self.n_events_ = len(t_events)
+        self.n_events_ = len(dataset.event_times)
 
         res = minimize(
             self._nll,
             x0=self.kernel.initial_guesses,
-            args=(t_events, trial_events, unique_trials, t_grid, n_fish_per_trial, dt),
+            args=(dataset.event_times, dataset.event_trials, dataset.unique_trials, dataset.n_fish_per_trial, dataset.t_start, dataset.t_end, dt),
             method=method,
             bounds=self.kernel.bounds,
             **kwargs
@@ -812,25 +824,6 @@ class ModelComparator:
             "Significant (α=0.05)": p_val < 0.05
         }
 
-    @staticmethod
-    def sequential_lrt(
-        fitted_models: Dict[str, PoissonProcess]
-    ) -> pd.DataFrame:
-        """
-        Runs sequential LRT comparisons across an ordered chain of nested models.
-        Assumes models are passed in ascending order of complexity.
-        """
-        model_items = list(fitted_models.items())
-        results = []
-
-        for i in range(len(model_items) - 1):
-            _, m_null = model_items[i]
-            _, m_alt = model_items[i + 1]
-
-            res = ModelComparator.likelihood_ratio_test(m_null, m_alt)
-            results.append(res)
-
-        return pd.DataFrame(results)
 
     @staticmethod
     def compare(
@@ -1296,10 +1289,8 @@ if __name__ == '__main__':
         print(f" PROCESSING EXPERIMENT: {exp_name.upper()}")
         print(f"==================================================")
 
-        # A. Prepare Dataset
         dataset = loader.prepare_dataset(**config['dataset'])
 
-        # B. Run Model Comparison
         summary_table, fitted_models = ModelComparator.compare(
             kernels=config['kernels'],
             dataset_or_t_events=dataset
@@ -1311,13 +1302,6 @@ if __name__ == '__main__':
         print("\n--- MODEL COMPARISON TABLE ---")
         print(summary_table.to_string(index=False))
 
-        # # C. Sequential Likelihood Ratio Tests (if multiple models are compared)
-        # if len(config['kernels']) > 1:
-        #     lrt_table = ModelComparator.sequential_lrt(fitted_models)
-        #     print("\n--- SEQUENTIAL LIKELIHOOD RATIO TESTS ---")
-        #     print(lrt_table.to_string(index=False))
-
-        # D. Visualizations
         fig1, ax1 = PoissonVisualizer.plot_model_fits(
             dataset=dataset,
             models=fitted_models,
