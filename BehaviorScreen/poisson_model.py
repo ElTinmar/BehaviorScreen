@@ -470,7 +470,7 @@ class PoissonProcess:
                 fish_mask = trial_mask & (dataset.event_fish_idx == f_idx)
                 t_ev = np.sort(dataset.event_times[fish_mask])
 
-                if len(t_ev) < 2:
+                if len(t_ev) == 0:
                     continue
 
                 Lambda = self.kernel.cumulative_integrate(
@@ -500,7 +500,7 @@ class PoissonProcess:
         # autocorrelation
         lags, acf, conf_limit = autocorrelation(pooled_z, acf_lags)
         
-        # 2. Per-Fish D_n Distribution
+        # per-Fish D_n Distribution
         fish_dn_stats = []
         for f_idx, u_list in fish_u.items():
             if len(u_list) >= min_events_per_fish:
