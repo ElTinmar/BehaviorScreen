@@ -746,27 +746,30 @@ class KernelFactory:
     @staticmethod
     def phototaxis_ipsi() -> RateKernel:
         def _func(t, trial, params):
-            B, A_dip, A_peak, tau, alpha_B, alpha_transient = params
+            B, f_dip, A_peak, tau, alpha_B, alpha_peak = params
 
             mod_B = B * np.exp(alpha_B * trial)
-            transient = (A_peak * (t / tau) - A_dip) * np.exp(-t / tau) * np.exp(alpha_transient * trial)
+            mod_peak = A_peak * np.exp(alpha_peak * trial)
+            A_dip = f_dip * mod_B  
+
+            transient = (mod_peak * (t / tau) - A_dip) * np.exp(-t / tau)
 
             return mod_B + transient
 
         return RateKernel(
             name="Phototaxis Minimal Dip+Peak λ(t, m)",
             func=_func,
-            param_names=["B", "A_dip", "A_peak", "tau", "alpha_B", "alpha_transient"],
-            initial_guesses=[0.4, 0.2, 1.5, 0.2, 0.0, 0.0],
+            param_names=["B", "f_dip", "A_peak", "tau", "alpha_B", "alpha_peak"],
+            initial_guesses=[0.4, 0.5, 1.5, 0.2, 0.0, 0.0],
             bounds=[
-                (0.01, 5.0),   # B (baseline)
-                (0.0, 2.0),    # A_dip (depth below baseline at t=0)
-                (0.0, 10.0),   # A_peak (peak height factor)
-                (0.01, 2.0),   # tau (shared timescale for dip recovery & peak decay)
+                (0.01, 5.0),   # B
+                (0.0, 0.99),   # f_dip in [0, 0.99) guarantees positivity at t=0
+                (0.0, 10.0),   # A_peak
+                (0.01, 2.0),   # tau
                 (-0.2, 0.2),   # alpha_B
-                (-0.2, 0.2)    # alpha_transient (shared plasticity for transient shape)
+                (-0.2, 0.2)    # alpha_peak
             ],
-            latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} + \left(A_{\text{peak}} \frac{t}{\tau} - A_{\text{dip}}\right) e^{-t/\tau} e^{\alpha_{\text{transient}} m}$"
+            latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} + \left(A_{\text{peak}} e^{\alpha_{\text{peak}} m} \frac{t}{\tau} - f_{\text{dip}} B e^{\alpha_B m}\right) e^{-t/\tau}$"
         )
 
     @staticmethod
@@ -794,39 +797,39 @@ class KernelFactory:
     @staticmethod
     def omr_forward() -> RateKernel:
         def _func(t, trial, params):
-            B, A_dip, tau_dip = params
-
-            dip = A_dip * np.exp(-t / tau_dip)
-            return B - dip
+            B, f_dip, tau_dip = params
+            return B * (1.0 - f_dip * np.exp(-t / tau_dip))
 
         return RateKernel(
             name="OMR forward λ(t)",
             func=_func,
-            param_names=["B", "A_dip", "tau_dip"],
+            param_names=["B", "f_dip", "tau_dip"],
             initial_guesses=[0.4, 0.5, 0.5],
             bounds=[
-                (0.01, 5.0), (0.0, 5.0), (0.01, 5.0)
+                (0.01, 5.0), 
+                (0.0, 0.99), 
+                (0.01, 5.0)
             ],
-            latex_formula=r"$\lambda(t) = B - A_{\text{dip}} e^{-t/\tau_{\text{dip}}}$",
+            latex_formula=r"$\lambda(t) = B \left(1 - f_{\text{dip}} e^{-t/\tau_{\text{dip}}}\right)$",
         )
 
     @staticmethod
     def omr_lateral_contra() -> RateKernel:
         def _func(t, trial, params):
-            B, A_dip, tau_dip = params
-
-            dip = A_dip * np.exp(-t / tau_dip)
-            return B - dip
+            B, f_dip, tau_dip = params
+            return B * (1.0 - f_dip * np.exp(-t / tau_dip))
 
         return RateKernel(
             name="OMR lateral contra λ(t)",
             func=_func,
-            param_names=["B", "A_dip", "tau_dip"],
+            param_names=["B", "f_dip", "tau_dip"],
             initial_guesses=[0.4, 0.5, 0.5],
             bounds=[
-                (0.01, 5.0), (0.0, 5.0), (0.01, 5.0)
+                (0.01, 5.0), 
+                (0.0, 0.99), 
+                (0.01, 5.0)
             ],
-            latex_formula=r"$\lambda(t) = B - A_{\text{dip}} e^{-t/\tau_{\text{dip}}}$",
+            latex_formula=r"$\lambda(t) = B \left(1 - f_{\text{dip}} e^{-t/\tau_{\text{dip}}}\right)$",
         )
             
     @staticmethod
