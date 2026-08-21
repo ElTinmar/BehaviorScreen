@@ -667,31 +667,24 @@ class KernelFactory:
     def prey_capture(stim_freq: float, plasticity: Optional[str] = None) -> RateKernel:
         key = (plasticity or "").lower().replace(" ", "")
 
-        # Lookup table: (suffix, alpha_names, extractor_fn, latex_formula)
+        W_latex = r"\frac{1}{2}\left[\sin(\omega t + \phi_1) + \sin(2\omega t + \phi_2)\right]"
+
         PRESETS = {
             "": (
-                "TimeOnly",
-                [],
-                lambda p: (0.0, 0.0, 0.0),
-                r"$\lambda(t, m) = A e^{-t/\tau} + B + \text{Ripple}(t)$",
+                "TimeOnly", [], lambda p: (0.0, 0.0, 0.0),
+                rf"$\lambda(t, m) = \left(A e^{{-t/\tau}} + B\right) \left(1 + A_{{\text{{ripple}}}} {W_latex}\right)$",
             ),
             "shared": (
-                "Shared",
-                ["alpha_shared"],
-                lambda p: (p[0], p[0], p[0]),
-                r"$\lambda(t, m) = \left[ A e^{-t/\tau} + B + \text{Ripple}(t) \right] e^{\alpha m}$",
+                "Shared", ["alpha_shared"], lambda p: (p[0], p[0], p[0]),
+                rf"$\lambda(t, m) = \left(A e^{{-t/\tau}} + B\right) \left(1 + A_{{\text{{ripple}}}} {W_latex}\right) e^{{\alpha m}}$",
             ),
             "rate_shared": (
-                "RateShared",
-                ["alpha_rate"],
-                lambda p: (p[0], p[0], 0.0),
-                r"$\lambda(t, m) = \left[ A e^{-t/\tau} + B \right] e^{\alpha_{\text{rate}} m} + \text{Ripple}(t)$",
+                "RateShared", ["alpha_rate"], lambda p: (p[0], p[0], 0.0),
+                rf"$\lambda(t, m) = \left(A e^{{-t/\tau}} + B\right) e^{{\alpha_{{\text{{rate}}}} m}} \left(1 + A_{{\text{{ripple}}}} {W_latex}\right)$",
             ),
             "rate_shared,gamma": (
-                "RateShared_Gamma",
-                ["alpha_rate", "alpha_gamma"],
-                lambda p: (p[0], p[0], p[1]),
-                r"$\lambda(t, m) = \left[ A e^{-t/\tau} + B \right] e^{\alpha_{\text{rate}} m} + \text{Ripple}(t) e^{\alpha_\gamma m}$",
+                "RateShared_Gamma", ["alpha_rate", "alpha_gamma"], lambda p: (p[0], p[0], p[1]),
+                rf"$\lambda(t, m) = \left(A e^{{-t/\tau}} + B\right) e^{{\alpha_{{\text{{rate}}}} m}} \left(1 + A_{{\text{{ripple}}}} e^{{\alpha_\gamma m}} {W_latex}\right)$",
             ),
         }
 
@@ -706,33 +699,30 @@ class KernelFactory:
                 p_map = dict(zip(names, p))
                 return p_map.get("alpha_A", 0.0), p_map.get("alpha_B", 0.0), p_map.get("alpha_gamma", 0.0)
 
-            # Dynamic formula construction for term combinations
             t_A = r"A e^{-t/\tau}" + (r" e^{\alpha_A m}" if "alpha_A" in alpha_names else "")
             t_B = r"B" + (r" e^{\alpha_B m}" if "alpha_B" in alpha_names else "")
-            t_g = r"\text{Ripple}(t)" + (r" e^{\alpha_\gamma m}" if "alpha_gamma" in alpha_names else "")
-            latex = rf"$\lambda(t, m) = {t_A} + {t_B} + {t_g}$"
+            t_g = r"A_{\text{ripple}}" + (r" e^{\alpha_\gamma m}" if "alpha_gamma" in alpha_names else "")
+            latex = rf"$\lambda(t, m) = \left({t_A} + {t_B}\right) \left(1 + {t_g} {W_latex}\right)$"
 
-        # Parameter setup
-        names = ["A", "tau", "B", "b1", "b2", "b3", "b4"] + alpha_names
+        names = ["A", "tau", "B", "A_ripple", "phi1", "phi2"] + alpha_names
         n_alphas = len(alpha_names)
-        guesses = [0.56, 1.15, 0.40, 0.0, 0.0, 0.0, 0.0] + [-0.05] * n_alphas
-        bounds = [(0.01, 10.0), (0.1, 5.0), (0.01, 5.0)] + [(-5.0, 5.0)] * 4 + [(-2.0, 2.0)] * n_alphas
+        guesses = [0.56, 1.15, 0.40, 0.1, 0.0, 0.0] + [-0.05] * n_alphas
+        bounds = [(0.01, 10.0), (0.1, 5.0), (0.01, 5.0), (0.0, 0.99), (-np.pi, np.pi), (-np.pi, np.pi)] + [(-2.0, 2.0)] * n_alphas
 
         def _func(t, trial, params):
-            A, tau, B, b1, b2, b3, b4 = params[:7]
-            a_A, a_B, a_g = get_alphas(params[7:])
+            A, tau, B, A_ripple, phi1, phi2 = params[:6]
+            a_A, a_B, a_g = get_alphas(params[6:])
 
             w = 2.0 * np.pi * stim_freq
             phase = w * t
 
             transient = A * np.exp(-t / tau) * np.exp(a_A * trial)
             baseline = B * np.exp(a_B * trial)
-            phase_ripple = (
-                b1 * np.sin(phase) + b2 * np.cos(phase) +
-                b3 * np.sin(2.0 * phase) + b4 * np.cos(2.0 * phase)
-            ) * np.exp(a_g * trial)
+            
+            wave = 0.5 * (np.sin(phase + phi1) + np.sin(2.0 * phase + phi2))
+            ripple_mod = 1.0 + A_ripple * wave * np.exp(a_g * trial)
 
-            return transient + baseline + phase_ripple
+            return (transient + baseline) * ripple_mod
 
         return RateKernel(
             name=f"PreyCapture({suffix})",
