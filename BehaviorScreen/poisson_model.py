@@ -19,7 +19,7 @@ from megabouts.utils import bouts_category_name_short
 @dataclass(frozen=True)
 class PoissonDataset:
     event_times: np.ndarray             
-    event_trials: np.ndarray            
+    event_trials_idx: np.ndarray            
     event_fish_idx: np.ndarray          
     fish_trial_mask: np.ndarray
 
@@ -69,7 +69,7 @@ class PoissonDataset:
     def time_trial_histogram_counts(self) -> np.ndarray:
         trial_edges = np.append(self.unique_trials - 0.5, self.unique_trials[-1] + 0.5)
         counts, _, _ = np.histogram2d(
-            self.event_trials,
+            self.event_trials_idx,
             self.event_times,
             bins=[trial_edges, self.t_grid]
         )
@@ -94,12 +94,12 @@ class PoissonDataset:
             mask = (self.event_fish_idx == orig_id)
             if np.any(mask):
                 boot_times.append(self.event_times[mask])
-                boot_trials.append(self.event_trials[mask])
+                boot_trials.append(self.event_trials_idx[mask])
                 boot_fish.append(np.full(np.sum(mask), new_id, dtype=int))
 
         return PoissonDataset(
             event_times=np.concatenate(boot_times) if boot_times else np.array([]),
-            event_trials=np.concatenate(boot_trials) if boot_trials else np.array([]),
+            event_trials_idx=np.concatenate(boot_trials) if boot_trials else np.array([]),
             event_fish_idx=np.concatenate(boot_fish) if boot_fish else np.array([]),
             fish_trial_mask=self.fish_trial_mask[boot_fish_idx, :],
             duration_s=self.duration_s,
@@ -171,12 +171,12 @@ class BehavioralDataLoader:
 
         # 5. Extract event arrays as integer indices & floats
         event_times = (events['trial_time'] - t_start).values.astype(float)
-        event_trials = events['trial_num'].map(trial_map).values.astype(int)
+        event_trials_idx = events['trial_num'].map(trial_map).values.astype(int)
         event_fish_idx = events['file'].map(fish_map).values.astype(int)
 
         return PoissonDataset(
             event_times=event_times,
-            event_trials=event_trials,
+            event_trials_idx=event_trials_idx,
             event_fish_idx=event_fish_idx,
             fish_trial_mask=fish_trial_mask,
             duration_s=t_end-t_start,
@@ -322,7 +322,7 @@ class PoissonProcess:
         res = minimize(
             self._nll,
             x0=self.kernel.initial_guesses,
-            args=(dataset.event_times, dataset.event_trials, dataset.unique_trials, dataset.n_fish_per_trial, dataset.duration_s, integration_dt),
+            args=(dataset.event_times, dataset.event_trials_idx, dataset.unique_trials, dataset.n_fish_per_trial, dataset.duration_s, integration_dt),
             method=method,
             bounds=self.kernel.bounds,
             **kwargs
@@ -463,7 +463,7 @@ class PoissonProcess:
         fish_u = {f_idx: [] for f_idx in range(dataset.num_fish)}
 
         for idx, m in enumerate(dataset.unique_trials):
-            trial_mask = (dataset.event_trials == m)
+            trial_mask = (dataset.event_trials_idx == m)
             if not np.any(trial_mask):
                 continue
 
