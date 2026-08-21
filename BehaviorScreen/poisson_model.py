@@ -27,7 +27,7 @@ class PoissonDataset:
     laterality: str = ""
     unique_trials: np.ndarray = None
     duration_s: float = 24.0
-    dt: float = 0.02
+    binning_dt: float = 0.02
 
     @property
     def num_fish(self) -> int:
@@ -39,7 +39,7 @@ class PoissonDataset:
 
     @property
     def t_grid(self) -> np.ndarray:
-        return np.arange(0, self.duration_s + self.dt, self.dt)
+        return np.arange(0, self.duration_s + self.binning_dt, self.binning_dt)
 
     @property
     def t_centers(self) -> np.ndarray:
@@ -60,7 +60,7 @@ class PoissonDataset:
 
     @property
     def time_histogram_hz(self) -> np.ndarray:
-        total_exposure_time = np.sum(self.n_fish_per_trial) * self.dt
+        total_exposure_time = np.sum(self.n_fish_per_trial) * self.binning_dt
         if total_exposure_time == 0:
             return np.zeros_like(self.time_histogram_counts, dtype=float)
         return self.time_histogram_counts / total_exposure_time
@@ -79,7 +79,7 @@ class PoissonDataset:
     def time_trial_histogram_hz(self) -> np.ndarray:
         counts = self.time_trial_histogram_counts
         n_fish = self.n_fish_per_trial[:, None]
-        safe_denom = np.where(n_fish > 0, n_fish * self.dt, 1.0)
+        safe_denom = np.where(n_fish > 0, n_fish * self.binning_dt, 1.0)
         return np.where(n_fish > 0, counts / safe_denom, 0.0)
     
     def resample(self, rng: np.random.Generator) -> 'PoissonDataset':
@@ -103,7 +103,7 @@ class PoissonDataset:
             event_fish_idx=np.concatenate(boot_fish) if boot_fish else np.array([]),
             fish_trial_mask=self.fish_trial_mask[boot_fish_idx, :],
             duration_s=self.duration_s,
-            dt=self.dt,
+            binning_dt=self.binning_dt,
             bout_name=self.bout_name,
             laterality=self.laterality,
             unique_trials=self.unique_trials
@@ -120,7 +120,7 @@ class BehavioralDataLoader:
         laterality: Union[Laterality, str],
         stim: Optional[Union[Stim, str]] = None,
         epoch_name: Optional[Union[str, List[str]]] = None,
-        dt: float = 0.02,
+        binning_dt: float = 0.02,
         t_start: float = 0.0,
         t_end: float = 24.0,
     ) -> PoissonDataset:
@@ -180,7 +180,7 @@ class BehavioralDataLoader:
             event_fish_idx=event_fish_idx,
             fish_trial_mask=fish_trial_mask,
             duration_s=t_end-t_start,
-            dt=dt,
+            binning_dt=binning_dt,
             bout_name=bout_name,
             laterality=str(laterality),
             unique_trials=unique_trials,
@@ -206,20 +206,20 @@ class RateKernel:
             duration_s: float, 
             trial: np.ndarray, 
             params: List[float], 
-            dt: float = 0.02
+            integration_dt: float = 0.02
         ) -> np.ndarray:
             
             if self.integral_func is not None:
                 return self.integral_func(0, duration_s, trial, params)
 
-            t_grid = np.arange(0, duration_s + dt, dt)
+            t_grid = np.arange(0, duration_s + integration_dt, integration_dt)
             t_2d = t_grid[None, :]                     # Shape: (1, N_time)
             trials_2d = np.atleast_1d(trial)[:, None]  # Shape: (N_trials, 1)
 
             rate_surface = self.evaluate(t_2d, trials_2d, params)
             rate_surface = np.maximum(rate_surface, 1e-9)
 
-            integrals = trapezoid(rate_surface, dx=dt, axis=1)
+            integrals = trapezoid(rate_surface, dx=integration_dt, axis=1)
 
             # Preserve scalar input shape if a scalar trial was passed
             return integrals if np.iterable(trial) else integrals[0]
@@ -229,7 +229,7 @@ class RateKernel:
         t_events: np.ndarray, 
         trial: Union[float, int], 
         params: List[float], 
-        dt: float = 0.02
+        integration_dt: float = 0.02
     ) -> np.ndarray:
         """
         Computes cumulative integrated intensity Lambda(t_k) at specific event timestamps.
@@ -247,7 +247,7 @@ class RateKernel:
         if t_max <= 0:
             return np.zeros_like(t_events, dtype=float)
 
-        t_grid = np.arange(0, t_max + dt, dt)
+        t_grid = np.arange(0, t_max + integration_dt, integration_dt)
         trials_2d = np.atleast_1d(trial)[:, None]
         rate_surface = np.maximum(self.evaluate(t_grid[None, :], trials_2d, params), 1e-9)
 
@@ -288,7 +288,7 @@ class PoissonProcess:
             unique_trials: np.ndarray, 
             n_fish_per_trial: np.ndarray, 
             duration_s: float, 
-            dt: float
+            integration_dt: float
         ):
         
         # Term 1: Sum of Log Intensity at Observed Events
@@ -301,7 +301,7 @@ class PoissonProcess:
             duration_s=duration_s, 
             trial=unique_trials, 
             params=params, 
-            dt=dt
+            integration_dt=integration_dt
         )
         
         # Scale expected events by trial-specific observing fish count
@@ -312,7 +312,7 @@ class PoissonProcess:
     def fit(
         self, 
         dataset: PoissonDataset, 
-        dt: float = 0.02,
+        integration_dt: float = 0.02,
         method: str = 'L-BFGS-B', 
         **kwargs
     ):
@@ -322,7 +322,7 @@ class PoissonProcess:
         res = minimize(
             self._nll,
             x0=self.kernel.initial_guesses,
-            args=(dataset.event_times, dataset.event_trials, dataset.unique_trials, dataset.n_fish_per_trial, dataset.duration_s, dt),
+            args=(dataset.event_times, dataset.event_trials, dataset.unique_trials, dataset.n_fish_per_trial, dataset.duration_s, integration_dt),
             method=method,
             bounds=self.kernel.bounds,
             **kwargs
@@ -400,7 +400,7 @@ class PoissonProcess:
         trials_2d = dataset.unique_trials[:, None]
 
         rate_surface = self.predict(t_2d, trials_2d)
-        mu_pred = rate_surface * dataset.n_fish_per_trial[:, None] * dataset.dt
+        mu_pred = rate_surface * dataset.n_fish_per_trial[:, None] * dataset.binning_dt
 
         pearson_res = (y_obs - mu_pred) / np.sqrt(np.maximum(mu_pred, 1e-9))
 
@@ -954,7 +954,7 @@ class ModelComparator:
 class PoissonVisualizer:
 
     @staticmethod
-    def plot_raster_and_surface(
+    def plot_histogram(
         dataset: PoissonDataset,
         model: PoissonProcess,
         figsize: Tuple[int, int] = (14, 5),
@@ -970,7 +970,7 @@ class PoissonVisualizer:
 
         vmax = max(np.max(dataset.time_trial_histogram_hz), np.max(model_surface))
 
-        # Panel 1: Empirical Data + Raster
+        # Panel 1: Empirical Data
         ax_emp.pcolormesh(
             dataset.t_grid, dataset.trial_edges, dataset.time_trial_histogram_hz, 
             shading='flat', cmap=cmap, vmin=0.0, vmax=vmax
@@ -980,7 +980,7 @@ class PoissonVisualizer:
         ax_emp.set_ylabel("Trial Number", fontsize=11)
         ax_emp.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
 
-        # Panel 2: Model Surface + Raster
+        # Panel 2: Model Surface
         mesh_mod = ax_mod.pcolormesh(
             dataset.t_grid, dataset.trial_edges, model_surface, 
             shading='flat', cmap=cmap, vmin=0.0, vmax=vmax
@@ -1179,7 +1179,7 @@ if __name__ == '__main__':
                 'stim':Stim.PREY_CAPTURE,
                 'bout_name':'JT',
                 'laterality':Laterality.IPSILATERAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':24.0, 
             },
@@ -1199,7 +1199,7 @@ if __name__ == '__main__':
                 'stim':Stim.PREY_CAPTURE,
                 'bout_name':'JT',
                 'laterality':Laterality.CONTRALATERAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':24.0, 
             },
@@ -1213,7 +1213,7 @@ if __name__ == '__main__':
                 'stim':Stim.PHOTOTAXIS,
                 'bout_name':'RT',
                 'laterality':Laterality.IPSILATERAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':24.0, 
             },
@@ -1228,7 +1228,7 @@ if __name__ == '__main__':
                 'stim':Stim.PHOTOTAXIS,
                 'bout_name':'RT',
                 'laterality':Laterality.CONTRALATERAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':24.0, 
             },
@@ -1243,7 +1243,7 @@ if __name__ == '__main__':
                 'epoch_name':["grating right", "grating left"],
                 'bout_name':'RT',
                 'laterality':Laterality.IPSILATERAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
             },
@@ -1257,7 +1257,7 @@ if __name__ == '__main__':
                 'epoch_name':["grating right", "grating left"],
                 'bout_name':'RT',
                 'laterality':Laterality.CONTRALATERAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
             },
@@ -1272,7 +1272,7 @@ if __name__ == '__main__':
                 'epoch_name':"grating forward",
                 'bout_name':'BS',
                 'laterality':Laterality.NONDIRECTIONAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
             },
@@ -1287,7 +1287,7 @@ if __name__ == '__main__':
                 'stim':Stim.OKR,
                 'bout_name':'S1',
                 'laterality':Laterality.IPSILATERAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
             },
@@ -1301,7 +1301,7 @@ if __name__ == '__main__':
                 'stim':Stim.OKR,
                 'bout_name':'S1',
                 'laterality':Laterality.CONTRALATERAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
             },
@@ -1315,7 +1315,7 @@ if __name__ == '__main__':
                 'stim':Stim.LOOMING,
                 'bout_name':'SLC',
                 'laterality':Laterality.IPSILATERAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
             },
@@ -1330,7 +1330,7 @@ if __name__ == '__main__':
                 'stim':Stim.LOOMING,
                 'bout_name':'SLC',
                 'laterality':Laterality.CONTRALATERAL,
-                'dt':0.05, 
+                'binning_dt':0.05, 
                 't_start':0.0, 
                 't_end':9.0, 
             },
@@ -1345,7 +1345,7 @@ if __name__ == '__main__':
                 'epoch_name':"flash dark",
                 'bout_name':'O',
                 'laterality':Laterality.NONDIRECTIONAL,
-                'dt':0.025, 
+                'binning_dt':0.025, 
                 't_start':0.0, 
                 't_end':5.0, 
             },
@@ -1386,13 +1386,13 @@ if __name__ == '__main__':
         best_model_name = summary_table.iloc[0]["Model Name"]
         best_model = fitted_models[best_model_name]
 
-        fig2, axes2 = PoissonVisualizer.plot_raster_and_surface(
+        fig2, axes2 = PoissonVisualizer.plot_histogram(
             dataset=dataset,
             model=best_model,
         )
         plt.show(block=False)
 
-        fig2, axes3 = PoissonVisualizer.plot_trial_traces(
+        fig3, axes3 = PoissonVisualizer.plot_trial_traces(
             dataset=dataset,
             model=best_model,
         )
