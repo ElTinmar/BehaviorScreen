@@ -26,8 +26,7 @@ class PoissonDataset:
     bout_name: str = ""
     laterality: str = ""
     unique_trials: np.ndarray = None
-    t_start: float = 0.0
-    t_end: float = 24.0
+    duration_s: float = 24.0
     dt: float = 0.02
 
     @property
@@ -40,7 +39,7 @@ class PoissonDataset:
 
     @property
     def t_grid(self) -> np.ndarray:
-        return np.arange(self.t_start, self.t_end + self.dt, self.dt)
+        return np.arange(0, self.duration_s + self.dt, self.dt)
 
     @property
     def t_centers(self) -> np.ndarray:
@@ -103,8 +102,7 @@ class PoissonDataset:
             event_trials=np.concatenate(boot_trials) if boot_trials else np.array([]),
             event_fish_idx=np.concatenate(boot_fish) if boot_fish else np.array([]),
             fish_trial_mask=self.fish_trial_mask[boot_fish_idx, :],
-            t_start=self.t_start,
-            t_end=self.t_end,
+            duration_s=self.duration_s,
             dt=self.dt,
             bout_name=self.bout_name,
             laterality=self.laterality,
@@ -181,8 +179,7 @@ class BehavioralDataLoader:
             event_trials=event_trials,
             event_fish_idx=event_fish_idx,
             fish_trial_mask=fish_trial_mask,
-            t_start=t_start,
-            t_end=t_end,
+            duration_s=t_end-t_start,
             dt=dt,
             bout_name=bout_name,
             laterality=str(laterality),
@@ -206,17 +203,16 @@ class RateKernel:
 
     def integrate(
             self, 
-            t_start: float, 
-            t_end: float, 
+            duration_s: float, 
             trial: np.ndarray, 
             params: List[float], 
             dt: float = 0.02
         ) -> np.ndarray:
             
             if self.integral_func is not None:
-                return self.integral_func(t_start, t_end, trial, params)
+                return self.integral_func(0, duration_s, trial, params)
 
-            t_grid = np.arange(t_start, t_end + dt, dt)
+            t_grid = np.arange(0, duration_s + dt, dt)
             t_2d = t_grid[None, :]                     # Shape: (1, N_time)
             trials_2d = np.atleast_1d(trial)[:, None]  # Shape: (N_trials, 1)
 
@@ -230,7 +226,6 @@ class RateKernel:
 
     def cumulative_integrate(
         self, 
-        t_start: float, 
         t_events: np.ndarray, 
         trial: Union[float, int], 
         params: List[float], 
@@ -243,16 +238,16 @@ class RateKernel:
         if len(t_events) == 0:
             return np.array([], dtype=float)
 
-        # 1. Analytical route: use numpy vectorization for t_end
+        # 1. Analytical route: use numpy vectorization
         if self.integral_func is not None:
-            return self.integral_func(t_start, t_events, trial, params)
+            return self.integral_func(0, t_events, trial, params)
 
         # 2. Numerical fallback using cumulative trapezoid
         t_max = np.max(t_events)
-        if t_max <= t_start:
+        if t_max <= 0:
             return np.zeros_like(t_events, dtype=float)
 
-        t_grid = np.arange(t_start, t_max + dt, dt)
+        t_grid = np.arange(0, t_max + dt, dt)
         trials_2d = np.atleast_1d(trial)[:, None]
         rate_surface = np.maximum(self.evaluate(t_grid[None, :], trials_2d, params), 1e-9)
 
@@ -292,8 +287,7 @@ class PoissonProcess:
             trial_events: np.ndarray, 
             unique_trials: np.ndarray, 
             n_fish_per_trial: np.ndarray, 
-            t_start: float, 
-            t_end: float, 
+            duration_s: float, 
             dt: float
         ):
         
@@ -304,8 +298,7 @@ class PoissonProcess:
 
         # Term 2: Expected Total Events (Surface Integration over Time)
         trial_integrals = self.kernel.integrate(
-            t_start=t_start, 
-            t_end=t_end, 
+            duration_s=duration_s, 
             trial=unique_trials, 
             params=params, 
             dt=dt
@@ -329,7 +322,7 @@ class PoissonProcess:
         res = minimize(
             self._nll,
             x0=self.kernel.initial_guesses,
-            args=(dataset.event_times, dataset.event_trials, dataset.unique_trials, dataset.n_fish_per_trial, dataset.t_start, dataset.t_end, dt),
+            args=(dataset.event_times, dataset.event_trials, dataset.unique_trials, dataset.n_fish_per_trial, dataset.duration_s, dt),
             method=method,
             bounds=self.kernel.bounds,
             **kwargs
@@ -423,13 +416,51 @@ class PoissonProcess:
             "deviance_residuals": deviance_res,
         }
 
-    def time_rescaling(self, dataset: PoissonDataset, min_events_per_fish: int = 5) -> Dict[str, Any]:
+    def time_rescaling(
+            self, 
+            dataset: PoissonDataset,
+            acf_lags: int = 20,
+            min_events_per_fish: int = 5
+        ) -> Dict[str, Any]:
+
+        def autocorrelation(z_seqs: List[np.ndarray], max_lags: int) -> Tuple[np.ndarray, np.ndarray, float]:
+
+            all_z = np.concatenate(z_seqs) if len(z_seqs) > 0 else np.array([])
+            n = len(all_z)
+
+            if n < max_lags + 1:
+                return (np.array([]), np.array([]), 0.0)
+
+            z_mean = np.mean(all_z)
+            z_var = np.var(all_z)
+            lags = np.arange(1, max_lags + 1)
+
+            if z_var == 0:
+                return (lags, np.zeros(max_lags), 1.96 / np.sqrt(n))
+
+            z_centered_seqs = [seq - z_mean for seq in z_seqs]
+            acf = []
+            
+            for lag in lags:
+                cov_sum = 0.0
+                pair_count = 0
+                for z_c in z_centered_seqs:
+                    if len(z_c) > lag:
+                        cov_sum += np.sum(z_c[:-lag] * z_c[lag:])
+                        pair_count += (len(z_c) - lag)
+                
+                r_j = (cov_sum / (pair_count * z_var)) if pair_count > 0 else 0.0
+                acf.append(r_j)
+            
+            conf_limit = 1.96 / np.sqrt(n)  
+            return (lags, np.array(acf), conf_limit)
 
         if self.params_ is None:
             raise ValueError("Model must be fitted before running time-rescaling analysis.")
 
-        pooled_u_values = []
-        fish_u_dict = {f_idx: [] for f_idx in range(dataset.num_fish)}
+        pooled_u = []
+        pooled_z = []
+        fish_u = {f_idx: [] for f_idx in range(dataset.num_fish)}
 
         for idx, m in enumerate(dataset.unique_trials):
             trial_mask = (dataset.event_trials == m)
@@ -445,92 +476,63 @@ class PoissonProcess:
                 if len(t_ev) < 2:
                     continue
 
-                lambda_ev = self.kernel.cumulative_integrate(
-                    t_start=dataset.t_start,
+                Lambda = self.kernel.cumulative_integrate(
                     t_events=t_ev,
                     trial=float(m),
                     params=self.params_,
-                    dt=dataset.dt
                 )
 
-                # Transform inter-event times: tau_k = Lambda(t_k) - Lambda(t_{k-1})
-                tau_k = np.diff(np.insert(lambda_ev, 0, 0.0))
-                tau_k = tau_k[tau_k > 1e-12]
+                # tau should be ~ Exp(1)
+                tau = np.diff(np.insert(Lambda, 0, 0.0))
+                tau = tau[tau > 1e-12]
 
-                # Uniform conversion U_k = 1 - exp(-tau_k)
-                u_k = 1.0 - np.exp(-tau_k)
+                # Uniform conversion
+                u = 1.0 - np.exp(-tau)  
+
+                # gaussian conversion
+                u_clipped = np.clip(u, 1e-10, 1 - 1e-10)
+                z = norm.ppf(u_clipped)
                 
-                pooled_u_values.extend(u_k)
-                fish_u_dict[f_idx].extend(u_k)
+                pooled_u.extend(u)
+                pooled_z.append(z)
+                fish_u[f_idx].extend(u)
 
-        # 1. Global Pooled KS Metrics
-        rescaled_u = np.sort(np.array(pooled_u_values))
+        rescaled_u = np.sort(np.array(pooled_u))
         n_pooled = len(rescaled_u)
-        pooled_ks_stat, pooled_ks_pval = kstest(rescaled_u, 'uniform') if n_pooled > 0 else (np.nan, np.nan)
 
+        # autocorrelation
+        lags, acf, conf_limit = autocorrelation(pooled_z, acf_lags)
+        
         # 2. Per-Fish D_n Distribution
         fish_dn_stats = []
-        valid_fish_ids = []
-
-        for f_idx, u_list in fish_u_dict.items():
+        for f_idx, u_list in fish_u.items():
             if len(u_list) >= min_events_per_fish:
                 d_stat, _ = kstest(u_list, 'uniform')
                 fish_dn_stats.append(d_stat)
-                valid_fish_ids.append(f_idx)
 
         fish_dn_stats = np.array(fish_dn_stats)
 
         return {
             "rescaled_u": rescaled_u,
             "n_rescaled": n_pooled,
-            "pooled_ks_stat": pooled_ks_stat,
-            "pooled_ks_pval": pooled_ks_pval,
             "fish_dn_stats": fish_dn_stats,
-            "valid_fish_ids": np.array(valid_fish_ids),
             "median_fish_dn": float(np.median(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
             "mean_fish_dn": float(np.mean(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
-        }
-
-    def autocorrelation(
-        self, 
-        deviance_res: np.ndarray, 
-        dt: float, 
-        max_lags: int = 40
-    ) -> Dict[str, Any]:
-        """Computes lag autocorrelation on trial-averaged time-binned deviance residuals."""
-        mean_res_t = np.mean(deviance_res, axis=0)
-        mean_res_centered = mean_res_t - np.mean(mean_res_t)
-
-        lags = np.arange(1, min(max_lags, len(mean_res_t) - 1))
-        c0 = np.sum(mean_res_centered**2)
-
-        if c0 > 0:
-            acf = np.array([np.sum(mean_res_centered[:-l] * mean_res_centered[l:]) / c0 for l in lags])
-        else:
-            acf = np.zeros_like(lags, dtype=float)
-
-        conf_limit = 1.96 / np.sqrt(len(mean_res_t)) if len(mean_res_t) > 0 else 0.0
-
-        return {
-            "mean_res_t": mean_res_t,
-            "lags": lags,
-            "lag_times": lags * dt,
+            "acf_lags": lags,
             "acf": acf,
-            "conf_limit": conf_limit,
+            "acf_conf": conf_limit
         }
 
+        
     def diagnose(
         self, 
         dataset: PoissonDataset, 
-        max_acf_lags: int = 40,
         figsize: Tuple[int, int] = (14, 12)
     ) -> Dict[str, Any]:
 
         # 1. Execute sub-analyses
         res_data = self.binned_residuals(dataset)
         tr_data = self.time_rescaling(dataset)
-        acf_data = self.autocorrelation(res_data["deviance_residuals"], dataset.dt, max_acf_lags)
-
         deviance_res = res_data["deviance_residuals"]
 
         # 2. Render Plot Dashboard (3 rows x 2 columns)
@@ -558,8 +560,6 @@ class PoissonProcess:
         # Panel B: Time-Rescaling Kolmogorov-Smirnov Plot (Pooled)
         ax_ks = axes[0, 1]
         n_rescaled = tr_data["n_rescaled"]
-        pooled_dn = tr_data["pooled_ks_stat"]
-        pooled_p = tr_data["pooled_ks_pval"]
 
         if n_rescaled > 0:
             e_cdf = np.arange(1, n_rescaled + 1) / n_rescaled
@@ -572,10 +572,7 @@ class PoissonProcess:
 
             ax_ks.set_xlim([0, 1])
             ax_ks.set_ylim([0, 1])
-            ax_ks.set_title(
-                f"B. Pooled Time-Rescaling ($D_n={pooled_dn:.3f}, p={pooled_p:.1e}$)", 
-                fontsize=11, fontweight='bold'
-            )
+
         else:
             ax_ks.text(0.5, 0.5, "No events available for KS test", ha='center', va='center')
         ax_ks.set_xlabel("Transformed Interval ($U_k$)")
@@ -596,15 +593,15 @@ class PoissonProcess:
 
         # Panel D: Residual Autocorrelation (ACF)
         ax_acf = axes[1, 1]
-        ax_acf.vlines(acf_data["lag_times"], 0, acf_data["acf"], color="navy", lw=2)
+        ax_acf.vlines(tr_data["acf_lags"], 0, tr_data["acf"], color="navy", lw=2)
         ax_acf.axhline(0, color="black", lw=1)
 
-        conf_limit = acf_data["conf_limit"]
+        conf_limit = tr_data["acf_conf"]
         ax_acf.axhline(conf_limit, color="red", linestyle="--", alpha=0.7, label="95% Confidence")
         ax_acf.axhline(-conf_limit, color="red", linestyle="--", alpha=0.7)
 
         ax_acf.set_title("D. Residual Temporal Autocorrelation", fontsize=11, fontweight='bold')
-        ax_acf.set_xlabel("Lag (s)")
+        ax_acf.set_xlabel("Lag (event)")
         ax_acf.set_ylabel("Autocorrelation")
         ax_acf.set_ylim([-0.5, 0.5])
         ax_acf.legend(loc="upper right", fontsize=8)
@@ -631,13 +628,7 @@ class PoissonProcess:
                 linewidth=2, 
                 label=f'Median $D_n$ ({median_dn:.3f})'
             )
-            ax_dn.axvline(
-                pooled_dn, 
-                color='crimson', 
-                linestyle=':', 
-                linewidth=2, 
-                label=f'Pooled $D_n$ ({pooled_dn:.3f})'
-            )
+
             ax_dn.axvspan(0.0, 0.05, color='green', alpha=0.1, label='Good Fit ($D_n < 0.05$)')
 
             ax_dn.set_title(f"E. Per-Fish $D_n$ Distribution ($N_{{fish}}={len(dn_values)}$)", fontsize=11, fontweight='bold')
@@ -656,7 +647,6 @@ class PoissonProcess:
         return {
             "residuals": res_data,
             "time_rescaling": tr_data,
-            "autocorrelation": acf_data,
         }
     
 class KernelFactory:
@@ -928,11 +918,7 @@ class ModelComparator:
     @staticmethod
     def compare(
         kernels: List[RateKernel], 
-        dataset_or_t_events: Union[PoissonDataset, np.ndarray],
-        trial_events: Optional[np.ndarray] = None,
-        unique_trials: Optional[np.ndarray] = None,
-        t_grid: Optional[np.ndarray] = None,
-        n_fish_per_trial: Optional[np.ndarray] = None,
+        dataset: PoissonDataset,
         method: str = 'L-BFGS-B',
         **kwargs
     ) -> Tuple[pd.DataFrame, Dict[str, PoissonProcess]]:
@@ -942,19 +928,7 @@ class ModelComparator:
 
         for kernel in kernels:
             model = PoissonProcess(kernel)
-            
-            if isinstance(dataset_or_t_events, PoissonDataset):
-                model.fit(dataset_or_t_events, method=method, **kwargs)
-            else:
-                model.fit(
-                    dataset_or_t_events,
-                    trial_events=trial_events,
-                    unique_trials=unique_trials,
-                    t_grid=t_grid,
-                    n_fish_per_trial=n_fish_per_trial,
-                    method=method,
-                    **kwargs
-                )
+            model.fit(dataset, method=method, **kwargs)
             models[kernel.name] = model
 
             records.append({
@@ -1393,7 +1367,7 @@ if __name__ == '__main__':
 
         summary_table, fitted_models = ModelComparator.compare(
             kernels=config['kernels'],
-            dataset_or_t_events=dataset
+            dataset=dataset
         )
         
         summary_table.insert(0, "Condition", exp_name)
