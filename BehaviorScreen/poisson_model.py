@@ -217,7 +217,7 @@ class RateKernel:
             trials_2d = np.atleast_1d(trial)[:, None]  # Shape: (N_trials, 1)
 
             rate_surface = self.evaluate(t_2d, trials_2d, params)
-            rate_surface = np.maximum(rate_surface, 1e-9)
+            rate_surface = np.maximum(rate_surface, 1e-9) # TODO find a way to get rid of that
 
             integrals = trapezoid(rate_surface, dx=integration_dt, axis=1)
 
@@ -249,7 +249,8 @@ class RateKernel:
 
         t_grid = np.arange(0, t_max + integration_dt, integration_dt)
         trials_2d = np.atleast_1d(trial)[:, None]
-        rate_surface = np.maximum(self.evaluate(t_grid[None, :], trials_2d, params), 1e-9)
+        rate_surface = self.evaluate(t_grid[None, :], trials_2d, params)
+        rate_surface = np.maximum(rate_surface, 1e-9) # TODO find a way to get rid of that
 
         # Compute continuous cumulative surface & interpolate exact event timestamps
         cum_integral = cumulative_trapezoid(rate_surface, t_grid, initial=0.0, axis=1).squeeze()
@@ -292,7 +293,7 @@ class PoissonProcess:
         
         # Term 1: Sum of Log Intensity at Observed Events
         event_rates = self.kernel.evaluate(t_events, trial_events, params)
-        event_rates = np.maximum(event_rates, 1e-9)
+        event_rates = np.maximum(event_rates, 1e-9) # TODO find a way to get rid of that
         sum_log_rates = np.sum(np.log(event_rates))
 
         # Term 2: Expected Total Events (Surface Integration over Time)
@@ -376,7 +377,9 @@ class PoissonProcess:
         """Predicts expected rate intensity lambda(t, trial) per single trial observation."""
         if self.params_ is None:
             raise ValueError("Model is not fitted yet. Call .fit() first.")
-        return np.maximum(self.kernel.evaluate(t, trial, self.params_), 1e-9)
+        expected_rate = self.kernel.evaluate(t, trial, self.params_)
+        expected_rate = np.maximum(expected_rate, 1e-9) # TODO find a way to get rid of that
+        return expected_rate
 
     @property
     def log_likelihood(self) -> float:
