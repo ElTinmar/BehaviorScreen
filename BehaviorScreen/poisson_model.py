@@ -23,9 +23,9 @@ class PoissonDataset:
     event_fish_idx: np.ndarray          
     fish_trial_mask: np.ndarray
 
+    unique_trials: np.ndarray 
     bout_name: str = ""
     laterality: str = ""
-    unique_trials: np.ndarray = None
     duration_s: float = 24.0
     binning_dt: float = 0.02
 
@@ -278,7 +278,6 @@ class PoissonProcess:
         self.fit_result: Optional[dict] = None
         self.params_: Optional[np.ndarray] = None
         self.param_dict_: Dict[str, float] = {}
-        self.n_events_: int = 0
 
     def _nll(
             self, 
@@ -316,8 +315,6 @@ class PoissonProcess:
         method: str = 'L-BFGS-B', 
         **kwargs
     ):
-
-        self.n_events_ = len(dataset.event_times)
 
         res = minimize(
             self._nll,
