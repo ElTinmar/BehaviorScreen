@@ -423,47 +423,72 @@ class PoissonProcess:
             "deviance_residuals": deviance_res,
         }
 
-    def time_rescaling(self, dataset: PoissonDataset, dt: float = 0.02) -> Dict[str, Any]:
-        """Applies Time-Rescaling Theorem with fish-count scaling for pooled trial events."""
+    def time_rescaling(self, dataset: PoissonDataset, min_events_per_fish: int = 5) -> Dict[str, Any]:
+
         if self.params_ is None:
             raise ValueError("Model must be fitted before running time-rescaling analysis.")
 
-        rescaled_u_values = []
-        
-        for idx, m in enumerate(dataset.unique_trials):
-            mask = (dataset.event_trials == m)
-            t_ev = np.sort(dataset.event_times[mask])
+        pooled_u_values = []
+        fish_u_dict = {f_idx: [] for f_idx in range(dataset.num_fish)}
 
-            if len(t_ev) == 0:
+        for idx, m in enumerate(dataset.unique_trials):
+            trial_mask = (dataset.event_trials == m)
+            if not np.any(trial_mask):
                 continue
 
-            # Scale intensity by n_fish_per_trial for pooled trial events
-            n_fish = dataset.n_fish_per_trial[idx]
-            lambda_ev = self.kernel.cumulative_integrate(
-                t_start=dataset.t_start,
-                t_events=t_ev,
-                trial=m,
-                params=self.params_,
-                dt=dt
-            ) * n_fish
+            active_fish = np.where(dataset.fish_trial_mask[:, idx])[0]
 
-            # Rescaled intervals τ_k = Λ(t_k) - Λ(t_{k-1})
-            tau_k = np.diff(np.insert(lambda_ev, 0, 0.0))
+            for f_idx in active_fish:
+                fish_mask = trial_mask & (dataset.event_fish_idx == f_idx)
+                t_ev = np.sort(dataset.event_times[fish_mask])
 
-            # Uniform transformation: U_k = 1 - exp(-τ_k)
-            u_k = 1.0 - np.exp(-tau_k)
-            rescaled_u_values.extend(u_k)
+                if len(t_ev) < 2:
+                    continue
 
-        rescaled_u = np.sort(np.array(rescaled_u_values))
-        n_rescaled = len(rescaled_u)
+                lambda_ev = self.kernel.cumulative_integrate(
+                    t_start=dataset.t_start,
+                    t_events=t_ev,
+                    trial=float(m),
+                    params=self.params_,
+                    dt=dataset.dt
+                )
 
-        ks_stat, ks_pval = kstest(rescaled_u, 'uniform') if n_rescaled > 0 else (np.nan, np.nan)
+                # Transform inter-event times: tau_k = Lambda(t_k) - Lambda(t_{k-1})
+                tau_k = np.diff(np.insert(lambda_ev, 0, 0.0))
+                tau_k = tau_k[tau_k > 1e-12]
+
+                # Uniform conversion U_k = 1 - exp(-tau_k)
+                u_k = 1.0 - np.exp(-tau_k)
+                
+                pooled_u_values.extend(u_k)
+                fish_u_dict[f_idx].extend(u_k)
+
+        # 1. Global Pooled KS Metrics
+        rescaled_u = np.sort(np.array(pooled_u_values))
+        n_pooled = len(rescaled_u)
+        pooled_ks_stat, pooled_ks_pval = kstest(rescaled_u, 'uniform') if n_pooled > 0 else (np.nan, np.nan)
+
+        # 2. Per-Fish D_n Distribution
+        fish_dn_stats = []
+        valid_fish_ids = []
+
+        for f_idx, u_list in fish_u_dict.items():
+            if len(u_list) >= min_events_per_fish:
+                d_stat, _ = kstest(u_list, 'uniform')
+                fish_dn_stats.append(d_stat)
+                valid_fish_ids.append(f_idx)
+
+        fish_dn_stats = np.array(fish_dn_stats)
 
         return {
             "rescaled_u": rescaled_u,
-            "n_rescaled": n_rescaled,
-            "ks_stat": ks_stat,
-            "ks_pval": ks_pval,
+            "n_rescaled": n_pooled,
+            "pooled_ks_stat": pooled_ks_stat,
+            "pooled_ks_pval": pooled_ks_pval,
+            "fish_dn_stats": fish_dn_stats,
+            "valid_fish_ids": np.array(valid_fish_ids),
+            "median_fish_dn": float(np.median(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
+            "mean_fish_dn": float(np.mean(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
         }
 
     def autocorrelation(
@@ -498,10 +523,9 @@ class PoissonProcess:
         self, 
         dataset: PoissonDataset, 
         max_acf_lags: int = 40,
-        figsize: Tuple[int, int] = (14, 10)
+        figsize: Tuple[int, int] = (14, 12)
     ) -> Dict[str, Any]:
-        """Plots the 4-panel diagnostic dashboard by executing separate analysis methods."""
-        
+
         # 1. Execute sub-analyses
         res_data = self.binned_residuals(dataset)
         tr_data = self.time_rescaling(dataset)
@@ -509,9 +533,9 @@ class PoissonProcess:
 
         deviance_res = res_data["deviance_residuals"]
 
-        # 2. Render Plot Dashboard
-        fig, axes = plt.subplots(2, 2, figsize=figsize)
-        plt.subplots_adjust(hspace=0.3, wspace=0.3)
+        # 2. Render Plot Dashboard (3 rows x 2 columns)
+        fig, axes = plt.subplots(3, 2, figsize=figsize)
+        plt.subplots_adjust(hspace=0.35, wspace=0.3)
 
         # Panel A: 2D Residual Surface
         ax_heat = axes[0, 0]
@@ -524,16 +548,19 @@ class PoissonProcess:
             cmap='coolwarm',
             vmin=-vmax, vmax=vmax
         )
-        ax_heat.set_title("Deviance Residual Surface $(m, t)$", fontsize=12, fontweight='bold')
+        ax_heat.set_title("A. Deviance Residual Surface $(m, t)$", fontsize=11, fontweight='bold')
         ax_heat.set_xlabel("Time in Trial (s)")
         ax_heat.set_ylabel("Trial Number")
         divider = make_axes_locatable(ax_heat)
         cax = divider.append_axes("right", size="3%", pad=0.08)
         fig.colorbar(im, cax=cax, label="Deviance Residual")
 
-        # Panel B: Time-Rescaling Kolmogorov-Smirnov Plot
+        # Panel B: Time-Rescaling Kolmogorov-Smirnov Plot (Pooled)
         ax_ks = axes[0, 1]
         n_rescaled = tr_data["n_rescaled"]
+        pooled_dn = tr_data["pooled_ks_stat"]
+        pooled_p = tr_data["pooled_ks_pval"]
+
         if n_rescaled > 0:
             e_cdf = np.arange(1, n_rescaled + 1) / n_rescaled
             ax_ks.plot(tr_data["rescaled_u"], e_cdf, label="Empirical CDF", color="crimson", lw=2)
@@ -545,12 +572,15 @@ class PoissonProcess:
 
             ax_ks.set_xlim([0, 1])
             ax_ks.set_ylim([0, 1])
-            ax_ks.set_title(f"Time-Rescaling KS Plot (p={tr_data['ks_pval']:.4f})", fontsize=12, fontweight='bold')
+            ax_ks.set_title(
+                f"B. Pooled Time-Rescaling ($D_n={pooled_dn:.3f}, p={pooled_p:.1e}$)", 
+                fontsize=11, fontweight='bold'
+            )
         else:
             ax_ks.text(0.5, 0.5, "No events available for KS test", ha='center', va='center')
         ax_ks.set_xlabel("Transformed Interval ($U_k$)")
         ax_ks.set_ylabel("Cumulative Probability")
-        ax_ks.legend(loc="upper left")
+        ax_ks.legend(loc="upper left", fontsize=8)
 
         # Panel C: Deviance Residual Distribution
         ax_dist = axes[1, 0]
@@ -559,10 +589,10 @@ class PoissonProcess:
 
         x_norm = np.linspace(-4, 4, 200)
         ax_dist.plot(x_norm, norm.pdf(x_norm), 'r--', lw=2, label="$\mathcal{N}(0, 1)$ Ref")
-        ax_dist.set_title("Deviance Residual Distribution", fontsize=12, fontweight='bold')
+        ax_dist.set_title("C. Deviance Residual Distribution", fontsize=11, fontweight='bold')
         ax_dist.set_xlabel("Deviance Residual Value")
         ax_dist.set_ylabel("Density")
-        ax_dist.legend(loc="upper right")
+        ax_dist.legend(loc="upper right", fontsize=8)
 
         # Panel D: Residual Autocorrelation (ACF)
         ax_acf = axes[1, 1]
@@ -573,11 +603,52 @@ class PoissonProcess:
         ax_acf.axhline(conf_limit, color="red", linestyle="--", alpha=0.7, label="95% Confidence")
         ax_acf.axhline(-conf_limit, color="red", linestyle="--", alpha=0.7)
 
-        ax_acf.set_title("Residual Temporal Autocorrelation", fontsize=12, fontweight='bold')
+        ax_acf.set_title("D. Residual Temporal Autocorrelation", fontsize=11, fontweight='bold')
         ax_acf.set_xlabel("Lag (s)")
         ax_acf.set_ylabel("Autocorrelation")
         ax_acf.set_ylim([-0.5, 0.5])
-        ax_acf.legend(loc="upper right")
+        ax_acf.legend(loc="upper right", fontsize=8)
+
+        # Panel E: Per-Fish D_n Effect Size Distribution
+        ax_dn = axes[2, 0]
+        dn_values = tr_data["fish_dn_stats"]
+        median_dn = tr_data["median_fish_dn"]
+
+        if len(dn_values) > 0:
+            ax_dn.hist(
+                dn_values, 
+                bins='auto', 
+                density=True, 
+                alpha=0.6, 
+                color='skyblue', 
+                edgecolor='navy',
+                label='Per-Fish $D_n$'
+            )
+            ax_dn.axvline(
+                median_dn, 
+                color='darkblue', 
+                linestyle='--', 
+                linewidth=2, 
+                label=f'Median $D_n$ ({median_dn:.3f})'
+            )
+            ax_dn.axvline(
+                pooled_dn, 
+                color='crimson', 
+                linestyle=':', 
+                linewidth=2, 
+                label=f'Pooled $D_n$ ({pooled_dn:.3f})'
+            )
+            ax_dn.axvspan(0.0, 0.05, color='green', alpha=0.1, label='Good Fit ($D_n < 0.05$)')
+
+            ax_dn.set_title(f"E. Per-Fish $D_n$ Distribution ($N_{{fish}}={len(dn_values)}$)", fontsize=11, fontweight='bold')
+            ax_dn.set_xlabel("KS Distance ($D_n$)")
+            ax_dn.set_ylabel("Density")
+            ax_dn.legend(loc="upper right", fontsize=8)
+        else:
+            ax_dn.text(0.5, 0.5, "Insufficient events per fish for $D_n$", ha='center', va='center')
+
+        # Hide unused 6th subplot (Panel [2, 1])
+        axes[2, 1].axis("off")
 
         plt.show()
 
