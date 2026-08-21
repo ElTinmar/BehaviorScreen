@@ -252,7 +252,7 @@ class RateKernel:
         rate_surface = np.maximum(self.evaluate(t_grid[None, :], trials_2d, params), 1e-9)
 
         # Compute continuous cumulative surface & interpolate exact event timestamps
-        cum_integral = cumulative_trapezoid(rate_surface, t_grid, initial=0.0, axis=1)[0]
+        cum_integral = cumulative_trapezoid(rate_surface, t_grid, initial=0.0, axis=1).squeeze()
         return np.interp(t_events, t_grid, cum_integral)
 
     def is_nested_in(self, parent_kernel: "RateKernel") -> bool:
