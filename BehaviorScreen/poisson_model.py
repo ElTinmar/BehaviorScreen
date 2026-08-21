@@ -666,6 +666,7 @@ class KernelFactory:
             latex_formula=r"$\lambda = B$",
         )
 
+    # TODO make positive
     @staticmethod
     def prey_capture(stim_freq: float, plasticity: Optional[str] = None) -> RateKernel:
         key = (plasticity or "").lower().replace(" ", "")
@@ -736,6 +737,7 @@ class KernelFactory:
             latex_formula=latex,
         )
 
+    # TODO make positive
     @staticmethod
     def phototaxis_ipsi() -> RateKernel:
         def _func(t, trial, params):
@@ -765,6 +767,7 @@ class KernelFactory:
             latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} + \left(A_{\text{peak}} e^{\alpha_{\text{peak}} m} \frac{t}{\tau} - f_{\text{dip}} B e^{\alpha_B m}\right) e^{-t/\tau}$"
         )
 
+    # TODO make positive
     @staticmethod
     def phototaxis_contra() -> RateKernel:
         def _func(t, trial, params):
@@ -840,12 +843,13 @@ class KernelFactory:
             param_names=["B", "H", "alpha", "mu", "sigma"],
             initial_guesses=[0.1, 1.2, 0.0, 5.0, 0.1],
             bounds=[
-                (0.0, 10.0), (0.001, 10.0), (-2.0, 2.0), 
+                (0.001, 10.0), (0.001, 10.0), (-2.0, 2.0), 
                 (t_critical-1.5, t_critical+1), (0.001, 3.0)
             ],
             latex_formula=r"$\lambda(t, m) = B + H e^{\alpha m} \exp\left(-\frac{(t - \mu)^2}{2\sigma^2}\right)$",
         )
 
+    # TODO make positive
     @staticmethod
     def dark_flash() -> RateKernel:
         def _func(t, trial, params):
