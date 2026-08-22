@@ -286,11 +286,13 @@ class HawkesProcess(PointProcess):
 
         for t_idx, trial_val in enumerate(dataset.unique_trials):
             trial_rate = np.zeros(n_bins, dtype=float)
+            active_count = 0
 
             for f_idx in range(dataset.num_fish):
                 if not dataset.fish_trial_mask[f_idx, t_idx]:
                     continue
 
+                active_count += 1
                 mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
                 t_ev = dataset.event_times[mask]
 
@@ -301,6 +303,6 @@ class HawkesProcess(PointProcess):
                 )
                 trial_rate += stream_rate
 
-            expected_rate[t_idx, :] = trial_rate
+            expected_rate[t_idx, :] = trial_rate / active_count
 
         return expected_rate

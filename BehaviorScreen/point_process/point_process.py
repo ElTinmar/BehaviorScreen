@@ -605,12 +605,14 @@ class ModelComparator:
         dataset: PointProcessDataset,
         method: str = 'L-BFGS-B',
         **kwargs
-    ) -> Tuple[pd.DataFrame, Dict[str, PointProcess]]:
+    ) -> Tuple[pd.DataFrame, List[PointProcess]]:
         
+        fitted_models = []
         records = []
 
         for model in models:
             model.fit(dataset, method=method, **kwargs)
+            fitted_models.append(model)
             records.append({
                 "Model Name": model.name,
                 "Params (k)": len(model.param_names),
@@ -619,17 +621,19 @@ class ModelComparator:
                 "Converged": model.fit_result.success
             })
 
-        df = pd.DataFrame(records)
-        
-        # Calculate Delta AIC & Akaike Weights
+        df = pd.DataFrame(records)        
         min_aic = df["AIC"].min()
         df["ΔAIC"] = df["AIC"] - min_aic
         weights = np.exp(-0.5 * df["ΔAIC"])
         df["AIC Weight"] = weights / np.sum(weights)
 
-        df = df.sort_values(by="AIC").reset_index(drop=True)
-        return df, models
+        # Sort BOTH the DataFrame and the list by AIC rank
+        sort_idx = df["AIC"].argsort().values
+        df = df.iloc[sort_idx].reset_index(drop=True)
+        fitted_models = [fitted_models[i] for i in sort_idx]
 
+        return df, fitted_models
+    
 class ModelPlotter:
 
     @staticmethod

@@ -229,7 +229,8 @@ def main():
             models=config['models'],
             dataset=dataset
         )
-        
+        best_model = fitted_models[0]
+
         summary_table.insert(0, "Condition", exp_name)
         all_summaries.append(summary_table)
 
@@ -242,12 +243,9 @@ def main():
         )
         plt.show(block=False)
 
-        best_model_name = summary_table.iloc[0]["Model Name"]
-        best_model = fitted_models[best_model_name]
-
         fig2, axes2 = ModelPlotter.plot_histogram(
             dataset=dataset,
-            model=best_model,
+            model=fitted_models[0],
         )
         plt.show(block=False)
 
