@@ -282,7 +282,7 @@ class PointProcess:
             raise ValueError("Model must be fitted before computing residuals.")
 
         y_obs = dataset.time_trial_histogram_counts
-        mu_pred = self.compute_expected_rate(dataset) * dataset.binning_dt
+        mu_pred = self.compute_expected_rate(dataset) * dataset.n_fish_per_trial[:, None] * dataset.binning_dt
 
         pearson_res = (y_obs - mu_pred) / np.sqrt(np.maximum(mu_pred, 1e-9))
 
