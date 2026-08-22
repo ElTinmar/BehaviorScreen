@@ -131,9 +131,10 @@ class HawkesProcess(PointProcess):
         history_kernel: HistoryKernel,
         integration_dt=0.02,
     ):
-        super().__init__(kernel, integration_dt)
+        super().__init__(integration_dt)
 
         self.name = f"Hawkes rate: {kernel.name}, history: {history_kernel.name}"
+        self.latex_formula = rf"{kernel.latex_formula} + {history_kernel.latex_formula}"
         self.kernel = kernel
         self.history_kernel = history_kernel
         self.initial_guesses = kernel.initial_guesses + history_kernel.initial_guesses
@@ -147,31 +148,35 @@ class HawkesProcess(PointProcess):
         return params_base, params_history
     
     def _hawkes_nll(
-        self, 
-        dataset: PointProcessDataset,
+        self,
+        t_events: np.ndarray,
+        trial: float,
+        duration_s: float,
         params_base: List[float],
         params_history: List[float],
     ) -> float:
-        
+
+        trials_arr = np.full(t_events.shape, trial, dtype=float)
         base_rates = self.kernel.evaluate(
-            dataset.event_times,
-            dataset.event_trials_idx,
+            t_events,
+            trials_arr,
             params_base,
         )
         history_rates = self.history_kernel.event_history(
-            dataset.event_times,
+            t_events,
             params_history,
         )
         intensity = base_rates + history_rates
+        #intensity = np.maximum(intensity, 1e-9)
         sum_log_intensity = np.sum(np.log(intensity))
 
-
         base_integral = self.kernel.integrate(
-            dataset.duration_s, 
-            dataset.event_trials_idx, 
-            params_base
+            duration_s, 
+            trial, 
+            params_base,
+            integration_dt=self.integration_dt,
         )
-        remaining_time = dataset.duration_s - dataset.event_times
+        remaining_time = duration_s - t_events
         history_integrals = self.history_kernel.integrate(
             remaining_time,
             params_history,
@@ -183,7 +188,6 @@ class HawkesProcess(PointProcess):
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         params_base, params_history = self._split_params(params)
-
         total_nll = 0.0
 
         # Group operations per unique fish/trial stream
@@ -211,7 +215,6 @@ class HawkesProcess(PointProcess):
             raise ValueError("Model must be fitted first.")
 
         params_base, params_history = self._split_params(self.params_)
-
         t_events = np.sort(np.asarray(t_events))
 
         # Baseline cumulative intensity
@@ -240,22 +243,64 @@ class HawkesProcess(PointProcess):
     def predict(
         self,
         t: np.ndarray,
-        trial: Union[float, np.ndarray],
-        history_events: np.ndarray,
+        trial: Union[int, np.ndarray],
+        history_events: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        
+
         if self.params_ is None:
-            raise ValueError("Model is not fitted yet.")
+            raise ValueError("Model is not fitted yet. Call .fit() first.")
 
         params_base, params_history = self._split_params(self.params_)
-        t, trial = np.broadcast_arrays(t, trial)
-        base_rate = self.kernel.evaluate(t, trial, params_base)
 
-        history_rate = np.zeros_like(t, dtype=float)
-        for i, current_t in enumerate(t):
-            previous = history_events[history_events < current_t]
-            if len(previous) > 0:
-                lags = current_t - previous
-                history_rate[i] = np.sum(self.history_kernel.evaluate(lags, params_history))
+        t_arr = np.asarray(t, dtype=float)
+        trial_arr = np.asarray(trial)
+        t_bcast, trial_bcast = np.broadcast_arrays(t_arr, trial_arr)
+        
+        base_rate = self.kernel.evaluate(t_bcast, trial_bcast, params_base)
 
-        return base_rate + history_rate
+        if history_events is None or len(history_events) == 0:
+            return np.maximum(base_rate, 1e-9)
+
+        # Vectorized lag evaluation: (N_eval x N_events)
+        t_flat = t_bcast.ravel()
+        events_sorted = np.sort(np.asarray(history_events, dtype=float))
+
+        lags = t_flat[:, None] - events_sorted[None, :]
+        mask = lags > 0.0
+
+        history_rate_flat = np.zeros_like(t_flat, dtype=float)
+        if np.any(mask):
+            eval_lags = lags[mask]
+            vals = self.history_kernel.evaluate(eval_lags, params_history)
+            history_rate_flat += np.bincount(
+                np.where(mask)[0], weights=vals, minlength=len(t_flat)
+            )
+
+        history_rate = history_rate_flat.reshape(t_bcast.shape)
+        return np.maximum(base_rate + history_rate, 1e-9)
+
+    def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
+        n_trials = len(dataset.unique_trials)
+        n_bins = len(dataset.t_centers)
+        expected_rate = np.zeros((n_trials, n_bins), dtype=float)
+
+        for t_idx, trial_val in enumerate(dataset.unique_trials):
+            trial_rate = np.zeros(n_bins, dtype=float)
+
+            for f_idx in range(dataset.num_fish):
+                if not dataset.fish_trial_mask[f_idx, t_idx]:
+                    continue
+
+                mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
+                t_ev = dataset.event_times[mask]
+
+                stream_rate = self.predict(
+                    t=dataset.t_centers,
+                    trial=trial_val,
+                    history_events=t_ev,
+                )
+                trial_rate += stream_rate
+
+            expected_rate[t_idx, :] = trial_rate
+
+        return expected_rate

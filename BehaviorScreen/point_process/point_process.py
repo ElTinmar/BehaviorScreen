@@ -1,7 +1,9 @@
 from typing import List, Tuple, Dict, Optional, Any, Union
+import copy
 
 import numpy as np
 import pandas as pd
+import joblib
 from scipy.optimize import minimize
 from scipy.stats import norm, kstest, chi2
 import matplotlib.pyplot as plt
@@ -9,10 +11,22 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .dataset import PointProcessDataset
 
+def _fit_single_bootstrap(seed_seq, dataset: PointProcessDataset, model: "PointProcess"):
+    rng = np.random.default_rng(seed_seq)
+    ds_boot = dataset.resample(rng)
+    model_copy = copy.deepcopy(model)
+    try:
+        model_copy.fit(ds_boot)
+        return model_copy.params_
+    except Exception:
+        return None
+
+    
 class PointProcess:
 
     def __init__(self, integration_dt: float = 0.02):
         self.name: str = ""
+        self.latex_formula = ""
         self.integration_dt = integration_dt
         self.fit_result: Optional[Any] = None
         self.params_: Optional[np.ndarray] = None
@@ -22,7 +36,7 @@ class PointProcess:
         self.param_names: List[str] = None
 
     def _nll(self, params: List[float], dataset: PointProcessDataset): 
-        ...
+        raise NotImplementedError
 
     def fit(self, dataset: PointProcessDataset, method: str = 'L-BFGS-B', **kwargs):
         res = minimize(
@@ -34,16 +48,68 @@ class PointProcess:
             **kwargs
         )
 
+        if not res.success:
+            raise RuntimeError(
+                f"Optimization failed for {self.name}: {res.message}"
+            )
+
         self.fit_result = res
         self.params_ = res.x
         self.param_dict_ = dict(zip(self.param_names, res.x))
-
-    def predict(self, t: np.ndarray, trial: np.ndarray) -> np.ndarray: 
-        ...
+        return self
+    
+    def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
+        raise NotImplementedError
 
     def cumulative_integrated_intensity(self, *args): 
-        ...
+        raise NotImplementedError
 
+    def predict(self, t, trial, **kwargs):
+        raise NotImplementedError
+
+    def bootstrap(
+        self,
+        dataset: PointProcessDataset,
+        n_boot: int = 500,
+        seed: int = 42,
+        ci: float = 95.0,
+        n_jobs: int = -1,
+    ) -> pd.DataFrame:
+
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before running bootstrap.")
+
+        seeds = np.random.SeedSequence(seed).spawn(n_boot)
+
+        boot_results = joblib.Parallel(n_jobs=n_jobs)(
+            joblib.delayed(_fit_single_bootstrap)(s, dataset, self)
+            for s in seeds
+        )
+        
+        valid_boot_params = [p for p in boot_results if p is not None]
+        print(f"Bootstrap fit: {len(valid_boot_params)}/{n_boot}")
+        if len(valid_boot_params) == 0:
+            raise RuntimeError("All bootstrap optimization attempts failed.")
+
+        boot_params = np.array(valid_boot_params)
+
+        alpha = (100.0 - ci) / 2.0
+        return pd.DataFrame(
+            [
+                {
+                    "parameter": name,
+                    "fitted_val": self.params_[i],
+                    "boot_mean": np.mean(boot_params[:, i]),
+                    "boot_std": np.std(boot_params[:, i]),
+                    f"ci_{alpha:.1f}%": np.percentile(boot_params[:, i], alpha),
+                    f"ci_{100-alpha:.1f}%": np.percentile(
+                        boot_params[:, i], 100 - alpha
+                    ),
+                }
+                for i, name in enumerate(self.param_names)
+            ]
+        )
+    
     @property
     def log_likelihood(self) -> float:
         return -self.fit_result.fun if self.fit_result else np.nan
@@ -211,6 +277,297 @@ class PointProcess:
         }
 
 
+    def compute_residuals(self, dataset: PointProcessDataset) -> Dict[str, np.ndarray]:
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before computing residuals.")
+
+        y_obs = dataset.time_trial_histogram_counts
+        mu_pred = self.compute_expected_rate(dataset) * dataset.binning_dt
+
+        pearson_res = (y_obs - mu_pred) / np.sqrt(np.maximum(mu_pred, 1e-9))
+
+        # Deviance Residuals
+        with np.errstate(divide="ignore", invalid="ignore"):
+            term = np.where(
+                y_obs > 0,
+                y_obs * np.log(y_obs / np.maximum(mu_pred, 1e-9)),
+                0.0,
+            )
+            deviance_sq = 2.0 * (term - (y_obs - mu_pred))
+            deviance_res = np.sign(y_obs - mu_pred) * np.sqrt(np.maximum(0.0, deviance_sq))
+
+        return {
+            "y_obs": y_obs,
+            "mu_pred": mu_pred,
+            "pearson_residuals": pearson_res,
+            "deviance_residuals": deviance_res,
+        }
+
+    def residual_2d_autocorrelation(
+        self,
+        dataset: PointProcessDataset,
+        max_trial_lag: int = 10,
+        max_time_lag: int = 30,
+    ) -> Dict[str, np.ndarray]:
+        """Computes 2D residual autocorrelation across trial and time lag displacements."""
+        res_data = self.compute_residuals(dataset)
+        residuals = res_data[f"deviance_residuals"]
+
+        # Filter out unobserved trials (n_fish == 0)
+        valid_mask = dataset.n_fish_per_trial > 0
+        residuals = residuals[valid_mask, :].copy()
+
+        n_trials, n_time = residuals.shape
+        residuals -= np.mean(residuals)
+        variance = np.mean(residuals ** 2)
+
+        if variance == 0:
+            raise ValueError("Residual variance is zero.")
+
+        # Clamp maximum lags to dataset bounds
+        max_trial_lag = min(max_trial_lag, max(0, n_trials - 1))
+        max_time_lag = min(max_time_lag, max(0, n_time - 1))
+
+        trial_lags = np.arange(-max_trial_lag, max_trial_lag + 1)
+        time_lags_bins = np.arange(-max_time_lag, max_time_lag + 1)
+        
+        acf2d = np.full((len(trial_lags), len(time_lags_bins)), np.nan)
+
+        def _get_overlap_slices(n: int, lag: int) -> Tuple[slice, slice]:
+            """Returns safe, matching slice pairs for array overlap under displacement `lag`."""
+            if abs(lag) >= n:
+                return slice(0, 0), slice(0, 0)
+            if lag >= 0:
+                return slice(lag, n), slice(0, n - lag)
+            else:
+                return slice(0, n + lag), slice(-lag, n)
+
+        for i, dm in enumerate(trial_lags):
+            m_x, m_y = _get_overlap_slices(n_trials, dm)
+            for j, dt in enumerate(time_lags_bins):
+                t_x, t_y = _get_overlap_slices(n_time, dt)
+
+                x = residuals[m_x, t_x]
+                y = residuals[m_y, t_y]
+
+                if x.size > 1:
+                    acf2d[i, j] = np.mean(x * y) / variance
+
+        return {
+            "trial_lags": trial_lags,
+            "time_lags_bins": time_lags_bins,
+            "time_lags_sec": time_lags_bins * dataset.binning_dt,
+            "acf2d": acf2d,
+            "conf_limit": 1.96 / np.sqrt(n_trials * n_time),
+        }
+
+    def diagnose(
+        self, 
+        dataset: PointProcessDataset, 
+        figsize: Tuple[int, int] = (15, 18),
+        eps: float = 1e-5,
+        max_trial_lag: int = 10,
+        max_time_lag: int = 30,
+    ) -> Dict[str, Any]:
+
+        # 1. Execute sub-analyses
+        res_data = self.compute_residuals(dataset)
+        tr_data = self.time_rescaling(dataset)
+        corr_matrix = self.estimate_parameter_correlation(dataset, eps=eps)
+        acf2d_data = self.residual_2d_autocorrelation(
+            dataset, max_trial_lag=max_trial_lag, max_time_lag=max_time_lag
+        )
+        deviance_res = res_data["deviance_residuals"]
+
+        # 2. Render Plot Dashboard (4 rows x 2 columns)
+        fig, axes = plt.subplots(4, 2, figsize=figsize)
+        plt.subplots_adjust(hspace=0.38, wspace=0.3)
+
+        fig.suptitle(self.latex_formula, fontsize=15, fontweight='bold', y=0.99)
+
+        # Panel A: 2D Residual Surface
+        ax_heat = axes[0, 0]
+        vmax = np.percentile(np.abs(deviance_res), 98)
+        im = ax_heat.imshow(
+            deviance_res,
+            aspect='auto',
+            origin='lower',
+            extent=[dataset.t_grid[0], dataset.t_grid[-1], dataset.unique_trials[0], dataset.unique_trials[-1]],
+            cmap='coolwarm',
+            vmin=-vmax, vmax=vmax
+        )
+        ax_heat.set_title("A. Deviance Residual Surface $(m, t)$", fontsize=11, fontweight='bold')
+        ax_heat.set_xlabel("Time in Trial (s)")
+        ax_heat.set_ylabel("Trial Number")
+        divider = make_axes_locatable(ax_heat)
+        cax = divider.append_axes("right", size="3%", pad=0.08)
+        fig.colorbar(im, cax=cax, label="Deviance Residual")
+
+        # Panel B: Time-Rescaling Kolmogorov-Smirnov Plot (Pooled)
+        ax_ks = axes[0, 1]
+        n_rescaled = tr_data["n_rescaled"]
+
+        if n_rescaled > 0:
+            e_cdf = np.arange(1, n_rescaled + 1) / n_rescaled
+            ax_ks.plot(tr_data["rescaled_u"], e_cdf, label="Empirical CDF", color="crimson", lw=2)
+            ax_ks.plot([0, 1], [0, 1], 'k--', label="Uniform(0,1) Ideal", lw=1.5)
+
+            ks_bound = 1.36 / np.sqrt(n_rescaled)
+            ax_ks.plot([0, 1], [ks_bound, 1 + ks_bound], 'k:', alpha=0.5, label="95% KS Limits")
+            ax_ks.plot([0, 1], [-ks_bound, 1 - ks_bound], 'k:', alpha=0.5)
+
+            ax_ks.set_xlim([0, 1])
+            ax_ks.set_ylim([0, 1])
+        else:
+            ax_ks.text(0.5, 0.5, "No events available for KS test", ha='center', va='center')
+        ax_ks.set_title("B. Time-Rescaling Kolmogorov-Smirnov Plot", fontsize=11, fontweight='bold')
+        ax_ks.set_xlabel("Transformed Interval ($U_k$)")
+        ax_ks.set_ylabel("Cumulative Probability")
+        ax_ks.legend(loc="upper left", fontsize=8)
+
+        # Panel C: Deviance Residual Distribution
+        ax_dist = axes[1, 0]
+        flat_dev = deviance_res.flatten()
+        ax_dist.hist(flat_dev, bins=40, density=True, alpha=0.6, color="steelblue", edgecolor="none")
+
+        x_norm = np.linspace(-4, 4, 200)
+        ax_dist.plot(x_norm, norm.pdf(x_norm), 'r--', lw=2, label=r"$\mathcal{N}(0, 1)$ Ref")
+        ax_dist.set_title("C. Deviance Residual Distribution", fontsize=11, fontweight='bold')
+        ax_dist.set_xlabel("Deviance Residual Value")
+        ax_dist.set_ylabel("Density")
+        ax_dist.legend(loc="upper right", fontsize=8)
+
+        # Panel D: time rescaled event autocorrelation
+        ax_acf = axes[1, 1]
+        ax_acf.vlines(tr_data["acf_lags"], 0, tr_data["acf"], color="navy", lw=2)
+        ax_acf.axhline(0, color="black", lw=1)
+
+        conf_limit = tr_data["acf_conf"]
+        ax_acf.axhline(conf_limit, color="red", linestyle="--", alpha=0.7, label="95% CI")
+        ax_acf.axhline(-conf_limit, color="red", linestyle="--", alpha=0.7)
+
+        ax_acf.set_title("D. Time-rescaled event autocorrelation (Event Lag)", fontsize=11, fontweight='bold')
+        ax_acf.set_xlabel("Lag (event)")
+        ax_acf.set_ylabel("Autocorrelation")
+        ax_acf.set_ylim([-0.5, 0.5])
+        ax_acf.legend(loc="upper right", fontsize=8)
+
+        # Panel E: 2D Residual Autocorrelation Surface R(Δm, Δt)
+        ax_acf2d = axes[2, 0]
+        acf2d = acf2d_data["acf2d"]
+        trial_lags = acf2d_data["trial_lags"]
+        time_lags_sec = acf2d_data["time_lags_sec"]
+        conf_lim_2d = acf2d_data["conf_limit"]
+
+        m_zero_idx = np.where(trial_lags == 0)[0][0]
+        t_zero_idx = np.where(acf2d_data["time_lags_bins"] == 0)[0][0]
+        
+        acf_offdiag = acf2d.copy()
+        acf_offdiag[m_zero_idx, t_zero_idx] = np.nan
+        vmax_2d = max(0.05, np.nanmax(np.abs(acf_offdiag)))
+
+        dt = dataset.binning_dt
+        extent_2d = [
+            time_lags_sec[0] - dt / 2, time_lags_sec[-1] + dt / 2,
+            trial_lags[0] - 0.5, trial_lags[-1] + 0.5
+        ]
+
+        im_2d = ax_acf2d.imshow(
+            acf2d, extent=extent_2d, origin="lower", cmap="coolwarm",
+            vmin=-vmax_2d, vmax=vmax_2d, aspect="auto"
+        )
+        
+        T_mesh, M_mesh = np.meshgrid(time_lags_sec, trial_lags)
+        contours = ax_acf2d.contour(
+            T_mesh, M_mesh, np.abs(acf2d), levels=[conf_lim_2d],
+            colors="black", linewidths=1.0, linestyles="--"
+        )
+        ax_acf2d.clabel(contours, fmt={conf_lim_2d: f"95% CI"}, inline=True, fontsize=7)
+        ax_acf2d.axhline(0, color="gray", lw=0.8, ls=":")
+        ax_acf2d.axvline(0, color="gray", lw=0.8, ls=":")
+
+        ax_acf2d.set_title("E. Autocorrelation of deviance residuals $R(\\Delta m, \\Delta t)$", fontsize=11, fontweight='bold')
+        ax_acf2d.set_xlabel("Time Lag $\\Delta t$ (s)")
+        ax_acf2d.set_ylabel("Trial Lag $\\Delta m$ (trials)")
+        
+        divider_2d = make_axes_locatable(ax_acf2d)
+        cax_2d = divider_2d.append_axes("right", size="3%", pad=0.08)
+        fig.colorbar(im_2d, cax=cax_2d, label="Autocorrelation")
+
+        # Panel F: Per-Fish D_n Effect Size Distribution
+        ax_dn = axes[2, 1]
+        dn_values = tr_data["fish_dn_stats"]
+        median_dn = tr_data["median_fish_dn"]
+
+        if len(dn_values) > 0:
+            ax_dn.hist(
+                dn_values, bins='auto', density=True, alpha=0.6, 
+                color='skyblue', edgecolor='navy', label='Per-Fish $D_n$'
+            )
+            ax_dn.axvline(
+                median_dn, color='darkblue', linestyle='--', linewidth=2, 
+                label=f'Median $D_n$ ({median_dn:.3f})'
+            )
+            ax_dn.axvspan(0.0, 0.05, color='green', alpha=0.1, label='Good Fit ($D_n < 0.05$)')
+            ax_dn.set_title(f"F. Per-Fish $D_n$ Distribution ($N_{{fish}}={len(dn_values)}$)", fontsize=11, fontweight='bold')
+            ax_dn.set_xlabel("KS Distance ($D_n$)")
+            ax_dn.set_ylabel("Density")
+            ax_dn.legend(loc="upper right", fontsize=8)
+        else:
+            ax_dn.text(0.5, 0.5, "Insufficient events per fish for $D_n$", ha='center', va='center')
+
+        # Panel G: Parameter Correlation Matrix
+        ax_corr = axes[3, 0]
+        im_corr = ax_corr.imshow(corr_matrix, cmap='coolwarm', vmin=-1.0, vmax=1.0)
+        ax_corr.set_title("G. Parameter Correlation Matrix", fontsize=11, fontweight='bold')
+
+        n_params = len(self.param_names)
+
+        ax_corr.set_xticks(np.arange(n_params))
+        ax_corr.set_yticks(np.arange(n_params))
+        ax_corr.set_xticklabels(self.param_names, rotation=45, ha='right', fontsize=9)
+        ax_corr.set_yticklabels(self.param_names, fontsize=9)
+
+        for i in range(n_params):
+            for j in range(n_params):
+                val = corr_matrix[i, j]
+                text_color = "white" if abs(val) > 0.6 else "black"
+                ax_corr.text(j, i, f"{val:.2f}", ha='center', va='center', color=text_color, fontsize=8)
+
+        divider_corr = make_axes_locatable(ax_corr)
+        cax_corr = divider_corr.append_axes("right", size="3%", pad=0.08)
+        fig.colorbar(im_corr, cax=cax_corr, label="Correlation")
+
+        # Panel H: Summary Diagnostic Metrics Text Box
+        ax_text = axes[3, 1]
+        ax_text.axis('off')
+        
+        summary_text = (
+            f"DIAGNOSTIC SUMMARY METRICS\n"
+            f"----------------------------------------\n"
+            f"Log-Likelihood      : {self.log_likelihood:.2f}\n"
+            f"Akaike Info (AIC)   : {self.aic:.2f}\n"
+            f"Pooled KS Rescaled  : N = {n_rescaled}\n"
+            f"Median Per-Fish D_n : {tr_data['median_fish_dn']:.4f}\n"
+            f"Max 2D Autocorr     : {np.nanmax(np.abs(acf_offdiag)):.4f}\n"
+            f"95% 2D CI Limit     : ±{conf_lim_2d:.4f}\n"
+        )
+        ax_text.text(
+            0.1, 0.5, summary_text, fontsize=10, fontfamily='monospace',
+            verticalalignment='center', bbox=dict(boxstyle='round,pad=0.8', facecolor='wheat', alpha=0.3)
+        )
+        ax_text.set_title("H. Global Model Diagnostics", fontsize=11, fontweight='bold')
+
+        plt.show()
+
+        return {
+            "residuals": res_data,
+            "time_rescaling": tr_data,
+            "parameter_correlation": corr_matrix,
+            "acf2d": acf2d_data,
+        }
+
+
 class ModelComparator:
 
     @staticmethod
@@ -285,11 +642,7 @@ class ModelPlotter:
 
         fig, (ax_emp, ax_mod) = plt.subplots(1, 2, figsize=figsize, sharey=True)
 
-        # 1. Evaluate Model Surface using dataset grid
-        t_2d = dataset.t_centers[None, :]
-        trials_2d = dataset.unique_trials[:, None]
-        model_surface = model.predict(t_2d, trials_2d)
-
+        model_surface = model.compute_expected_rate(dataset)
         vmax = max(np.max(dataset.time_trial_histogram_hz), np.max(model_surface))
 
         # Panel 1: Empirical Data
@@ -307,8 +660,7 @@ class ModelPlotter:
             dataset.t_grid, dataset.trial_edges, model_surface, 
             shading='flat', cmap=cmap, vmin=0.0, vmax=vmax
         )
-        kernel_name = getattr(getattr(model, 'kernel', None), 'name', 'Poisson Model')
-        ax_mod.set_title(f"Fitted Surface: {kernel_name}", fontsize=12, fontweight='bold')
+        ax_mod.set_title(f"Fitted Surface: {model.name}", fontsize=12, fontweight='bold')
         ax_mod.set_xlabel("Time in Trial (s)", fontsize=11)
         ax_mod.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
 
@@ -324,9 +676,8 @@ class ModelPlotter:
     @staticmethod
     def plot_model_fits(
         dataset: PointProcessDataset,
-        models: Dict[str, PointProcess],
+        models: List[PointProcess],
         figsize: Tuple[int, int] = (12, 6),
-        palette: Optional[Dict[str, Any]] = None
     ) -> Tuple[plt.Figure, plt.Axes]:
 
         fig, ax = plt.subplots(figsize=figsize)
@@ -342,23 +693,13 @@ class ModelPlotter:
         )
 
         # 2. Evaluate Models & Build Labels with LaTeX Formulas
-        t_2d = dataset.t_centers[None, :]
-        trials_2d = dataset.unique_trials[:, None]
         default_colors = plt.cm.tab10.colors
 
-        for idx, (name, model) in enumerate(models.items()):
-            pred_surface = model.predict(t_2d, trials_2d)
+        for idx, model in enumerate(models):
+            pred_surface = model.compute_expected_rate(dataset)
             mean_pred = np.average(pred_surface, axis=0, weights=dataset.n_fish_per_trial)
-
-            color = palette.get(name) if palette else default_colors[idx % len(default_colors)]
-            
-            # Extract LaTeX formula from model kernel if available
-            latex_formula = getattr(getattr(model, 'kernel', None), 'latex_formula', None)
-            if latex_formula:
-                label = f"{name}:  {latex_formula}"
-            else:
-                label = f"Model: {name}"
-
+            color = default_colors[idx % len(default_colors)]
+            label = f"{model.name}:  {model.latex_formula}"
             ax.plot(
                 dataset.t_centers, 
                 mean_pred, 
@@ -409,10 +750,7 @@ class ModelPlotter:
 
         fig, ax = plt.subplots(figsize=figsize)
 
-        # 1. Evaluate Model Surface: Shape (N_trials, N_time_bins)
-        t_2d = dataset.t_centers[None, :]
-        trials_2d = dataset.unique_trials[:, None]
-        model_surface = model.predict(t_2d, trials_2d)
+        model_surface = model.compute_expected_rate(dataset)
 
         # 2. Color Mapping Setup
         norm = plt.Normalize(vmin=dataset.unique_trials[0], vmax=dataset.unique_trials[-1])
@@ -452,9 +790,8 @@ class ModelPlotter:
         ax.plot([], [], color='gray', linestyle='--', linewidth=1.8, label='Model Fit (Dashed Line)')
 
         # Plot Formatting
-        kernel_name = getattr(getattr(model, 'kernel', None), 'name', 'Poisson Model')
         ax.set_title(
-            f"Trial-by-Trial Overlay | {kernel_name} (Every {trial_step} Trials)", 
+            f"Trial-by-Trial Overlay | {model.name} (Every {trial_step} Trials)", 
             fontsize=12, 
             fontweight='bold'
         )

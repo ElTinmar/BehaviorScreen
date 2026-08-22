@@ -46,6 +46,10 @@ def main():
                 PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="rate_shared,gamma")),
                 PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="shared")),
                 PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma")),
+                HawkesProcess(
+                    RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma"),
+                    HistoryKernelFactory.exponential()
+                )
             ]
         },
 
