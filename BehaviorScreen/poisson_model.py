@@ -260,6 +260,10 @@ class RateKernel:
         return set(parent_kernel.param_names).issubset(set(self.param_names))
 
 
+@dataclass(frozen=True)
+class HistoryKernel:
+    ... # TODO
+
 def _fit_single_bootstrap(seed_seq, dataset, kernel):
     rng = np.random.default_rng(seed_seq)
     ds_boot = dataset.resample(rng)
