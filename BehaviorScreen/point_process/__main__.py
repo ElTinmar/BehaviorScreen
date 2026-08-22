@@ -64,6 +64,10 @@ def main():
             },
             'models': [
                 PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                )
             ]
         },
 
@@ -137,7 +141,11 @@ def main():
             },
             'models': [
                 PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-                PoissonProcess(RateKernelFactory.omr_forward())
+                PoissonProcess(RateKernelFactory.omr_forward()),
+                HawkesProcess(
+                    RateKernelFactory.omr_forward(),
+                    HistoryKernelFactory.exponential()
+                )
             ]
         },
 
@@ -180,7 +188,11 @@ def main():
             },
             'models': [
                 PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-                PoissonProcess(RateKernelFactory.looming_gaussian())
+                PoissonProcess(RateKernelFactory.looming_gaussian()),
+                HawkesProcess(
+                    RateKernelFactory.looming_gaussian(),
+                    HistoryKernelFactory.exponential()
+                )
             ]
         },
 
@@ -195,7 +207,11 @@ def main():
             },
             'models': [
                 PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-                PoissonProcess(RateKernelFactory.looming_gaussian())
+                PoissonProcess(RateKernelFactory.looming_gaussian()),
+                HawkesProcess(
+                    RateKernelFactory.looming_gaussian(),
+                    HistoryKernelFactory.exponential()
+                )
             ]
         },
 
