@@ -112,7 +112,7 @@ class HistoryKernelFactory:
             return history
 
         return HistoryKernel(
-            name="Exponential Hawkes",
+            name="Exponential   ",
             func=_func,
             param_names=["alpha_hawkes","beta_hawkes"],
             initial_guesses=[alpha_initial,beta_initial],
@@ -132,9 +132,10 @@ class HawkesProcess(PointProcess):
         integration_dt=0.02,
     ):
         super().__init__(kernel, integration_dt)
+
+        self.name = f"Hawkes rate: {kernel.name}, history: {history_kernel.name}"
         self.kernel = kernel
         self.history_kernel = history_kernel
-
         self.initial_guesses = kernel.initial_guesses + history_kernel.initial_guesses
         self.bounds = kernel.bounds + history_kernel.bounds
         self.param_names = kernel.param_names + history_kernel.param_names

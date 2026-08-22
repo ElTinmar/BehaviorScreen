@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 from BehaviorScreen.core import Stim, Laterality
 from .dataset import BehavioralDataLoader
-from .point_process import ModelComparator
+from .point_process import ModelComparator, ModelPlotter
 from .poisson_process import RateKernelFactory, PoissonProcess
 from .hawkes_process import HistoryKernelFactory, HawkesProcess
 
@@ -232,7 +232,7 @@ def main():
         print("\n--- MODEL COMPARISON TABLE ---")
         print(summary_table.to_string(index=False))
 
-        fig1, ax1 = PoissonVisualizer.plot_model_fits(
+        fig1, ax1 = ModelPlotter.plot_model_fits(
             dataset=dataset,
             models=fitted_models,
         )
@@ -241,13 +241,13 @@ def main():
         best_model_name = summary_table.iloc[0]["Model Name"]
         best_model = fitted_models[best_model_name]
 
-        fig2, axes2 = PoissonVisualizer.plot_histogram(
+        fig2, axes2 = ModelPlotter.plot_histogram(
             dataset=dataset,
             model=best_model,
         )
         plt.show(block=False)
 
-        fig3, axes3 = PoissonVisualizer.plot_trial_traces(
+        fig3, axes3 = ModelPlotter.plot_trial_traces(
             dataset=dataset,
             model=best_model,
         )

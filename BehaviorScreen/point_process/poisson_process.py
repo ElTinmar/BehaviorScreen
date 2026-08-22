@@ -101,7 +101,7 @@ class RateKernelFactory:
             return B * np.ones_like(t + 0.0 * trial)
 
         return RateKernel(
-            name="Homogeneous Poisson λ()",
+            name="Homogeneous λ",
             func=_func,
             param_names=["B"],
             initial_guesses=[0.5],
@@ -324,8 +324,8 @@ class PoissonProcess(PointProcess):
 
         super.__init__(self, integration_dt)
 
+        self.name = f"Poisson {kernel.name}"
         self.kernel = kernel
-        self.name = kernel.name
         self.initial_guesses = kernel.initial_guesses
         self.bounds = kernel.bounds
         self.param_names = kernel.param_names

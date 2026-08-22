@@ -4,6 +4,8 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
 from scipy.stats import norm, kstest, chi2
+import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .dataset import PointProcessDataset
 
@@ -322,7 +324,7 @@ class ModelPlotter:
     @staticmethod
     def plot_model_fits(
         dataset: PointProcessDataset,
-        models: Dict[str, PoissonProcess],
+        models: Dict[str, PointProcess],
         figsize: Tuple[int, int] = (12, 6),
         palette: Optional[Dict[str, Any]] = None
     ) -> Tuple[plt.Figure, plt.Axes]:
@@ -396,7 +398,7 @@ class ModelPlotter:
     @staticmethod
     def plot_trial_traces(
         dataset: PointProcessDataset,
-        model: PoissonProcess,
+        model: PointProcess,
         trial_step: int = 2,
         figsize: Tuple[int, int] = (12, 6),
         cmap: str = "viridis",
