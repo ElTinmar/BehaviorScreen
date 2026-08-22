@@ -1105,7 +1105,7 @@ class HawkesProcess(PointProcess):
 
 
     
-class KernelFactory:
+class RateKernelFactory:
 
     @staticmethod
     def homogeneous_poisson() -> RateKernel:
@@ -1380,7 +1380,7 @@ class ModelComparator:
         records = []
 
         for kernel in kernels:
-            model = PoissonProcess(kernel)
+            model = PoissonProcess(kernel)That's why for your Hawkes model:
             model.fit(dataset, method=method, **kwargs)
             models[kernel.name] = model
 
@@ -1637,13 +1637,13 @@ if __name__ == '__main__':
                 't_end':24.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson(),
-                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity=None),
-                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A"),
-                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B"),
-                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="rate_shared,gamma"),
-                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="shared"),
-                KernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma"),
+                RateKernelFactory.homogeneous_poisson(),
+                RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity=None),
+                RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A"),
+                RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B"),
+                RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="rate_shared,gamma"),
+                RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="shared"),
+                RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma"),
             ]
         },
 
@@ -1657,7 +1657,7 @@ if __name__ == '__main__':
                 't_end':24.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson(),
+                RateKernelFactory.homogeneous_poisson(),
             ]
         },
 
@@ -1671,8 +1671,8 @@ if __name__ == '__main__':
                 't_end':24.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson(),
-                KernelFactory.phototaxis_ipsi(),
+                RateKernelFactory.homogeneous_poisson(),
+                RateKernelFactory.phototaxis_ipsi(),
             ]
         },
 
@@ -1686,8 +1686,8 @@ if __name__ == '__main__':
                 't_end':24.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson(),
-                KernelFactory.phototaxis_contra()
+                RateKernelFactory.homogeneous_poisson(),
+                RateKernelFactory.phototaxis_contra()
             ]
         },
 
@@ -1701,7 +1701,7 @@ if __name__ == '__main__':
                 't_end':9.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson()
+                RateKernelFactory.homogeneous_poisson()
             ]
         },
 
@@ -1715,8 +1715,8 @@ if __name__ == '__main__':
                 't_end':9.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson(),
-                KernelFactory.omr_lateral_contra()
+                RateKernelFactory.homogeneous_poisson(),
+                RateKernelFactory.omr_lateral_contra()
             ]
         },
 
@@ -1730,8 +1730,8 @@ if __name__ == '__main__':
                 't_end':9.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson(),
-                KernelFactory.omr_forward()
+                RateKernelFactory.homogeneous_poisson(),
+                RateKernelFactory.omr_forward()
             ]
         },
 
@@ -1745,7 +1745,7 @@ if __name__ == '__main__':
                 't_end':9.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson()
+                RateKernelFactory.homogeneous_poisson()
             ]
         },
 
@@ -1759,7 +1759,7 @@ if __name__ == '__main__':
                 't_end':9.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson()
+                RateKernelFactory.homogeneous_poisson()
             ]
         },
 
@@ -1773,8 +1773,8 @@ if __name__ == '__main__':
                 't_end':9.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson(),
-                KernelFactory.looming_gaussian()
+                RateKernelFactory.homogeneous_poisson(),
+                RateKernelFactory.looming_gaussian()
             ]
         },
 
@@ -1788,8 +1788,8 @@ if __name__ == '__main__':
                 't_end':9.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson(),
-                KernelFactory.looming_gaussian()
+                RateKernelFactory.homogeneous_poisson(),
+                RateKernelFactory.looming_gaussian()
             ]
         },
 
@@ -1803,8 +1803,8 @@ if __name__ == '__main__':
                 't_end':5.0, 
             },
             'kernels': [
-                KernelFactory.homogeneous_poisson(),
-                KernelFactory.dark_flash()
+                RateKernelFactory.homogeneous_poisson(),
+                RateKernelFactory.dark_flash()
             ]
         },
     }
