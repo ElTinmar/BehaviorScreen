@@ -141,7 +141,7 @@ class BehavioralDataLoader:
 
         # 2. Extract metadata & build integer index mappings
         all_fish_ids = np.sort(sub_df['file'].unique())
-        unique_trials = np.sort(sub_df['trial_num'].unique()) #trial_num are actually indices 0,...,m
+        unique_trials = np.sort(sub_df['trial_num'].unique()) 
 
         fish_map = {f_id: idx for idx, f_id in enumerate(all_fish_ids)}
         trial_map = {t_num: idx for idx, t_num in enumerate(unique_trials)}
@@ -1136,7 +1136,7 @@ class PoissonVisualizer:
             fontweight='bold'
         )
         ax.set_xlabel("Time in Trial (s)", fontsize=11)
-        ax.set_ylabel("Firing Rate [Hz]", fontsize=11)
+        ax.set_ylabel("Rate [Hz]", fontsize=11)
         ax.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
         ax.set_ylim(bottom=0.0)
         ax.grid(True, linestyle=':', alpha=0.6)
@@ -1219,7 +1219,7 @@ class PoissonVisualizer:
             fontweight='bold'
         )
         ax.set_xlabel("Time in Trial (s)", fontsize=11)
-        ax.set_ylabel("Firing Rate [Hz]", fontsize=11)
+        ax.set_ylabel("Rate [Hz]", fontsize=11)
         ax.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
         ax.set_ylim(bottom=0.0)
         ax.grid(True, linestyle=':', alpha=0.5)
