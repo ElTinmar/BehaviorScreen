@@ -476,7 +476,7 @@ class PoissonProcess:
         ax_dist.set_ylabel("Density")
         ax_dist.legend(loc="upper right", fontsize=8)
 
-        # Panel D: 1D Event Temporal Autocorrelation
+        # Panel D: time rescaled event autocorrelation
         ax_acf = axes[1, 1]
         ax_acf.vlines(tr_data["acf_lags"], 0, tr_data["acf"], color="navy", lw=2)
         ax_acf.axhline(0, color="black", lw=1)
@@ -485,7 +485,7 @@ class PoissonProcess:
         ax_acf.axhline(conf_limit, color="red", linestyle="--", alpha=0.7, label="95% CI")
         ax_acf.axhline(-conf_limit, color="red", linestyle="--", alpha=0.7)
 
-        ax_acf.set_title("D. Residual Temporal Autocorrelation (Event Lag)", fontsize=11, fontweight='bold')
+        ax_acf.set_title("D. Time-rescaled event autocorrelation (Event Lag)", fontsize=11, fontweight='bold')
         ax_acf.set_xlabel("Lag (event)")
         ax_acf.set_ylabel("Autocorrelation")
         ax_acf.set_ylim([-0.5, 0.5])
