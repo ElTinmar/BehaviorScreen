@@ -274,26 +274,26 @@ class PoissonProcess:
     """
     Maximum Likelihood Estimator for Homogeneous and Inhomogeneous Poisson Processes.
     """
-    def __init__(self, kernel: RateKernel):
+    def __init__(self, kernel: RateKernel, integration_dt: float = 0.02):
         self.kernel = kernel
-        self.fit_result: Optional[dict] = None
+        self.integration_dt = integration_dt
+        self.fit_result: Optional[Any] = None
         self.params_: Optional[np.ndarray] = None
         self.param_dict_: Dict[str, float] = {}
 
     def _nll(
-            self, 
-            params: List[float], 
-            t_events: np.ndarray, 
-            trial_events: np.ndarray, 
-            unique_trials: np.ndarray, 
-            n_fish_per_trial: np.ndarray, 
-            duration_s: float, 
-            integration_dt: float
-        ):
-        
+        self, 
+        params: List[float], 
+        t_events: np.ndarray, 
+        trial_events: np.ndarray, 
+        unique_trials: np.ndarray, 
+        n_fish_per_trial: np.ndarray, 
+        duration_s: float, 
+    ) -> float:
+
         # Term 1: Sum of Log Intensity at Observed Events
         event_rates = self.kernel.evaluate(t_events, trial_events, params)
-        event_rates = np.maximum(event_rates, 1e-9) # TODO find a way to get rid of that
+        event_rates = np.maximum(event_rates, 1e-9)
         sum_log_rates = np.sum(np.log(event_rates))
 
         # Term 2: Expected Total Events (Surface Integration over Time)
@@ -301,7 +301,7 @@ class PoissonProcess:
             duration_s=duration_s, 
             trial=unique_trials, 
             params=params, 
-            integration_dt=integration_dt
+            integration_dt=self.integration_dt
         )
         
         # Scale expected events by trial-specific observing fish count
@@ -312,15 +312,19 @@ class PoissonProcess:
     def fit(
         self, 
         dataset: PoissonDataset, 
-        integration_dt: float = 0.02,
         method: str = 'L-BFGS-B', 
         **kwargs
     ):
-
         res = minimize(
             self._nll,
             x0=self.kernel.initial_guesses,
-            args=(dataset.event_times, dataset.event_trials_idx, dataset.unique_trials, dataset.n_fish_per_trial, dataset.duration_s, integration_dt),
+            args=(
+                dataset.event_times, 
+                dataset.event_trials_idx, 
+                dataset.unique_trials, 
+                dataset.n_fish_per_trial, 
+                dataset.duration_s, 
+            ),
             method=method,
             bounds=self.kernel.bounds,
             **kwargs
@@ -331,208 +335,81 @@ class PoissonProcess:
         self.param_dict_ = dict(zip(self.kernel.param_names, res.x))
         return self
 
-    def bootstrap(
-        self,
-        dataset: PoissonDataset,
-        n_boot: int = 500,
-        seed: int = 42,
-        ci: float = 95.0,
-        n_jobs: int = -1,  # -1 uses all available CPU cores
-    ) -> pd.DataFrame:
+    def estimate_hessian(
+        self, 
+        dataset: PoissonDataset, 
+        eps: float = 1e-5,
+    ) -> np.ndarray:
+        """Estimates the Observed Information Matrix (Hessian of NLL at MLE) via central finite differences."""
+        if self.params_ is None or self.fit_result is None:
+            raise ValueError("Model must be fitted before estimating the Hessian.")
 
-        if self.params_ is None:
-            raise ValueError("Model must be fitted before running bootstrap.")
-
-        seeds = np.random.SeedSequence(seed).spawn(n_boot)
-
-        boot_results = joblib.Parallel(n_jobs=n_jobs)(
-            joblib.delayed(_fit_single_bootstrap)(s, dataset, self.kernel)
-            for s in seeds
-        )
+        params = np.array(self.params_, dtype=float)
+        k = len(params)
         
-        valid_boot_params = [p for p in boot_results if p is not None]
-        if len(valid_boot_params) == 0:
-            raise RuntimeError("All bootstrap optimization attempts failed.")
+        def obj(p):
+            return self._nll(
+                p, dataset.event_times, dataset.event_trials_idx, 
+                dataset.unique_trials, dataset.n_fish_per_trial, 
+                dataset.duration_s
+            )
 
-        boot_params = np.array(valid_boot_params)
+        f0 = self.fit_result.fun
+        hessian = np.zeros((k, k))
+        h = eps * (1.0 + np.abs(params))
 
-        alpha = (100.0 - ci) / 2.0
-        return pd.DataFrame(
-            [
-                {
-                    "parameter": name,
-                    "fitted_val": self.params_[i],
-                    "boot_mean": np.mean(boot_params[:, i]),
-                    "boot_std": np.std(boot_params[:, i]),
-                    f"ci_{alpha:.1f}%": np.percentile(boot_params[:, i], alpha),
-                    f"ci_{100-alpha:.1f}%": np.percentile(
-                        boot_params[:, i], 100 - alpha
-                    ),
-                }
-                for i, name in enumerate(self.kernel.param_names)
-            ]
-        )
+        for i in range(k):
+            for j in range(i, k):
+                if i == j:
+                    p_plus = params.copy(); p_plus[i] += h[i]
+                    p_minus = params.copy(); p_minus[i] -= h[i]
+                    hessian[i, i] = (obj(p_plus) - 2 * f0 + obj(p_minus)) / (h[i] ** 2)
+                else:
+                    p_pp = params.copy(); p_pp[i] += h[i]; p_pp[j] += h[j]
+                    p_pm = params.copy(); p_pm[i] += h[i]; p_pm[j] -= h[j]
+                    p_mp = params.copy(); p_mp[i] -= h[i]; p_mp[j] += h[j]
+                    p_mm = params.copy(); p_mm[i] -= h[i]; p_mm[j] -= h[j]
+                    
+                    val = (obj(p_pp) - obj(p_pm) - obj(p_mp) + obj(p_mm)) / (4 * h[i] * h[j])
+                    hessian[i, j] = val
+                    hessian[j, i] = val
 
-    def predict(self, t: np.ndarray, trial: Union[float, np.ndarray]) -> np.ndarray:
-        """Predicts expected rate intensity lambda(t, trial) per single trial observation."""
-        if self.params_ is None:
-            raise ValueError("Model is not fitted yet. Call .fit() first.")
-        expected_rate = self.kernel.evaluate(t, trial, self.params_)
-        expected_rate = np.maximum(expected_rate, 1e-9) # TODO find a way to get rid of that
-        return expected_rate
+        return hessian
 
-    @property
-    def log_likelihood(self) -> float:
-        return -self.fit_result.fun if self.fit_result else np.nan
+    def estimate_parameter_correlation(
+        self, 
+        dataset: PoissonDataset, 
+        eps: float = 1e-5,
+    ) -> np.ndarray:
+        """Computes normalized parameter correlation matrix (-1 to 1)."""
+        hessian = self.estimate_hessian(dataset, eps=eps)
+        
+        try:
+            cov = np.linalg.inv(hessian)
+        except np.linalg.LinAlgError:
+            cov = np.linalg.pinv(hessian)
 
-    @property
-    def aic(self) -> float:
-        k = len(self.params_)
-        return 2 * k - 2 * self.log_likelihood
-
-    def binned_residuals(self, dataset: PoissonDataset) -> Dict[str, np.ndarray]:
-        """Calculates 2D Pearson and Deviance residual matrices (Trial x Time)."""
-        if self.params_ is None:
-            raise ValueError("Model must be fitted before computing residuals.")
-
-        y_obs = dataset.time_trial_histogram_counts  # Shape: (N_trials, N_time_bins)
-        t_2d = dataset.t_centers[None, :]
-        trials_2d = dataset.unique_trials[:, None]
-
-        rate_surface = self.predict(t_2d, trials_2d)
-        mu_pred = rate_surface * dataset.n_fish_per_trial[:, None] * dataset.binning_dt
-
-        pearson_res = (y_obs - mu_pred) / np.sqrt(np.maximum(mu_pred, 1e-9))
-
+        std_devs = np.sqrt(np.maximum(0, np.diag(cov)))
+        outer_std = np.outer(std_devs, std_devs)
+        
         with np.errstate(divide='ignore', invalid='ignore'):
-            term = np.where(y_obs > 0, y_obs * np.log(y_obs / np.maximum(mu_pred, 1e-9)), 0.0)
-            deviance_sq = 2.0 * (term - (y_obs - mu_pred))
-            deviance_res = np.sign(y_obs - mu_pred) * np.sqrt(np.maximum(0.0, deviance_sq))
+            corr = cov / outer_std
+            corr = np.nan_to_num(corr, nan=0.0)
+            np.clip(corr, -1.0, 1.0, out=corr)
 
-        return {
-            "y_obs": y_obs,
-            "mu_pred": mu_pred,
-            "pearson_residuals": pearson_res,
-            "deviance_residuals": deviance_res,
-        }
+        return corr
 
-    def time_rescaling(
-            self, 
-            dataset: PoissonDataset,
-            acf_lags: int = 20,
-            min_events_per_fish: int = 5
-        ) -> Dict[str, Any]:
-
-        def autocorrelation(z_seqs: List[np.ndarray], max_lags: int) -> Tuple[np.ndarray, np.ndarray, float]:
-
-            all_z = np.concatenate(z_seqs) if len(z_seqs) > 0 else np.array([])
-            n = len(all_z)
-
-            if n < max_lags + 1:
-                return (np.array([]), np.array([]), 0.0)
-
-            z_mean = np.mean(all_z)
-            z_var = np.var(all_z)
-            lags = np.arange(1, max_lags + 1)
-
-            if z_var == 0:
-                return (lags, np.zeros(max_lags), 1.96 / np.sqrt(n))
-
-            z_centered_seqs = [seq - z_mean for seq in z_seqs]
-            acf = []
-            
-            for lag in lags:
-                cov_sum = 0.0
-                pair_count = 0
-                for z_c in z_centered_seqs:
-                    if len(z_c) > lag:
-                        cov_sum += np.sum(z_c[:-lag] * z_c[lag:])
-                        pair_count += (len(z_c) - lag)
-                
-                r_j = (cov_sum / (pair_count * z_var)) if pair_count > 0 else 0.0
-                acf.append(r_j)
-            
-            conf_limit = 1.96 / np.sqrt(n)  
-            return (lags, np.array(acf), conf_limit)
-
-        if self.params_ is None:
-            raise ValueError("Model must be fitted before running time-rescaling analysis.")
-
-        pooled_u = []
-        pooled_z = []
-        fish_u = {f_idx: [] for f_idx in range(dataset.num_fish)}
-
-        for idx, m in enumerate(dataset.unique_trials):
-            trial_mask = (dataset.event_trials_idx == m)
-            if not np.any(trial_mask):
-                continue
-
-            active_fish = np.where(dataset.fish_trial_mask[:, idx])[0]
-
-            for f_idx in active_fish:
-                fish_mask = trial_mask & (dataset.event_fish_idx == f_idx)
-                t_ev = np.sort(dataset.event_times[fish_mask])
-
-                if len(t_ev) == 0:
-                    continue
-
-                Lambda = self.kernel.cumulative_integrate(
-                    t_events=t_ev,
-                    trial=float(m),
-                    params=self.params_,
-                )
-
-                # tau should be ~ Exp(1)
-                tau = np.diff(np.insert(Lambda, 0, 0.0))
-                tau = tau[tau > 1e-12]
-
-                # Uniform conversion
-                u = 1.0 - np.exp(-tau)  
-
-                # gaussian conversion
-                u_clipped = np.clip(u, 1e-10, 1 - 1e-10)
-                z = norm.ppf(u_clipped)
-                
-                pooled_u.extend(u)
-                pooled_z.append(z)
-                fish_u[f_idx].extend(u)
-
-        rescaled_u = np.sort(np.array(pooled_u))
-        n_pooled = len(rescaled_u)
-
-        # autocorrelation
-        lags, acf, conf_limit = autocorrelation(pooled_z, acf_lags)
-        
-        # per-Fish D_n Distribution
-        fish_dn_stats = []
-        for f_idx, u_list in fish_u.items():
-            if len(u_list) >= min_events_per_fish:
-                d_stat, _ = kstest(u_list, 'uniform')
-                fish_dn_stats.append(d_stat)
-
-        fish_dn_stats = np.array(fish_dn_stats)
-
-        return {
-            "rescaled_u": rescaled_u,
-            "n_rescaled": n_pooled,
-            "fish_dn_stats": fish_dn_stats,
-            "median_fish_dn": float(np.median(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
-            "mean_fish_dn": float(np.mean(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
-            "acf_lags": lags,
-            "acf": acf,
-            "acf_conf": conf_limit
-        }
-
-        
     def diagnose(
         self, 
         dataset: PoissonDataset, 
-        figsize: Tuple[int, int] = (14, 12)
+        figsize: Tuple[int, int] = (14, 12),
+        eps: float = 1e-5,
     ) -> Dict[str, Any]:
 
         # 1. Execute sub-analyses
         res_data = self.binned_residuals(dataset)
         tr_data = self.time_rescaling(dataset)
+        corr_matrix = self.estimate_parameter_correlation(dataset, eps=eps)
         deviance_res = res_data["deviance_residuals"]
 
         # 2. Render Plot Dashboard (3 rows x 2 columns)
@@ -572,9 +449,9 @@ class PoissonProcess:
 
             ax_ks.set_xlim([0, 1])
             ax_ks.set_ylim([0, 1])
-
         else:
             ax_ks.text(0.5, 0.5, "No events available for KS test", ha='center', va='center')
+        ax_ks.set_title("B. Time-Rescaling Kolmogorov-Smirnov Plot", fontsize=11, fontweight='bold')
         ax_ks.set_xlabel("Transformed Interval ($U_k$)")
         ax_ks.set_ylabel("Cumulative Probability")
         ax_ks.legend(loc="upper left", fontsize=8)
@@ -638,15 +515,220 @@ class PoissonProcess:
         else:
             ax_dn.text(0.5, 0.5, "Insufficient events per fish for $D_n$", ha='center', va='center')
 
-        # Hide unused 6th subplot (Panel [2, 1])
-        axes[2, 1].axis("off")
+        # Panel F: Parameter Correlation Matrix
+        ax_corr = axes[2, 1]
+        im_corr = ax_corr.imshow(corr_matrix, cmap='coolwarm', vmin=-1.0, vmax=1.0)
+        ax_corr.set_title("F. Parameter Correlation Matrix", fontsize=11, fontweight='bold')
+
+        param_names = self.kernel.param_names
+        n_params = len(param_names)
+
+        ax_corr.set_xticks(np.arange(n_params))
+        ax_corr.set_yticks(np.arange(n_params))
+        ax_corr.set_xticklabels(param_names, rotation=45, ha='right', fontsize=9)
+        ax_corr.set_yticklabels(param_names, fontsize=9)
+
+        for i in range(n_params):
+            for j in range(n_params):
+                val = corr_matrix[i, j]
+                text_color = "white" if abs(val) > 0.6 else "black"
+                ax_corr.text(j, i, f"{val:.2f}", ha='center', va='center', color=text_color, fontsize=8)
+
+        divider_corr = make_axes_locatable(ax_corr)
+        cax_corr = divider_corr.append_axes("right", size="3%", pad=0.08)
+        fig.colorbar(im_corr, cax=cax_corr, label="Correlation")
 
         plt.show()
 
-        # 3. Return aggregated metric outputs
         return {
             "residuals": res_data,
             "time_rescaling": tr_data,
+            "parameter_correlation": corr_matrix,
+        }
+
+    def bootstrap(
+        self,
+        dataset: PoissonDataset,
+        n_boot: int = 500,
+        seed: int = 42,
+        ci: float = 95.0,
+        n_jobs: int = -1,
+    ) -> pd.DataFrame:
+
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before running bootstrap.")
+
+        seeds = np.random.SeedSequence(seed).spawn(n_boot)
+
+        boot_results = joblib.Parallel(n_jobs=n_jobs)(
+            joblib.delayed(_fit_single_bootstrap)(s, dataset, self.kernel)
+            for s in seeds
+        )
+        
+        valid_boot_params = [p for p in boot_results if p is not None]
+        if len(valid_boot_params) == 0:
+            raise RuntimeError("All bootstrap optimization attempts failed.")
+
+        boot_params = np.array(valid_boot_params)
+
+        alpha = (100.0 - ci) / 2.0
+        return pd.DataFrame(
+            [
+                {
+                    "parameter": name,
+                    "fitted_val": self.params_[i],
+                    "boot_mean": np.mean(boot_params[:, i]),
+                    "boot_std": np.std(boot_params[:, i]),
+                    f"ci_{alpha:.1f}%": np.percentile(boot_params[:, i], alpha),
+                    f"ci_{100-alpha:.1f}%": np.percentile(
+                        boot_params[:, i], 100 - alpha
+                    ),
+                }
+                for i, name in enumerate(self.kernel.param_names)
+            ]
+        )
+
+    def predict(self, t: np.ndarray, trial: Union[float, np.ndarray]) -> np.ndarray:
+        """Predicts expected rate intensity lambda(t, trial) per single trial observation."""
+        if self.params_ is None:
+            raise ValueError("Model is not fitted yet. Call .fit() first.")
+        expected_rate = self.kernel.evaluate(t, trial, self.params_)
+        expected_rate = np.maximum(expected_rate, 1e-9)
+        return expected_rate
+
+    @property
+    def log_likelihood(self) -> float:
+        return -self.fit_result.fun if self.fit_result else np.nan
+
+    @property
+    def aic(self) -> float:
+        k = len(self.params_)
+        return 2 * k - 2 * self.log_likelihood
+
+    def binned_residuals(self, dataset: PoissonDataset) -> Dict[str, np.ndarray]:
+        """Calculates 2D Pearson and Deviance residual matrices (Trial x Time)."""
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before computing residuals.")
+
+        y_obs = dataset.time_trial_histogram_counts
+        t_2d = dataset.t_centers[None, :]
+        trials_2d = dataset.unique_trials[:, None]
+
+        rate_surface = self.predict(t_2d, trials_2d)
+        mu_pred = rate_surface * dataset.n_fish_per_trial[:, None] * dataset.binning_dt
+
+        pearson_res = (y_obs - mu_pred) / np.sqrt(np.maximum(mu_pred, 1e-9))
+
+        with np.errstate(divide='ignore', invalid='ignore'):
+            term = np.where(y_obs > 0, y_obs * np.log(y_obs / np.maximum(mu_pred, 1e-9)), 0.0)
+            deviance_sq = 2.0 * (term - (y_obs - mu_pred))
+            deviance_res = np.sign(y_obs - mu_pred) * np.sqrt(np.maximum(0.0, deviance_sq))
+
+        return {
+            "y_obs": y_obs,
+            "mu_pred": mu_pred,
+            "pearson_residuals": pearson_res,
+            "deviance_residuals": deviance_res,
+        }
+
+    def time_rescaling(
+            self, 
+            dataset: PoissonDataset,
+            acf_lags: int = 20,
+            min_events_per_fish: int = 5
+        ) -> Dict[str, Any]:
+
+        def autocorrelation(z_seqs: List[np.ndarray], max_lags: int) -> Tuple[np.ndarray, np.ndarray, float]:
+            all_z = np.concatenate(z_seqs) if len(z_seqs) > 0 else np.array([])
+            n = len(all_z)
+
+            if n < max_lags + 1:
+                return (np.array([]), np.array([]), 0.0)
+
+            z_mean = np.mean(all_z)
+            z_var = np.var(all_z)
+            lags = np.arange(1, max_lags + 1)
+
+            if z_var == 0:
+                return (lags, np.zeros(max_lags), 1.96 / np.sqrt(n))
+
+            z_centered_seqs = [seq - z_mean for seq in z_seqs]
+            acf = []
+            
+            for lag in lags:
+                cov_sum = 0.0
+                pair_count = 0
+                for z_c in z_centered_seqs:
+                    if len(z_c) > lag:
+                        cov_sum += np.sum(z_c[:-lag] * z_c[lag:])
+                        pair_count += (len(z_c) - lag)
+                
+                r_j = (cov_sum / (pair_count * z_var)) if pair_count > 0 else 0.0
+                acf.append(r_j)
+            
+            conf_limit = 1.96 / np.sqrt(n)  
+            return (lags, np.array(acf), conf_limit)
+
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before running time-rescaling analysis.")
+
+        pooled_u = []
+        pooled_z = []
+        fish_u = {f_idx: [] for f_idx in range(dataset.num_fish)}
+
+        for idx, m in enumerate(dataset.unique_trials):
+            trial_mask = (dataset.event_trials_idx == m)
+            if not np.any(trial_mask):
+                continue
+
+            active_fish = np.where(dataset.fish_trial_mask[:, idx])[0]
+
+            for f_idx in active_fish:
+                fish_mask = trial_mask & (dataset.event_fish_idx == f_idx)
+                t_ev = np.sort(dataset.event_times[fish_mask])
+
+                if len(t_ev) == 0:
+                    continue
+
+                Lambda = self.kernel.cumulative_integrate(
+                    t_events=t_ev,
+                    trial=float(m),
+                    params=self.params_,
+                )
+
+                tau = np.diff(np.insert(Lambda, 0, 0.0))
+                tau = tau[tau > 1e-12]
+
+                u = 1.0 - np.exp(-tau)  
+                u_clipped = np.clip(u, 1e-10, 1 - 1e-10)
+                z = norm.ppf(u_clipped)
+                
+                pooled_u.extend(u)
+                pooled_z.append(z)
+                fish_u[f_idx].extend(u)
+
+        rescaled_u = np.sort(np.array(pooled_u))
+        n_pooled = len(rescaled_u)
+
+        lags, acf, conf_limit = autocorrelation(pooled_z, acf_lags)
+        
+        fish_dn_stats = []
+        for f_idx, u_list in fish_u.items():
+            if len(u_list) >= min_events_per_fish:
+                d_stat, _ = kstest(u_list, 'uniform')
+                fish_dn_stats.append(d_stat)
+
+        fish_dn_stats = np.array(fish_dn_stats)
+
+        return {
+            "rescaled_u": rescaled_u,
+            "n_rescaled": n_pooled,
+            "fish_dn_stats": fish_dn_stats,
+            "median_fish_dn": float(np.median(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
+            "mean_fish_dn": float(np.mean(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
+            "acf_lags": lags,
+            "acf": acf,
+            "acf_conf": conf_limit
         }
     
 class KernelFactory:
