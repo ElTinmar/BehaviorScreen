@@ -282,6 +282,7 @@ class PoissonProcess:
         self.param_dict_: Dict[str, float] = {}
         self.initial_guesses = kernel.initial_guesses
         self.bounds = kernel.bounds
+        self.param_names = kernel.param_names
 
     def _nll(
         self, 
@@ -324,7 +325,7 @@ class PoissonProcess:
 
         self.fit_result = res
         self.params_ = res.x
-        self.param_dict_ = dict(zip(self.kernel.param_names, res.x))
+        self.param_dict_ = dict(zip(self.param_names, res.x))
         return self
 
     def estimate_hessian(
@@ -548,13 +549,12 @@ class PoissonProcess:
         im_corr = ax_corr.imshow(corr_matrix, cmap='coolwarm', vmin=-1.0, vmax=1.0)
         ax_corr.set_title("G. Parameter Correlation Matrix", fontsize=11, fontweight='bold')
 
-        param_names = self.kernel.param_names
-        n_params = len(param_names)
+        n_params = len(self.param_names)
 
         ax_corr.set_xticks(np.arange(n_params))
         ax_corr.set_yticks(np.arange(n_params))
-        ax_corr.set_xticklabels(param_names, rotation=45, ha='right', fontsize=9)
-        ax_corr.set_yticklabels(param_names, fontsize=9)
+        ax_corr.set_xticklabels(self.param_names, rotation=45, ha='right', fontsize=9)
+        ax_corr.set_yticklabels(self.param_names, fontsize=9)
 
         for i in range(n_params):
             for j in range(n_params):
@@ -634,7 +634,7 @@ class PoissonProcess:
                         boot_params[:, i], 100 - alpha
                     ),
                 }
-                for i, name in enumerate(self.kernel.param_names)
+                for i, name in enumerate(self.param_names)
             ]
         )
 
@@ -868,6 +868,7 @@ class HawkesProcess(PoissonProcess):
         super().__init__(kernel, integration_dt)
         self.initial_guesses += [alpha_initial, beta_initial]
         self.bounds += [alpha_bounds, beta_bounds]
+        self.param_names += ["alpha_hawkes","beta_hawkes"]
 
     def _hawkes_nll_single_stream(
         self, 
@@ -1239,7 +1240,7 @@ class ModelComparator:
 
             records.append({
                 "Model Name": kernel.name,
-                "Params (k)": len(kernel.param_names),
+                "Params (k)": len(model.param_names),
                 "Log-Likelihood": model.log_likelihood,
                 "AIC": model.aic,
                 "Converged": model.fit_result.success
