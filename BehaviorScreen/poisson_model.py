@@ -402,22 +402,27 @@ class PoissonProcess:
     def diagnose(
         self, 
         dataset: PoissonDataset, 
-        figsize: Tuple[int, int] = (14, 12),
+        figsize: Tuple[int, int] = (15, 18),
         eps: float = 1e-5,
+        max_trial_lag: int = 10,
+        max_time_lag: int = 20,
     ) -> Dict[str, Any]:
 
         # 1. Execute sub-analyses
         res_data = self.binned_residuals(dataset)
         tr_data = self.time_rescaling(dataset)
         corr_matrix = self.estimate_parameter_correlation(dataset, eps=eps)
+        acf2d_data = self.residual_2d_autocorrelation(
+            dataset, max_trial_lag=max_trial_lag, max_time_lag=max_time_lag
+        )
         deviance_res = res_data["deviance_residuals"]
 
-        # 2. Render Plot Dashboard (3 rows x 2 columns)
-        fig, axes = plt.subplots(3, 2, figsize=figsize)
-        plt.subplots_adjust(hspace=0.35, wspace=0.3)
+        # 2. Render Plot Dashboard (4 rows x 2 columns)
+        fig, axes = plt.subplots(4, 2, figsize=figsize)
+        plt.subplots_adjust(hspace=0.38, wspace=0.3)
 
         model_formula = self.kernel.latex_formula 
-        fig.suptitle(model_formula, fontsize=15, fontweight='bold', y=0.98)
+        fig.suptitle(model_formula, fontsize=15, fontweight='bold', y=0.99)
 
         # Panel A: 2D Residual Surface
         ax_heat = axes[0, 0]
@@ -465,63 +470,95 @@ class PoissonProcess:
         ax_dist.hist(flat_dev, bins=40, density=True, alpha=0.6, color="steelblue", edgecolor="none")
 
         x_norm = np.linspace(-4, 4, 200)
-        ax_dist.plot(x_norm, norm.pdf(x_norm), 'r--', lw=2, label="$\mathcal{N}(0, 1)$ Ref")
+        ax_dist.plot(x_norm, norm.pdf(x_norm), 'r--', lw=2, label=r"$\mathcal{N}(0, 1)$ Ref")
         ax_dist.set_title("C. Deviance Residual Distribution", fontsize=11, fontweight='bold')
         ax_dist.set_xlabel("Deviance Residual Value")
         ax_dist.set_ylabel("Density")
         ax_dist.legend(loc="upper right", fontsize=8)
 
-        # Panel D: Residual Autocorrelation (ACF)
+        # Panel D: 1D Event Temporal Autocorrelation
         ax_acf = axes[1, 1]
         ax_acf.vlines(tr_data["acf_lags"], 0, tr_data["acf"], color="navy", lw=2)
         ax_acf.axhline(0, color="black", lw=1)
 
         conf_limit = tr_data["acf_conf"]
-        ax_acf.axhline(conf_limit, color="red", linestyle="--", alpha=0.7, label="95% Confidence")
+        ax_acf.axhline(conf_limit, color="red", linestyle="--", alpha=0.7, label="95% CI")
         ax_acf.axhline(-conf_limit, color="red", linestyle="--", alpha=0.7)
 
-        ax_acf.set_title("D. Residual Temporal Autocorrelation", fontsize=11, fontweight='bold')
+        ax_acf.set_title("D. Residual Temporal Autocorrelation (Event Lag)", fontsize=11, fontweight='bold')
         ax_acf.set_xlabel("Lag (event)")
         ax_acf.set_ylabel("Autocorrelation")
         ax_acf.set_ylim([-0.5, 0.5])
         ax_acf.legend(loc="upper right", fontsize=8)
 
-        # Panel E: Per-Fish D_n Effect Size Distribution
-        ax_dn = axes[2, 0]
+        # Panel E: 2D Residual Autocorrelation Surface R(Δm, Δt)
+        ax_acf2d = axes[2, 0]
+        acf2d = acf2d_data["acf2d"]
+        trial_lags = acf2d_data["trial_lags"]
+        time_lags_sec = acf2d_data["time_lags_sec"]
+        conf_lim_2d = acf2d_data["conf_limit"]
+
+        m_zero_idx = np.where(trial_lags == 0)[0][0]
+        t_zero_idx = np.where(acf2d_data["time_lags_bins"] == 0)[0][0]
+        
+        acf_offdiag = acf2d.copy()
+        acf_offdiag[m_zero_idx, t_zero_idx] = np.nan
+        vmax_2d = max(0.05, np.nanmax(np.abs(acf_offdiag)))
+
+        dt = dataset.binning_dt
+        extent_2d = [
+            time_lags_sec[0] - dt / 2, time_lags_sec[-1] + dt / 2,
+            trial_lags[0] - 0.5, trial_lags[-1] + 0.5
+        ]
+
+        im_2d = ax_acf2d.imshow(
+            acf2d, extent=extent_2d, origin="lower", cmap="coolwarm",
+            vmin=-vmax_2d, vmax=vmax_2d, aspect="auto"
+        )
+        
+        T_mesh, M_mesh = np.meshgrid(time_lags_sec, trial_lags)
+        contours = ax_acf2d.contour(
+            T_mesh, M_mesh, np.abs(acf2d), levels=[conf_lim_2d],
+            colors="black", linewidths=1.0, linestyles="--"
+        )
+        ax_acf2d.clabel(contours, fmt={conf_lim_2d: f"95% CI"}, inline=True, fontsize=7)
+        ax_acf2d.axhline(0, color="gray", lw=0.8, ls=":")
+        ax_acf2d.axvline(0, color="gray", lw=0.8, ls=":")
+
+        ax_acf2d.set_title("E. Autocorrelation of deviance residuals $R(\\Delta m, \\Delta t)$", fontsize=11, fontweight='bold')
+        ax_acf2d.set_xlabel("Time Lag $\\Delta t$ (s)")
+        ax_acf2d.set_ylabel("Trial Lag $\\Delta m$ (trials)")
+        
+        divider_2d = make_axes_locatable(ax_acf2d)
+        cax_2d = divider_2d.append_axes("right", size="3%", pad=0.08)
+        fig.colorbar(im_2d, cax=cax_2d, label="Autocorrelation")
+
+        # Panel F: Per-Fish D_n Effect Size Distribution
+        ax_dn = axes[2, 1]
         dn_values = tr_data["fish_dn_stats"]
         median_dn = tr_data["median_fish_dn"]
 
         if len(dn_values) > 0:
             ax_dn.hist(
-                dn_values, 
-                bins='auto', 
-                density=True, 
-                alpha=0.6, 
-                color='skyblue', 
-                edgecolor='navy',
-                label='Per-Fish $D_n$'
+                dn_values, bins='auto', density=True, alpha=0.6, 
+                color='skyblue', edgecolor='navy', label='Per-Fish $D_n$'
             )
             ax_dn.axvline(
-                median_dn, 
-                color='darkblue', 
-                linestyle='--', 
-                linewidth=2, 
+                median_dn, color='darkblue', linestyle='--', linewidth=2, 
                 label=f'Median $D_n$ ({median_dn:.3f})'
             )
-
             ax_dn.axvspan(0.0, 0.05, color='green', alpha=0.1, label='Good Fit ($D_n < 0.05$)')
-
-            ax_dn.set_title(f"E. Per-Fish $D_n$ Distribution ($N_{{fish}}={len(dn_values)}$)", fontsize=11, fontweight='bold')
+            ax_dn.set_title(f"F. Per-Fish $D_n$ Distribution ($N_{{fish}}={len(dn_values)}$)", fontsize=11, fontweight='bold')
             ax_dn.set_xlabel("KS Distance ($D_n$)")
             ax_dn.set_ylabel("Density")
             ax_dn.legend(loc="upper right", fontsize=8)
         else:
             ax_dn.text(0.5, 0.5, "Insufficient events per fish for $D_n$", ha='center', va='center')
 
-        # Panel F: Parameter Correlation Matrix
-        ax_corr = axes[2, 1]
+        # Panel G: Parameter Correlation Matrix
+        ax_corr = axes[3, 0]
         im_corr = ax_corr.imshow(corr_matrix, cmap='coolwarm', vmin=-1.0, vmax=1.0)
-        ax_corr.set_title("F. Parameter Correlation Matrix", fontsize=11, fontweight='bold')
+        ax_corr.set_title("G. Parameter Correlation Matrix", fontsize=11, fontweight='bold')
 
         param_names = self.kernel.param_names
         n_params = len(param_names)
@@ -541,12 +578,33 @@ class PoissonProcess:
         cax_corr = divider_corr.append_axes("right", size="3%", pad=0.08)
         fig.colorbar(im_corr, cax=cax_corr, label="Correlation")
 
+        # Panel H: Summary Diagnostic Metrics Text Box
+        ax_text = axes[3, 1]
+        ax_text.axis('off')
+        
+        summary_text = (
+            f"DIAGNOSTIC SUMMARY METRICS\n"
+            f"----------------------------------------\n"
+            f"Log-Likelihood      : {self.log_likelihood:.2f}\n"
+            f"Akaike Info (AIC)   : {self.aic:.2f}\n"
+            f"Pooled KS Rescaled  : N = {n_rescaled}\n"
+            f"Median Per-Fish D_n : {tr_data['median_fish_dn']:.4f}\n"
+            f"Max 2D Autocorr     : {np.nanmax(np.abs(acf_offdiag)):.4f}\n"
+            f"95% 2D CI Limit     : ±{conf_lim_2d:.4f}\n"
+        )
+        ax_text.text(
+            0.1, 0.5, summary_text, fontsize=10, fontfamily='monospace',
+            verticalalignment='center', bbox=dict(boxstyle='round,pad=0.8', facecolor='wheat', alpha=0.3)
+        )
+        ax_text.set_title("H. Global Model Diagnostics", fontsize=11, fontweight='bold')
+
         plt.show()
 
         return {
             "residuals": res_data,
             "time_rescaling": tr_data,
             "parameter_correlation": corr_matrix,
+            "acf2d": acf2d_data,
         }
 
     def bootstrap(
@@ -633,6 +691,64 @@ class PoissonProcess:
             "mu_pred": mu_pred,
             "pearson_residuals": pearson_res,
             "deviance_residuals": deviance_res,
+        }
+
+    def residual_2d_autocorrelation(
+        self,
+        dataset: PoissonDataset,
+        max_trial_lag: int = 10,
+        max_time_lag: int = 20,
+    ) -> Dict[str, np.ndarray]:
+        """Computes 2D residual autocorrelation across trial and time lag displacements."""
+        res_data = self.binned_residuals(dataset)
+        residuals = res_data[f"deviance_residuals"]
+
+        # Filter out unobserved trials (n_fish == 0)
+        valid_mask = dataset.n_fish_per_trial > 0
+        residuals = residuals[valid_mask, :].copy()
+
+        n_trials, n_time = residuals.shape
+        residuals -= np.mean(residuals)
+        variance = np.mean(residuals ** 2)
+
+        if variance == 0:
+            raise ValueError("Residual variance is zero.")
+
+        # Clamp maximum lags to dataset bounds
+        max_trial_lag = min(max_trial_lag, max(0, n_trials - 1))
+        max_time_lag = min(max_time_lag, max(0, n_time - 1))
+
+        trial_lags = np.arange(-max_trial_lag, max_trial_lag + 1)
+        time_lags_bins = np.arange(-max_time_lag, max_time_lag + 1)
+        
+        acf2d = np.full((len(trial_lags), len(time_lags_bins)), np.nan)
+
+        def _get_overlap_slices(n: int, lag: int) -> Tuple[slice, slice]:
+            """Returns safe, matching slice pairs for array overlap under displacement `lag`."""
+            if abs(lag) >= n:
+                return slice(0, 0), slice(0, 0)
+            if lag >= 0:
+                return slice(lag, n), slice(0, n - lag)
+            else:
+                return slice(0, n + lag), slice(-lag, n)
+
+        for i, dm in enumerate(trial_lags):
+            m_x, m_y = _get_overlap_slices(n_trials, dm)
+            for j, dt in enumerate(time_lags_bins):
+                t_x, t_y = _get_overlap_slices(n_time, dt)
+
+                x = residuals[m_x, t_x]
+                y = residuals[m_y, t_y]
+
+                if x.size > 1:
+                    acf2d[i, j] = np.mean(x * y) / variance
+
+        return {
+            "trial_lags": trial_lags,
+            "time_lags_bins": time_lags_bins,
+            "time_lags_sec": time_lags_bins * dataset.binning_dt,
+            "acf2d": acf2d,
+            "conf_limit": 1.96 / np.sqrt(n_trials * n_time),
         }
 
     def time_rescaling(
