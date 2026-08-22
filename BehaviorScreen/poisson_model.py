@@ -280,32 +280,30 @@ class PoissonProcess:
         self.fit_result: Optional[Any] = None
         self.params_: Optional[np.ndarray] = None
         self.param_dict_: Dict[str, float] = {}
+        self.initial_guesses = kernel.initial_guesses
+        self.bounds = kernel.bounds
 
     def _nll(
         self, 
         params: List[float], 
-        t_events: np.ndarray, 
-        trial_events: np.ndarray, 
-        unique_trials: np.ndarray, 
-        n_fish_per_trial: np.ndarray, 
-        duration_s: float, 
+        dataset: PoissonDataset
     ) -> float:
 
         # Term 1: Sum of Log Intensity at Observed Events
-        event_rates = self.kernel.evaluate(t_events, trial_events, params)
+        event_rates = self.kernel.evaluate(dataset.event_times, dataset.event_trials_idx, params)
         event_rates = np.maximum(event_rates, 1e-9)
         sum_log_rates = np.sum(np.log(event_rates))
 
         # Term 2: Expected Total Events (Surface Integration over Time)
         trial_integrals = self.kernel.integrate(
-            duration_s=duration_s, 
-            trial=unique_trials, 
+            duration_s=dataset.duration_s, 
+            trial=dataset.unique_trials, 
             params=params, 
             integration_dt=self.integration_dt
         )
         
         # Scale expected events by trial-specific observing fish count
-        total_expected_events = np.sum(trial_integrals * n_fish_per_trial)
+        total_expected_events = np.sum(trial_integrals * dataset.n_fish_per_trial)
 
         return -(sum_log_rates - total_expected_events)
 
@@ -317,16 +315,10 @@ class PoissonProcess:
     ):
         res = minimize(
             self._nll,
-            x0=self.kernel.initial_guesses,
-            args=(
-                dataset.event_times, 
-                dataset.event_trials_idx, 
-                dataset.unique_trials, 
-                dataset.n_fish_per_trial, 
-                dataset.duration_s, 
-            ),
+            x0=self.initial_guesses,
+            args=(dataset,),
             method=method,
-            bounds=self.kernel.bounds,
+            bounds=self.bounds,
             **kwargs
         )
 
@@ -348,11 +340,7 @@ class PoissonProcess:
         k = len(params)
         
         def obj(p):
-            return self._nll(
-                p, dataset.event_times, dataset.event_trials_idx, 
-                dataset.unique_trials, dataset.n_fish_per_trial, 
-                dataset.duration_s
-            )
+            return self._nll(p, dataset)
 
         f0 = self.fit_result.fun
         hessian = np.zeros((k, k))
@@ -405,7 +393,7 @@ class PoissonProcess:
         figsize: Tuple[int, int] = (15, 18),
         eps: float = 1e-5,
         max_trial_lag: int = 10,
-        max_time_lag: int = 20,
+        max_time_lag: int = 30,
     ) -> Dict[str, Any]:
 
         # 1. Execute sub-analyses
@@ -697,7 +685,7 @@ class PoissonProcess:
         self,
         dataset: PoissonDataset,
         max_trial_lag: int = 10,
-        max_time_lag: int = 20,
+        max_time_lag: int = 30,
     ) -> Dict[str, np.ndarray]:
         """Computes 2D residual autocorrelation across trial and time lag displacements."""
         res_data = self.binned_residuals(dataset)
@@ -750,6 +738,18 @@ class PoissonProcess:
             "acf2d": acf2d,
             "conf_limit": 1.96 / np.sqrt(n_trials * n_time),
         }
+
+    def cumulative_integrated_intensity(
+        self,
+        t_events,
+        trial,
+    ):
+        return self.kernel.cumulative_integrate(
+            t_events=t_events,
+            trial=trial,
+            params=self.params_,
+            integration_dt=self.integration_dt,
+        )
 
     def time_rescaling(
             self, 
@@ -810,10 +810,9 @@ class PoissonProcess:
                 if len(t_ev) == 0:
                     continue
 
-                Lambda = self.kernel.cumulative_integrate(
+                Lambda = self.cumulative_integrated_intensity(
                     t_events=t_ev,
                     trial=float(m),
-                    params=self.params_,
                 )
 
                 tau = np.diff(np.insert(Lambda, 0, 0.0))
@@ -850,7 +849,115 @@ class PoissonProcess:
             "acf": acf,
             "acf_conf": conf_limit
         }
-    
+
+class HawkesProcess(PoissonProcess):
+    """
+    Inhomogeneous Hawkes Process with exponential self-excitation memory kernel.
+    Extends baseline rate kernel lambda_0(t, m) with parameters [alpha, beta].
+    """
+
+    def __init__(
+        self,
+        kernel,
+        alpha_initial=0.1,
+        beta_initial=10.0,
+        alpha_bounds=(0.0, None),
+        beta_bounds=(1e-3, None),
+        integration_dt=0.02,
+    ):
+        super().__init__(kernel, integration_dt)
+        self.initial_guesses += [alpha_initial, beta_initial]
+        self.bounds += [alpha_bounds, beta_bounds]
+
+    def _hawkes_nll_single_stream(
+        self, 
+        t_events: np.ndarray, 
+        trial_idx: float, 
+        duration_s: float, 
+        params_base: List[float], 
+        alpha: float, 
+        beta: float
+    ) -> float:
+        n_events = len(t_events)
+        
+        # 1. Base rate integration integral
+        base_integral = self.kernel.integrate(duration_s, trial_idx, params_base)
+        
+        if n_events == 0:
+            return base_integral  # No history terms if no events occurred
+
+        # 2. Recursive computation of R_i for log-intensity term: log(lambda_0(t_i) + alpha * R_i)
+        t_sorted = np.sort(t_events)
+        dt_seq = np.diff(t_sorted)
+        
+        R = np.zeros(n_events)
+        for i in range(1, n_events):
+            R[i] = np.exp(-beta * dt_seq[i-1]) * (1.0 + R[i-1])
+
+        base_rates = self.kernel.evaluate(t_sorted, trial_idx, params_base)
+        intensity_at_events = np.maximum(base_rates + alpha * R, 1e-9)
+        
+        sum_log_intensity = np.sum(np.log(intensity_at_events))
+
+        # 3. Exact analytical integral of Hawkes memory term over [0, T]
+        hawkes_integral = (alpha / beta) * np.sum(1.0 - np.exp(-beta * (duration_s - t_sorted)))
+
+        return -(sum_log_intensity - (base_integral + hawkes_integral))
+
+    def _nll(self, params: List[float], dataset: PoissonDataset) -> float:
+        *params_base, alpha, beta = params
+        total_nll = 0.0
+
+        # Group operations per unique fish/trial stream
+        for f_idx in range(dataset.num_fish):
+            for t_idx, m in enumerate(dataset.unique_trials):
+                if not dataset.fish_trial_mask[f_idx, t_idx]:
+                    continue
+
+                mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
+                t_ev = dataset.event_times[mask]
+
+                total_nll += self._hawkes_nll_single_stream(
+                    t_ev, m, dataset.duration_s, params_base, alpha, beta
+                )
+
+        return total_nll
+
+    def cumulative_integrated_intensity(
+        self,
+        t_events: np.ndarray,
+        trial: float,
+    ) -> np.ndarray:
+
+        if self.params_ is None:
+            raise ValueError("Model must be fitted first.")
+
+        *base_params, alpha, beta = self.params_
+
+        t_events = np.sort(np.asarray(t_events))
+
+        # Baseline cumulative intensity
+        Lambda_base = self.kernel.cumulative_integrate(
+            t_events=t_events,
+            trial=trial,
+            params=base_params,
+            integration_dt=self.integration_dt,
+        )
+
+        # Hawkes history contribution
+        history = np.zeros_like(t_events)
+
+        for i, t in enumerate(t_events):
+            previous_events = t_events[:i]
+
+            history[i] = np.sum(
+                1.0 - np.exp(-beta * (t - previous_events))
+            )
+
+        Lambda_hawkes = (alpha / beta) * history
+
+        return Lambda_base + Lambda_hawkes
+        
 class KernelFactory:
 
     @staticmethod
