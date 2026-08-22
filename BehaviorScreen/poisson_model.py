@@ -17,7 +17,7 @@ from megabouts.utils import bouts_category_name_short
 
 
 @dataclass(frozen=True)
-class PoissonDataset:
+class PointProcessDataset:
     event_times: np.ndarray             
     event_trials_idx: np.ndarray            
     event_fish_idx: np.ndarray          
@@ -82,7 +82,7 @@ class PoissonDataset:
         safe_denom = np.where(n_fish > 0, n_fish * self.binning_dt, 1.0)
         return np.where(n_fish > 0, counts / safe_denom, 0.0)
     
-    def resample(self, rng: np.random.Generator) -> 'PoissonDataset':
+    def resample(self, rng: np.random.Generator) -> 'PointProcessDataset':
         n_fish = self.fish_trial_mask.shape[0]
         boot_fish_idx = rng.choice(n_fish, size=n_fish, replace=True)
 
@@ -97,7 +97,7 @@ class PoissonDataset:
                 boot_trials.append(self.event_trials_idx[mask])
                 boot_fish.append(np.full(np.sum(mask), new_id, dtype=int))
 
-        return PoissonDataset(
+        return PointProcessDataset(
             event_times=np.concatenate(boot_times) if boot_times else np.array([]),
             event_trials_idx=np.concatenate(boot_trials) if boot_trials else np.array([]),
             event_fish_idx=np.concatenate(boot_fish) if boot_fish else np.array([]),
@@ -123,7 +123,7 @@ class BehavioralDataLoader:
         binning_dt: float = 0.02,
         t_start: float = 0.0,
         t_end: float = 24.0,
-    ) -> PoissonDataset:
+    ) -> PointProcessDataset:
 
         # 1. Filter sub_df by stimulus or epoch_name
         sub_df = self.raw_df
@@ -174,7 +174,7 @@ class BehavioralDataLoader:
         event_trials_idx = events['trial_num'].map(trial_map).values.astype(int)
         event_fish_idx = events['file'].map(fish_map).values.astype(int)
 
-        return PoissonDataset(
+        return PointProcessDataset(
             event_times=event_times,
             event_trials_idx=event_trials_idx,
             event_fish_idx=event_fish_idx,
@@ -231,18 +231,13 @@ class RateKernel:
         params: List[float], 
         integration_dt: float = 0.02
     ) -> np.ndarray:
-        """
-        Computes cumulative integrated intensity Lambda(t_k) at specific event timestamps.
-        Used primarily for Time-Rescaling diagnostic transforms.
-        """
+
         if len(t_events) == 0:
             return np.array([], dtype=float)
 
-        # 1. Analytical route: use numpy vectorization
         if self.integral_func is not None:
             return self.integral_func(0, t_events, trial, params)
 
-        # 2. Numerical fallback using cumulative trapezoid
         t_max = np.max(t_events)
         if t_max <= 0:
             return np.zeros_like(t_events, dtype=float)
@@ -252,7 +247,6 @@ class RateKernel:
         rate_surface = self.evaluate(t_grid[None, :], trials_2d, params)
         rate_surface = np.maximum(rate_surface, 1e-9) # TODO find a way to get rid of that
 
-        # Compute continuous cumulative surface & interpolate exact event timestamps
         cum_integral = cumulative_trapezoid(rate_surface, t_grid, initial=0.0, axis=1).squeeze()
         return np.interp(t_events, t_grid, cum_integral)
 
@@ -262,8 +256,118 @@ class RateKernel:
 
 @dataclass(frozen=True)
 class HistoryKernel:
-    ... # TODO
+    name: str
+    func: Callable[[np.ndarray, List[float]], np.ndarray]
+    param_names: List[str]
+    initial_guesses: List[float]
+    bounds: List[Tuple[Optional[float], Optional[float]]]
+    integral_func: Optional[Callable[[np.ndarray, List[float]], np.ndarray]] = None
+    event_history_func: Optional[Callable[[np.ndarray, List[float]], np.ndarray]] = None
+    latex_formula: str = ""
 
+    def evaluate(self, lag: np.ndarray, params: List[float]) -> np.ndarray:
+        if np.any(lag < 0):
+            raise ValueError("History-kernel lags must be non-negative.")
+
+        return self.func(lag, params)
+
+    def integrate(
+        self,
+        duration: Union[float, np.ndarray],
+        params: List[float],
+        integration_dt: float = 0.02,
+    ) -> np.ndarray:
+
+        duration = np.asarray(duration, dtype=float)
+        if np.any(duration < 0):
+            raise ValueError("Integration duration must be non-negative.")
+
+        if self.integral_func is not None:
+            return self.integral_func(duration, params)
+
+        scalar_input = duration.ndim == 0
+        durations = np.atleast_1d(duration)
+        result = np.empty_like(durations)
+
+        for i, T in enumerate(durations):
+            if T == 0:
+                result[i] = 0.0
+                continue
+
+            t_grid = np.arange(0.0,T + integration_dt,integration_dt)
+            if t_grid[-1] > T:
+                t_grid[-1] = T
+            elif t_grid[-1] < T:
+                t_grid = np.append(t_grid, T)
+
+            values = self.evaluate(t_grid, params)
+            result[i] = trapezoid(values, t_grid)
+
+        return result[0] if scalar_input else result
+
+    def event_history(self, t_events: np.ndarray, params: List[float]) -> np.ndarray:
+
+        t_events = np.sort(np.asarray(t_events, dtype=float))
+        if len(t_events) == 0:
+            return np.array([], dtype=float)
+
+        if self.event_history_func is not None:
+            return self.event_history_func(t_events, params)
+
+        # Generic O(N²) implementation
+        history = np.zeros(len(t_events), dtype=float)
+        for i in range(1, len(t_events)):
+            lags = t_events[i] - t_events[:i]
+            history[i] = np.sum(self.evaluate(lags, params))
+
+        return history
+
+class HistoryKernelFactory:
+
+    @staticmethod
+    def exponential(
+        alpha_initial: float = 0.1,
+        beta_initial: float = 10.0,
+        alpha_bounds: Tuple[Optional[float], Optional[float]] = (0.0, None),
+        beta_bounds: Tuple[Optional[float], Optional[float]] = (1e-3, None),
+    ) -> HistoryKernel:
+
+        def _func(lag, params):
+            alpha, beta = params
+            return alpha * np.exp(-beta * lag)
+
+        def _integral(duration, params):
+            alpha, beta = params
+            return alpha / beta*(1.0 - np.exp(-beta * duration))
+
+        def _event_history(t_events, params):
+            """Fast O(N) recursive implementation"""
+            alpha, beta = params
+
+            n_events = len(t_events)
+            if n_events == 0:
+                return np.array([], dtype=float)
+
+            history = np.zeros(n_events, dtype=float)
+            R = 0.0
+            for i in range(1, n_events):
+                dt = t_events[i] - t_events[i - 1]
+                R = np.exp(-beta * dt) * (1.0 + R)
+                history[i] = alpha * R
+
+            return history
+
+        return HistoryKernel(
+            name="Exponential Hawkes",
+            func=_func,
+            param_names=["alpha_hawkes","beta_hawkes"],
+            initial_guesses=[alpha_initial,beta_initial],
+            bounds=[alpha_bounds,beta_bounds],
+            integral_func=_integral,
+            event_history_func=_event_history,
+            latex_formula=r"$h(\Delta t) = \alpha_{\mathrm{H}} e^{-\beta_{\mathrm{H}}\Delta t}$"
+        )
+    
 def _fit_single_bootstrap(seed_seq, dataset, kernel):
     rng = np.random.default_rng(seed_seq)
     ds_boot = dataset.resample(rng)
@@ -291,7 +395,7 @@ class PoissonProcess:
     def _nll(
         self, 
         params: List[float], 
-        dataset: PoissonDataset
+        dataset: PointProcessDataset
     ) -> float:
 
         # Term 1: Sum of Log Intensity at Observed Events
@@ -314,7 +418,7 @@ class PoissonProcess:
 
     def fit(
         self, 
-        dataset: PoissonDataset, 
+        dataset: PointProcessDataset, 
         method: str = 'L-BFGS-B', 
         **kwargs
     ):
@@ -334,7 +438,7 @@ class PoissonProcess:
 
     def estimate_hessian(
         self, 
-        dataset: PoissonDataset, 
+        dataset: PointProcessDataset, 
         eps: float = 1e-5,
     ) -> np.ndarray:
         """Estimates the Observed Information Matrix (Hessian of NLL at MLE) via central finite differences."""
@@ -371,7 +475,7 @@ class PoissonProcess:
 
     def estimate_parameter_correlation(
         self, 
-        dataset: PoissonDataset, 
+        dataset: PointProcessDataset, 
         eps: float = 1e-5,
     ) -> np.ndarray:
         """Computes normalized parameter correlation matrix (-1 to 1)."""
@@ -394,7 +498,7 @@ class PoissonProcess:
 
     def diagnose(
         self, 
-        dataset: PoissonDataset, 
+        dataset: PointProcessDataset, 
         figsize: Tuple[int, int] = (15, 18),
         eps: float = 1e-5,
         max_trial_lag: int = 10,
@@ -601,7 +705,7 @@ class PoissonProcess:
 
     def bootstrap(
         self,
-        dataset: PoissonDataset,
+        dataset: PointProcessDataset,
         n_boot: int = 500,
         seed: int = 42,
         ci: float = 95.0,
@@ -659,7 +763,7 @@ class PoissonProcess:
         k = len(self.params_)
         return 2 * k - 2 * self.log_likelihood
 
-    def binned_residuals(self, dataset: PoissonDataset) -> Dict[str, np.ndarray]:
+    def binned_residuals(self, dataset: PointProcessDataset) -> Dict[str, np.ndarray]:
         """Calculates 2D Pearson and Deviance residual matrices (Trial x Time)."""
         if self.params_ is None:
             raise ValueError("Model must be fitted before computing residuals.")
@@ -687,7 +791,7 @@ class PoissonProcess:
 
     def residual_2d_autocorrelation(
         self,
-        dataset: PoissonDataset,
+        dataset: PointProcessDataset,
         max_trial_lag: int = 10,
         max_time_lag: int = 30,
     ) -> Dict[str, np.ndarray]:
@@ -757,7 +861,7 @@ class PoissonProcess:
 
     def time_rescaling(
             self, 
-            dataset: PoissonDataset,
+            dataset: PointProcessDataset,
             acf_lags: int = 20,
             min_events_per_fish: int = 5
         ) -> Dict[str, Any]:
@@ -862,55 +966,61 @@ class HawkesProcess(PoissonProcess):
 
     def __init__(
         self,
-        kernel,
-        alpha_initial=0.1,
-        beta_initial=10.0,
-        alpha_bounds=(0.0, None),
-        beta_bounds=(1e-3, None),
+        kernel: RateKernel,
+        history_kernel: HistoryKernel,
         integration_dt=0.02,
     ):
         super().__init__(kernel, integration_dt)
-        self.initial_guesses += [alpha_initial, beta_initial]
-        self.bounds += [alpha_bounds, beta_bounds]
-        self.param_names += ["alpha_hawkes","beta_hawkes"]
+        self.history_kernel = history_kernel
 
-    def _hawkes_nll_single_stream(
+        self.initial_guesses = kernel.initial_guesses + history_kernel.initial_guesses
+        self.bounds = kernel.bounds + history_kernel.bounds
+        self.param_names = kernel.param_names + history_kernel.param_names
+
+    def _split_params(self,params: List[float]) -> Tuple[List[float], List[float]]:
+        n = len(self.kernel.param_names)
+        params_base = params[:n]
+        params_history = params[n:]
+        return params_base, params_history
+    
+    def _hawkes_nll(
         self, 
-        t_events: np.ndarray, 
-        trial_idx: float, 
-        duration_s: float, 
-        params_base: List[float], 
-        alpha: float, 
-        beta: float
+        dataset: PointProcessDataset,
+        params_base: List[float],
+        params_history: List[float],
     ) -> float:
-        n_events = len(t_events)
         
-        # 1. Base rate integration integral
-        base_integral = self.kernel.integrate(duration_s, trial_idx, params_base)
-        
-        if n_events == 0:
-            return base_integral  # No history terms if no events occurred
+        base_rates = self.kernel.evaluate(
+            dataset.event_times,
+            dataset.event_trials_idx,
+            params_base,
+        )
+        history_rates = self.history_kernel.event_history(
+            dataset.event_times,
+            params_history,
+        )
+        intensity = base_rates + history_rates
+        sum_log_intensity = np.sum(np.log(intensity))
 
-        # 2. Recursive computation of R_i for log-intensity term: log(lambda_0(t_i) + alpha * R_i)
-        t_sorted = np.sort(t_events)
-        dt_seq = np.diff(t_sorted)
-        
-        R = np.zeros(n_events)
-        for i in range(1, n_events):
-            R[i] = np.exp(-beta * dt_seq[i-1]) * (1.0 + R[i-1])
 
-        base_rates = self.kernel.evaluate(t_sorted, trial_idx, params_base)
-        intensity_at_events = np.maximum(base_rates + alpha * R, 1e-9)
-        
-        sum_log_intensity = np.sum(np.log(intensity_at_events))
+        base_integral = self.kernel.integrate(
+            dataset.duration_s, 
+            dataset.event_trials_idx, 
+            params_base
+        )
+        remaining_time = dataset.duration_s - dataset.event_times
+        history_integrals = self.history_kernel.integrate(
+            remaining_time,
+            params_history,
+            integration_dt=self.integration_dt,
+        )
+        total_history_integral = np.sum(history_integrals)
 
-        # 3. Exact analytical integral of Hawkes memory term over [0, T]
-        hawkes_integral = (alpha / beta) * np.sum(1.0 - np.exp(-beta * (duration_s - t_sorted)))
+        return -(sum_log_intensity - (base_integral + total_history_integral))
 
-        return -(sum_log_intensity - (base_integral + hawkes_integral))
+    def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
+        params_base, params_history = self._split_params(params)
 
-    def _nll(self, params: List[float], dataset: PoissonDataset) -> float:
-        *params_base, alpha, beta = params
         total_nll = 0.0
 
         # Group operations per unique fish/trial stream
@@ -922,8 +1032,8 @@ class HawkesProcess(PoissonProcess):
                 mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
                 t_ev = dataset.event_times[mask]
 
-                total_nll += self._hawkes_nll_single_stream(
-                    t_ev, m, dataset.duration_s, params_base, alpha, beta
+                total_nll += self._hawkes_nll(
+                    t_ev, m, dataset.duration_s, params_base, params_history
                 )
 
         return total_nll
@@ -937,7 +1047,7 @@ class HawkesProcess(PoissonProcess):
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
 
-        *base_params, alpha, beta = self.params_
+        params_base, params_history = self._split_params(self.params_)
 
         t_events = np.sort(np.asarray(t_events))
 
@@ -945,24 +1055,50 @@ class HawkesProcess(PoissonProcess):
         Lambda_base = self.kernel.cumulative_integrate(
             t_events=t_events,
             trial=trial,
-            params=base_params,
+            params=params_base,
             integration_dt=self.integration_dt,
         )
 
         # Hawkes history contribution
-        history = np.zeros_like(t_events)
-
+        Lambda_history = np.zeros_like(t_events)
         for i, t in enumerate(t_events):
             previous_events = t_events[:i]
-
-            history[i] = np.sum(
-                1.0 - np.exp(-beta * (t - previous_events))
+            lags = t - previous_events
+            Lambda_history[i] = np.sum(
+                self.history_kernel.integrate(
+                    lags,
+                    params_history,
+                    integration_dt=self.integration_dt,
+                )
             )
 
-        Lambda_hawkes = (alpha / beta) * history
+        return Lambda_base + Lambda_history
 
-        return Lambda_base + Lambda_hawkes
+    def predict(
+        self,
+        t: np.ndarray,
+        trial: Union[float, np.ndarray],
+        history_events: np.ndarray,
+    ) -> np.ndarray:
         
+        if self.params_ is None:
+            raise ValueError("Model is not fitted yet.")
+
+        params_base, params_history = self._split_params(self.params_)
+        t, trial = np.broadcast_arrays(t, trial)
+        base_rate = self.kernel.evaluate(t, trial, params_base)
+
+        history_rate = np.zeros_like(t, dtype=float)
+        for i, current_t in enumerate(t):
+            previous = history_events[history_events < current_t]
+            if len(previous) > 0:
+                lags = current_t - previous
+                history_rate[i] = np.sum(self.history_kernel.evaluate(lags, params_history))
+
+        return base_rate + history_rate
+
+
+    
 class KernelFactory:
 
     @staticmethod
@@ -1229,7 +1365,7 @@ class ModelComparator:
     @staticmethod
     def compare(
         kernels: List[RateKernel], 
-        dataset: PoissonDataset,
+        dataset: PointProcessDataset,
         method: str = 'L-BFGS-B',
         **kwargs
     ) -> Tuple[pd.DataFrame, Dict[str, PoissonProcess]]:
@@ -1266,7 +1402,7 @@ class PoissonVisualizer:
 
     @staticmethod
     def plot_histogram(
-        dataset: PoissonDataset,
+        dataset: PointProcessDataset,
         model: PoissonProcess,
         figsize: Tuple[int, int] = (14, 5),
         cmap: str = "plasma",
@@ -1312,7 +1448,7 @@ class PoissonVisualizer:
 
     @staticmethod
     def plot_model_fits(
-        dataset: PoissonDataset,
+        dataset: PointProcessDataset,
         models: Dict[str, PoissonProcess],
         figsize: Tuple[int, int] = (12, 6),
         palette: Optional[Dict[str, Any]] = None
@@ -1386,7 +1522,7 @@ class PoissonVisualizer:
 
     @staticmethod
     def plot_trial_traces(
-        dataset: PoissonDataset,
+        dataset: PointProcessDataset,
         model: PoissonProcess,
         trial_step: int = 2,
         figsize: Tuple[int, int] = (12, 6),
