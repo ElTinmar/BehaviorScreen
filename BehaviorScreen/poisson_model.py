@@ -141,7 +141,7 @@ class BehavioralDataLoader:
 
         # 2. Extract metadata & build integer index mappings
         all_fish_ids = np.sort(sub_df['file'].unique())
-        unique_trials = np.sort(sub_df['trial_num'].unique())
+        unique_trials = np.sort(sub_df['trial_num'].unique()) #trial_num are actually indices 0,...,m
 
         fish_map = {f_id: idx for idx, f_id in enumerate(all_fish_ids)}
         trial_map = {t_num: idx for idx, t_num in enumerate(unique_trials)}
