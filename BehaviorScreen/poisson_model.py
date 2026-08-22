@@ -416,6 +416,9 @@ class PoissonProcess:
         fig, axes = plt.subplots(3, 2, figsize=figsize)
         plt.subplots_adjust(hspace=0.35, wspace=0.3)
 
+        model_formula = self.kernel.latex_formula 
+        fig.suptitle(model_formula, fontsize=15, fontweight='bold', y=0.98)
+
         # Panel A: 2D Residual Surface
         ax_heat = axes[0, 0]
         vmax = np.percentile(np.abs(deviance_res), 98)
