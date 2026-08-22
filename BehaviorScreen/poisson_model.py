@@ -569,6 +569,7 @@ class PoissonProcess:
         )
         
         valid_boot_params = [p for p in boot_results if p is not None]
+        print(f"Bootstrap fit: {len(valid_boot_params)}/{n_boot}")
         if len(valid_boot_params) == 0:
             raise RuntimeError("All bootstrap optimization attempts failed.")
 
