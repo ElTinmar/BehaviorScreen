@@ -1482,6 +1482,7 @@ if __name__ == '__main__':
         plt.show(block=False)
 
         best_model.diagnose(dataset)
+        #best_model.bootstrap(dataset, n_boot=500)
 
         del dataset
         del fitted_models
