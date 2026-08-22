@@ -132,6 +132,7 @@ class HawkesProcess(PointProcess):
         integration_dt=0.02,
     ):
         super().__init__(kernel, integration_dt)
+        self.kernel = kernel
         self.history_kernel = history_kernel
 
         self.initial_guesses = kernel.initial_guesses + history_kernel.initial_guesses
