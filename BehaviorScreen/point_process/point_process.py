@@ -279,13 +279,13 @@ class PointProcess:
         y_obs = dataset.time_trial_histogram_counts
         mu_pred = self.compute_expected_rate(dataset) * dataset.n_fish_per_trial[:, None] * dataset.binning_dt
 
-        pearson_res = (y_obs - mu_pred) / np.sqrt(np.maximum(mu_pred, 1e-9))
+        pearson_res = (y_obs - mu_pred) / np.sqrt(mu_pred)
 
         # Deviance Residuals
         with np.errstate(divide="ignore", invalid="ignore"):
             term = np.where(
                 y_obs > 0,
-                y_obs * np.log(y_obs / np.maximum(mu_pred, 1e-9)),
+                y_obs * np.log(y_obs / mu_pred),
                 0.0,
             )
             deviance_sq = 2.0 * (term - (y_obs - mu_pred))

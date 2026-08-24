@@ -167,7 +167,6 @@ class HawkesProcess(PointProcess):
             params_history,
         )
         intensity = base_rates + history_rates
-        #intensity = np.maximum(intensity, 1e-9)
         sum_log_intensity = np.sum(np.log(intensity))
 
         base_integral = self.kernel.integrate(
@@ -259,7 +258,7 @@ class HawkesProcess(PointProcess):
         base_rate = self.kernel.evaluate(t_bcast, trial_bcast, params_base)
 
         if history_events is None or len(history_events) == 0:
-            return np.maximum(base_rate, 1e-9)
+            return base_rate
 
         # Vectorized lag evaluation: (N_eval x N_events)
         t_flat = t_bcast.ravel()
@@ -277,7 +276,7 @@ class HawkesProcess(PointProcess):
             )
 
         history_rate = history_rate_flat.reshape(t_bcast.shape)
-        return np.maximum(base_rate + history_rate, 1e-9)
+        return base_rate + history_rate
 
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
         n_trials = len(dataset.unique_trials)

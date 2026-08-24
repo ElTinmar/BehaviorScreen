@@ -39,8 +39,6 @@ class RateKernel:
             trials_2d = np.atleast_1d(trial)[:, None]  # Shape: (N_trials, 1)
 
             rate_surface = self.evaluate(t_2d, trials_2d, params)
-            rate_surface = np.maximum(rate_surface, 1e-9) # TODO find a way to get rid of that
-
             integrals = trapezoid(rate_surface, dx=integration_dt, axis=1)
 
             # Preserve scalar input shape if a scalar trial was passed
@@ -67,8 +65,6 @@ class RateKernel:
         t_grid = np.arange(0, t_max + integration_dt, integration_dt)
         trials_2d = np.atleast_1d(trial)[:, None]
         rate_surface = self.evaluate(t_grid[None, :], trials_2d, params)
-        rate_surface = np.maximum(rate_surface, 1e-9) # TODO find a way to get rid of that
-
         cum_integral = cumulative_trapezoid(rate_surface, t_grid, initial=0.0, axis=1).squeeze()
         return np.interp(t_events, t_grid, cum_integral)
 
@@ -489,7 +485,6 @@ class PoissonProcess(PointProcess):
 
         # Term 1: Sum of Log Intensity at Observed Events
         event_rates = self.kernel.evaluate(dataset.event_times, dataset.event_trials_idx, params)
-        event_rates = np.maximum(event_rates, 1e-9)
         sum_log_rates = np.sum(np.log(event_rates))
 
         # Term 2: Expected Total Events (Surface Integration over Time)
@@ -509,7 +504,6 @@ class PoissonProcess(PointProcess):
             raise ValueError("Model is not fitted yet. Call .fit() first.")
         
         expected_rate = self.kernel.evaluate(t, trial, self.params_)
-        expected_rate = np.maximum(expected_rate, 1e-9)
         return expected_rate
 
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
@@ -519,7 +513,6 @@ class PoissonProcess(PointProcess):
         t_2d = dataset.t_centers[None, :]
         trials_2d = dataset.unique_trials[:, None]
         expected_rate = self.predict(t_2d, trials_2d)
-        #expected_rate = np.maximum(expected_rate, 1e-9)
         
         return expected_rate 
     
