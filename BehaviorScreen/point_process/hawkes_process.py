@@ -189,18 +189,11 @@ class HawkesProcess(PointProcess):
         params_base, params_history = self._split_params(params)
         total_nll = 0.0
 
-        # Group operations per unique fish/trial stream
-        for f_idx in range(dataset.num_fish):
-            for t_idx, m in enumerate(dataset.unique_trials):
-                if not dataset.fish_trial_mask[f_idx, t_idx]:
-                    continue
-
-                mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
-                t_ev = dataset.event_times[mask]
-
-                total_nll += self._hawkes_nll(
-                    t_ev, m, dataset.duration_s, params_base, params_history
-                )
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            m = dataset.unique_trials[t_idx]
+            total_nll += self._hawkes_nll(
+                t_ev, m, dataset.duration_s, params_base, params_history
+            )
 
         return total_nll
 
@@ -279,29 +272,23 @@ class HawkesProcess(PointProcess):
         return base_rate + history_rate
 
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
-        n_trials = len(dataset.unique_trials)
+        n_trials = dataset.num_trials
         n_bins = len(dataset.t_centers)
-        expected_rate = np.zeros((n_trials, n_bins), dtype=float)
 
-        for t_idx, trial_val in enumerate(dataset.unique_trials):
-            trial_rate = np.zeros(n_bins, dtype=float)
-            active_count = 0
+        rate_sum = np.zeros((n_trials, n_bins), dtype=float)
+        active_count = np.zeros(n_trials, dtype=int)
 
-            for f_idx in range(dataset.num_fish):
-                if not dataset.fish_trial_mask[f_idx, t_idx]:
-                    continue
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            trial_val = dataset.unique_trials[t_idx]
+            stream_rate = self.predict(t=dataset.t_centers, trial=trial_val, history_events=t_ev)
+            rate_sum[t_idx, :] += stream_rate
+            active_count[t_idx] += 1
 
-                active_count += 1
-                mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
-                t_ev = dataset.event_times[mask]
-
-                stream_rate = self.predict(
-                    t=dataset.t_centers,
-                    trial=trial_val,
-                    history_events=t_ev,
-                )
-                trial_rate += stream_rate
-
-            expected_rate[t_idx, :] = trial_rate / active_count
+        with np.errstate(invalid='ignore', divide='ignore'):
+            expected_rate = np.where(
+                active_count[:, None] > 0,
+                rate_sum / np.maximum(active_count, 1)[:, None],
+                0.0,
+            )
 
         return expected_rate

@@ -518,9 +518,10 @@ class PoissonProcess(PointProcess):
     
     def cumulative_integrated_intensity(
         self,
-        t_events,
-        trial,
-    ):
+        t_events: np.ndarray,
+        trial: float,
+    ) -> np.ndarray:
+        
         return self.kernel.cumulative_integrate(
             t_events=t_events,
             trial=trial,

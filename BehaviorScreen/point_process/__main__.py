@@ -5,7 +5,7 @@ import gc
 import matplotlib.pyplot as plt
 
 from BehaviorScreen.core import Stim, Laterality
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader
+from BehaviorScreen.point_process.dataset import BehavioralDataLoader, DatasetPlotter
 from BehaviorScreen.point_process.point_process import ModelComparator, ModelPlotter
 from BehaviorScreen.point_process.poisson_process import RateKernelFactory, PoissonProcess, PreyCapture
 from BehaviorScreen.point_process.hawkes_process import HistoryKernelFactory, HawkesProcess
@@ -232,6 +232,23 @@ model_config = {
     },
 }
 
+model_config = {
+    'phototaxis_contra': {
+        'dataset': {
+            'stim':Stim.PHOTOTAXIS,
+            'bout_name':'RT',
+            'laterality':Laterality.CONTRALATERAL,
+            'binning_dt':0.05, 
+            't_start':0.0, 
+            't_end':24.0, 
+        },
+        'models': [
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            PoissonProcess(RateKernelFactory.phototaxis_contra())
+        ]
+    },
+}
+
 all_summaries = []
 
 for exp_name, config in model_config.items():
@@ -241,6 +258,10 @@ for exp_name, config in model_config.items():
     print(f"==================================================")
 
     dataset = loader.prepare_dataset(**config['dataset'])
+
+    DatasetPlotter.plot_isi_histogram(dataset)
+    DatasetPlotter.plot_event_count_distribution(dataset)
+    plt.show(block=False)
 
     summary_table, fitted_models = ModelComparator.compare(
         models=config['models'],

@@ -56,7 +56,7 @@ class PointProcess:
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
         raise NotImplementedError
 
-    def cumulative_integrated_intensity(self, *args): 
+    def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray: 
         raise NotImplementedError
 
     def predict(self, t, trial, **kwargs):
@@ -217,35 +217,24 @@ class PointProcess:
         pooled_z = []
         fish_u = {f_idx: [] for f_idx in range(dataset.num_fish)}
 
-        for idx, m in enumerate(dataset.unique_trials):
-            trial_mask = (dataset.event_trials_idx == m)
-            if not np.any(trial_mask):
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            if len(t_ev) == 0:
                 continue
 
-            active_fish = np.where(dataset.fish_trial_mask[:, idx])[0]
+            m = dataset.unique_trials[t_idx] 
+            Lambda = self.cumulative_integrated_intensity(t_events=t_ev, trial=m)
 
-            for f_idx in active_fish:
-                fish_mask = trial_mask & (dataset.event_fish_idx == f_idx)
-                t_ev = np.sort(dataset.event_times[fish_mask])
+            tau = np.diff(np.insert(Lambda, 0, 0.0))
+            tau = tau[tau > 1e-12]
 
-                if len(t_ev) == 0:
-                    continue
+            u = 1.0 - np.exp(-tau)
+            u_clipped = np.clip(u, 1e-10, 1 - 1e-10)
+            z = norm.ppf(u_clipped)
 
-                Lambda = self.cumulative_integrated_intensity(
-                    t_events=t_ev,
-                    trial=float(m),
-                )
+            pooled_u.extend(u)
+            pooled_z.append(z)
+            fish_u[f_idx].extend(u)
 
-                tau = np.diff(np.insert(Lambda, 0, 0.0))
-                tau = tau[tau > 1e-12]
-
-                u = 1.0 - np.exp(-tau)  
-                u_clipped = np.clip(u, 1e-10, 1 - 1e-10)
-                z = norm.ppf(u_clipped)
-                
-                pooled_u.extend(u)
-                pooled_z.append(z)
-                fish_u[f_idx].extend(u)
 
         rescaled_u = np.sort(np.array(pooled_u))
         n_pooled = len(rescaled_u)
