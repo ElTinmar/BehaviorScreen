@@ -154,7 +154,71 @@ class PointProcessDataset:
         counts = self.stream_event_counts
         mean = np.mean(counts) if len(counts) else np.nan
         return bool(mean < self._LOW_POWER_MEAN_COUNT_THRESHOLD) if not np.isnan(mean) else True
-    
+
+    @property
+    def stream_isi_cv(self) -> np.ndarray:
+        """
+        Coefficient of variation (std/mean) of inter-event intervals, computed
+        separately for each (fish, trial) stream with >= 2 events.
+
+        Scale-invariant: a stream's overall rate does not affect its CV, so
+        this isolates within-stream ISI SHAPE (axis 2) from between-stream
+        RATE heterogeneity (axis 1) -- unlike the pooled ISI histogram, which
+        confounds the two.
+
+        CV ~ 1   : consistent with a Poisson/exponential-ISI process.
+        CV < 1   : more regular than Poisson -> refractory / rhythmic dynamics.
+        CV > 1   : burstier than Poisson -> clustering / self-excitation.
+        """
+        cvs = []
+        for _, _, t_ev in self.iter_streams():
+            if len(t_ev) < 3:  # need >= 2 ISIs for a meaningful std
+                continue
+            isis = np.diff(t_ev)
+            if np.mean(isis) > 0:
+                cvs.append(np.std(isis) / np.mean(isis))
+        return np.array(cvs)
+
+    @property
+    def mean_isi_cv(self) -> float:
+        """Population mean of stream_isi_cv, with NaN if no eligible streams."""
+        cvs = self.stream_isi_cv
+        return float(np.mean(cvs)) if len(cvs) > 0 else np.nan
+
+    @property
+    def stream_isi_lag1_autocorr(self) -> float:
+        """
+        Lag-1 autocorrelation of raw ISIs, computed WITHIN each (fish, trial)
+        stream separately then pooled (never across stream boundaries -- doing
+        so would confound this with axis-1 rate heterogeneity).
+
+        Sign convention matches PointProcess.time_rescaling's ACF panel:
+        positive -> bursty/rhythmic trains; negative -> refractory alternation.
+        """
+        cov_sum, pair_count, all_isis = 0.0, 0, []
+
+        for _, _, t_ev in self.iter_streams():
+            if len(t_ev) < 3:
+                continue
+            isis = np.diff(t_ev)
+            all_isis.append(isis)
+
+        if not all_isis:
+            return np.nan
+
+        pooled_mean = np.mean(np.concatenate(all_isis))
+        pooled_var = np.var(np.concatenate(all_isis))
+        if pooled_var == 0:
+            return np.nan
+
+        for isis in all_isis:
+            centered = isis - pooled_mean
+            if len(centered) > 1:
+                cov_sum += np.sum(centered[:-1] * centered[1:])
+                pair_count += len(centered) - 1
+
+        return (cov_sum / (pair_count * pooled_var)) if pair_count > 0 else np.nan
+
     def resample(self, rng: np.random.Generator) -> 'PointProcessDataset':
         n_fish = self.fish_trial_mask.shape[0]
         boot_fish_idx = rng.choice(n_fish, size=n_fish, replace=True)
