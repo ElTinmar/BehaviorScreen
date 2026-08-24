@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.point_process.dataset import BehavioralDataLoader
 from BehaviorScreen.point_process.point_process import ModelComparator, ModelPlotter
-from BehaviorScreen.point_process.poisson_process import RateKernelFactory, PoissonProcess
+from BehaviorScreen.point_process.poisson_process import RateKernelFactory, PoissonProcess, PreyCapture
 from BehaviorScreen.point_process.hawkes_process import HistoryKernelFactory, HawkesProcess
 
 
@@ -39,12 +39,14 @@ model_config = {
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity=None)),
-            PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A")),
-            PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B")),
-            PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="rate_shared,gamma")),
-            PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="shared")),
-            PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma")),
+            PoissonProcess(PreyCapture.time_only(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.baseline(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_shared(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_shared_ripple(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_ripple_shared(stim_freq=prey_stim_freq)),
             # HawkesProcess(
             #     RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma"),
             #     HistoryKernelFactory.exponential()
