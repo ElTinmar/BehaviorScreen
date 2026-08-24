@@ -232,23 +232,6 @@ model_config = {
     },
 }
 
-model_config = {
-    'phototaxis_contra': {
-        'dataset': {
-            'stim':Stim.PHOTOTAXIS,
-            'bout_name':'RT',
-            'laterality':Laterality.CONTRALATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':24.0, 
-        },
-        'models': [
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            PoissonProcess(RateKernelFactory.phototaxis_contra())
-        ]
-    },
-}
-
 all_summaries = []
 
 for exp_name, config in model_config.items():
