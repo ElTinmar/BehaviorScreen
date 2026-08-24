@@ -1,15 +1,49 @@
 from pathlib import Path
-import pandas as pd
+from typing import Dict
 import gc
 
+import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 
 from BehaviorScreen.core import Stim, Laterality
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader, DatasetPlotter
+from BehaviorScreen.point_process.dataset import (
+    BehavioralDataLoader, PointProcessDataset, DatasetPlotter,
+)
 from BehaviorScreen.point_process.point_process import ModelComparator, ModelPlotter
 from BehaviorScreen.point_process.poisson_process import RateKernelFactory, PoissonProcess, PreyCapture
 from BehaviorScreen.point_process.hawkes_process import HistoryKernelFactory, HawkesProcess
 
+
+def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDataset]) -> pd.DataFrame:
+    """
+    Builds a cross-condition comparison table of dispersion diagnostics
+    (see PointProcessDataset.dispersion_* properties) for every dataset
+    in `datasets`. Sorted by dispersion_fano_ratio descending.
+    """
+    records = []
+    for exp_name, dataset in datasets.items():
+        records.append({
+            "Condition": exp_name,
+            "N Fish": len(dataset.fish_total_counts),
+            "N Streams": len(dataset.stream_event_counts),
+            "Mean Count/Stream": np.mean(dataset.stream_event_counts),
+            "Stream Fano (DI)": dataset.stream_fano_factor,
+            "Fish Fano (DI)": dataset.fish_fano_factor,
+            "Fano Ratio (fish/stream)": dataset.dispersion_fano_ratio,
+            "Frac Streams w/ >=2 events": dataset.frac_streams_with_multiple_events,
+            "Low Power Flag": dataset.is_low_power_for_dispersion,
+        })
+
+    df = pd.DataFrame(records)
+    return df.sort_values(
+        "Fano Ratio (fish/stream)", ascending=False, na_position="last"
+    ).reset_index(drop=True)
+
+
+# =============================================================================
+# Setup
+# =============================================================================
 
 possible_roots = [
     Path('/home/martin/Desktop/DATA'),
@@ -23,19 +57,18 @@ prey_stim_speed_deg_per_s = 90
 prey_stim_range_deg = 2 * 70
 prey_stim_freq = prey_stim_speed_deg_per_s / prey_stim_range_deg
 
-# 1. Load Data
 loader = BehavioralDataLoader(ROOT / 'bouts_control.csv')
 
 model_config = {
 
     'prey_capture_ipsi': {
         'dataset': {
-            'stim':Stim.PREY_CAPTURE,
-            'bout_name':'JT',
-            'laterality':Laterality.IPSILATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':24.0, 
+            'stim': Stim.PREY_CAPTURE,
+            'bout_name': 'JT',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -56,12 +89,12 @@ model_config = {
 
     'prey_capture_contra': {
         'dataset': {
-            'stim':Stim.PREY_CAPTURE,
-            'bout_name':'JT',
-            'laterality':Laterality.CONTRALATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':24.0, 
+            'stim': Stim.PREY_CAPTURE,
+            'bout_name': 'JT',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -74,12 +107,12 @@ model_config = {
 
     'phototaxis_ipsi': {
         'dataset': {
-            'stim':Stim.PHOTOTAXIS,
-            'bout_name':'RT',
-            'laterality':Laterality.IPSILATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':24.0, 
+            'stim': Stim.PHOTOTAXIS,
+            'bout_name': 'RT',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -89,12 +122,12 @@ model_config = {
 
     'phototaxis_contra': {
         'dataset': {
-            'stim':Stim.PHOTOTAXIS,
-            'bout_name':'RT',
-            'laterality':Laterality.CONTRALATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':24.0, 
+            'stim': Stim.PHOTOTAXIS,
+            'bout_name': 'RT',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -104,12 +137,12 @@ model_config = {
 
     'omr_lateral_ipsi': {
         'dataset': {
-            'epoch_name':["grating right", "grating left"],
-            'bout_name':'RT',
-            'laterality':Laterality.IPSILATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':9.0, 
+            'epoch_name': ["grating right", "grating left"],
+            'bout_name': 'RT',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 9.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson())
@@ -118,12 +151,12 @@ model_config = {
 
     'omr_lateral_contra': {
         'dataset': {
-            'epoch_name':["grating right", "grating left"],
-            'bout_name':'RT',
-            'laterality':Laterality.CONTRALATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':9.0, 
+            'epoch_name': ["grating right", "grating left"],
+            'bout_name': 'RT',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 9.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -133,12 +166,12 @@ model_config = {
 
     'omr_forward': {
         'dataset': {
-            'epoch_name':"grating forward",
-            'bout_name':'BS',
-            'laterality':Laterality.NONDIRECTIONAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':9.0, 
+            'epoch_name': "grating forward",
+            'bout_name': 'BS',
+            'laterality': Laterality.NONDIRECTIONAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 9.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -152,12 +185,12 @@ model_config = {
 
     'okr_ipsi': {
         'dataset': {
-            'stim':Stim.OKR,
-            'bout_name':'S1',
-            'laterality':Laterality.IPSILATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':9.0, 
+            'stim': Stim.OKR,
+            'bout_name': 'S1',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 9.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson())
@@ -166,12 +199,12 @@ model_config = {
 
     'okr_contra': {
         'dataset': {
-            'stim':Stim.OKR,
-            'bout_name':'S1',
-            'laterality':Laterality.CONTRALATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':9.0, 
+            'stim': Stim.OKR,
+            'bout_name': 'S1',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 9.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson())
@@ -180,12 +213,12 @@ model_config = {
 
     'looming_ipsi': {
         'dataset': {
-            'stim':Stim.LOOMING,
-            'bout_name':'SLC',
-            'laterality':Laterality.IPSILATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':9.0, 
+            'stim': Stim.LOOMING,
+            'bout_name': 'SLC',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 9.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -199,12 +232,12 @@ model_config = {
 
     'looming_contra': {
         'dataset': {
-            'stim':Stim.LOOMING,
-            'bout_name':'SLC',
-            'laterality':Laterality.CONTRALATERAL,
-            'binning_dt':0.05, 
-            't_start':0.0, 
-            't_end':9.0, 
+            'stim': Stim.LOOMING,
+            'bout_name': 'SLC',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 9.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -218,12 +251,12 @@ model_config = {
 
     'dark_flash': {
         'dataset': {
-            'epoch_name':"flash dark",
-            'bout_name':'O',
-            'laterality':Laterality.NONDIRECTIONAL,
-            'binning_dt':0.025, 
-            't_start':0.0, 
-            't_end':5.0, 
+            'epoch_name': "flash dark",
+            'bout_name': 'O',
+            'laterality': Laterality.NONDIRECTIONAL,
+            'binning_dt': 0.025,
+            't_start': 0.0,
+            't_end': 5.0,
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -232,24 +265,57 @@ model_config = {
     },
 }
 
+
+# =============================================================================
+# Phase 1: build every dataset once
+# =============================================================================
+
+print("Loading datasets for all conditions...")
+datasets: Dict[str, PointProcessDataset] = {
+    exp_name: loader.prepare_dataset(**config['dataset'])
+    for exp_name, config in model_config.items()
+}
+
+
+# =============================================================================
+# Phase 2: dataset-only diagnostics (no model fitting yet)
+# =============================================================================
+
+print("\n================ DISPERSION / OVERDISPERSION SUMMARY ================")
+print("Review this BEFORE trusting fitted model results below -- conditions")
+print("with high Fano Ratio and Low Power Flag == False likely need a")
+print("fish-level heterogeneity term; see PointProcessDataset docstrings.")
+dispersion_summary = summarize_dispersion_across_conditions(datasets)
+print(dispersion_summary.to_string(index=False))
+
+for exp_name, dataset in datasets.items():
+    print(f"\n--- Dataset diagnostics: {exp_name} ---")
+    DatasetPlotter.plot_isi_histogram(dataset)
+    DatasetPlotter.plot_event_count_distribution(dataset)
+    DatasetPlotter.plot_fish_total_count_distribution(dataset)
+    plt.show()
+
+# <-- natural pause point: inspect the table + plots above and adjust
+#     model_config['models'] per condition before Phase 3 runs, if needed -->
+
+
+# =============================================================================
+# Phase 3: model fitting + comparison
+# =============================================================================
+
 all_summaries = []
 
 for exp_name, config in model_config.items():
-    
+
     print(f"\n==================================================")
     print(f" PROCESSING EXPERIMENT: {exp_name.upper()}")
     print(f"==================================================")
 
-    dataset = loader.prepare_dataset(**config['dataset'])
-
-    DatasetPlotter.plot_isi_histogram(dataset)
-    DatasetPlotter.plot_event_count_distribution(dataset)
-    DatasetPlotter.plot_fish_total_count_distribution(dataset)
-    plt.show(block=False)
+    dataset = datasets[exp_name]
 
     summary_table, fitted_models = ModelComparator.compare(
         models=config['models'],
-        dataset=dataset
+        dataset=dataset,
     )
     best_model = fitted_models[0]
 
@@ -259,35 +325,20 @@ for exp_name, config in model_config.items():
     print("\n--- MODEL COMPARISON TABLE ---")
     print(summary_table.to_string(index=False))
 
-    fig1, ax1 = ModelPlotter.plot_model_fits(
-        dataset=dataset,
-        models=fitted_models,
-    )
+    ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
     plt.show(block=False)
 
-    fig2, axes2 = ModelPlotter.plot_histogram(
-        dataset=dataset,
-        model=fitted_models[0],
-    )
+    ModelPlotter.plot_histogram(dataset=dataset, model=fitted_models[0])
     plt.show(block=False)
 
-    fig3, axes3 = ModelPlotter.plot_trial_traces(
-        dataset=dataset,
-        model=best_model,
-    )
+    ModelPlotter.plot_trial_traces(dataset=dataset, model=best_model)
     plt.show(block=False)
 
     best_model.diagnose(dataset)
-    #best_model.bootstrap(dataset, n_boot=500)
+    # best_model.bootstrap(dataset, n_boot=500)
 
-    del dataset
-    del fitted_models
-    del best_model
-    del summary_table
     plt.close('all')
-    gc.collect()
 
 master_summary_df = pd.concat(all_summaries, ignore_index=True)
 print("\n================ MASTER MODEL COMPARISON TABLE ================")
 print(master_summary_df.to_string(index=False))
-
