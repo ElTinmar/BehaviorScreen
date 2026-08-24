@@ -77,6 +77,24 @@ class RateKernel:
         cum_integral = cumulative_trapezoid(rate_surface, t_grid, initial=0.0, axis=1).squeeze()
         return np.interp(t_events, t_grid, cum_integral)
 
+def _peak_normalized_pulse(x: np.ndarray, x_peak: float, k: float = 1.0) -> np.ndarray:
+    """
+    Generalized alpha-function / Gamma-shaped pulse, peak-normalized to height 1.
+
+        f(x) = (x / x_peak)^k * exp(k * (1 - x / x_peak)),   x >= 0
+
+    - f(0) = 0
+    - f(x_peak) = 1   <- peak location & height fixed by construction
+    - k=1: classic alpha function (linear rise, exponential decay)
+    - k>1: sharper / more symmetric peak
+    - k<1: fast rise, long tail (asymmetric)
+
+    Non-negative for x >= 0, k > 0. No clamping required.
+    """
+    x_safe = np.maximum(x, 0.0)
+    ratio = x_safe / x_peak
+    return np.power(ratio, k) * np.exp(k * (1.0 - ratio))
+
 
 class RateKernelFactory:
 
@@ -288,32 +306,28 @@ class RateKernelFactory:
             latex_formula=r"$\lambda(t, m) = B + H e^{\alpha m} \exp\left(-\frac{(t - \mu)^2}{2\sigma^2}\right)$",
         )
 
-    # TODO make positive
+
     @staticmethod
     def dark_flash() -> RateKernel:
         def _func(t, trial, params):
-            A, k, tau, B, alpha_1, alpha_2, alpha_B = params
-            x = t / tau
-
-            kernel = np.power(x / k, k) * np.exp(k - x)
-            rational_scale = (1.0 + alpha_1 * trial) / (1.0 + alpha_2 * trial**2)
-            mod_A = A * rational_scale
-            mod_B = B * np.exp(alpha_B * trial)
-
-            return mod_A * kernel + mod_B
+            A, t_peak, k, B, alpha_B, tau_decay = params
+            time_pulse = _peak_normalized_pulse(t, t_peak, k)
+            trial_scale = np.exp(-trial/tau_decay)
+            baseline = B * np.exp(alpha_B * trial)
+            return A * time_pulse * trial_scale + baseline
 
         return RateKernel(
-            name="Dark Flash λ(t, m)",
+            name="Dark Flash",
             func=_func,
-            param_names=["A", "k", "tau", "B", "alpha_1", "alpha_2", "alpha_B"],
-            initial_guesses=[10.0, 2.0, 0.25, 0.2, 1.5, 0.5, 0.0],
-            bounds=[
-                (0.0, None), (0.1, 10.0), (0.01, None), (0.0, None),
-                (0.0, 10.0), (0.0, 5.0), (-0.2, 0.2)
-            ],
-            latex_formula=r"$\lambda(t, m) = A \frac{1 + \alpha_1 m}{1 + \alpha_2 m^2} \left(\frac{t}{k\tau}\right)^k e^{k - t/\tau} + B e^{\alpha_B m}$",
+            param_names=["A", "t_peak", "k", "B", "alpha_B", "tau_decay"],
+            initial_guesses=[2.2, 0.108, 5.1, 0.02, -0.18, 3.0],
+            bounds=[(0.0, None), (0.005, 2.0), (0.5, 20.0), (0.001, 10.0), (-1.0, 1.0), (0.1, 20.0)],
+            latex_formula=(
+                r"$\lambda(t,m) = A \left(\frac{t}{t_{\text{peak}}}\right)^{k}"
+                r"e^{k(1-t/t_{\text{peak}})} e^{-m/\tau_{\text{decay}}} + B e^{\alpha_B m}$"
+            ),
         )
-    
+
 class PoissonProcess(PointProcess):
 
     def __init__(self, kernel: RateKernel, integration_dt: float = 0.02):
