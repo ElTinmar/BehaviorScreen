@@ -13,6 +13,7 @@ from BehaviorScreen.point_process.dataset import (
 from BehaviorScreen.point_process.point_process import ModelComparator, ModelPlotter
 from BehaviorScreen.point_process.poisson_process import RateKernelFactory, PoissonProcess, PreyCapture, GammaPoissonProcess
 from BehaviorScreen.point_process.hawkes_process import HistoryKernelFactory, HawkesProcess
+from BehaviorScreen.point_process.renewal_process import RenewalKernelFactory, RenewalProcess
 
 
 def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDataset]) -> pd.DataFrame:
