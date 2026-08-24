@@ -1,13 +1,8 @@
 from dataclasses import dataclass
-from typing import Callable, List, Tuple, Dict, Optional, Union, Any
+from typing import Callable, List, Tuple, Optional, Union
 import numpy as np
-import pandas as pd
 
-import joblib
 from scipy.integrate import trapezoid, cumulative_trapezoid
-from scipy.stats import norm
-import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .dataset import PointProcessDataset
 from .point_process import PointProcess
@@ -95,6 +90,221 @@ def _peak_normalized_pulse(x: np.ndarray, x_peak: float, k: float = 1.0) -> np.n
     ratio = x_safe / x_peak
     return np.power(ratio, k) * np.exp(k * (1.0 - ratio))
 
+def _bounded_trial_scale(trial: np.ndarray, alpha: float) -> np.ndarray:
+    """Saturating logistic, always in (0, 2), equal to 1.0 at alpha=0 or trial=0."""
+    return 2.0 / (1.0 + np.exp(-alpha * trial))
+
+class PreyCapture:
+
+    _PARAM_NAMES: List[str] = ["A", "tau", "B", "A_ripple", "phi1", "phi2"]
+    _GUESSES: List[float] = [0.56, 1.15, 0.40, 0.1, 0.0, 0.0]
+    _BOUNDS: List[Tuple[Optional[float], Optional[float]]] = [
+        (0.01, 10.0),   # A: transient peak amplitude
+        (0.1, 5.0),     # tau: transient decay time constant
+        (0.01, 5.0),    # B: baseline rate
+        (0.0, 0.49),    # A_ripple: capped at 0.49 so 2*A_ripple < 0.98,
+                        #   guaranteeing ripple_mod > 0 for ANY alpha_ripple/trial
+        (-np.pi, np.pi),  # phi1
+        (-np.pi, np.pi),  # phi2
+    ]
+    _ALPHA_BOUNDS: Tuple[Optional[float], Optional[float]] = (-2.0, 2.0)
+    _ALPHA_GUESS: float = -0.05
+    _RIPPLE_WAVE_LATEX = r"\frac{1}{2}\left[\sin(\omega t + \phi_1) + \sin(2\omega t + \phi_2)\right]"
+
+    @classmethod
+    def _rate(
+        cls,
+        t: np.ndarray,
+        trial: np.ndarray,
+        stim_freq: float,
+        A: float, tau: float, B: float, A_ripple: float, phi1: float, phi2: float,
+        alpha_peak: float = 0.0,
+        alpha_baseline: float = 0.0,
+        alpha_ripple: float = 0.0,
+    ) -> np.ndarray:
+
+        w = 2.0 * np.pi * stim_freq
+        phase = w * t
+
+        transient = A * np.exp(-t / tau) * np.exp(alpha_peak * trial)
+        baseline = B * np.exp(alpha_baseline * trial)
+
+        wave = 0.5 * (np.sin(phase + phi1) + np.sin(2.0 * phase + phi2))
+        ripple_amplitude = A_ripple * _bounded_trial_scale(trial, alpha_ripple)
+        ripple_mod = 1.0 + ripple_amplitude * wave
+
+        return (transient + baseline) * ripple_mod
+
+    # -- Variants ----------------------------------------------------------
+
+
+    @classmethod
+    def time_only(cls, stim_freq: float) -> RateKernel:
+        """No trial-dependent plasticity."""
+        def _func(t, trial, params):
+            A, tau, B, A_ripple, phi1, phi2 = params
+            return cls._rate(t, trial, stim_freq, A, tau, B, A_ripple, phi1, phi2)
+
+        return RateKernel(
+            name="PreyCapture(TimeOnly)",
+            func=_func,
+            param_names=list(cls._PARAM_NAMES),
+            initial_guesses=list(cls._GUESSES),
+            bounds=list(cls._BOUNDS),
+            latex_formula=(
+                r"$\lambda(t) = \left(A e^{-t/\tau} + B\right)"
+                rf"\left(1 + A_{{\text{{ripple}}}} {cls._RIPPLE_WAVE_LATEX}\right)$"
+            ),
+        )
+
+    @classmethod
+    def peak(cls, stim_freq: float) -> RateKernel:
+        """Only the transient (peak) amplitude is modulated across trials."""
+        def _func(t, trial, params):
+            A, tau, B, A_ripple, phi1, phi2, alpha_peak = params
+            return cls._rate(t, trial, stim_freq, A, tau, B, A_ripple, phi1, phi2,
+                              alpha_peak=alpha_peak)
+
+        return RateKernel(
+            name="PreyCapture(Peak)",
+            func=_func,
+            param_names=cls._PARAM_NAMES + ["alpha_peak"],
+            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS],
+            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS],
+            latex_formula=(
+                r"$\lambda(t,m) = \left(A e^{-t/\tau} e^{\alpha_{\text{peak}} m} + B\right)"
+                rf"\left(1 + A_{{\text{{ripple}}}} {cls._RIPPLE_WAVE_LATEX}\right)$"
+            ),
+        )
+
+    @classmethod
+    def baseline(cls, stim_freq: float) -> RateKernel:
+        """Only the tonic baseline is modulated across trials."""
+        def _func(t, trial, params):
+            A, tau, B, A_ripple, phi1, phi2, alpha_baseline = params
+            return cls._rate(t, trial, stim_freq, A, tau, B, A_ripple, phi1, phi2,
+                              alpha_baseline=alpha_baseline)
+
+        return RateKernel(
+            name="PreyCapture(Baseline)",
+            func=_func,
+            param_names=cls._PARAM_NAMES + ["alpha_baseline"],
+            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS],
+            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS],
+            latex_formula=(
+                r"$\lambda(t,m) = \left(A e^{-t/\tau} + B e^{\alpha_{\text{base}} m}\right)"
+                rf"\left(1 + A_{{\text{{ripple}}}} {cls._RIPPLE_WAVE_LATEX}\right)$"
+            ),
+        )
+
+    @classmethod
+    def peak_baseline(cls, stim_freq: float) -> RateKernel:
+        """Peak and baseline each independently modulated across trials."""
+        def _func(t, trial, params):
+            A, tau, B, A_ripple, phi1, phi2, alpha_peak, alpha_baseline = params
+            return cls._rate(t, trial, stim_freq, A, tau, B, A_ripple, phi1, phi2,
+                              alpha_peak=alpha_peak, alpha_baseline=alpha_baseline)
+
+        return RateKernel(
+            name="PreyCapture(Peak_Baseline)",
+            func=_func,
+            param_names=cls._PARAM_NAMES + ["alpha_peak", "alpha_baseline"],
+            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS, cls._ALPHA_GUESS],
+            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS, cls._ALPHA_BOUNDS],
+            latex_formula=(
+                r"$\lambda(t,m) = \left(A e^{-t/\tau} e^{\alpha_{\text{peak}} m}"
+                r" + B e^{\alpha_{\text{base}} m}\right)"
+                rf"\left(1 + A_{{\text{{ripple}}}} {cls._RIPPLE_WAVE_LATEX}\right)$"
+            ),
+        )
+
+    @classmethod
+    def peak_baseline_ripple(cls, stim_freq: float) -> RateKernel:
+        """Peak, baseline, and ripple depth each independently modulated (fully general)."""
+        def _func(t, trial, params):
+            A, tau, B, A_ripple, phi1, phi2, alpha_peak, alpha_baseline, alpha_ripple = params
+            return cls._rate(t, trial, stim_freq, A, tau, B, A_ripple, phi1, phi2,
+                              alpha_peak=alpha_peak, alpha_baseline=alpha_baseline,
+                              alpha_ripple=alpha_ripple)
+
+        return RateKernel(
+            name="PreyCapture(Peak_Baseline_Ripple)",
+            func=_func,
+            param_names=cls._PARAM_NAMES + ["alpha_peak", "alpha_baseline", "alpha_ripple"],
+            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS] * 3,
+            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS] * 3,
+            latex_formula=(
+                r"$\lambda(t,m) = \left(A e^{-t/\tau} e^{\alpha_{\text{peak}} m}"
+                r" + B e^{\alpha_{\text{base}} m}\right)"
+                r"\left(1 + \frac{2A_{\text{ripple}}}{1+e^{-\alpha_{\text{ripple}} m}}"
+                rf"{cls._RIPPLE_WAVE_LATEX}\right)$"
+            ),
+        )
+
+    @classmethod
+    def peak_baseline_shared(cls, stim_freq: float) -> RateKernel:
+        """Peak and baseline share a single modulation parameter; ripple unmodulated."""
+        def _func(t, trial, params):
+            A, tau, B, A_ripple, phi1, phi2, alpha_shared = params
+            return cls._rate(t, trial, stim_freq, A, tau, B, A_ripple, phi1, phi2,
+                              alpha_peak=alpha_shared, alpha_baseline=alpha_shared)
+
+        return RateKernel(
+            name="PreyCapture(Peak_Baseline_Shared)",
+            func=_func,
+            param_names=cls._PARAM_NAMES + ["alpha_shared"],
+            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS],
+            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS],
+            latex_formula=(
+                r"$\lambda(t,m) = \left(A e^{-t/\tau} + B\right) e^{\alpha_{\text{shared}} m}"
+                rf"\left(1 + A_{{\text{{ripple}}}} {cls._RIPPLE_WAVE_LATEX}\right)$"
+            ),
+        )
+
+    @classmethod
+    def peak_baseline_shared_ripple(cls, stim_freq: float) -> RateKernel:
+        """Peak & baseline share one modulation parameter; ripple has its own, separate one."""
+        def _func(t, trial, params):
+            A, tau, B, A_ripple, phi1, phi2, alpha_shared, alpha_ripple = params
+            return cls._rate(t, trial, stim_freq, A, tau, B, A_ripple, phi1, phi2,
+                              alpha_peak=alpha_shared, alpha_baseline=alpha_shared,
+                              alpha_ripple=alpha_ripple)
+
+        return RateKernel(
+            name="PreyCapture(Peak_Baseline_Shared_Ripple)",
+            func=_func,
+            param_names=cls._PARAM_NAMES + ["alpha_shared", "alpha_ripple"],
+            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS, cls._ALPHA_GUESS],
+            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS, cls._ALPHA_BOUNDS],
+            latex_formula=(
+                r"$\lambda(t,m) = \left(A e^{-t/\tau} + B\right) e^{\alpha_{\text{shared}} m}"
+                r"\left(1 + \frac{2A_{\text{ripple}}}{1+e^{-\alpha_{\text{ripple}} m}}"
+                rf"{cls._RIPPLE_WAVE_LATEX}\right)$"
+            ),
+        )
+
+    @classmethod
+    def peak_baseline_ripple_shared(cls, stim_freq: float) -> RateKernel:
+        """Peak, baseline, and ripple all share a single modulation parameter."""
+        def _func(t, trial, params):
+            A, tau, B, A_ripple, phi1, phi2, alpha_shared = params
+            return cls._rate(t, trial, stim_freq, A, tau, B, A_ripple, phi1, phi2,
+                              alpha_peak=alpha_shared, alpha_baseline=alpha_shared,
+                              alpha_ripple=alpha_shared)
+
+        return RateKernel(
+            name="PreyCapture(Peak_Baseline_Ripple_Shared)",
+            func=_func,
+            param_names=cls._PARAM_NAMES + ["alpha_shared"],
+            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS],
+            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS],
+            latex_formula=(
+                r"$\lambda(t,m) = \left(A e^{-t/\tau} + B\right)"
+                r"\left(1 + \frac{2A_{\text{ripple}}}{1+e^{-\alpha_{\text{shared}} m}}"
+                rf"{cls._RIPPLE_WAVE_LATEX}\right)$"
+            ),
+        )
+    
 
 class RateKernelFactory:
 
@@ -113,76 +323,6 @@ class RateKernelFactory:
             latex_formula=r"$\lambda = B$",
         )
 
-    # TODO make positive
-    @staticmethod
-    def prey_capture(stim_freq: float, plasticity: Optional[str] = None) -> RateKernel:
-        key = (plasticity or "").lower().replace(" ", "")
-
-        W_latex = r"\frac{1}{2}\left[\sin(\omega t + \phi_1) + \sin(2\omega t + \phi_2)\right]"
-
-        PRESETS = {
-            "": (
-                "TimeOnly", [], lambda p: (0.0, 0.0, 0.0),
-                rf"$\lambda(t, m) = \left(A e^{{-t/\tau}} + B\right) \left(1 + A_{{\text{{ripple}}}} {W_latex}\right)$",
-            ),
-            "shared": (
-                "Shared", ["alpha_shared"], lambda p: (p[0], p[0], p[0]),
-                rf"$\lambda(t, m) = \left(A e^{{-t/\tau}} + B\right) \left(1 + A_{{\text{{ripple}}}} {W_latex}\right) e^{{\alpha m}}$",
-            ),
-            "rate_shared": (
-                "RateShared", ["alpha_rate"], lambda p: (p[0], p[0], 0.0),
-                rf"$\lambda(t, m) = \left(A e^{{-t/\tau}} + B\right) e^{{\alpha_{{\text{{rate}}}} m}} \left(1 + A_{{\text{{ripple}}}} {W_latex}\right)$",
-            ),
-            "rate_shared,gamma": (
-                "RateShared_Gamma", ["alpha_rate", "alpha_gamma"], lambda p: (p[0], p[0], p[1]),
-                rf"$\lambda(t, m) = \left(A e^{{-t/\tau}} + B\right) e^{{\alpha_{{\text{{rate}}}} m}} \left(1 + A_{{\text{{ripple}}}} e^{{\alpha_\gamma m}} {W_latex}\right)$",
-            ),
-        }
-
-        if key in PRESETS:
-            suffix, alpha_names, get_alphas, latex = PRESETS[key]
-        else:
-            active_terms = [t for t in ["a", "b", "gamma"] if t in key.split(",")]
-            alpha_names = [f"alpha_{'gamma' if t == 'gamma' else t.upper()}" for t in active_terms]
-            suffix = "_".join(n.replace("alpha_", "") for n in alpha_names) or "TimeOnly"
-
-            def get_alphas(p, names=alpha_names):
-                p_map = dict(zip(names, p))
-                return p_map.get("alpha_A", 0.0), p_map.get("alpha_B", 0.0), p_map.get("alpha_gamma", 0.0)
-
-            t_A = r"A e^{-t/\tau}" + (r" e^{\alpha_A m}" if "alpha_A" in alpha_names else "")
-            t_B = r"B" + (r" e^{\alpha_B m}" if "alpha_B" in alpha_names else "")
-            t_g = r"A_{\text{ripple}}" + (r" e^{\alpha_\gamma m}" if "alpha_gamma" in alpha_names else "")
-            latex = rf"$\lambda(t, m) = \left({t_A} + {t_B}\right) \left(1 + {t_g} {W_latex}\right)$"
-
-        names = ["A", "tau", "B", "A_ripple", "phi1", "phi2"] + alpha_names
-        n_alphas = len(alpha_names)
-        guesses = [0.56, 1.15, 0.40, 0.1, 0.0, 0.0] + [-0.05] * n_alphas
-        bounds = [(0.01, 10.0), (0.1, 5.0), (0.01, 5.0), (0.0, 0.99), (-np.pi, np.pi), (-np.pi, np.pi)] + [(-2.0, 2.0)] * n_alphas
-
-        def _func(t, trial, params):
-            A, tau, B, A_ripple, phi1, phi2 = params[:6]
-            a_A, a_B, a_g = get_alphas(params[6:])
-
-            w = 2.0 * np.pi * stim_freq
-            phase = w * t
-
-            transient = A * np.exp(-t / tau) * np.exp(a_A * trial)
-            baseline = B * np.exp(a_B * trial)
-            
-            wave = 0.5 * (np.sin(phase + phi1) + np.sin(2.0 * phase + phi2))
-            ripple_mod = 1.0 + A_ripple * wave * np.exp(a_g * trial)
-
-            return (transient + baseline) * ripple_mod
-
-        return RateKernel(
-            name=f"PreyCapture({suffix})",
-            func=_func,
-            param_names=names,
-            initial_guesses=guesses,
-            bounds=bounds,
-            latex_formula=latex,
-        )
 
     @staticmethod
     def phototaxis_ipsi() -> RateKernel:
