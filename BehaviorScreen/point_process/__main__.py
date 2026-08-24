@@ -46,10 +46,10 @@ def main():
                 PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="rate_shared,gamma")),
                 PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="shared")),
                 PoissonProcess(RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma")),
-                HawkesProcess(
-                    RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma"),
-                    HistoryKernelFactory.exponential()
-                )
+                # HawkesProcess(
+                #     RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma"),
+                #     HistoryKernelFactory.exponential()
+                # )
             ]
         },
 
@@ -64,10 +64,10 @@ def main():
             },
             'models': [
                 PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-                HawkesProcess(
-                    RateKernelFactory.homogeneous_poisson(),
-                    HistoryKernelFactory.exponential()
-                )
+                # HawkesProcess(
+                #     RateKernelFactory.homogeneous_poisson(),
+                #     HistoryKernelFactory.exponential()
+                # )
             ]
         },
 
@@ -142,10 +142,10 @@ def main():
             'models': [
                 PoissonProcess(RateKernelFactory.homogeneous_poisson()),
                 PoissonProcess(RateKernelFactory.omr_forward()),
-                HawkesProcess(
-                    RateKernelFactory.omr_forward(),
-                    HistoryKernelFactory.exponential()
-                )
+                # HawkesProcess(
+                #     RateKernelFactory.omr_forward(),
+                #     HistoryKernelFactory.exponential()
+                # )
             ]
         },
 
@@ -189,10 +189,10 @@ def main():
             'models': [
                 PoissonProcess(RateKernelFactory.homogeneous_poisson()),
                 PoissonProcess(RateKernelFactory.looming_gaussian()),
-                HawkesProcess(
-                    RateKernelFactory.looming_gaussian(),
-                    HistoryKernelFactory.exponential()
-                )
+                # HawkesProcess(
+                #     RateKernelFactory.looming_gaussian(),
+                #     HistoryKernelFactory.exponential()
+                # )
             ]
         },
 
@@ -208,10 +208,10 @@ def main():
             'models': [
                 PoissonProcess(RateKernelFactory.homogeneous_poisson()),
                 PoissonProcess(RateKernelFactory.looming_gaussian()),
-                HawkesProcess(
-                    RateKernelFactory.looming_gaussian(),
-                    HistoryKernelFactory.exponential()
-                )
+                # HawkesProcess(
+                #     RateKernelFactory.looming_gaussian(),
+                #     HistoryKernelFactory.exponential()
+                # )
             ]
         },
 
