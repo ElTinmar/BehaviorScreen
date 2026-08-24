@@ -244,6 +244,7 @@ for exp_name, config in model_config.items():
 
     DatasetPlotter.plot_isi_histogram(dataset)
     DatasetPlotter.plot_event_count_distribution(dataset)
+    DatasetPlotter.plot_fish_total_count_distribution(dataset)
     plt.show(block=False)
 
     summary_table, fitted_models = ModelComparator.compare(
