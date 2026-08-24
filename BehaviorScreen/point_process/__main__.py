@@ -33,6 +33,8 @@ def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDatas
             "Fano Ratio (fish/stream)": dataset.dispersion_fano_ratio,
             "Frac Streams w/ >=2 events": dataset.frac_streams_with_multiple_events,
             "Low Power Flag": dataset.is_low_power_for_dispersion,
+            "Mean ISI CV": dataset.mean_isi_cv,
+            "ISI Lag-1 Autocorr": dataset.stream_isi_lag1_autocorr,
         })
 
     df = pd.DataFrame(records)
