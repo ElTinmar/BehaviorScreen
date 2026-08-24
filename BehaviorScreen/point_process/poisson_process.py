@@ -166,7 +166,6 @@ class RateKernelFactory:
             latex_formula=latex,
         )
 
-    # TODO make positive
     @staticmethod
     def phototaxis_ipsi() -> RateKernel:
         def _func(t, trial, params):
@@ -174,11 +173,13 @@ class RateKernelFactory:
 
             mod_B = B * np.exp(alpha_B * trial)
             mod_peak = A_peak * np.exp(alpha_peak * trial)
-            A_dip = f_dip * mod_B  
 
-            transient = (mod_peak * (t / tau) - A_dip) * np.exp(-t / tau)
+            # Guaranteed positive dip component
+            dip_component = mod_B * (1.0 - f_dip * np.exp(-t / tau))
+            # Non-negative peak component for t >= 0
+            peak_component = mod_peak * (t / tau) * np.exp(-t / tau)
 
-            return mod_B + transient
+            return dip_component + peak_component
 
         return RateKernel(
             name="Phototaxis Minimal Dip+Peak λ(t, m)",
@@ -187,13 +188,13 @@ class RateKernelFactory:
             initial_guesses=[0.4, 0.5, 1.5, 0.2, 0.0, 0.0],
             bounds=[
                 (0.01, 5.0),   # B
-                (0.0, 0.99),   # f_dip in [0, 0.99) guarantees positivity at t=0
+                (0.0, 0.99),   # f_dip in [0, 0.99) guarantees positivity at all t
                 (0.0, 10.0),   # A_peak
                 (0.01, 2.0),   # tau
                 (-0.2, 0.2),   # alpha_B
                 (-0.2, 0.2)    # alpha_peak
             ],
-            latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} + \left(A_{\text{peak}} e^{\alpha_{\text{peak}} m} \frac{t}{\tau} - f_{\text{dip}} B e^{\alpha_B m}\right) e^{-t/\tau}$"
+            latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} \left(1 - f_{\text{dip}} e^{-t/\tau}\right) + A_{\text{peak}} e^{\alpha_{\text{peak}} m} \left(\frac{t}{\tau}\right) e^{-t/\tau}$"
         )
 
     # TODO make positive
