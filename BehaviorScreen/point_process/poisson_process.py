@@ -603,6 +603,18 @@ class GammaPoissonProcess(PointProcess):
 
         return N_f, S_f
 
+    def _fish_scale_factors(self, dataset: PointProcessDataset) -> np.ndarray:
+        """
+        Posterior-mean gain estimate per fish: (r + N_f) / (r + S_f).
+        Used both here (to correct time_rescaling) and in estimate_fish_gains
+        (single source of truth for the formula).
+        """
+        if self.params_ is None:
+            raise ValueError("Model must be fitted first.")
+        kernel_params, r = self._split_params(self.params_)
+        N_f, S_f = self._fish_sufficient_stats(dataset, kernel_params)
+        return (r + N_f) / (r + S_f)
+    
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         kernel_params, r = self._split_params(params)
         r = max(r, 1e-8)  # guard against optimizer probing r <= 0 despite bounds
@@ -666,25 +678,15 @@ class GammaPoissonProcess(PointProcess):
         return 1.0 / self.dispersion_r
 
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
-        """
-        Posterior mean gain per fish, from Gamma-Poisson conjugacy:
-
-            E[g_f | data] = (r + N_f) / (r + S_f)
-
-        Fish with few events are shrunk toward 1.0 (the population mean);
-        fish with many events converge toward their empirical rate ratio
-        N_f / S_f. Useful for characterizing individual variability (e.g.
-        "hunting drive") without needing per-fish free parameters, and for
-        checking stability of a fish's gain across conditions/sessions.
-        """
+        """Posterior mean gain per fish, from Gamma-Poisson conjugacy. See _fish_scale_factors."""
         if self.params_ is None:
             raise ValueError("Model must be fitted before estimating fish gains.")
 
         kernel_params, r = self._split_params(self.params_)
         N_f, S_f = self._fish_sufficient_stats(dataset, kernel_params)
+        g_hat = self._fish_scale_factors(dataset)
         active = dataset.fish_trial_mask.any(axis=1)
 
-        g_hat = (r + N_f) / (r + S_f)
         return pd.DataFrame({
             "fish_idx": np.arange(dataset.num_fish)[active],
             "n_events": N_f[active],

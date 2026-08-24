@@ -113,6 +113,19 @@ class PointProcess:
     def aic(self) -> float:
         k = len(self.params_)
         return 2 * k - 2 * self.log_likelihood
+
+    def _fish_scale_factors(self, dataset: PointProcessDataset) -> np.ndarray:
+        """
+        Per-fish multiplicative correction applied to the population-average
+        cumulative intensity before time-rescaling, for models (like
+        GammaPoissonProcess) whose predict()/cumulative_integrated_intensity()
+        describe only the population-average rate (E[g_f] = 1), not any
+        individual fish's true rate.
+
+        Default: no correction (all ones) -- correct for PoissonProcess and
+        HawkesProcess, which have no fish-level heterogeneity term.
+        """
+        return np.ones(dataset.num_fish, dtype=float)
     
     def estimate_hessian(
         self, 
@@ -213,6 +226,8 @@ class PointProcess:
         if self.params_ is None:
             raise ValueError("Model must be fitted before running time-rescaling analysis.")
 
+        fish_scales = self._fish_scale_factors(dataset)
+
         pooled_u = []
         pooled_z = []
         fish_u = {f_idx: [] for f_idx in range(dataset.num_fish)}
@@ -223,6 +238,7 @@ class PointProcess:
 
             m = dataset.unique_trials[t_idx] 
             Lambda = self.cumulative_integrated_intensity(t_events=t_ev, trial=m)
+            Lambda = Lambda * fish_scales[f_idx]  
 
             tau = np.diff(np.insert(Lambda, 0, 0.0))
             tau = tau[tau > 1e-12]
