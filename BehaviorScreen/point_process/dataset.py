@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Union, Tuple
+from typing import List, Optional, Union, Tuple, ClassVar
 import numpy as np
 import pandas as pd
 from BehaviorScreen.core import Stim, Laterality
@@ -11,6 +11,9 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 @dataclass(frozen=True)
 class PointProcessDataset:
+
+    _LOW_POWER_MEAN_COUNT_THRESHOLD: ClassVar[float] = 1.0
+
     event_times: np.ndarray             
     event_trials_idx: np.ndarray            
     event_fish_idx: np.ndarray          
@@ -89,6 +92,68 @@ class PointProcessDataset:
         n_fish = self.n_fish_per_trial[:, None]
         safe_denom = np.where(n_fish > 0, n_fish * self.binning_dt, 1.0)
         return np.where(n_fish > 0, counts / safe_denom, 0.0)
+
+
+    @property
+    def stream_event_counts(self) -> np.ndarray:
+        """Event count per (fish, trial) stream."""
+        return np.array([len(t_ev) for _, _, t_ev in self.iter_streams()])
+
+    @property
+    def fish_total_counts(self) -> np.ndarray:
+        """Total event count per fish, summed across all trials (active fish only)."""
+        totals = np.zeros(self.num_fish)
+        for f_idx, t_idx, t_ev in self.iter_streams():
+            totals[f_idx] += len(t_ev)
+        return totals[self.fish_trial_mask.any(axis=1)]
+
+    @property
+    def stream_fano_factor(self) -> float:
+        """Variance/mean of stream_event_counts (a.k.a. dispersion index)."""
+        counts = self.stream_event_counts
+        mean = np.mean(counts) if len(counts) else np.nan
+        return (np.var(counts) / mean) if mean > 0 else np.nan
+
+    @property
+    def fish_fano_factor(self) -> float:
+        """Variance/mean of fish_total_counts."""
+        totals = self.fish_total_counts
+        mean = np.mean(totals) if len(totals) else np.nan
+        return (np.var(totals) / mean) if mean > 0 else np.nan
+
+    @property
+    def dispersion_fano_ratio(self) -> float:
+        """
+        fish_fano_factor / stream_fano_factor.
+
+        >> 1 (with is_low_power_for_dispersion == False): between-fish rate
+          heterogeneity dominates -> a fish-level gain/random-effect term
+          is warranted.
+        ~1 or < 1: heterogeneity is not the main driver; if stream_fano_factor
+          is itself far from 1, investigate within-stream temporal structure
+          (refractory / clustering) via PointProcess.time_rescaling instead.
+        """
+        stream_ff = self.stream_fano_factor
+        fish_ff = self.fish_fano_factor
+        return fish_ff / stream_ff if (not np.isnan(stream_ff) and stream_ff > 0) else np.nan
+
+    @property
+    def frac_streams_with_multiple_events(self) -> float:
+        """Fraction of (fish, trial) streams with >= 2 events (i.e. contribute to ISI stats)."""
+        counts = self.stream_event_counts
+        return float(np.mean(counts >= 2)) if len(counts) else np.nan
+
+    @property
+    def is_low_power_for_dispersion(self) -> bool:
+        """
+        True when mean event count per stream is low enough that Fano-factor
+        comparisons carry little statistical power (most streams are
+        empty/singleton). Prefer PointProcess.time_rescaling diagnostics for
+        such conditions instead.
+        """
+        counts = self.stream_event_counts
+        mean = np.mean(counts) if len(counts) else np.nan
+        return bool(mean < self._LOW_POWER_MEAN_COUNT_THRESHOLD) if not np.isnan(mean) else True
     
     def resample(self, rng: np.random.Generator) -> 'PointProcessDataset':
         n_fish = self.fish_trial_mask.shape[0]
