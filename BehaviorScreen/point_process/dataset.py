@@ -215,7 +215,50 @@ class DatasetPlotter:
         ]
         return np.concatenate(all_isis) if all_isis else np.array([], dtype=float)
 
-    # -- Panel 1: Pooled ISI histogram --------------------------------------
+    @staticmethod
+    def _plot_count_distribution_with_poisson(
+        counts: np.ndarray,
+        ax: plt.Axes,
+        xlabel: str,
+        title_prefix: str,
+    ) -> None:
+        """
+        Shared rendering logic for 'observed count histogram vs. Poisson pmf
+        of matching mean' plots, used at both the stream level and fish level.
+        """
+        if len(counts) == 0:
+            ax.text(0.5, 0.5, "No data available", ha='center', va='center')
+            return
+
+        mean_count = np.mean(counts)
+        var_count = np.var(counts)
+        dispersion_index = var_count / mean_count if mean_count > 0 else np.nan
+
+        max_count = int(counts.max())
+        bin_edges = np.arange(-0.5, max_count + 1.5, 1.0)
+        ax.hist(counts, bins=bin_edges, density=True, alpha=0.65,
+               color='steelblue', edgecolor='none', label='Observed')
+
+        k_vals = np.arange(0, max_count + 1)
+        if mean_count > 0:
+            poisson_pmf = np.exp(
+                k_vals * np.log(mean_count) - mean_count - gammaln(k_vals + 1)
+            )
+        else:
+            poisson_pmf = np.zeros_like(k_vals, dtype=float)
+        ax.plot(k_vals, poisson_pmf, 'r--', linewidth=2,
+               label=f'Poisson(mean={mean_count:.2f})')
+
+        ax.set_xlabel(xlabel, fontsize=11)
+        ax.set_ylabel("Density", fontsize=11)
+        ax.set_title(
+            f"{title_prefix}  |  Mean={mean_count:.2f}, "
+            f"Var={var_count:.2f}, Dispersion Index={dispersion_index:.2f}",
+            fontsize=11, fontweight='bold'
+        )
+        ax.legend(loc='upper right', fontsize=9)
+        ax.grid(True, linestyle=':', alpha=0.4)
+
 
     @staticmethod
     def plot_isi_histogram(
@@ -265,7 +308,6 @@ class DatasetPlotter:
         plt.tight_layout()
         return fig, ax
 
-    # -- Panel 2: ISI distribution across trials ----------------------------
 
     @staticmethod
     def plot_isi_by_trial(
@@ -321,7 +363,6 @@ class DatasetPlotter:
         plt.tight_layout()
         return fig, ax
 
-    # -- Panel 3: Raw event raster -------------------------------------------
 
     @staticmethod
     def plot_raw_raster(
@@ -395,7 +436,6 @@ class DatasetPlotter:
         plt.tight_layout()
         return fig, ax
 
-    # -- Panel 4: Event count distribution / overdispersion check -----------
 
     @staticmethod
     def plot_event_count_distribution(
@@ -403,60 +443,70 @@ class DatasetPlotter:
         figsize: Tuple[int, int] = (8, 5),
     ) -> Tuple[plt.Figure, plt.Axes]:
         """
-        Histogram of event counts per (fish, trial) stream, overlaid with a
+        Histogram of event counts per (fish, trial) STREAM, overlaid with a
         Poisson pmf of matching mean.
 
-        Reports the index of dispersion (variance / mean):
-        - ~1.0  : consistent with a Poisson process (no strong history effects)
-        - >> 1.0: overdispersed -> clustering / bursting / self-excitation
-                  (motivates a Hawkes-type additive history kernel)
-        - << 1.0: underdispersed -> regularity / refractoriness
-                  (motivates a renewal-type multiplicative suppression kernel)
-
-        This is a fast, fit-free first signal for which process family to
-        reach for, before running full time-rescaling diagnostics.
+        Dispersion Index (variance / mean):
+        - ~1.0  : consistent with Poisson (no strong extra structure)
+        - >> 1.0: overdispersed -- could reflect within-stream clustering/
+                  bursting (self-excitation) OR between-fish rate
+                  heterogeneity OR both. See `plot_fish_total_count_distribution`
+                  to help distinguish between these.
+        - << 1.0: underdispersed -- regularity / refractoriness.
         """
         counts = np.array([len(t_ev) for _, _, t_ev in dataset.iter_streams()])
 
         fig, ax = plt.subplots(figsize=figsize)
-
-        if len(counts) == 0:
-            ax.text(0.5, 0.5, "No observed (fish, trial) streams", ha='center', va='center')
-            return fig, ax
-
-        mean_count = np.mean(counts)
-        var_count = np.var(counts)
-        dispersion_index = var_count / mean_count if mean_count > 0 else np.nan
-
-        max_count = int(counts.max())
-        bin_edges = np.arange(-0.5, max_count + 1.5, 1.0)
-        ax.hist(counts, bins=bin_edges, density=True, alpha=0.65,
-               color='steelblue', edgecolor='none', label='Observed')
-
-        k_vals = np.arange(0, max_count + 1)
-        if mean_count > 0:
-            poisson_pmf = np.exp(
-                k_vals * np.log(mean_count) - mean_count - gammaln(k_vals + 1)
-            )
-        else:
-            poisson_pmf = np.zeros_like(k_vals, dtype=float)
-        ax.plot(k_vals, poisson_pmf, 'r--', linewidth=2,
-               label=f'Poisson(mean={mean_count:.2f})')
-
-        ax.set_xlabel("Event count per (fish, trial) stream", fontsize=11)
-        ax.set_ylabel("Density", fontsize=11)
-        ax.set_title(
-            f"Event Count Distribution  |  Mean={mean_count:.2f}, "
-            f"Var={var_count:.2f}, Dispersion Index={dispersion_index:.2f}",
-            fontsize=11, fontweight='bold'
+        DatasetPlotter._plot_count_distribution_with_poisson(
+            counts, ax,
+            xlabel="Event count per (fish, trial) stream",
+            title_prefix="Event Count Distribution (per stream)",
         )
-        ax.legend(loc='upper right', fontsize=9)
-        ax.grid(True, linestyle=':', alpha=0.4)
-
         plt.tight_layout()
         return fig, ax
 
-    # -- Panel 5: Fish x trial activity heatmap ------------------------------
+
+    @staticmethod
+    def plot_fish_total_count_distribution(
+        dataset: PointProcessDataset,
+        figsize: Tuple[int, int] = (8, 5),
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Histogram of TOTAL event counts per fish (summed across all trials),
+        overlaid with a Poisson pmf of matching mean.
+
+        Companion to `plot_event_count_distribution`, used to distinguish
+        two distinct sources of overdispersion at the stream level:
+
+        - If dispersion stays high (or increases) here after aggregating
+          across trials, it points to genuine between-fish rate
+          heterogeneity (some fish are just more/less active than others)
+          -- this calls for a fish-level gain/random-effect term in the
+          rate model, NOT a history-dependent (Hawkes/Renewal) kernel.
+
+        - If dispersion drops substantially toward ~1.0 here relative to
+          the per-stream plot, the stream-level overdispersion is more
+          likely driven by within-stream temporal clustering, which
+          averages out across many trials -- pointing toward a
+          history-dependent kernel instead.
+        """
+        fish_totals = np.zeros(dataset.num_fish)
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            fish_totals[f_idx] += len(t_ev)
+
+        # Only include fish observed in at least one trial
+        active_fish_mask = dataset.fish_trial_mask.any(axis=1)
+        fish_totals = fish_totals[active_fish_mask]
+
+        fig, ax = plt.subplots(figsize=figsize)
+        DatasetPlotter._plot_count_distribution_with_poisson(
+            fish_totals, ax,
+            xlabel="Total event count per fish (summed over trials)",
+            title_prefix=f"Total Event Count Distribution (N = {len(fish_totals)} fish)",
+        )
+        plt.tight_layout()
+        return fig, ax
+
 
     @staticmethod
     def plot_fish_activity_heatmap(
