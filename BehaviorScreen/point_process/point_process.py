@@ -48,11 +48,6 @@ class PointProcess:
             **kwargs
         )
 
-        if not res.success:
-            raise RuntimeError(
-                f"Optimization failed for {self.name}: {res.message}"
-            )
-
         self.fit_result = res
         self.params_ = res.x
         self.param_dict_ = dict(zip(self.param_names, res.x))
