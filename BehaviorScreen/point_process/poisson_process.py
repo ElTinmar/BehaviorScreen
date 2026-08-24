@@ -8,7 +8,7 @@ from scipy.special import gammaln
 
 from .dataset import PointProcessDataset
 from .point_process import PointProcess
-
+from .kernel_shapes import peak_normalized_pulse, bounded_trial_scale
 
 @dataclass(frozen=True)
 class RateKernel:
@@ -70,27 +70,7 @@ class RateKernel:
         cum_integral = cumulative_trapezoid(rate_surface, t_grid, initial=0.0, axis=1).squeeze()
         return np.interp(t_events, t_grid, cum_integral)
 
-def _peak_normalized_pulse(x: np.ndarray, x_peak: float, k: float = 1.0) -> np.ndarray:
-    """
-    Generalized alpha-function / Gamma-shaped pulse, peak-normalized to height 1.
 
-        f(x) = (x / x_peak)^k * exp(k * (1 - x / x_peak)),   x >= 0
-
-    - f(0) = 0
-    - f(x_peak) = 1   <- peak location & height fixed by construction
-    - k=1: classic alpha function (linear rise, exponential decay)
-    - k>1: sharper / more symmetric peak
-    - k<1: fast rise, long tail (asymmetric)
-
-    Non-negative for x >= 0, k > 0. No clamping required.
-    """
-    x_safe = np.maximum(x, 0.0)
-    ratio = x_safe / x_peak
-    return np.power(ratio, k) * np.exp(k * (1.0 - ratio))
-
-def _bounded_trial_scale(trial: np.ndarray, alpha: float) -> np.ndarray:
-    """Saturating logistic, always in (0, 2), equal to 1.0 at alpha=0 or trial=0."""
-    return 2.0 / (1.0 + np.exp(-alpha * trial))
 
 class PreyCapture:
 
@@ -128,7 +108,7 @@ class PreyCapture:
         baseline = B * np.exp(alpha_baseline * trial)
 
         wave = 0.5 * (np.sin(phase + phi1) + np.sin(2.0 * phase + phi2))
-        ripple_amplitude = A_ripple * _bounded_trial_scale(trial, alpha_ripple)
+        ripple_amplitude = A_ripple * bounded_trial_scale(trial, alpha_ripple)
         ripple_mod = 1.0 + ripple_amplitude * wave
 
         return (transient + baseline) * ripple_mod
@@ -449,7 +429,7 @@ class RateKernelFactory:
     def dark_flash() -> RateKernel:
         def _func(t, trial, params):
             A, t_peak, k, B, alpha_B, tau_decay = params
-            time_pulse = _peak_normalized_pulse(t, t_peak, k)
+            time_pulse = peak_normalized_pulse(t, t_peak, k)
             trial_scale = np.exp(-trial/tau_decay)
             baseline = B * np.exp(alpha_B * trial)
             return A * time_pulse * trial_scale + baseline
