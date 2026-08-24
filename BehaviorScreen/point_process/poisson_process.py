@@ -197,29 +197,38 @@ class RateKernelFactory:
             latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} \left(1 - f_{\text{dip}} e^{-t/\tau}\right) + A_{\text{peak}} e^{\alpha_{\text{peak}} m} \left(\frac{t}{\tau}\right) e^{-t/\tau}$"
         )
 
-    # TODO make positive
     @staticmethod
     def phototaxis_contra() -> RateKernel:
         def _func(t, trial, params):
-            B, A_dip, tau_dip, alpha_B, alpha_dip = params
+            B, f_dip, tau_dip, alpha_B, alpha_dip = params
 
             mod_B = B * np.exp(alpha_B * trial)
-            mod_dip = A_dip * np.exp(alpha_dip * trial) * np.exp(-t / tau_dip)
+            
+            # Sigmoid modulation ensures the trial-scaling factor stays in (0, 1)
+            # trial=0 corresponds to standard f_dip depth
+            sig_trial = 2.0 / (1.0 + np.exp(-alpha_dip * trial))  # sig_trial(0) = 1.0
+            effective_f_dip = f_dip * (sig_trial / 2.0)          # strictly < 0.99
+            
+            # dip_factor is mathematically strictly > 0 for all t >= 0 and trial >= 0
+            dip_factor = 1.0 - effective_f_dip * np.exp(-t / tau_dip)
 
-            return mod_B - mod_dip
+            return mod_B * dip_factor
 
         return RateKernel(
             name="Phototaxis Contra λ(t, m)",
             func=_func,
-            param_names=["B", "A_dip", "tau_dip", "alpha_B", "alpha_dip"],
-            initial_guesses=[0.4, 0.3, 0.5, 0.0, 0.0],
+            param_names=["B", "f_dip", "tau_dip", "alpha_B", "alpha_dip"],
+            initial_guesses=[0.4, 0.5, 0.5, 0.0, 0.0],
             bounds=[
-                (0.01, 10.0), (0.0, 5.0), (0.01, 5.0), (-0.1, 0.1),
-                (-0.1, 0.1)
+                (0.01, 10.0), # B: baseline rate
+                (0.0, 0.98),  # f_dip: bound below 1.0
+                (0.01, 5.0),  # tau_dip: decay time constant
+                (-0.1, 0.1),  # alpha_B: baseline modulation across trials
+                (-0.2, 0.2),  # alpha_dip: dip depth modulation rate across trials
             ],
-            latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} - A_{\text{dip}} e^{\alpha_{\text{dip}} m} e^{-t/\tau_{\text{dip}}}$",
+            latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} \left(1 - \frac{f_{\text{dip}}}{1 + e^{-\alpha_{\text{dip}} m}} e^{-t/\tau_{\text{dip}}}\right)$",
         )
-    
+        
     @staticmethod
     def omr_forward() -> RateKernel:
         def _func(t, trial, params):
