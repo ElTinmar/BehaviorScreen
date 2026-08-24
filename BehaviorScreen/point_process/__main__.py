@@ -11,7 +11,7 @@ from BehaviorScreen.point_process.dataset import (
     BehavioralDataLoader, PointProcessDataset, DatasetPlotter,
 )
 from BehaviorScreen.point_process.point_process import ModelComparator, ModelPlotter
-from BehaviorScreen.point_process.poisson_process import RateKernelFactory, PoissonProcess, PreyCapture
+from BehaviorScreen.point_process.poisson_process import RateKernelFactory, PoissonProcess, PreyCapture, GammaPoissonProcess
 from BehaviorScreen.point_process.hawkes_process import HistoryKernelFactory, HawkesProcess
 
 

@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 from typing import Callable, List, Tuple, Optional, Union
-import numpy as np
 
+import numpy as np
+import pandas as pd
 from scipy.integrate import trapezoid, cumulative_trapezoid
+from scipy.special import gammaln
 
 from .dataset import PointProcessDataset
 from .point_process import PointProcess
@@ -531,3 +533,161 @@ class PoissonProcess(PointProcess):
     
 
 
+class GammaPoissonProcess(PointProcess):
+    """
+    A PoissonProcess extended with fish-level rate heterogeneity:
+
+        rate for fish f  =  g_f * lambda_base(t, m)
+        g_f ~ Gamma(r, r)   (E[g_f] = 1, Var[g_f] = 1/r), independent per fish
+
+    Conditional on g_f, each fish's events are an ordinary (inhomogeneous)
+    Poisson process -- exactly PoissonProcess's model. g_f is never observed,
+    so it is integrated out analytically; the resulting MARGINAL distribution
+    of event counts is Negative Binomial (hence "Gamma-Poisson"), which is
+    why this class needs only ONE extra parameter (r) regardless of how many
+    fish are in the dataset, rather than one parameter per fish.
+
+    r -> infinity recovers PoissonProcess exactly (no heterogeneity).
+    Smaller r means more between-fish heterogeneity; 1/r is a natural
+    "overdispersion index" on the same footing as PointProcessDataset's
+    dispersion_fano_ratio diagnostic.
+
+    LIMITATION: predict(), compute_expected_rate(), and
+    cumulative_integrated_intensity() all describe the POPULATION-AVERAGE
+    process (E[g_f] = 1), not any specific fish's rate. PointProcess.
+    time_rescaling() calls cumulative_integrated_intensity() per (fish,
+    trial) stream without fish-specific rescaling, so its output for this
+    class reflects average-fish calibration, not per-fish calibration.
+    Use estimate_fish_gains() + rescale manually if per-fish time-rescaling
+    diagnostics are needed (see note on that method below).
+    """
+
+    def __init__(self, kernel: RateKernel, integration_dt: float = 0.02, r_init: float = 5.0):
+        super().__init__(integration_dt)
+
+        self.name = f"GammaPoisson {kernel.name}"
+        self.latex_formula = kernel.latex_formula
+        self.kernel = kernel
+        self.initial_guesses = kernel.initial_guesses + [r_init]
+        self.bounds = kernel.bounds + [(1e-3, None)]  # r > 0
+        self.param_names = kernel.param_names + ["r_dispersion"]
+
+    def _split_params(self, params: List[float]) -> Tuple[List[float], float]:
+        return params[:-1], params[-1]
+
+    def _fish_sufficient_stats(
+        self, dataset: PointProcessDataset, kernel_params: List[float]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Computes, for each fish f:
+            N_f = total observed event count across all of f's trials
+            S_f = total EXPECTED count under lambda_base across f's trials
+                  (i.e. sum of kernel.integrate(...) over the trials f
+                  actually participated in, per fish_trial_mask)
+
+        These are the only quantities the NB marginal likelihood needs
+        per fish -- no per-fish parameters are fit.
+        """
+        trial_integrals = self.kernel.integrate(
+            duration_s=dataset.duration_s,
+            trial=dataset.unique_trials,
+            params=kernel_params,
+            integration_dt=self.integration_dt,
+        )  # shape (num_trials,), positionally aligned with dataset.unique_trials / fish_trial_mask columns
+
+        N_f = np.zeros(dataset.num_fish)
+        S_f = np.zeros(dataset.num_fish)
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            N_f[f_idx] += len(t_ev)
+            S_f[f_idx] += trial_integrals[t_idx]
+
+        return N_f, S_f
+
+    def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
+        kernel_params, r = self._split_params(params)
+        r = max(r, 1e-8)  # guard against optimizer probing r <= 0 despite bounds
+
+        # Shape term: identical in form to PoissonProcess -- this is the
+        # part of the likelihood that is unaffected by fish heterogeneity,
+        # since conditional on g_f each fish is still ordinary Poisson.
+        # Uses actual trial VALUES (not positional indices) for evaluate(),
+        # matching HawkesProcess's convention.
+        event_trial_values = dataset.unique_trials[dataset.event_trials_idx]
+        event_rates = self.kernel.evaluate(dataset.event_times, event_trial_values, kernel_params)
+        event_rates = np.maximum(event_rates, 1e-9)
+        shape_term = np.sum(np.log(event_rates))
+
+        # Fish-level Negative Binomial term, replacing PoissonProcess's
+        # plain "-sum(Lambda * n_fish)" count term.
+        N_f, S_f = self._fish_sufficient_stats(dataset, kernel_params)
+        nb_term = np.sum(
+            r * np.log(r) - gammaln(r) + gammaln(N_f + r) - (N_f + r) * np.log(S_f + r)
+        )
+
+        return -(shape_term + nb_term)
+
+    def predict(self, t: np.ndarray, trial: Union[float, np.ndarray]) -> np.ndarray:
+        """Population-average rate (E[g_f] = 1); does not reflect any single fish's gain."""
+        if self.params_ is None:
+            raise ValueError("Model is not fitted yet. Call .fit() first.")
+        kernel_params, _ = self._split_params(self.params_)
+        expected_rate = self.kernel.evaluate(t, trial, kernel_params)
+        return np.maximum(expected_rate, 1e-9)
+
+    def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
+        if self.params_ is None:
+            raise ValueError("Model is not fitted yet. Call .fit() first.")
+        t_2d = dataset.t_centers[None, :]
+        trials_2d = dataset.unique_trials[:, None]
+        return self.predict(t_2d, trials_2d)
+
+    def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
+        """Population-average cumulative intensity; see class docstring limitation."""
+        if self.params_ is None:
+            raise ValueError("Model is not fitted yet. Call .fit() first.")
+        kernel_params, _ = self._split_params(self.params_)
+        return self.kernel.cumulative_integrate(
+            t_events=t_events, trial=trial, params=kernel_params,
+            integration_dt=self.integration_dt,
+        )
+
+    # -- Heterogeneity-specific extras ---------------------------------------
+
+    @property
+    def dispersion_r(self) -> float:
+        """Fitted r (Gamma shape/rate parameter). Larger r = less heterogeneity."""
+        if self.params_ is None:
+            raise ValueError("Model must be fitted first.")
+        return float(self.params_[-1])
+
+    @property
+    def overdispersion_index(self) -> float:
+        """1/r: Var[g_f] under the fitted Gamma population distribution. 0 = no heterogeneity."""
+        return 1.0 / self.dispersion_r
+
+    def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
+        """
+        Posterior mean gain per fish, from Gamma-Poisson conjugacy:
+
+            E[g_f | data] = (r + N_f) / (r + S_f)
+
+        Fish with few events are shrunk toward 1.0 (the population mean);
+        fish with many events converge toward their empirical rate ratio
+        N_f / S_f. Useful for characterizing individual variability (e.g.
+        "hunting drive") without needing per-fish free parameters, and for
+        checking stability of a fish's gain across conditions/sessions.
+        """
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before estimating fish gains.")
+
+        kernel_params, r = self._split_params(self.params_)
+        N_f, S_f = self._fish_sufficient_stats(dataset, kernel_params)
+        active = dataset.fish_trial_mask.any(axis=1)
+
+        g_hat = (r + N_f) / (r + S_f)
+        return pd.DataFrame({
+            "fish_idx": np.arange(dataset.num_fish)[active],
+            "n_events": N_f[active],
+            "expected_events_base": S_f[active],
+            "estimated_gain": g_hat[active],
+        })
