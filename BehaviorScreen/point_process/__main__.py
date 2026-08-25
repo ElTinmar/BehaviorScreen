@@ -97,7 +97,9 @@ model_config = {
         },
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
             PoissonProcess(PreyCapture.time_only(stim_freq=prey_stim_freq)),
             PoissonProcess(PreyCapture.peak(stim_freq=prey_stim_freq)),
             PoissonProcess(PreyCapture.baseline(stim_freq=prey_stim_freq)),
@@ -106,7 +108,29 @@ model_config = {
             PoissonProcess(PreyCapture.peak_baseline_shared(stim_freq=prey_stim_freq)),
             PoissonProcess(PreyCapture.peak_baseline_shared_ripple(stim_freq=prey_stim_freq)),
             PoissonProcess(PreyCapture.peak_baseline_ripple_shared(stim_freq=prey_stim_freq)),
-            GammaMixedEffectsProcess(PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))),
+            GammaMixedEffectsProcess(
+                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
+            ),
+            RenewalProcess(
+                RateKernelFactory.homogeneous_poisson(), 
+                RenewalKernelFactory.exponential_excitation()
+            ),
+            GammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.homogeneous_poisson(), 
+                    RenewalKernelFactory.exponential_excitation()
+                )
+            ),
+            RenewalProcess(
+                PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+                RenewalKernelFactory.exponential_excitation()
+            ),
+            GammaMixedEffectsProcess(
+                RenewalProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+                    RenewalKernelFactory.exponential_excitation()
+                )
+            ),
             # HawkesProcess(
             #     RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma"),
             #     HistoryKernelFactory.exponential()
