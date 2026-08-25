@@ -105,33 +105,6 @@ class RenewalKernelFactory:
             latex_formula=r"$\rho(\Delta t) = \mathbb{1}[\Delta t \geq \tau_d]\left(1-e^{-(\Delta t-\tau_d)/\tau_r}\right)$",
         )
 
-    @staticmethod
-    def gamma_bump(fixed_shape: Optional[float] = None) -> RenewalKernel:
-        """
-        Rhythmic/preferred-interval kernel: rho peaks at some positive lag
-        rather than at zero, then decays. Appropriate when an ISI histogram
-        shows a mode away from zero rather than a monotonic refractory recovery
-        (e.g. the phototaxis_contra investigation).
-
-            rho(lag) = 1 + A * (lag/lag_peak)^k * exp(k*(1 - lag/lag_peak))
-
-        Reuses the same peak-normalized pulse shape as dark_flash's time-domain
-        kernel (peak_normalized_pulse), applied here to inter-event lag
-        instead of time-in-trial. A >= 0 keeps rho >= 1 - guaranteed positive
-        without needing a floor clamp; A in (-1, 0) would allow a dip before
-        the bump, if that combination shape is ever needed.
-        """
-        def _func(lag, params):
-            A, lag_peak, k = params
-            return 1.0 + A * peak_normalized_pulse(lag, lag_peak, k)
-        return RenewalKernel(
-            name="GammaBump", func=_func,
-            param_names=["A_bump", "lag_peak", "k_shape"],
-            initial_guesses=[0.5, 0.5, 2.0],
-            bounds=[(0.0, 5.0), (0.05, 5.0), (0.5, 20.0)],
-            latex_formula=r"$\rho(\Delta t) = 1 + A_{\text{bump}}\left(\frac{\Delta t}{\Delta t_{\text{peak}}}\right)^{k}e^{k(1-\Delta t/\Delta t_{\text{peak}})}$",
-        )
-
 
 class RenewalProcess(PointProcess):
     """
