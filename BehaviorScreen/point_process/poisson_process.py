@@ -654,11 +654,6 @@ class GammaPoissonProcess(PointProcess):
             raise ValueError("Model must be fitted first.")
         return float(self.params_[-1])
 
-    @property
-    def overdispersion_index(self) -> float:
-        """1/r: Var[g_f] under the fitted Gamma population distribution. 0 = no heterogeneity."""
-        return 1.0 / self.dispersion_r
-
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         """Posterior mean gain per fish, from Gamma-Poisson conjugacy. See _fish_scale_factors."""
         if self.params_ is None:

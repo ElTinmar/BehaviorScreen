@@ -631,6 +631,15 @@ class PointProcess:
             "acf2d": acf2d_data,
         }
 
+    @property
+    def dispersion_r(self) -> float:
+        return np.inf
+
+    @property
+    def overdispersion_index(self) -> float:
+        r = self.dispersion_r
+        return 0.0 if np.isinf(r) else 1.0 / r
+
 
 class ModelComparator:
 
@@ -683,6 +692,8 @@ class ModelComparator:
                     "Params (k)": len(model.param_names),
                     "Log-Likelihood": model.log_likelihood,
                     "AIC": model.aic,
+                    "r_dispersion": model.dispersion_r,
+                    "Overdispersion (1/r)": model.overdispersion_index,
                     "Converged": True,
                 })
             except RuntimeError as e:
@@ -692,6 +703,8 @@ class ModelComparator:
                     "Params (k)": len(model.param_names),
                     "Log-Likelihood": np.nan,
                     "AIC": np.nan,
+                    "r_dispersion": np.nan,
+                    "Overdispersion (1/r)": np.nan,
                     "Converged": False,
                 })
 
