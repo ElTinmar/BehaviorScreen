@@ -408,15 +408,39 @@ class DatasetPlotter:
         return np.concatenate(all_isis) if all_isis else np.array([], dtype=float)
 
     @staticmethod
-    def _plot_count_distribution_with_poisson(
+    def _plot_count_distribution(
         counts: np.ndarray,
         ax: plt.Axes,
         xlabel: str,
         title_prefix: str,
     ) -> None:
         """
-        Shared rendering logic for 'observed count histogram vs. Poisson pmf
-        of matching mean' plots, used at both the stream level and fish level.
+        Shared rendering logic for 'observed count histogram vs. reference
+        pmfs' plots, used at both the stream level and fish level.
+
+        Overlays two MODEL-FREE reference distributions (both computed directly
+        from the observed counts via simple moment-matching -- no optimizer,
+        consistent with this class running BEFORE any model fitting):
+
+        - Poisson(mean): null hypothesis of no extra-Poisson variability.
+        - NegBinom(mean, var): method-of-moments fit -- the count-level analog
+        of GammaPoissonProcess's marginal distribution. If this tracks the
+        histogram much better than Poisson, that's an early, fit-free signal
+        that GammaPoissonProcess-style heterogeneity is worth trying (see
+        PointProcessDataset.dispersion_fano_ratio for the matching numeric
+        diagnostic).
+
+        CAVEAT (fish-level use only): for plot_fish_total_count_distribution,
+        fish contribute totals summed over DIFFERENT numbers of trials
+        (fish_trial_mask occupancy is not uniform -- some fish have far fewer
+        observed trials than others). This overlay's moment-matched r does NOT
+        account for that unequal exposure, unlike GammaPoissonProcess's actual
+        fitted r (which uses per-fish exposure S_f explicitly, see
+        GammaPoissonProcess._fish_sufficient_stats). Some of the apparent
+        overdispersion in the fish-total-count histogram may therefore reflect
+        unequal trial counts across fish rather than true rate heterogeneity --
+        treat this overlay as a rough visual guide, not a substitute for the
+        model's own fitted r_dispersion.
         """
         if len(counts) == 0:
             ax.text(0.5, 0.5, "No data available", ha='center', va='center')
@@ -429,17 +453,30 @@ class DatasetPlotter:
         max_count = int(counts.max())
         bin_edges = np.arange(-0.5, max_count + 1.5, 1.0)
         ax.hist(counts, bins=bin_edges, density=True, alpha=0.65,
-               color='steelblue', edgecolor='none', label='Observed')
+            color='steelblue', edgecolor='none', label='Observed')
 
         k_vals = np.arange(0, max_count + 1)
+
         if mean_count > 0:
             poisson_pmf = np.exp(
                 k_vals * np.log(mean_count) - mean_count - gammaln(k_vals + 1)
             )
-        else:
-            poisson_pmf = np.zeros_like(k_vals, dtype=float)
-        ax.plot(k_vals, poisson_pmf, 'r--', linewidth=2,
-               label=f'Poisson(mean={mean_count:.2f})')
+            ax.plot(k_vals, poisson_pmf, 'r--', linewidth=2,
+                label=f'Poisson(mean={mean_count:.2f})')
+
+        # NB only well-defined when var > mean (overdispersed relative to
+        # Poisson). If var <= mean, moment-matching would require r <= 0
+        # (undefined) -- in that regime Poisson is already the relevant
+        # reference, so NB is simply omitted rather than clamped/faked.
+        if mean_count > 0 and var_count > mean_count:
+            r_mom = mean_count**2 / (var_count - mean_count)
+            p_mom = r_mom / (r_mom + mean_count)
+            log_nb_pmf = (
+                gammaln(k_vals + r_mom) - gammaln(r_mom) - gammaln(k_vals + 1)
+                + r_mom * np.log(p_mom) + k_vals * np.log(1 - p_mom)
+            )
+            ax.plot(k_vals, np.exp(log_nb_pmf), 'g-.', linewidth=2,
+                label=f'NegBinom(mean={mean_count:.2f}, r={r_mom:.2f})')
 
         ax.set_xlabel(xlabel, fontsize=11)
         ax.set_ylabel("Density", fontsize=11)
@@ -649,7 +686,7 @@ class DatasetPlotter:
         counts = np.array([len(t_ev) for _, _, t_ev in dataset.iter_streams()])
 
         fig, ax = plt.subplots(figsize=figsize)
-        DatasetPlotter._plot_count_distribution_with_poisson(
+        DatasetPlotter._plot_count_distribution(
             counts, ax,
             xlabel="Event count per (fish, trial) stream",
             title_prefix="Event Count Distribution (per stream)",
@@ -691,7 +728,7 @@ class DatasetPlotter:
         fish_totals = fish_totals[active_fish_mask]
 
         fig, ax = plt.subplots(figsize=figsize)
-        DatasetPlotter._plot_count_distribution_with_poisson(
+        DatasetPlotter._plot_count_distribution(
             fish_totals, ax,
             xlabel="Total event count per fish (summed over trials)",
             title_prefix=f"Total Event Count Distribution (N = {len(fish_totals)} fish)",
