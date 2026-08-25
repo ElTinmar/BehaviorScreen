@@ -105,6 +105,34 @@ class RenewalKernelFactory:
             latex_formula=r"$\rho(\Delta t) = \mathbb{1}[\Delta t \geq \tau_d]\left(1-e^{-(\Delta t-\tau_d)/\tau_r}\right)$",
         )
 
+    @staticmethod
+    def exponential_excitation() -> RenewalKernel:
+        """
+        rho(0) = 1 + A_exc (elevated right after an event), decaying back to
+        baseline (rho -> 1) with time constant tau_exc. The FACILITATING
+        counterpart to hard_dead_time()/exponential_recovery()/
+        dead_time_plus_recovery() (all of which are suppressive, rho in [0,1]).
+
+        A_exc is bounded >= 0 so this kernel can only facilitate, never
+        suppress -- keeping it a clean, unambiguous test of ONE specific
+        hypothesis (excitatory influence of the immediately preceding event)
+        rather than a general-purpose shape that could come out suppressive
+        and duplicate hard_dead_time()/exponential_recovery()'s role.
+        """
+        def _func(lag, params):
+            A_exc, tau_exc = params
+            return 1.0 + A_exc * np.exp(-lag / tau_exc)
+            # rho >= 1 for ANY lag >= 0 given A_exc >= 0 -- positive by
+            # construction, no clipping needed (unlike dead_time_plus_recovery,
+            # which needs np.clip because its recovery term can go negative).
+
+        return RenewalKernel(
+            name="ExponentialExcitation", func=_func,
+            param_names=["A_excitation", "tau_excitation"],
+            initial_guesses=[0.5, 0.2],
+            bounds=[(0.0, 20.0), (0.02, 5.0)],
+            latex_formula=r"$\rho(\Delta t) = 1 + A_{\text{exc}}\, e^{-\Delta t/\tau_{\text{exc}}}$",
+        )
 
 class RenewalProcess(PointProcess):
     """
@@ -126,7 +154,9 @@ class RenewalProcess(PointProcess):
     def __init__(self, kernel: RateKernel, renewal_kernel: RenewalKernel, integration_dt: float = 0.02):
         super().__init__(integration_dt)
         self.name = f"Renewal rate: {kernel.name}, refractory: {renewal_kernel.name}"
-        self.latex_formula = rf"{kernel.latex_formula} \times {renewal_kernel.latex_formula}"
+        kernel_formula = kernel.latex_formula.strip("$")
+        renewal_formula = renewal_kernel.latex_formula.strip("$")
+        self.latex_formula = rf"${kernel_formula} \times {renewal_formula}$"
         self.kernel = kernel
         self.renewal_kernel = renewal_kernel
         self.initial_guesses = kernel.initial_guesses + renewal_kernel.initial_guesses
@@ -242,3 +272,84 @@ class RenewalProcess(PointProcess):
                 t_events[i - 1], t_events[i], trial, params_base, t_events[i - 1], params_refractory
             )
         return Lambda
+
+    def mixed_effects_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        """
+        See PointProcess.mixed_effects_likelihood_terms for the general
+        contract. Disaggregates RenewalProcess's own _renewal_nll (summed
+        across all streams) into per-fish base_ll/N_f/S_f.
+
+        PRECONDITION CHECK: a per-fish gain g_f satisfies the "multiplies the
+        ENTIRE intensity uniformly" requirement here, since RenewalProcess's
+        intensity is already fully multiplicative:
+            lambda(t | history) = kernel(t, m) * renewal_kernel(t - t_last)
+        so g_f * lambda(t|history) factors as g_f^{N_f} in the likelihood
+        product and g_f * S_f in the integral term, exactly as required.
+
+        base_ll : sum, over EVERY event in every stream, of
+                log(kernel(t_i, m) * renewal_kernel(t_i - t_last_i)) --
+                i.e. exactly _renewal_nll's sum_log_intensity term, but
+                accumulated with a + sign (this is a log-likelihood
+                contribution, not a negative-log-likelihood) and never
+                g_f-dependent.
+        N_f     : total observed event count per fish, across all its streams.
+        S_f     : total refractory/renewal-corrected exposure integral per
+                fish -- i.e. _renewal_nll's total_integral term (which
+                already accounts for renewal_kernel suppression/recovery
+                after each event, using that stream's OWN event history),
+                summed across every trial that fish participated in.
+
+        Renewal history resets at each trial boundary (same convention as
+        _renewal_nll/_nll) -- this method does not change that; only the
+        per-fish AGGREGATION across trials is new here.
+        """
+        params_base, params_refractory = self._split_params(params)
+
+        N_f = np.zeros(dataset.num_fish, dtype=float)
+        S_f = np.zeros(dataset.num_fish, dtype=float)
+        base_ll = 0.0
+
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            t_ev = np.sort(t_ev)
+            n = len(t_ev)
+            N_f[f_idx] += n
+
+            if n == 0:
+                # No events this stream: no log-intensity contribution, but
+                # the full-trial baseline integral still counts as exposure
+                # (no refractory suppression ever kicks in with zero events).
+                S_f[f_idx] += self.kernel.integrate(
+                    dataset.duration_s, t_idx, params_base, self.integration_dt
+                )
+                continue
+
+            # --- log-intensity term (mirrors _renewal_nll's sum_log_intensity) ---
+            lam0 = max(
+                self.kernel.evaluate(np.array([t_ev[0]]), np.array([t_idx]), params_base)[0],
+                1e-12,
+            )
+            base_ll += np.log(lam0)
+
+            for i in range(1, n):
+                dt = t_ev[i] - t_ev[i - 1]
+                lam = self.kernel.evaluate(np.array([t_ev[i]]), np.array([t_idx]), params_base)[0]
+                rho = self.renewal_kernel.evaluate(np.array([dt]), params_refractory)[0]
+                base_ll += np.log(max(lam * rho, 1e-12))
+
+            # --- refractory-corrected exposure integral (mirrors _renewal_nll's total_integral) ---
+            total_integral = self._segment_integral(
+                0.0, t_ev[0], t_idx, params_base, None, None
+            )
+            for i in range(1, n):
+                total_integral += self._segment_integral(
+                    t_ev[i - 1], t_ev[i], t_idx, params_base, t_ev[i - 1], params_refractory
+                )
+            total_integral += self._segment_integral(
+                t_ev[-1], dataset.duration_s, t_idx, params_base, t_ev[-1], params_refractory
+            )
+
+            S_f[f_idx] += total_integral
+
+        return base_ll, N_f, S_f
