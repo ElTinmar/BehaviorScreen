@@ -1,5 +1,7 @@
 from pathlib import Path
 from typing import Dict
+import re
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -14,6 +16,25 @@ from BehaviorScreen.point_process.poisson_process import RateKernelFactory, Pois
 from BehaviorScreen.point_process.hawkes_process import HistoryKernelFactory, HawkesProcess
 from BehaviorScreen.point_process.renewal_process import RenewalKernelFactory, RenewalProcess
 
+def slugify(name: str) -> str:
+    """Turn an arbitrary model/condition name into a filesystem-safe filename fragment."""
+    name = name.strip()
+    name = re.sub(r"[^\w\-.]+", "_", name)   # anything not alnum/_/-/. -> underscore
+    return re.sub(r"_+", "_", name).strip("_")
+
+def save_fig(fig: plt.Figure, out_dir: Path, filename: str, dpi: int = 150) -> Path:
+    """Save fig as PNG under out_dir/filename (creating out_dir if needed) and return the path."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{slugify(filename)}.png"
+    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    return path
+
+def save_csv(df: pd.DataFrame, out_dir: Path, filename: str) -> Path:
+    """Save df as CSV under out_dir/filename.csv (creating out_dir if needed)."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{filename}.csv"
+    df.to_csv(path, index=False)
+    return path
 
 def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDataset]) -> pd.DataFrame:
     """
@@ -53,6 +74,7 @@ possible_roots = [
     Path('/media/martin/DATA_18TB/Screen'),
 ]
 ROOT = next((p for p in possible_roots if p.exists()), possible_roots[0])
+OUTPUT_ROOT = Path("./figures")
 
 # Prey capture stim parameters
 prey_stim_speed_deg_per_s = 90
@@ -309,13 +331,21 @@ print("with high Fano Ratio and Low Power Flag == False likely need a")
 print("fish-level heterogeneity term; see PointProcessDataset docstrings.")
 dispersion_summary = summarize_dispersion_across_conditions(datasets)
 print(dispersion_summary.to_string(index=False))
+save_csv(dispersion_summary, OUTPUT_ROOT, "dispersion_summary")
 
 for exp_name, dataset in datasets.items():
+    diag_dir = OUTPUT_ROOT / exp_name / "dataset_diagnostics"
     print(f"\n--- Dataset diagnostics: {exp_name} ---")
-    DatasetPlotter.plot_isi_histogram(dataset)
-    DatasetPlotter.plot_event_count_distribution(dataset)
-    DatasetPlotter.plot_fish_total_count_distribution(dataset)
-    plt.show()
+
+    fig, _ = DatasetPlotter.plot_isi_histogram(dataset)
+    save_fig(fig, diag_dir, "isi_histogram")
+
+    fig, _ = DatasetPlotter.plot_event_count_distribution(dataset)
+    save_fig(fig, diag_dir, "event_count_distribution")
+
+    fig, _ = DatasetPlotter.plot_fish_total_count_distribution(dataset)
+    save_fig(fig, diag_dir, "fish_total_count_distribution")
+    plt.close("all")
 
 # <-- natural pause point: inspect the table + plots above and adjust
 #     model_config['models'] per condition before Phase 3 runs, if needed -->
@@ -334,11 +364,13 @@ for exp_name, config in model_config.items():
     print(f"==================================================")
 
     dataset = datasets[exp_name]
+    model_dir = OUTPUT_ROOT / exp_name / "models"
 
     summary_table, fitted_models = ModelComparator.compare(
         models=config['models'],
         dataset=dataset,
     )
+    save_csv(summary_table, model_dir, "model_comparison_table")
     best_model = fitted_models[0]
 
     summary_table.insert(0, "Condition", exp_name)
@@ -347,16 +379,17 @@ for exp_name, config in model_config.items():
     print("\n--- MODEL COMPARISON TABLE ---")
     print(summary_table.to_string(index=False))
 
-    ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
-    plt.show(block=False)
+    fig, _ = ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
+    save_fig(fig, model_dir, "model_fits_overlay")
 
-    ModelPlotter.plot_histogram(dataset=dataset, model=fitted_models[0])
-    plt.show(block=False)
+    fig, _ = ModelPlotter.plot_histogram(dataset=dataset, model=fitted_models[0])
+    save_fig(fig, model_dir, "histogram_surface")
 
-    ModelPlotter.plot_trial_traces(dataset=dataset, model=best_model)
-    plt.show(block=False)
+    fig, _ = ModelPlotter.plot_trial_traces(dataset=dataset, model=best_model)
+    save_fig(fig, model_dir, f"trial_traces_{best_model.name}")
 
-    best_model.diagnose(dataset)
+    fig_diag, diag_results = best_model.diagnose(dataset)
+    save_fig(fig_diag, model_dir, f"diagnose_{best_model.name}")
     # best_model.bootstrap(dataset, n_boot=500)
 
     plt.close('all')
@@ -364,3 +397,4 @@ for exp_name, config in model_config.items():
 master_summary_df = pd.concat(all_summaries, ignore_index=True)
 print("\n================ MASTER MODEL COMPARISON TABLE ================")
 print(master_summary_df.to_string(index=False))
+save_csv(master_summary_df, OUTPUT_ROOT, "master_model_comparison")

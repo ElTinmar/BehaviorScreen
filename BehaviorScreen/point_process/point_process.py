@@ -432,7 +432,7 @@ class PointProcess:
         eps: float = 1e-5,
         max_trial_lag: int = 10,
         max_time_lag: int = 30,
-    ) -> Dict[str, Any]:
+    ) -> Tuple[plt.Figure, Dict[str, Any]]:
 
         # 1. Execute sub-analyses
         res_data = self.compute_residuals(dataset)
@@ -622,9 +622,7 @@ class PointProcess:
         )
         ax_text.set_title("H. Global Model Diagnostics", fontsize=11, fontweight='bold')
 
-        plt.show()
-
-        return {
+        return fig, {
             "residuals": res_data,
             "time_rescaling": tr_data,
             "parameter_correlation": corr_matrix,
