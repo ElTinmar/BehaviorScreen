@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Union, Tuple, ClassVar
+from typing import List, Optional, Union, Tuple, ClassVar, Dict
 import numpy as np
 import pandas as pd
 from BehaviorScreen.core import Stim, Laterality
@@ -19,7 +19,7 @@ class PointProcessDataset:
     event_fish_idx: np.ndarray          
     fish_trial_mask: np.ndarray
 
-    unique_trials: np.ndarray 
+    unique_trials: np.ndarray # This comes from CSV trial_num, but is actually a zero-based trial idx
     bout_name: str = ""
     laterality: str = ""
     duration_s: float = 24.0
