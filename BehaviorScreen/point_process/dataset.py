@@ -78,11 +78,10 @@ class PointProcessDataset:
 
     @property
     def time_trial_histogram_counts(self) -> np.ndarray:
-        trial_edges = np.append(self.unique_trials - 0.5, self.unique_trials[-1] + 0.5)
         counts, _, _ = np.histogram2d(
             self.event_trials_idx,
             self.event_times,
-            bins=[trial_edges, self.t_grid]
+            bins=[self.trial_edges, self.t_grid]
         )
         return counts
 
