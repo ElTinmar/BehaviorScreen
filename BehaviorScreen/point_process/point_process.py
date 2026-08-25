@@ -350,21 +350,36 @@ class PointProcess:
         y_obs = dataset.time_trial_histogram_counts
         mu_pred = self.compute_expected_rate(dataset) * dataset.n_fish_per_trial[:, None] * dataset.binning_dt
 
-        pearson_res = (y_obs - mu_pred) / np.sqrt(mu_pred)
+        r = self.dispersion_r  # inf for Poisson/Hawkes/Renewal; finite for GammaPoissonProcess
+        # r is a per-fish quantity; pooling n_fish_per_trial independent fish
+        # (same rate, independent gains) sums to an effective NB dispersion of
+        # r_eff = r * n_fish_per_trial (sum of iid NB(r, p) is NB(n*r, p)).
+        # r_eff -> inf recovers the ordinary Poisson variance/deviance exactly
+        # (verified: mu + mu^2/r_eff -> mu; NB deviance -> Poisson deviance).
+        if np.isinf(r):
+            var_pred = mu_pred
+        else:
+            r_eff = r * dataset.n_fish_per_trial[:, None]
+            var_pred = mu_pred + mu_pred**2 / r_eff
 
-        # Deviance Residuals
+        pearson_res = (y_obs - mu_pred) / np.sqrt(var_pred)
+
         with np.errstate(divide="ignore", invalid="ignore"):
-            term = np.where(
-                y_obs > 0,
-                y_obs * np.log(y_obs / mu_pred),
-                0.0,
-            )
-            deviance_sq = 2.0 * (term - (y_obs - mu_pred))
+            term = np.where(y_obs > 0, y_obs * np.log(y_obs / mu_pred), 0.0)
+
+            if np.isinf(r):
+                deviance_sq = 2.0 * (term - (y_obs - mu_pred))
+            else:
+                r_eff = r * dataset.n_fish_per_trial[:, None]
+                term_nb = (y_obs + r_eff) * np.log((y_obs + r_eff) / (mu_pred + r_eff))
+                deviance_sq = 2.0 * (term - term_nb)
+
             deviance_res = np.sign(y_obs - mu_pred) * np.sqrt(np.maximum(0.0, deviance_sq))
 
         return {
             "y_obs": y_obs,
             "mu_pred": mu_pred,
+            "var_pred": var_pred,   # new: exposes the variance function actually used
             "pearson_residuals": pearson_res,
             "deviance_residuals": deviance_res,
         }
