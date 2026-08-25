@@ -377,30 +377,26 @@ class PointProcess:
     ) -> Dict[str, np.ndarray]:
         """Computes 2D residual autocorrelation across trial and time lag displacements."""
         res_data = self.compute_residuals(dataset)
-        residuals = res_data[f"deviance_residuals"]
+        residuals = res_data["deviance_residuals"].copy()
 
-        # Filter out unobserved trials (n_fish == 0)
-        valid_mask = dataset.n_fish_per_trial > 0
-        residuals = residuals[valid_mask, :].copy()
+        invalid_mask = dataset.n_fish_per_trial == 0
+        residuals[invalid_mask, :] = np.nan
 
         n_trials, n_time = residuals.shape
-        residuals -= np.mean(residuals)
-        variance = np.mean(residuals ** 2)
+        residuals -= np.nanmean(residuals)
+        variance = np.nanmean(residuals ** 2)
 
-        if variance == 0:
-            raise ValueError("Residual variance is zero.")
+        if not np.isfinite(variance) or variance == 0:
+            raise ValueError("Residual variance is zero or undefined.")
 
-        # Clamp maximum lags to dataset bounds
         max_trial_lag = min(max_trial_lag, max(0, n_trials - 1))
         max_time_lag = min(max_time_lag, max(0, n_time - 1))
 
         trial_lags = np.arange(-max_trial_lag, max_trial_lag + 1)
         time_lags_bins = np.arange(-max_time_lag, max_time_lag + 1)
-        
         acf2d = np.full((len(trial_lags), len(time_lags_bins)), np.nan)
 
-        def _get_overlap_slices(n: int, lag: int) -> Tuple[slice, slice]:
-            """Returns safe, matching slice pairs for array overlap under displacement `lag`."""
+        def _get_overlap_slices(n, lag):
             if abs(lag) >= n:
                 return slice(0, 0), slice(0, 0)
             if lag >= 0:
@@ -416,15 +412,17 @@ class PointProcess:
                 x = residuals[m_x, t_x]
                 y = residuals[m_y, t_y]
 
-                if x.size > 1:
-                    acf2d[i, j] = np.mean(x * y) / variance
+                prod = x * y
+                n_valid = np.sum(~np.isnan(prod))
+                if n_valid > 1:
+                    acf2d[i, j] = np.nanmean(prod) / variance
 
         return {
             "trial_lags": trial_lags,
             "time_lags_bins": time_lags_bins,
             "time_lags_sec": time_lags_bins * dataset.binning_dt,
             "acf2d": acf2d,
-            "conf_limit": 1.96 / np.sqrt(n_trials * n_time),
+            "conf_limit": 1.96 / np.sqrt(n_trials * n_time),  # see note below
         }
 
     def diagnose(
