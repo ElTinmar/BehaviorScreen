@@ -124,6 +124,9 @@ class PointProcess:
     def aic(self) -> float:
         k = len(self.params_)
         return 2 * k - 2 * self.log_likelihood
+
+    def mixed_effects_likelihood_terms(self, dataset, params) -> Tuple[float, np.ndarray, np.ndarray]:
+        """Used for mixed-effect model at the fish level"""
     
     def estimate_hessian(
         self, 

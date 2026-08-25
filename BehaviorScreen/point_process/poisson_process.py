@@ -519,7 +519,30 @@ class PoissonProcess(PointProcess):
             integration_dt=self.integration_dt,
         )
     
+    def mixed_effects_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
 
+        event_rates = self.kernel.evaluate(
+            dataset.event_times, dataset.event_trials_idx, params
+        )
+        base_ll = float(np.sum(np.log(event_rates)))
+
+        # N_f: observed event count per fish
+        N_f = np.zeros(dataset.num_fish, dtype=float)
+        np.add.at(N_f, dataset.event_fish_idx, 1.0)
+
+        # S_f: per-fish expected count under the baseline kernel
+        trial_integrals = self.kernel.integrate(
+            duration_s=dataset.duration_s,
+            trial=np.arange(dataset.num_trials),
+            params=params,
+            integration_dt=self.integration_dt,
+        )  # shape (num_trials,)
+
+        S_f = dataset.fish_trial_mask.astype(float) @ trial_integrals  # shape (num_fish,)
+
+        return base_ll, N_f, S_f
 
 class GammaPoissonProcess(PointProcess):
     """
