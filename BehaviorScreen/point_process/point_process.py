@@ -184,7 +184,83 @@ class PointProcess:
             np.clip(corr, -1.0, 1.0, out=corr)
 
         return corr
-    
+
+    def _stream_tau_values(self, dataset: PointProcessDataset) -> Dict[Tuple[int, int], np.ndarray]:
+        """
+        Compute the time-rescaled inter-event intervals (tau_k, in the notation
+        of Ogata's time-rescaling theorem) for every (fish, trial) stream, as
+        the input to time_rescaling()'s KS/ACF/D_n diagnostics.
+
+        WHY THIS METHOD EXISTS (read before overriding):
+
+        Ogata's time-rescaling theorem says that if tau_k = Lambda(t_k) -
+        Lambda(t_{k-1}), where Lambda is the TRUE compensator (cumulative
+        conditional intensity) of the process, then u_k = 1 - exp(-tau_k) are
+        i.i.d. Uniform(0,1) -- this is what licenses every diagnostic built on
+        top of it (Panels B/D/F in PointProcess.diagnose()).
+
+        The critical word is CONDITIONAL: Lambda(t) must be computed using only
+        information available strictly BEFORE t (the "predictable" / F_{t-}-
+        measurable compensator). This is trivially satisfied for PoissonProcess,
+        HawkesProcess, and RenewalProcess -- their intensity at t depends only
+        on t, the trial, and/or PAST events in that same stream, so integrating
+        cumulative_integrated_intensity() forward in time already gives a valid
+        predictable compensator. That's what the default implementation below
+        does, and it is correct for those model classes.
+
+        It is NOT automatically correct for models with a SHARED, MARGINALIZED
+        per-fish random effect (e.g. GammaPoissonProcess's g_f ~ Gamma(r, r)).
+        For such models, cumulative_integrated_intensity() only describes the
+        POPULATION-AVERAGE process (E[g_f] = 1) -- using it directly ignores
+        the fact that observing a fish's events should update your belief
+        about that SPECIFIC fish's gain, which is exactly the informative
+        signal a random-effects model is built to use.
+
+        The tempting fix -- multiply by a single posterior-mean gain estimate
+        per fish, e.g. (r + N_f) / (r + S_f) using that fish's WHOLE observed
+        history -- is WRONG for this purpose, even though it's a perfectly
+        valid empirical-Bayes point estimate for other uses (e.g. reporting
+        "fish 12 appears ~1.4x more active than average"). It's wrong here
+        specifically because N_f/S_f are computed using events that occur
+        AFTER t for events early in that fish's session -- violating the
+        F_{t-}-measurability the theorem requires. Concretely, this means the
+        correction is calibrated using the same outcomes it is then used to
+        test for uniformity: a textbook case of the "estimated parameters bias
+        a goodness-of-fit test" problem (cf. the Lilliefors correction needed
+        for KS tests after fitting distribution parameters from the sample
+        being tested). It makes the model look BETTER calibrated than it is,
+        with the bias worst for fish with the fewest independent trials (a
+        fish with exactly one observed trial has its "correction" computed
+        ENTIRELY from the outcome being corrected -- pure circularity, not an
+        edge case here: see PointProcessDataset occupancy diagnostics, where
+        min_trials_per_fish == 1 for most conditions in this dataset).
+
+        CONSEQUENCE FOR SUBCLASSES: any model with a marginalized per-fish (or
+        other shared/global) latent variable MUST override this method to
+        compute a genuinely sequential/predictable version of E[gain | H_{t-}]
+        -- using only that fish's events and exposure strictly before each t_k
+        -- rather than reuse this default. See GammaPoissonProcess._stream_tau_
+        values for the closed-form sequential posterior update, and its
+        docstring for why the naive whole-history version
+        (GammaPoissonProcess._fish_scale_factors) is kept only as a separate,
+        explicitly-labeled empirical-Bayes point estimate, NOT used here.
+
+        Default (this implementation): assumes no such shared latent variable,
+        i.e. cumulative_integrated_intensity() as-is is already a valid
+        predictable compensator. Correct for PoissonProcess, HawkesProcess,
+        RenewalProcess. Do not reuse this default for a new model class without
+        checking whether that assumption actually holds.
+        """
+        fish_scales = self._fish_scale_factors(dataset)
+        result = {}
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            if len(t_ev) == 0:
+                continue
+            Lambda = self.cumulative_integrated_intensity(t_events=t_ev, trial=t_idx)
+            Lambda = Lambda * fish_scales[f_idx]
+            result[(f_idx, t_idx)] = np.diff(np.insert(Lambda, 0, 0.0))
+        return result
+
     def time_rescaling(
             self, 
             dataset: PointProcessDataset,
@@ -226,22 +302,17 @@ class PointProcess:
         if self.params_ is None:
             raise ValueError("Model must be fitted before running time-rescaling analysis.")
 
-        fish_scales = self._fish_scale_factors(dataset)
-
         pooled_u = []
         pooled_z = []
         fish_u = {f_idx: [] for f_idx in range(dataset.num_fish)}
+
+        tau_by_stream = self._stream_tau_values(dataset)
 
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             if len(t_ev) == 0:
                 continue
 
-            Lambda = self.cumulative_integrated_intensity(t_events=t_ev, trial=t_idx)
-            Lambda = Lambda * fish_scales[f_idx]  
-
-            tau = np.diff(np.insert(Lambda, 0, 0.0))
-            tau = tau[tau > 1e-12]
-
+            tau = tau_by_stream[(f_idx, t_idx)]
             u = 1.0 - np.exp(-tau)
             u_clipped = np.clip(u, 1e-10, 1 - 1e-10)
             z = norm.ppf(u_clipped)

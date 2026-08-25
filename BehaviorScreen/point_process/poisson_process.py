@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, List, Tuple, Optional, Union
+from typing import Callable, List, Tuple, Optional, Union, Dict
 
 import numpy as np
 import pandas as pd
@@ -675,3 +675,42 @@ class GammaPoissonProcess(PointProcess):
             "expected_events_base": S_f[active],
             "estimated_gain": g_hat[active],
         })
+    
+    def _stream_tau_values(self, dataset: PointProcessDataset) -> Dict[Tuple[int, int], np.ndarray]:
+        """
+        Correct predictable compensator: for each fish, walks its OWN observed
+        trials in ascending t_idx order, maintaining running (N, S) using only 
+        that fish's history strictly before each event. 
+        """
+        if self.params_ is None:
+            raise ValueError("Model must be fitted first.")
+        kernel_params, r = self._split_params(self.params_)
+        result: Dict[Tuple[int, int], np.ndarray] = {}
+
+        for f_idx in range(dataset.num_fish):
+            S_offset, N_count, S_prev = 0.0, 0, 0.0
+
+            for t_idx in range(dataset.num_trials):
+                if not dataset.fish_trial_mask[f_idx, t_idx]:
+                    continue  # unobserved trial: no counts/exposure (matches _nll)
+
+                mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
+                t_ev = np.sort(dataset.event_times[mask])
+                trial_integral = self.kernel.integrate(
+                    dataset.duration_s, t_idx, kernel_params, self.integration_dt
+                )
+
+                if len(t_ev) > 0:
+                    cum_within = self.kernel.cumulative_integrate(
+                        t_ev, t_idx, kernel_params, self.integration_dt
+                    )
+                    tau_vals = np.empty(len(t_ev))
+                    for i, S_abs in enumerate(S_offset + cum_within):
+                        tau_vals[i] = (r + N_count) * np.log((r + S_abs) / (r + S_prev))
+                        N_count += 1
+                        S_prev = S_abs
+                    result[(f_idx, t_idx)] = tau_vals
+
+                S_offset += trial_integral  # full-trial exposure, regardless of event count
+
+        return result
