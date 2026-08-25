@@ -215,8 +215,7 @@ class RenewalProcess(PointProcess):
         params_base, params_refractory = self._split_params(params)
         total_nll = 0.0
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            m = dataset.unique_trials[t_idx]
-            total_nll += self._renewal_nll(t_ev, m, dataset.duration_s, params_base, params_refractory)
+            total_nll += self._renewal_nll(t_ev, t_idx, dataset.duration_s, params_base, params_refractory)
         return total_nll
 
     def predict(self, t: np.ndarray, trial: Union[float, np.ndarray],
@@ -248,8 +247,7 @@ class RenewalProcess(PointProcess):
         active_count = np.zeros(n_trials, dtype=int)
 
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            trial_val = dataset.unique_trials[t_idx]
-            stream_rate = self.predict(t=dataset.t_centers, trial=trial_val, history_events=t_ev)
+            stream_rate = self.predict(t=dataset.t_centers, trial=t_idx, history_events=t_ev)
             rate_sum[t_idx, :] += stream_rate
             active_count[t_idx] += 1
 

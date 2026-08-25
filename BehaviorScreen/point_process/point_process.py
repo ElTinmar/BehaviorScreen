@@ -236,8 +236,7 @@ class PointProcess:
             if len(t_ev) == 0:
                 continue
 
-            m = dataset.unique_trials[t_idx] 
-            Lambda = self.cumulative_integrated_intensity(t_events=t_ev, trial=m)
+            Lambda = self.cumulative_integrated_intensity(t_events=t_ev, trial=t_idx)
             Lambda = Lambda * fish_scales[f_idx]  
 
             tau = np.diff(np.insert(Lambda, 0, 0.0))
@@ -392,7 +391,7 @@ class PointProcess:
             deviance_res,
             aspect='auto',
             origin='lower',
-            extent=[dataset.t_grid[0], dataset.t_grid[-1], dataset.unique_trials[0], dataset.unique_trials[-1]],
+            extent=[dataset.t_grid[0], dataset.t_grid[-1], 0, dataset.num_trials],
             cmap='coolwarm',
             vmin=-vmax, vmax=vmax
         )
@@ -757,15 +756,14 @@ class ModelPlotter:
         model_surface = model.compute_expected_rate(dataset)
 
         # 2. Color Mapping Setup
-        norm = plt.Normalize(vmin=dataset.unique_trials[0], vmax=dataset.unique_trials[-1])
+        norm = plt.Normalize(vmin=0, vmax=dataset.num_trials)
         base_cmap = plt.get_cmap(cmap)
 
         # 3. Plot Selected Trials
-        selected_indices = range(0, len(dataset.unique_trials), trial_step)
+        selected_indices = range(0, dataset.num_trials, trial_step)
 
         for idx in selected_indices:
-            trial_idx = dataset.unique_trials[idx]
-            color = base_cmap(norm(trial_idx))
+            color = base_cmap(norm(idx))
 
             # Empirical Data (Markers Only, Semi-Transparent, Plotted Underneath)
             ax.scatter(

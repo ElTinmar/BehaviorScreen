@@ -19,7 +19,6 @@ class PointProcessDataset:
     event_fish_idx: np.ndarray          
     fish_trial_mask: np.ndarray
 
-    unique_trials: np.ndarray # This comes from CSV trial_num, but is actually a zero-based trial idx
     bout_name: str = ""
     laterality: str = ""
     duration_s: float = 24.0
@@ -242,7 +241,6 @@ class PointProcessDataset:
             binning_dt=self.binning_dt,
             bout_name=self.bout_name,
             laterality=self.laterality,
-            unique_trials=self.unique_trials
         )
 
 
@@ -279,18 +277,37 @@ class BehavioralDataLoader:
         all_fish_ids = np.sort(sub_df['file'].unique())
         unique_trials = np.sort(sub_df['trial_num'].unique()) 
 
+        n_trials = len(unique_trials)
+        expected = np.arange(n_trials)
+        if not np.array_equal(unique_trials, expected):
+            raise ValueError(
+                f"'trial_num' is expected to be a zero-based, contiguous index "
+                f"(0..{n_trials - 1}) after filtering by stim/epoch_name, but got "
+                f"unique values {unique_trials.tolist()}. This usually means a "
+                f"trial had zero surviving rows after filtering, breaking "
+                f"contiguity. PointProcessDataset and every RateKernel/HistoryKernel "
+                f"assume trial_num IS the positional trial index"
+            )
+
         fish_map = {f_id: idx for idx, f_id in enumerate(all_fish_ids)}
-        trial_map = {t_num: idx for idx, t_num in enumerate(unique_trials)}
 
         # 3. Build (N_fish, N_trials) boolean presence matrix
         n_fish = len(all_fish_ids)
-        n_trials = len(unique_trials)
         fish_trial_mask = np.zeros((n_fish, n_trials), dtype=bool)
 
         active_pairs = sub_df[['file', 'trial_num']].drop_duplicates()
         f_indices = active_pairs['file'].map(fish_map).values
-        t_indices = active_pairs['trial_num'].map(trial_map).values
+        t_indices = active_pairs['trial_num'].values
         fish_trial_mask[f_indices, t_indices] = True
+
+        occupancy = fish_trial_mask.mean()
+        min_fish_per_trial = fish_trial_mask.sum(axis=0).min()
+        min_trials_per_fish = fish_trial_mask.sum(axis=1).min()
+        print(
+            f"[{bout_name}/{laterality}] fish_trial_mask occupancy: {occupancy:.1%} "
+            f"({n_fish} fish x {n_trials} trials); "
+            f"min fish/trial = {min_fish_per_trial}, min trials/fish = {min_trials_per_fish}"
+        )
 
         # 4. Filter target events
         bout_idx = bouts_category_name_short.index(bout_name)
@@ -307,7 +324,7 @@ class BehavioralDataLoader:
 
         # 5. Extract event arrays as integer indices & floats
         event_times = (events['trial_time'] - t_start).values.astype(float)
-        event_trials_idx = events['trial_num'].map(trial_map).values.astype(int)
+        event_trials_idx = events['trial_num'].values.astype(int)
         event_fish_idx = events['file'].map(fish_map).values.astype(int)
 
         return PointProcessDataset(
@@ -319,7 +336,6 @@ class BehavioralDataLoader:
             binning_dt=binning_dt,
             bout_name=bout_name,
             laterality=str(laterality),
-            unique_trials=unique_trials,
         )
 
 class DatasetPlotter:

@@ -472,7 +472,7 @@ class PoissonProcess(PointProcess):
         # Term 2: Expected Total Events (Surface Integration over Time)
         trial_integrals = self.kernel.integrate(
             duration_s=dataset.duration_s, 
-            trial=dataset.unique_trials, 
+            trial=np.arange(dataset.num_trials), 
             params=params, 
             integration_dt=self.integration_dt
         )
@@ -493,7 +493,7 @@ class PoissonProcess(PointProcess):
             raise ValueError("Model is not fitted yet. Call .fit() first.")
 
         t_2d = dataset.t_centers[None, :]
-        trials_2d = dataset.unique_trials[:, None]
+        trials_2d = np.arange(dataset.num_trials)[:, None]
         expected_rate = self.predict(t_2d, trials_2d)
         
         return expected_rate 
@@ -570,10 +570,10 @@ class GammaPoissonProcess(PointProcess):
         """
         trial_integrals = self.kernel.integrate(
             duration_s=dataset.duration_s,
-            trial=dataset.unique_trials,
+            trial=np.arange(dataset.num_trials),
             params=kernel_params,
             integration_dt=self.integration_dt,
-        )  # shape (num_trials,), positionally aligned with dataset.unique_trials / fish_trial_mask columns
+        )  # shape (num_trials,)
 
         N_f = np.zeros(dataset.num_fish)
         S_f = np.zeros(dataset.num_fish)
@@ -604,8 +604,7 @@ class GammaPoissonProcess(PointProcess):
         # since conditional on g_f each fish is still ordinary Poisson.
         # Uses actual trial VALUES (not positional indices) for evaluate(),
         # matching HawkesProcess's convention.
-        event_trial_values = dataset.unique_trials[dataset.event_trials_idx]
-        event_rates = self.kernel.evaluate(dataset.event_times, event_trial_values, kernel_params)
+        event_rates = self.kernel.evaluate(dataset.event_times, dataset.event_trials_idx, kernel_params)
         event_rates = np.maximum(event_rates, 1e-9)
         shape_term = np.sum(np.log(event_rates))
 
@@ -630,7 +629,7 @@ class GammaPoissonProcess(PointProcess):
         if self.params_ is None:
             raise ValueError("Model is not fitted yet. Call .fit() first.")
         t_2d = dataset.t_centers[None, :]
-        trials_2d = dataset.unique_trials[:, None]
+        trials_2d = np.arange(dataset.num_trials)[:, None]
         return self.predict(t_2d, trials_2d)
 
     def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
