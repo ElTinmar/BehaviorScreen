@@ -267,8 +267,8 @@ class PreyCapture:
         def _func(t, trial, params):
             A, tau, B, A_ripple, phi1, phi2, alpha_shared = params
             return cls._rate(t, trial, stim_freq, A, tau, B, A_ripple, phi1, phi2,
-                              alpha_peak=alpha_shared, alpha_baseline=alpha_shared,
-                              alpha_ripple=alpha_shared)
+                            alpha_peak=alpha_shared, alpha_baseline=alpha_shared,
+                            alpha_ripple=alpha_shared)
 
         return RateKernel(
             name="PreyCapture(Peak_Baseline_Ripple_Shared)",
@@ -277,7 +277,7 @@ class PreyCapture:
             initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS],
             bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS],
             latex_formula=(
-                r"$\lambda(t,m) = \left(A e^{-t/\tau} + B\right)"
+                r"$\lambda(t,m) = \left(A e^{-t/\tau} + B\right) e^{\alpha_{\text{shared}} m}"
                 r"\left(1 + \frac{2A_{\text{ripple}}}{1+e^{-\alpha_{\text{shared}} m}}"
                 rf"{cls._RIPPLE_WAVE_LATEX}\right)$"
             ),
