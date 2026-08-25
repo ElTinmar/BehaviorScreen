@@ -187,8 +187,7 @@ class PointProcessDataset:
     def stream_isi_lag1_autocorr(self) -> float:
         """
         Lag-1 autocorrelation of raw ISIs, computed WITHIN each (fish, trial)
-        stream separately then pooled (never across stream boundaries -- doing
-        so would confound this with axis-1 rate heterogeneity).
+        stream separately then pooled.
 
         Sign convention matches PointProcess.time_rescaling's ACF panel:
         positive -> bursty/rhythmic trains; negative -> refractory alternation.
