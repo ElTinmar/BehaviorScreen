@@ -407,7 +407,7 @@ for exp_name, config in model_config.items():
     fig, _ = ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
     save_fig(fig, model_dir, "model_fits_overlay")
 
-    fig, _ = ModelPlotter.plot_histogram(dataset=dataset, model=fitted_models[0])
+    fig, _ = ModelPlotter.plot_histogram(dataset=dataset, model=best_model)
     save_fig(fig, model_dir, "histogram_surface")
 
     fig, _ = ModelPlotter.plot_trial_traces(dataset=dataset, model=best_model)
