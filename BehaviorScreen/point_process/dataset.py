@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
+from itertools import groupby
+from functools import cached_property
 from typing import List, Optional, Union, Tuple, ClassVar, Dict
 import numpy as np
 import pandas as pd
@@ -48,20 +50,40 @@ class PointProcessDataset:
     def n_fish_per_trial(self) -> np.ndarray:
         return self.fish_trial_mask.sum(axis=0).astype(float)
 
+    @cached_property
+    def _stream_index(self) -> Dict[Tuple[int, int], np.ndarray]:
+        """
+        One-time grouping of event times by (fish_idx, trial_idx), cached on
+        this dataset instance. iter_streams() is called inside _nll(), which
+        scipy.optimize.minimize() may evaluate thousands of times per fit() --
+        without this cache, every call re-scans the full event arrays for
+        every (fish, trial) pair. Computed once, reused for the life of this
+        (immutable) dataset.
+        """
+        order = np.lexsort((self.event_times, self.event_trials_idx, self.event_fish_idx))
+        keys = list(zip(self.event_fish_idx[order], self.event_trials_idx[order]))
+        times = self.event_times[order]
+
+        result = {}
+        start = 0
+        for key, group in groupby(keys):
+            n = len(list(group))
+            result[key] = times[start : start + n]  # already sorted by time, within group
+            start += n
+        return result
+
     def iter_streams(self, active_only: bool = True):
         """
         Yields (fish_idx, trial_idx, sorted_event_times) for every (fish, trial)
-        pair in the dataset.
-        If active_only=True (default), skips (fish, trial) pairs not marked
-        present in fish_trial_mask.
+        pair in the dataset. If active_only=True (default), skips (fish, trial)
+        pairs not marked present in fish_trial_mask.
         """
+        empty = np.array([], dtype=float)
         for f_idx in range(self.num_fish):
             for t_idx in range(self.num_trials):
                 if active_only and not self.fish_trial_mask[f_idx, t_idx]:
                     continue
-                mask = (self.event_fish_idx == f_idx) & (self.event_trials_idx == t_idx)
-                t_ev = np.sort(self.event_times[mask])
-                yield f_idx, t_idx, t_ev
+                yield f_idx, t_idx, self._stream_index.get((f_idx, t_idx), empty)
 
     @property
     def time_histogram_counts(self) -> np.ndarray:
