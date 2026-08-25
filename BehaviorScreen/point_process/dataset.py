@@ -300,6 +300,33 @@ class BehavioralDataLoader:
         t_indices = active_pairs['trial_num'].values
         fish_trial_mask[f_indices, t_indices] = True
 
+        # KNOWN LIMITATION (not fixed -- believed marginal, revisit if dispersion/
+        # rate estimates look off for low-count conditions, e.g. SLC/looming):
+        #
+        # `active_pairs` is derived from `sub_df`, which at this point is filtered
+        # only by stim/epoch_name -- it still contains one row per detected bout
+        # EVENT of ANY category/laterality. So a (fish, trial) pair is only marked
+        # present here if that fish produced >=1 bout of ANY kind that trial.
+        #
+        # A fish that was genuinely tracked/present but emitted ZERO bouts of every
+        # category that trial (froze, sub-threshold movement, or just a true zero
+        # under a low base rate -- more likely in short-duration conditions like
+        # looming) is indistinguishable here from a fish that was never tracked
+        # (protocol aborted, lost tracking). Both produce zero rows in sub_df, so
+        # both get fish_trial_mask=False.
+        #
+        # Effect: this silently excludes true zero-count exposures from the risk
+        # set, which biases every fitted rate (PoissonProcess/HawkesProcess/...)
+        # UPWARD, and biases stream_fano_factor/fish_fano_factor DOWNWARD (dropped
+        # zeros shrink variance relative to mean) -- i.e. it can make the dataset
+        # look less overdispersed than it really is. Effect size scales with how
+        # often a genuinely-present fish has an all-category zero-bout trial, so
+        # it's expected to be worse for low base-rate / short-duration conditions
+        # (e.g. looming, where trials are shorter) than for long, high-rate ones.
+        #
+        # Correct fix (not applied): build presence from an independent
+        # tracking/participation record, not from bout rows. 
+
         occupancy = fish_trial_mask.mean()
         min_fish_per_trial = fish_trial_mask.sum(axis=0).min()
         min_trials_per_fish = fish_trial_mask.sum(axis=1).min()
