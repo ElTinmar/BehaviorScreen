@@ -134,7 +134,9 @@ class HawkesProcess(PointProcess):
         super().__init__(integration_dt)
 
         self.name = f"Hawkes rate: {kernel.name}, history: {history_kernel.name}"
-        self.latex_formula = rf"{kernel.latex_formula} + {history_kernel.latex_formula}"
+        kernel_formula = kernel.latex_formula.strip("$")
+        history_formula = history_kernel.latex_formula.strip("$")
+        self.latex_formula = rf"${kernel_formula} + {history_formula}$"
         self.kernel = kernel
         self.history_kernel = history_kernel
         self.initial_guesses = kernel.initial_guesses + history_kernel.initial_guesses
@@ -290,3 +292,34 @@ class HawkesProcess(PointProcess):
             )
 
         return expected_rate
+
+    def mixed_effects_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+
+        params_base, params_history = self._split_params(params)
+
+        N_f = np.zeros(dataset.num_fish, dtype=float)
+        S_f = np.zeros(dataset.num_fish, dtype=float)
+        base_ll = 0.0
+
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            N_f[f_idx] += len(t_ev)
+
+            if len(t_ev) > 0:
+                trials_arr = np.full(t_ev.shape, t_idx, dtype=float)
+                base_rates = self.kernel.evaluate(t_ev, trials_arr, params_base)
+                history_rates = self.history_kernel.event_history(t_ev, params_history)
+                intensity = np.maximum(base_rates + history_rates, 1e-12)
+                base_ll += float(np.sum(np.log(intensity)))
+
+            base_integral = self.kernel.integrate(
+                dataset.duration_s, t_idx, params_base, integration_dt=self.integration_dt,
+            )
+            remaining_time = dataset.duration_s - t_ev
+            history_integrals = self.history_kernel.integrate(
+                remaining_time, params_history, integration_dt=self.integration_dt,
+            )
+            S_f[f_idx] += base_integral + float(np.sum(history_integrals))
+
+        return base_ll, N_f, S_f
