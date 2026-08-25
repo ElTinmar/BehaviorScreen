@@ -130,10 +130,16 @@ model_config = {
                     RenewalKernelFactory.exponential_excitation()
                 )
             ),
-            # HawkesProcess(
-            #     RateKernelFactory.prey_capture(stim_freq=prey_stim_freq, plasticity="A,B,gamma"),
-            #     HistoryKernelFactory.exponential()
-            # )
+            HawkesProcess(
+                PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                HistoryKernelFactory.exponential()
+            ),
+            GammaMixedEffectsProcess(
+                HawkesProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                    HistoryKernelFactory.exponential()
+                )
+            )
         ]
     },
 
