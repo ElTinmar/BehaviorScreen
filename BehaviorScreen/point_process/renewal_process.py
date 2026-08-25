@@ -153,7 +153,7 @@ class RenewalProcess(PointProcess):
 
     def __init__(self, kernel: RateKernel, renewal_kernel: RenewalKernel, integration_dt: float = 0.02):
         super().__init__(integration_dt)
-        self.name = f"Renewal rate: {kernel.name}, refractory: {renewal_kernel.name}"
+        self.name = f"Renewal rate: {kernel.name}, history: {renewal_kernel.name}"
         kernel_formula = kernel.latex_formula.strip("$")
         renewal_formula = renewal_kernel.latex_formula.strip("$")
         self.latex_formula = rf"${kernel_formula} \times {renewal_formula}$"
