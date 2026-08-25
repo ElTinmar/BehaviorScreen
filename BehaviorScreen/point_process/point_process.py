@@ -18,7 +18,7 @@ def _fit_single_bootstrap(seed_seq, dataset: PointProcessDataset, model: "PointP
     try:
         model_copy.fit(ds_boot)
         return model_copy.params_
-    except Exception:
+    except RuntimeError:
         return None
 
     
