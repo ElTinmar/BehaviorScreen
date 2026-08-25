@@ -232,6 +232,8 @@ class RenewalProcess(PointProcess):
             raise ValueError("Model must be fitted first.")
         params_base, params_refractory = self._split_params(self.params_)
         t_events = np.sort(np.asarray(t_events))
+        if len(t_events) == 0:
+            return np.array([], dtype=float)
 
         Lambda = np.zeros_like(t_events, dtype=float)
         Lambda[0] = self._segment_integral(0.0, t_events[0], trial, params_base, None, None) if len(t_events) else 0.0
