@@ -48,6 +48,17 @@ class PointProcess:
             **kwargs
         )
 
+        valid = (
+            res.success
+            and np.isfinite(res.fun)
+            and np.all(np.isfinite(res.x))
+        )
+        if not valid:
+            raise RuntimeError(
+                f"Optimization failed for {self.name}: "
+                f"success={res.success}, fun={res.fun}, message={res.message}"
+            )
+    
         self.fit_result = res
         self.params_ = res.x
         self.param_dict_ = dict(zip(self.param_names, res.x))
@@ -656,36 +667,46 @@ class ModelComparator:
 
     @staticmethod
     def compare(
-        models: List[PointProcess], 
+        models: List[PointProcess],
         dataset: PointProcessDataset,
         method: str = 'L-BFGS-B',
         **kwargs
     ) -> Tuple[pd.DataFrame, List[PointProcess]]:
-        
+
         fitted_models = []
         records = []
 
         for model in models:
-            model.fit(dataset, method=method, **kwargs)
-            fitted_models.append(model)
-            records.append({
-                "Model Name": model.name,
-                "Params (k)": len(model.param_names),
-                "Log-Likelihood": model.log_likelihood,
-                "AIC": model.aic,
-                "Converged": model.fit_result.success
-            })
+            try:
+                model.fit(dataset, method=method, **kwargs)
+                fitted_models.append(model)
+                records.append({
+                    "Model Name": model.name,
+                    "Params (k)": len(model.param_names),
+                    "Log-Likelihood": model.log_likelihood,
+                    "AIC": model.aic,
+                    "Converged": True,
+                })
+            except RuntimeError as e:
+                print(f"[ModelComparator] WARNING: fit failed for {model.name}: {e}")
+                records.append({
+                    "Model Name": model.name,
+                    "Params (k)": len(model.param_names),
+                    "Log-Likelihood": np.nan,
+                    "AIC": np.nan,
+                    "Converged": False,
+                })
 
-        df = pd.DataFrame(records)        
-        min_aic = df["AIC"].min()
+        df = pd.DataFrame(records)
+        min_aic = df["AIC"].min()   # NaN rows correctly excluded by min() / arithmetic below
         df["ΔAIC"] = df["AIC"] - min_aic
         weights = np.exp(-0.5 * df["ΔAIC"])
-        df["AIC Weight"] = weights / np.sum(weights)
+        df["AIC Weight"] = weights / np.sum(weights)   # NaN rows get NaN weight, not silently 0 or 1 -- correct
 
-        # Sort BOTH the DataFrame and the list by AIC rank
-        sort_idx = df["AIC"].argsort().values
+        sort_idx = df["AIC"].argsort().values   # NaNs sort to the end by default -- failed models correctly rank last
         df = df.iloc[sort_idx].reset_index(drop=True)
-        fitted_models = [fitted_models[i] for i in sort_idx]
+        fitted_models = [m for m in fitted_models] 
+        fitted_models.sort(key=lambda m: m.aic)
 
         return df, fitted_models
     
