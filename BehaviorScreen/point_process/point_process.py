@@ -240,11 +240,7 @@ class PointProcess:
         other shared/global) latent variable MUST override this method to
         compute a genuinely sequential/predictable version of E[gain | H_{t-}]
         -- using only that fish's events and exposure strictly before each t_k
-        -- rather than reuse this default. See GammaPoissonProcess._stream_tau_
-        values for the closed-form sequential posterior update, and its
-        docstring for why the naive whole-history version
-        (GammaPoissonProcess._fish_scale_factors) is kept only as a separate,
-        explicitly-labeled empirical-Bayes point estimate, NOT used here.
+        -- rather than reuse this default. 
 
         Default (this implementation): assumes no such shared latent variable,
         i.e. cumulative_integrated_intensity() as-is is already a valid

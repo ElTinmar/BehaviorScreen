@@ -40,7 +40,9 @@ class GammaMixedEffectsProcess(PointProcess):
         super().__init__(base_process.integration_dt)
         self.base_process = base_process
         self.name = f"GammaMixedEffects[{base_process.name}]"
-        self.latex_formula = base_process.latex_formula + r"\ \times\ g_f,\ g_f\sim\Gamma(r,r)"
+
+        base_formula = self.base_process.latex_formula.rstrip("$")
+        self.latex_formula = base_formula + r"\ \times\ g_f,\ g_f\sim\Gamma(r,r)$"
         self.initial_guesses = base_process.initial_guesses + [r_init]
         self.bounds = base_process.bounds + [(1e-3, None)]
         self.param_names = base_process.param_names + ["r_dispersion"]
