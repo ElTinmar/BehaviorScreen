@@ -127,6 +127,7 @@ class PointProcess:
 
     def mixed_effects_likelihood_terms(self, dataset, params) -> Tuple[float, np.ndarray, np.ndarray]:
         """Used for mixed-effect model at the fish level"""
+        raise NotImplementedError
     
     def estimate_hessian(
         self, 
