@@ -542,12 +542,7 @@ class GammaPoissonProcess(PointProcess):
 
     LIMITATION: predict(), compute_expected_rate(), and
     cumulative_integrated_intensity() all describe the POPULATION-AVERAGE
-    process (E[g_f] = 1), not any specific fish's rate. PointProcess.
-    time_rescaling() calls cumulative_integrated_intensity() per (fish,
-    trial) stream without fish-specific rescaling, so its output for this
-    class reflects average-fish calibration, not per-fish calibration.
-    Use estimate_fish_gains() + rescale manually if per-fish time-rescaling
-    diagnostics are needed (see note on that method below).
+    process (E[g_f] = 1), not any specific fish's rate. 
     """
 
     def __init__(self, kernel: RateKernel, integration_dt: float = 0.02, r_init: float = 5.0):
