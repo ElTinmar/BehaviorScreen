@@ -183,49 +183,64 @@ class RenewalProcess(PointProcess):
             lam = lam * rho
 
         return trapezoid(lam, grid)
-
-    def _renewal_nll(
+    
+    def _stream_integral_and_ll(
         self, t_events: np.ndarray, trial: float, duration_s: float,
-        params_base: List[float], params_refractory: List[float],
-    ) -> float:
+        params_base: List[float], params_renewal: List[float],
+    ) -> Tuple[float, float]:
+
         t_events = np.sort(t_events)
         n = len(t_events)
 
+        grid = np.arange(0.0, duration_s + self.integration_dt, self.integration_dt)
+        grid[-1] = min(grid[-1], duration_s)
+        if grid[-1] < duration_s:
+            grid = np.append(grid, duration_s)
+
+        base_vals = self.kernel.evaluate(grid, np.full_like(grid, trial), params_base)
+
         if n == 0:
-            return self.kernel.integrate(duration_s, trial, params_base, self.integration_dt)
+            return 0.0, float(trapezoid(base_vals, grid))
+
+        idx = np.searchsorted(t_events, grid, side='right') - 1
+        has_prior = idx >= 0
+        t_last = np.where(has_prior, t_events[np.clip(idx, 0, None)], 0.0)
+
+        rho = np.ones_like(grid)
+        rho[has_prior] = self.renewal_kernel.evaluate(
+            grid[has_prior] - t_last[has_prior], params_renewal
+        )
+        lam_grid = base_vals * rho
+        total_integral = float(trapezoid(lam_grid, grid))
 
         lam0 = max(self.kernel.evaluate(np.array([t_events[0]]), np.array([trial]), params_base)[0], 1e-12)
         sum_log_intensity = np.log(lam0)
-
         for i in range(1, n):
             dt = t_events[i] - t_events[i - 1]
             lam = self.kernel.evaluate(np.array([t_events[i]]), np.array([trial]), params_base)[0]
-            rho = self.renewal_kernel.evaluate(np.array([dt]), params_refractory)[0]
-            sum_log_intensity += np.log(max(lam * rho, 1e-12))
+            rho_i = self.renewal_kernel.evaluate(np.array([dt]), params_renewal)[0]
+            sum_log_intensity += np.log(max(lam * rho_i, 1e-12))
 
-        total_integral = self._segment_integral(0.0, t_events[0], trial, params_base, None, None)
-        for i in range(1, n):
-            total_integral += self._segment_integral(
-                t_events[i - 1], t_events[i], trial, params_base, t_events[i - 1], params_refractory
-            )
-        total_integral += self._segment_integral(
-            t_events[-1], duration_s, trial, params_base, t_events[-1], params_refractory
+        return float(sum_log_intensity), total_integral
+
+    def _renewal_nll(self, t_events, trial, duration_s, params_base, params_refractory) -> float:
+        sum_log_intensity, total_integral = self._stream_integral_and_ll(
+            t_events, trial, duration_s, params_base, params_refractory
         )
-
         return -(sum_log_intensity - total_integral)
-
+    
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
-        params_base, params_refractory = self._split_params(params)
+        params_base, params_renewal = self._split_params(params)
         total_nll = 0.0
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            total_nll += self._renewal_nll(t_ev, t_idx, dataset.duration_s, params_base, params_refractory)
+            total_nll += self._renewal_nll(t_ev, t_idx, dataset.duration_s, params_base, params_renewal)
         return total_nll
 
     def predict(self, t: np.ndarray, trial: Union[float, np.ndarray],
                 history_events: Optional[np.ndarray] = None) -> np.ndarray:
         if self.params_ is None:
             raise ValueError("Model is not fitted yet. Call .fit() first.")
-        params_base, params_refractory = self._split_params(self.params_)
+        params_base, params_renewal = self._split_params(self.params_)
 
         base_rate = self.kernel.evaluate(t, trial, params_base)
         if history_events is None or len(history_events) == 0:
@@ -240,7 +255,7 @@ class RenewalProcess(PointProcess):
 
         rho = np.ones_like(t_arr, dtype=float)
         valid = has_prior & (t_arr > t_last)
-        rho[valid] = self.renewal_kernel.evaluate(t_arr[valid] - t_last[valid], params_refractory)
+        rho[valid] = self.renewal_kernel.evaluate(t_arr[valid] - t_last[valid], params_renewal)
 
         return np.maximum(base_rate * rho, 1e-9)
 
@@ -260,7 +275,7 @@ class RenewalProcess(PointProcess):
     def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
-        params_base, params_refractory = self._split_params(self.params_)
+        params_base, params_renewal = self._split_params(self.params_)
         t_events = np.sort(np.asarray(t_events))
         if len(t_events) == 0:
             return np.array([], dtype=float)
@@ -269,7 +284,7 @@ class RenewalProcess(PointProcess):
         Lambda[0] = self._segment_integral(0.0, t_events[0], trial, params_base, None, None) if len(t_events) else 0.0
         for i in range(1, len(t_events)):
             Lambda[i] = Lambda[i - 1] + self._segment_integral(
-                t_events[i - 1], t_events[i], trial, params_base, t_events[i - 1], params_refractory
+                t_events[i - 1], t_events[i], trial, params_base, t_events[i - 1], params_renewal
             )
         return Lambda
 
@@ -312,44 +327,12 @@ class RenewalProcess(PointProcess):
         base_ll = 0.0
 
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            t_ev = np.sort(t_ev)
-            n = len(t_ev)
-            N_f[f_idx] += n
+            N_f[f_idx] += len(t_ev)
 
-            if n == 0:
-                # No events this stream: no log-intensity contribution, but
-                # the full-trial baseline integral still counts as exposure
-                # (no refractory suppression ever kicks in with zero events).
-                S_f[f_idx] += self.kernel.integrate(
-                    dataset.duration_s, t_idx, params_base, self.integration_dt
-                )
-                continue
-
-            # --- log-intensity term (mirrors _renewal_nll's sum_log_intensity) ---
-            lam0 = max(
-                self.kernel.evaluate(np.array([t_ev[0]]), np.array([t_idx]), params_base)[0],
-                1e-12,
+            sum_log_intensity, total_integral = self._stream_integral_and_ll(
+                t_ev, t_idx, dataset.duration_s, params_base, params_refractory
             )
-            base_ll += np.log(lam0)
-
-            for i in range(1, n):
-                dt = t_ev[i] - t_ev[i - 1]
-                lam = self.kernel.evaluate(np.array([t_ev[i]]), np.array([t_idx]), params_base)[0]
-                rho = self.renewal_kernel.evaluate(np.array([dt]), params_refractory)[0]
-                base_ll += np.log(max(lam * rho, 1e-12))
-
-            # --- refractory-corrected exposure integral (mirrors _renewal_nll's total_integral) ---
-            total_integral = self._segment_integral(
-                0.0, t_ev[0], t_idx, params_base, None, None
-            )
-            for i in range(1, n):
-                total_integral += self._segment_integral(
-                    t_ev[i - 1], t_ev[i], t_idx, params_base, t_ev[i - 1], params_refractory
-                )
-            total_integral += self._segment_integral(
-                t_ev[-1], dataset.duration_s, t_idx, params_base, t_ev[-1], params_refractory
-            )
-
+            base_ll += sum_log_intensity
             S_f[f_idx] += total_integral
 
         return base_ll, N_f, S_f
