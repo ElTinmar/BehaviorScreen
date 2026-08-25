@@ -654,6 +654,18 @@ class PointProcess:
         return 0.0 if np.isinf(r) else 1.0 / r
 
 
+def _fit_one_model(
+    model: PointProcess,
+    dataset: PointProcessDataset,
+    method: str,
+    kwargs: dict,
+) -> Tuple[PointProcess, Optional[str]]:
+    try:
+        model.fit(dataset, method=method, **kwargs)
+        return model, None
+    except RuntimeError as e:
+        return model, str(e)
+    
 class ModelComparator:
 
     @staticmethod
@@ -689,16 +701,25 @@ class ModelComparator:
     def compare(
         models: List[PointProcess],
         dataset: PointProcessDataset,
-        method: str = 'L-BFGS-B',
-        **kwargs
+        method: str = "L-BFGS-B",
+        n_jobs: int = -1,
+        verbose: int = 0,
+        **kwargs,
     ) -> Tuple[pd.DataFrame, List[PointProcess]]:
 
-        fitted_models = []
+        if n_jobs == 1:
+            results = [_fit_one_model(m, dataset, method, kwargs) for m in models]
+        else:
+            results = joblib.Parallel(n_jobs=n_jobs, verbose=verbose)(
+                joblib.delayed(_fit_one_model)(m, dataset, method, kwargs)
+                for m in models
+            )
+
+        fitted_models: List[PointProcess] = []
         records = []
 
-        for model in models:
-            try:
-                model.fit(dataset, method=method, **kwargs)
+        for model, error in results:
+            if error is None:
                 fitted_models.append(model)
                 records.append({
                     "Model Name": model.name,
@@ -709,8 +730,8 @@ class ModelComparator:
                     "Overdispersion (1/r)": model.overdispersion_index,
                     "Converged": True,
                 })
-            except RuntimeError as e:
-                print(f"[ModelComparator] WARNING: fit failed for {model.name}: {e}")
+            else:
+                print(f"[ModelComparator] WARNING: fit failed for {model.name}: {error}")
                 records.append({
                     "Model Name": model.name,
                     "Params (k)": len(model.param_names),
@@ -722,14 +743,27 @@ class ModelComparator:
                 })
 
         df = pd.DataFrame(records)
-        min_aic = df["AIC"].min()   # NaN rows correctly excluded by min() / arithmetic below
-        df["ΔAIC"] = df["AIC"] - min_aic
-        weights = np.exp(-0.5 * df["ΔAIC"])
-        df["AIC Weight"] = weights / np.sum(weights)   # NaN rows get NaN weight, not silently 0 or 1 -- correct
 
-        sort_idx = df["AIC"].argsort().values   # NaNs sort to the end by default -- failed models correctly rank last
+        if df["AIC"].notna().any():
+            min_aic = df["AIC"].min()
+            df["ΔAIC"] = df["AIC"] - min_aic
+            weights = np.exp(-0.5 * df["ΔAIC"])
+            df["AIC Weight"] = weights / np.nansum(weights)
+        else:
+            # every model failed -- avoid nan-propagation edge cases below
+            df["ΔAIC"] = np.nan
+            df["AIC Weight"] = np.nan
+
+        # NaN AIC values sort to the end by default (kind='quicksort' with
+        # NaNs last is pandas' documented behavior for argsort on a Series
+        # with NaNs) -- failed models correctly rank last, not first.
+        sort_idx = df["AIC"].argsort(kind="stable").values
         df = df.iloc[sort_idx].reset_index(drop=True)
-        fitted_models = [m for m in fitted_models] 
+
+        # fitted_models only ever contains successes, so it's independently
+        # re-sorted by its own .aic rather than reindexed against df's
+        # sort_idx (which spans BOTH successes and failures and would be
+        # the wrong length/order to index fitted_models with directly).
         fitted_models.sort(key=lambda m: m.aic)
 
         return df, fitted_models
