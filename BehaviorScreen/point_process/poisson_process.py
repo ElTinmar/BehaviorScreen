@@ -339,13 +339,15 @@ class RateKernelFactory:
             B, f_dip, tau_dip, alpha_B, alpha_dip = params
 
             mod_B = B * np.exp(alpha_B * trial)
-            
-            # Sigmoid modulation ensures the trial-scaling factor stays in (0, 1)
-            # trial=0 corresponds to standard f_dip depth
-            sig_trial = 2.0 / (1.0 + np.exp(-alpha_dip * trial))  # sig_trial(0) = 1.0
-            effective_f_dip = f_dip * (sig_trial / 2.0)          # strictly < 0.99
-            
-            # dip_factor is mathematically strictly > 0 for all t >= 0 and trial >= 0
+
+            # bounded_trial_scale(trial=0, alpha) == 1.0 by construction, so
+            # effective_f_dip(trial=0) == f_dip exactly (matches PreyCapture's
+            # ripple_amplitude convention). bounded_trial_scale is always in
+            # (0, 2), so effective_f_dip is always in (0, 2*f_dip).
+            effective_f_dip = f_dip * bounded_trial_scale(trial, alpha_dip)
+
+            # Guaranteed positive for all t >= 0: effective_f_dip < 2*f_dip <= 0.98,
+            # so dip_factor > 1 - 0.98 = 0.02 > 0.
             dip_factor = 1.0 - effective_f_dip * np.exp(-t / tau_dip)
 
             return mod_B * dip_factor
@@ -356,13 +358,19 @@ class RateKernelFactory:
             param_names=["B", "f_dip", "tau_dip", "alpha_B", "alpha_dip"],
             initial_guesses=[0.4, 0.5, 0.5, 0.0, 0.0],
             bounds=[
-                (0.01, 10.0), # B: baseline rate
-                (0.0, 0.98),  # f_dip: bound below 1.0
-                (0.01, 5.0),  # tau_dip: decay time constant
-                (-0.1, 0.1),  # alpha_B: baseline modulation across trials
-                (-0.2, 0.2),  # alpha_dip: dip depth modulation rate across trials
+                (0.01, 10.0),  # B: baseline rate
+                (0.0, 0.49),   # f_dip: dip depth AT TRIAL 0. Capped at 0.49 so
+                            #   2*f_dip < 0.98, guaranteeing dip_factor > 0
+                            #   for ANY alpha_dip/trial (mirrors PreyCapture's
+                            #   A_ripple bound).
+                (0.01, 5.0),   # tau_dip: decay time constant
+                (-0.1, 0.1),   # alpha_B: baseline modulation across trials
+                (-0.2, 0.2),   # alpha_dip: dip-depth modulation rate across trials
             ],
-            latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} \left(1 - \frac{f_{\text{dip}}}{1 + e^{-\alpha_{\text{dip}} m}} e^{-t/\tau_{\text{dip}}}\right)$",
+            latex_formula=(
+                r"$\lambda(t, m) = B e^{\alpha_B m}\left(1 - f_{\text{dip}}\,"
+                r"\frac{2}{1+e^{-\alpha_{\text{dip}} m}}\, e^{-t/\tau_{\text{dip}}}\right)$"
+            ),
         )
         
     @staticmethod
