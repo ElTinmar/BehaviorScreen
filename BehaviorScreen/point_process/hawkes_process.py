@@ -112,7 +112,7 @@ class HistoryKernelFactory:
             return history
 
         return HistoryKernel(
-            name="Exponential   ",
+            name="Exponential",
             func=_func,
             param_names=["alpha_hawkes","beta_hawkes"],
             initial_guesses=[alpha_initial,beta_initial],
