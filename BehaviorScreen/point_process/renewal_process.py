@@ -31,10 +31,39 @@ class RenewalKernel:
             raise ValueError("Renewal-kernel lags must be non-negative.")
         return self.func(lag, params)
 
-    def integrate(self, duration, params, integration_dt: float = 0.02):
-        # identical to your existing HistoryKernel.integrate implementation
-        ...
+    def integrate(
+        self,
+        duration: Union[float, np.ndarray],
+        params: List[float],
+        integration_dt: float = 0.02,
+    ) -> np.ndarray:
 
+        duration = np.asarray(duration, dtype=float)
+        if np.any(duration < 0):
+            raise ValueError("Integration duration must be non-negative.")
+
+        if self.integral_func is not None:
+            return self.integral_func(duration, params)
+
+        scalar_input = duration.ndim == 0
+        durations = np.atleast_1d(duration)
+        result = np.empty_like(durations)
+
+        for i, T in enumerate(durations):
+            if T == 0:
+                result[i] = 0.0
+                continue
+
+            t_grid = np.arange(0.0,T + integration_dt,integration_dt)
+            if t_grid[-1] > T:
+                t_grid[-1] = T
+            elif t_grid[-1] < T:
+                t_grid = np.append(t_grid, T)
+
+            values = self.evaluate(t_grid, params)
+            result[i] = trapezoid(values, t_grid)
+
+        return result[0] if scalar_input else result
 
 class RenewalKernelFactory:
 
