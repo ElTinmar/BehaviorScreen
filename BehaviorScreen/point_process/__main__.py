@@ -76,7 +76,7 @@ possible_roots = [
 # possible_roots = [Path('/media/martin/DATA_18TB/Screen/WT/danieau')]
 
 ROOT = next((p for p in possible_roots if p.exists()), possible_roots[0])
-OUTPUT_ROOT = Path("./figures_WT")
+OUTPUT_ROOT = Path("./figures")
 
 # Prey capture stim parameters
 prey_stim_speed_deg_per_s = 90
