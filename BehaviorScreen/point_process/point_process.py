@@ -334,6 +334,7 @@ class PointProcess:
         return {
             "rescaled_u": rescaled_u,
             "n_rescaled": n_pooled,
+            "fish_u": fish_u, 
             "fish_dn_stats": fish_dn_stats,
             "median_fish_dn": float(np.median(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
             "mean_fish_dn": float(np.mean(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
@@ -342,6 +343,35 @@ class PointProcess:
             "acf_conf": conf_limit
         }
 
+    @staticmethod
+    def bootstrap_pooled_ecdf_band(
+        fish_u: Dict[int, List[float]],
+        n_boot: int = 300,
+        grid: np.ndarray = np.linspace(0, 1, 201),
+        ci: float = 95.0,
+        seed: int = 0,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+
+        rng = np.random.default_rng(seed)
+        fish_ids = [f for f, u in fish_u.items() if len(u) > 0]
+        if not fish_ids:
+            return np.full_like(grid, np.nan), np.full_like(grid, np.nan)
+
+        boot_curves = np.empty((n_boot, len(grid)))
+        for b in range(n_boot):
+            sampled_fish = rng.choice(fish_ids, size=len(fish_ids), replace=True)
+            pooled = np.concatenate([fish_u[f] for f in sampled_fish]) if sampled_fish.size else np.array([])
+            if len(pooled) == 0:
+                boot_curves[b, :] = np.nan
+                continue
+            sorted_u = np.sort(pooled)
+            ecdf_vals = (np.arange(1, len(sorted_u) + 1) - 0.5) / len(sorted_u)
+            boot_curves[b, :] = np.interp(grid, sorted_u, ecdf_vals, left=0.0, right=1.0)
+
+        alpha = (100.0 - ci) / 2.0
+        lower = np.nanpercentile(boot_curves, alpha, axis=0)
+        upper = np.nanpercentile(boot_curves, 100 - alpha, axis=0)
+        return lower, upper
 
     def compute_residuals(self, dataset: PointProcessDataset) -> Dict[str, np.ndarray]:
         if self.params_ is None:
@@ -489,6 +519,11 @@ class PointProcess:
         if n_rescaled > 0:
             e_cdf = (np.arange(1, n_rescaled + 1) - 0.5) / n_rescaled
             ax_ks.plot(tr_data["rescaled_u"], e_cdf, label="Empirical CDF", color="crimson", lw=2)
+            grid = np.linspace(0, 1, 201)
+            lower, upper = self.bootstrap_pooled_ecdf_band(tr_data["fish_u"], grid=grid)
+            ax_ks.fill_between(grid, lower, upper, color="crimson", alpha=0.15,
+                                label="95% band (fish-level bootstrap)", zorder=1)
+
             ax_ks.plot([0, 1], [0, 1], 'k--', label="Uniform(0,1) Ideal", lw=1.5)
 
             ks_bound = 1.36 / np.sqrt(n_rescaled)
