@@ -736,12 +736,14 @@ class DatasetPlotter:
         plt.tight_layout()
         return fig, ax
 
-
     @staticmethod
     def plot_fish_activity_heatmap(
         dataset: PointProcessDataset,
         cmap: str = "viridis",
-        figsize: Tuple[int, int] = (10, 6),
+        sort_by: Optional[str] = "total_count",  # "total_count", "rate", or None
+        min_row_height_in: float = 0.02,
+        figsize_width: float = 10,
+        figsize_height_cap: float = 40.0,
     ) -> Tuple[plt.Figure, plt.Axes]:
         """
         (fish x trial) matrix of event counts. Unobserved (fish, trial) pairs
@@ -750,20 +752,60 @@ class DatasetPlotter:
 
         Useful for spotting dead/inactive fish, missing trial blocks, or
         fish-level outliers before they silently dominate a pooled fit.
+
+        NOTE on readability with many fish / few trials (common shape for this
+        data: hundreds of fish x a handful of trials): with sort_by=None, rows
+        are in arbitrary fish-index order and structure only shows up as
+        apparent "static" once there are more fish than vertical pixels --
+        the eye can't tell "this fish is inactive" from "this row got
+        antialiased into its neighbor". Default sort_by="total_count" instead
+        orders fish by total activity (descending, active fish only, inactive
+        fish trailing at the bottom labeled separately), which turns real
+        between-fish heterogeneity (see PointProcessDataset.dispersion_fano_ratio,
+        plot_fish_total_count_distribution) into a visible smooth gradient
+        instead of noise. Figure height also scales with num_fish (up to
+        figsize_height_cap) so each row gets a minimum real pixel allotment
+        instead of being silently downsampled by matplotlib.
+
+        For datasets with many hundreds of fish, also consider
+        plot_fish_rank_activity, which shows the same per-fish totals without
+        an axis that has to be spatially legible per-row.
         """
         counts_matrix = np.full((dataset.num_fish, dataset.num_trials), np.nan)
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             counts_matrix[f_idx, t_idx] = len(t_ev)
 
-        fig, ax = plt.subplots(figsize=figsize)
+        active_fish_mask = dataset.fish_trial_mask.any(axis=1)
+        fish_order = np.arange(dataset.num_fish)
+
+        if sort_by is not None:
+            totals = np.nansum(counts_matrix, axis=1)
+            n_active_trials = dataset.fish_trial_mask.sum(axis=1)
+            if sort_by == "rate":
+                with np.errstate(invalid='ignore', divide='ignore'):
+                    score = np.where(n_active_trials > 0, totals / n_active_trials, -np.inf)
+            else:  # "total_count"
+                score = np.where(active_fish_mask, totals, -np.inf)
+            # active fish sorted descending by score, inactive fish trail at bottom
+            active_idx = np.where(active_fish_mask)[0]
+            inactive_idx = np.where(~active_fish_mask)[0]
+            active_sorted = active_idx[np.argsort(-score[active_idx])]
+            fish_order = np.concatenate([active_sorted, inactive_idx])
+
+        counts_matrix = counts_matrix[fish_order]
+
+        fig_height = min(figsize_height_cap, max(4.0, dataset.num_fish * min_row_height_in))
+        fig, ax = plt.subplots(figsize=(figsize_width, fig_height))
         cmap_obj = plt.get_cmap(cmap).copy()
         cmap_obj.set_bad(color='lightgray')
 
         masked = np.ma.masked_invalid(counts_matrix)
-        im = ax.imshow(masked, aspect='auto', cmap=cmap_obj, origin='lower')
+        im = ax.imshow(masked, aspect='auto', cmap=cmap_obj, origin='lower',
+                        interpolation='nearest')
 
         ax.set_xlabel("Trial Index", fontsize=11)
-        ax.set_ylabel("Fish Index", fontsize=11)
+        ylabel = "Fish (sorted by activity, desc.)" if sort_by is not None else "Fish Index"
+        ax.set_ylabel(ylabel, fontsize=11)
         ax.set_title("Event Count per Fish x Trial (gray = not observed)",
                     fontsize=12, fontweight='bold')
 
@@ -771,5 +813,245 @@ class DatasetPlotter:
         cax = divider.append_axes("right", size="3%", pad=0.1)
         fig.colorbar(im, cax=cax, label="Event Count")
 
+        plt.tight_layout()
+        return fig, ax
+
+    @staticmethod
+    def plot_fish_rank_activity(
+        dataset: PointProcessDataset,
+        cmap: str = "viridis",
+        figsize: Tuple[int, int] = (10, 6),
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Per-fish total event count, fish sorted by rank (descending), with each
+        fish's per-trial counts overlaid as individual points colored by trial.
+
+        Designed for the common shape of this data (hundreds of fish, a
+        handful of trials) where plot_fish_activity_heatmap's 2D matrix has far
+        more rows than can be made individually legible. This plot instead uses
+        a rank axis: the black step line shows total-count heterogeneity across
+        fish (same information as plot_fish_total_count_distribution's long
+        right tail, but preserving identity/rank so you can see e.g. whether
+        the top ~5% of fish are individually much more active or whether it's
+        a smooth continuum), and the colored points show, per fish, whether its
+        per-trial counts are consistent (tight vertical scatter) or itself
+        highly variable trial-to-trial (spread-out scatter) -- a fish-level
+        analog of dataset.stream_isi_cv's "is variability within-unit or
+        across-unit" question, but for rate rather than ISI shape.
+        """
+        active_fish_mask = dataset.fish_trial_mask.any(axis=1)
+        active_fish_idx = np.where(active_fish_mask)[0]
+
+        per_trial_counts = np.full((dataset.num_fish, dataset.num_trials), np.nan)
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            per_trial_counts[f_idx, t_idx] = len(t_ev)
+
+        totals = np.nansum(per_trial_counts[active_fish_idx], axis=1)
+        order = np.argsort(-totals)
+        ranked_fish_idx = active_fish_idx[order]
+        ranks = np.arange(1, len(ranked_fish_idx) + 1)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.step(ranks, totals[order], where='mid', color='black', linewidth=1.5,
+                label='Total count per fish', zorder=3)
+
+        norm = plt.Normalize(vmin=0, vmax=max(dataset.num_trials - 1, 1))
+        base_cmap = plt.get_cmap(cmap)
+        for rank, f_idx in zip(ranks, ranked_fish_idx):
+            trial_counts = per_trial_counts[f_idx]
+            observed = ~np.isnan(trial_counts)
+            t_idxs = np.where(observed)[0]
+            ax.scatter(np.full(t_idxs.shape, rank), trial_counts[t_idxs],
+                    c=[base_cmap(norm(t)) for t in t_idxs], s=8, alpha=0.6, zorder=2)
+
+        ax.set_xlabel("Fish rank (by total activity, descending)", fontsize=11)
+        ax.set_ylabel("Event count", fontsize=11)
+        ax.set_title(f"Fish Activity by Rank (N = {len(ranked_fish_idx)} active fish)",
+                    fontsize=12, fontweight='bold')
+        ax.legend(loc='upper right', fontsize=9)
+        ax.grid(True, linestyle=':', alpha=0.4)
+
+        sm = plt.cm.ScalarMappable(cmap=base_cmap, norm=norm)
+        sm.set_array([])
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="2.5%", pad=0.1)
+        fig.colorbar(sm, cax=cax, label="Trial Index")
+
+        plt.tight_layout()
+        return fig, ax
+
+    @staticmethod
+    def plot_psth(
+        dataset: PointProcessDataset,
+        bin_width_s: float = 0.5,
+        band: str = "sem",  # "sem" or "std"
+        figsize: Tuple[int, int] = (10, 5),
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Population PSTH: mean event rate across fish as a function of time,
+        coarse-binned for visualization (raw binning_dt is typically fine
+        enough that most bins contain 0/1 events per trial), with a band
+        showing trial-to-trial variability (SEM or STD across trials).
+
+        Run this before fitting anything. Look for:
+        - A transient bump/dip locked to stimulus onset -> needs a RateKernel,
+        not a constant baseline rate.
+        - A flat trial-averaged curve -> a constant/slowly-varying baseline
+        may suffice.
+        - A wide band relative to the mean -> substantial trial-to-trial
+        variability in the *time course* itself, which a single RateKernel
+        shared across all trials won't capture (cross-check against
+        plot_time_trial_rate_heatmap to see if that variability is
+        structured, e.g. a trend across trials, vs. just noise).
+        """
+        factor = max(1, int(round(bin_width_s / dataset.binning_dt)))
+        counts = dataset.time_trial_histogram_counts  # (n_trials, n_fine_bins)
+        n_coarse = counts.shape[1] // factor
+        if n_coarse == 0:
+            raise ValueError("bin_width_s too large relative to duration_s/binning_dt")
+        trimmed = counts[:, : n_coarse * factor]
+        coarse_counts = trimmed.reshape(dataset.num_trials, n_coarse, factor).sum(axis=2)
+        coarse_centers = dataset.t_centers[: n_coarse * factor].reshape(n_coarse, factor).mean(axis=1)
+        coarse_dt = factor * dataset.binning_dt
+
+        n_fish_per_trial = dataset.n_fish_per_trial
+        active = n_fish_per_trial > 0
+        rate_per_trial = np.full_like(coarse_counts, np.nan, dtype=float)
+        rate_per_trial[active] = coarse_counts[active] / (n_fish_per_trial[active, None] * coarse_dt)
+
+        mean_rate = np.nanmean(rate_per_trial, axis=0)
+        n_active_trials = int(np.sum(active))
+        spread = np.nanstd(rate_per_trial, axis=0)
+        if band == "sem":
+            spread = spread / np.sqrt(max(n_active_trials, 1))
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.plot(coarse_centers, mean_rate, color='steelblue', linewidth=2, label='Mean rate across trials')
+        ax.fill_between(coarse_centers, mean_rate - spread, mean_rate + spread,
+                        color='steelblue', alpha=0.3,
+                        label=f'±1 {band.upper()} (across {n_active_trials} trials)')
+        ax.set_xlabel("Time in trial (s)", fontsize=11)
+        ax.set_ylabel("Rate (events/s per fish)", fontsize=11)
+        ax.set_title(f"Population PSTH (bin={bin_width_s}s)", fontsize=12, fontweight='bold')
+        ax.legend(loc='upper right', fontsize=9)
+        ax.grid(True, linestyle=':', alpha=0.4)
+        plt.tight_layout()
+        return fig, ax
+
+    @staticmethod
+    def plot_time_trial_rate_heatmap(
+        dataset: PointProcessDataset,
+        bin_width_s: float = 0.5,
+        cmap: str = "viridis",
+        figsize: Tuple[int, int] = (10, 6),
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        (trial x time) heatmap of event rate, coarse-binned in time for a
+        readable signal.
+
+        Complements plot_psth: reveals whether the time course itself (not
+        just its level) changes across trials -- e.g. a stimulus-locked
+        response habituating/sharpening over the session, or a tonic
+        component only appearing in later trials. Either motivates a
+        trial-index interaction on the RateKernel rather than one kernel
+        shared across all trials. Trials with no observed fish are masked
+        gray, distinguishing "no data" from "zero rate".
+        """
+        factor = max(1, int(round(bin_width_s / dataset.binning_dt)))
+        counts = dataset.time_trial_histogram_counts
+        n_coarse = counts.shape[1] // factor
+        if n_coarse == 0:
+            raise ValueError("bin_width_s too large relative to duration_s/binning_dt")
+        trimmed = counts[:, : n_coarse * factor]
+        coarse_counts = trimmed.reshape(dataset.num_trials, n_coarse, factor).sum(axis=2)
+        coarse_edges = dataset.t_grid[: n_coarse * factor + 1 : factor]
+        coarse_dt = factor * dataset.binning_dt
+
+        n_fish_per_trial = dataset.n_fish_per_trial
+        active = n_fish_per_trial > 0
+        rate_matrix = np.full_like(coarse_counts, np.nan, dtype=float)
+        rate_matrix[active] = coarse_counts[active] / (n_fish_per_trial[active, None] * coarse_dt)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        cmap_obj = plt.get_cmap(cmap).copy()
+        cmap_obj.set_bad(color='lightgray')
+        masked = np.ma.masked_invalid(rate_matrix)
+
+        mesh = ax.pcolormesh(coarse_edges, dataset.trial_edges, masked, shading='flat', cmap=cmap_obj)
+        ax.set_xlabel("Time in trial (s)", fontsize=11)
+        ax.set_ylabel("Trial Index", fontsize=11)
+        ax.set_title(f"Rate (Hz) by Time x Trial (bin={bin_width_s}s, gray = no fish observed)",
+                    fontsize=12, fontweight='bold')
+
+        divider = make_axes_locatable(ax)
+        cax = divider.append_axes("right", size="3%", pad=0.1)
+        fig.colorbar(mesh, cax=cax, label="Rate (Hz)")
+        plt.tight_layout()
+        return fig, ax
+
+    @staticmethod
+    def plot_trial_occupancy(
+        dataset: PointProcessDataset,
+        figsize: Tuple[int, int] = (9, 4),
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Number of fish observed (per fish_trial_mask) in each trial.
+
+        Flags attrition across the session (lost tracking, or the
+        "zero-bout-of-any-category" masking gap noted in
+        BehavioralDataLoader.prepare_dataset). Trials with few observed fish
+        give unreliable rate estimates in plot_psth / plot_time_trial_rate_heatmap
+        and should be discounted accordingly.
+        """
+        n_fish_per_trial = dataset.n_fish_per_trial
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.bar(np.arange(dataset.num_trials), n_fish_per_trial, color='slategray')
+        ax.axhline(dataset.num_fish, color='crimson', linestyle='--', linewidth=1,
+                label=f'Total fish = {dataset.num_fish}')
+        ax.set_xlabel("Trial Index", fontsize=11)
+        ax.set_ylabel("# fish observed", fontsize=11)
+        ax.set_title("Fish Occupancy per Trial", fontsize=12, fontweight='bold')
+        ax.legend(loc='lower left', fontsize=9)
+        ax.grid(True, axis='y', linestyle=':', alpha=0.4)
+        plt.tight_layout()
+        return fig, ax
+
+    @staticmethod
+    def plot_fano_by_time_bin(
+        dataset: PointProcessDataset,
+        bin_width_s: float = 1.0,
+        figsize: Tuple[int, int] = (9, 5),
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Fano factor (variance/mean of per-stream counts), computed
+        independently within each time bin, across all active (fish, trial)
+        streams.
+
+        Complements dataset.stream_fano_factor (one number over the whole
+        trial) by localizing WHERE overdispersion happens. A spike right at
+        stimulus onset (fish reacting in near-lockstep) looks very different
+        from uniformly-elevated dispersion throughout, and calls for a
+        different fix (a stimulus-locked synchrony term vs. a fish-level
+        gain/random-effect, i.e. GammaPoissonProcess).
+        """
+        edges = np.arange(0, dataset.duration_s + bin_width_s, bin_width_s)
+        centers = 0.5 * (edges[:-1] + edges[1:])
+
+        rows = [np.histogram(t_ev, bins=edges)[0] for _, _, t_ev in dataset.iter_streams()]
+        stream_counts = np.array(rows) if rows else np.zeros((0, len(centers)))
+
+        mean_per_bin = stream_counts.mean(axis=0) if len(stream_counts) else np.array([])
+        var_per_bin = stream_counts.var(axis=0) if len(stream_counts) else np.array([])
+        fano_per_bin = np.divide(var_per_bin, mean_per_bin,
+                                out=np.full(len(centers), np.nan), where=mean_per_bin > 0)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.plot(centers, fano_per_bin, marker='o', color='darkorange')
+        ax.axhline(1.0, color='k', linestyle='--', linewidth=1, label='Poisson (=1)')
+        ax.set_xlabel("Time (s)", fontsize=11)
+        ax.set_ylabel("Fano factor (var/mean of stream counts)", fontsize=11)
+        ax.set_title(f"Time-resolved Dispersion (bin={bin_width_s}s)", fontsize=12, fontweight='bold')
+        ax.legend(fontsize=9)
+        ax.grid(True, linestyle=':', alpha=0.4)
         plt.tight_layout()
         return fig, ax

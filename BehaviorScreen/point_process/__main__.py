@@ -389,8 +389,32 @@ for exp_name, dataset in datasets.items():
     save_fig(fig, diag_dir, "fish_total_count_distribution")
     plt.close("all")
 
-# <-- natural pause point: inspect the table + plots above and adjust
-#     model_config['models'] per condition before Phase 3 runs, if needed -->
+    fig, _ = DatasetPlotter.plot_psth(dataset, bin_width_s=0.25)
+    save_fig(fig, diag_dir, "psth")
+
+    fig, _ = DatasetPlotter.plot_time_trial_rate_heatmap(dataset, bin_width_s=0.25)
+    save_fig(fig, diag_dir, "time_trial_rate_heatmap")
+
+    fig, _ = DatasetPlotter.plot_trial_occupancy(dataset)
+    save_fig(fig, diag_dir, "trial_occupancy")
+
+    fig, _ = DatasetPlotter.plot_fano_by_time_bin(dataset)
+    save_fig(fig, diag_dir, "fano_by_time_bin")
+    plt.close("all")
+
+    fig, _ = DatasetPlotter.plot_isi_by_trial(dataset)
+    save_fig(fig, diag_dir, "isi_by_trial")
+
+    fig, _ = DatasetPlotter.plot_raw_raster(dataset, max_fish=15)
+    save_fig(fig, diag_dir, "raw_raster")
+
+    fig, _ = DatasetPlotter.plot_fish_activity_heatmap(dataset)  # now sorted by default
+    save_fig(fig, diag_dir, "fish_activity_heatmap")
+
+    fig, _ = DatasetPlotter.plot_fish_rank_activity(dataset)
+    save_fig(fig, diag_dir, "fish_rank_activity")
+
+    plt.close("all")
 
 
 # =============================================================================
