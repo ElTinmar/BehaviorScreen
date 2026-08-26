@@ -350,7 +350,17 @@ model_config = {
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(RateKernelFactory.dark_flash_smooth()),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.dark_flash_smooth()))
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.dark_flash_smooth())),
+            RenewalProcess(
+                RateKernelFactory.dark_flash_smooth(),
+                RenewalKernelFactory.exponential_recovery()
+            ),
+            GammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.dark_flash_smooth(),
+                    RenewalKernelFactory.exponential_recovery()
+                ),
+            )
         ]
     },
 }
