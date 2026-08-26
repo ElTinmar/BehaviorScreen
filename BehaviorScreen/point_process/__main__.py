@@ -32,7 +32,7 @@ def save_fig(fig: plt.Figure, out_dir: Path, filename: str, dpi: int = 150) -> P
 def save_csv(df: pd.DataFrame, out_dir: Path, filename: str) -> Path:
     """Save df as CSV under out_dir/filename.csv (creating out_dir if needed)."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{filename}.csv"
+    path = out_dir / f"{slugify(filename)}.csv"
     df.to_csv(path, index=False)
     return path
 
@@ -73,8 +73,10 @@ possible_roots = [
     Path('/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen'),
     Path('/media/martin/DATA_18TB/Screen'),
 ]
+# possible_roots = [Path('/media/martin/DATA_18TB/Screen/WT/danieau')]
+
 ROOT = next((p for p in possible_roots if p.exists()), possible_roots[0])
-OUTPUT_ROOT = Path("./figures")
+OUTPUT_ROOT = Path("./figures_WT")
 
 # Prey capture stim parameters
 prey_stim_speed_deg_per_s = 90
@@ -82,6 +84,8 @@ prey_stim_range_deg = 2 * 70
 prey_stim_freq = prey_stim_speed_deg_per_s / prey_stim_range_deg
 
 loader = BehavioralDataLoader(ROOT / 'bouts_control.csv')
+#loader = BehavioralDataLoader(ROOT / 'bouts.csv')
+
 
 model_config = {
 
