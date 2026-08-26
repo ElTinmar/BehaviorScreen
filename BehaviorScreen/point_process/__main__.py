@@ -433,7 +433,9 @@ for exp_name, config in model_config.items():
 
     fig_diag, diag_results = best_model.diagnose(dataset)
     save_fig(fig_diag, model_dir, f"diagnose_{best_model.name}")
-    # best_model.bootstrap(dataset, n_boot=500)
+
+    boot_df = best_model.bootstrap(dataset, n_boot=100)
+    save_csv(boot_df, model_dir, "bootstrap_{best_model.name}")
 
     plt.close('all')
 
