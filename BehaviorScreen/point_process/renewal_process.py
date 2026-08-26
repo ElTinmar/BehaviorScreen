@@ -74,7 +74,7 @@ class RenewalKernelFactory:
             return 1.0 - np.exp(-lag / tau_r)
         return RenewalKernel(
             name="ExponentialRecovery", func=_func,
-            param_names=["tau_refractory"], initial_guesses=[0.15], bounds=[(0.001, 15.0)],
+            param_names=["tau_refractory"], initial_guesses=[0.15], bounds=[(0.001, 30.0)],
             latex_formula=r"$\rho(\Delta t) = 1 - e^{-\Delta t/\tau_r}$",
         )
 
