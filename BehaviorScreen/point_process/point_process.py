@@ -487,7 +487,7 @@ class PointProcess:
         n_rescaled = tr_data["n_rescaled"]
 
         if n_rescaled > 0:
-            e_cdf = np.arange(1, n_rescaled + 1) / n_rescaled
+            e_cdf = (np.arange(1, n_rescaled + 1) - 0.5) / n_rescaled
             ax_ks.plot(tr_data["rescaled_u"], e_cdf, label="Empirical CDF", color="crimson", lw=2)
             ax_ks.plot([0, 1], [0, 1], 'k--', label="Uniform(0,1) Ideal", lw=1.5)
 
