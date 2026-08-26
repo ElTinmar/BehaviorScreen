@@ -105,42 +105,42 @@ model_config = {
             PoissonProcess(PreyCapture.peak_baseline_shared(stim_freq=prey_stim_freq)),
             PoissonProcess(PreyCapture.peak_baseline_shared_ripple(stim_freq=prey_stim_freq)),
             PoissonProcess(PreyCapture.peak_baseline_ripple_shared(stim_freq=prey_stim_freq)),
-            # GammaMixedEffectsProcess(
-            #     PoissonProcess(RateKernelFactory.homogeneous_poisson())
-            # ),
-            # GammaMixedEffectsProcess(
-            #     PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
-            # ),
-            # RenewalProcess(
-            #     RateKernelFactory.homogeneous_poisson(), 
-            #     RenewalKernelFactory.exponential_excitation()
-            # ),
-            # GammaMixedEffectsProcess(
-            #     RenewalProcess(
-            #         RateKernelFactory.homogeneous_poisson(), 
-            #         RenewalKernelFactory.exponential_excitation()
-            #     )
-            # ),
-            # RenewalProcess(
-            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
-            #     RenewalKernelFactory.exponential_excitation()
-            # ),
-            # GammaMixedEffectsProcess(
-            #     RenewalProcess(
-            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
-            #         RenewalKernelFactory.exponential_excitation()
-            #     )
-            # ),
-            # HawkesProcess(
-            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-            #     HistoryKernelFactory.exponential()
-            # ),
-            # GammaMixedEffectsProcess(
-            #     HawkesProcess(
-            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-            #         HistoryKernelFactory.exponential()
-            #     )
-            # )
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
+            GammaMixedEffectsProcess(
+                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
+            ),
+            RenewalProcess(
+                RateKernelFactory.homogeneous_poisson(), 
+                RenewalKernelFactory.exponential_excitation()
+            ),
+            GammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.homogeneous_poisson(), 
+                    RenewalKernelFactory.exponential_excitation()
+                )
+            ),
+            RenewalProcess(
+                PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+                RenewalKernelFactory.exponential_excitation()
+            ),
+            GammaMixedEffectsProcess(
+                RenewalProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+                    RenewalKernelFactory.exponential_excitation()
+                )
+            ),
+            HawkesProcess(
+                PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                HistoryKernelFactory.exponential()
+            ),
+            GammaMixedEffectsProcess(
+                HawkesProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                    HistoryKernelFactory.exponential()
+                )
+            )
         ]
     },
 
@@ -157,10 +157,10 @@ model_config = {
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            # HawkesProcess(
-            #     RateKernelFactory.homogeneous_poisson(),
-            #     HistoryKernelFactory.exponential()
-            # )
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential()
+            )
         ]
     },
 
@@ -249,10 +249,10 @@ model_config = {
             PoissonProcess(RateKernelFactory.omr_forward()),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_forward())),
-            # HawkesProcess(
-            #     RateKernelFactory.omr_forward(),
-            #     HistoryKernelFactory.exponential()
-            # )
+            HawkesProcess(
+                RateKernelFactory.omr_forward(),
+                HistoryKernelFactory.exponential()
+            )
         ]
     },
 
@@ -303,10 +303,10 @@ model_config = {
             PoissonProcess(RateKernelFactory.looming_gaussian()),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.looming_gaussian())),
-            # HawkesProcess(
-            #     RateKernelFactory.looming_gaussian(),
-            #     HistoryKernelFactory.exponential()
-            # )
+            HawkesProcess(
+                RateKernelFactory.looming_gaussian(),
+                HistoryKernelFactory.exponential()
+            )
         ]
     },
 
@@ -325,10 +325,10 @@ model_config = {
             PoissonProcess(RateKernelFactory.looming_gaussian()),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.looming_gaussian())),
-            # HawkesProcess(
-            #     RateKernelFactory.looming_gaussian(),
-            #     HistoryKernelFactory.exponential()
-            # )
+            HawkesProcess(
+                RateKernelFactory.looming_gaussian(),
+                HistoryKernelFactory.exponential()
+            )
         ]
     },
 
@@ -460,7 +460,7 @@ for exp_name, config in model_config.items():
 
     # NOTE: this might take a while
     boot_df = best_model.bootstrap(dataset, n_boot=100)
-    save_csv(boot_df, model_dir, "bootstrap_{best_model.name}")
+    save_csv(boot_df, model_dir, f"bootstrap_{best_model.name}")
 
     plt.close('all')
 
