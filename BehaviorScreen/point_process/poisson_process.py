@@ -434,7 +434,7 @@ class RateKernelFactory:
 
 
     @staticmethod
-    def dark_flash() -> RateKernel:
+    def dark_flash_smooth() -> RateKernel:
         def _func(t, trial, params):
             A, t_peak, k, B, alpha_B, tau_decay = params
             time_pulse = peak_normalized_pulse(t, t_peak, k)

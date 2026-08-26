@@ -344,9 +344,9 @@ model_config = {
         'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            PoissonProcess(RateKernelFactory.dark_flash()),
+            PoissonProcess(RateKernelFactory.dark_flash_smooth()),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.dark_flash()))
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.dark_flash_smooth()))
         ]
     },
 }
