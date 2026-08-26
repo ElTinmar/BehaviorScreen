@@ -1,10 +1,8 @@
 from dataclasses import dataclass
-from typing import Callable, List, Tuple, Optional, Union, Dict
+from typing import Callable, List, Tuple, Optional, Union
 
 import numpy as np
-import pandas as pd
 from scipy.integrate import trapezoid, cumulative_trapezoid
-from scipy.special import gammaln
 
 from .dataset import PointProcessDataset
 from .point_process import PointProcess

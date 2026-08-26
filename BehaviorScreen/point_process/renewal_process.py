@@ -7,7 +7,6 @@ from scipy.integrate import trapezoid
 from .dataset import PointProcessDataset
 from .point_process import PointProcess
 from .poisson_process import RateKernel
-from .kernel_shapes import peak_normalized_pulse
 
 @dataclass(frozen=True)
 class RenewalKernel:
