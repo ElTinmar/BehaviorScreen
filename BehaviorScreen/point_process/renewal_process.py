@@ -67,18 +67,6 @@ class RenewalKernel:
 class RenewalKernelFactory:
 
     @staticmethod
-    def hard_dead_time() -> RenewalKernel:
-        """rho = 0 for lag < tau_r, else 1. Strict minimum inter-event interval."""
-        def _func(lag, params):
-            (tau_r,) = params
-            return np.where(lag < tau_r, 0.0, 1.0)
-        return RenewalKernel(
-            name="HardDeadTime", func=_func,
-            param_names=["tau_refractory"], initial_guesses=[0.15], bounds=[(0.001, 2.0)],
-            latex_formula=r"$\rho(\Delta t) = \mathbb{1}[\Delta t \geq \tau_r]$",
-        )
-
-    @staticmethod
     def exponential_recovery() -> RenewalKernel:
         """rho(0)=0, approaches 1 with time constant tau_r. Smooth refractory recovery."""
         def _func(lag, params):
@@ -88,20 +76,6 @@ class RenewalKernelFactory:
             name="ExponentialRecovery", func=_func,
             param_names=["tau_refractory"], initial_guesses=[0.15], bounds=[(0.001, 2.0)],
             latex_formula=r"$\rho(\Delta t) = 1 - e^{-\Delta t/\tau_r}$",
-        )
-
-    @staticmethod
-    def dead_time_plus_recovery() -> RenewalKernel:
-        """Hard dead time tau_d, then exponential recovery with time constant tau_r."""
-        def _func(lag, params):
-            tau_d, tau_r = params
-            recovered = 1.0 - np.exp(-(lag - tau_d) / tau_r)
-            return np.where(lag < tau_d, 0.0, np.clip(recovered, 0.0, 1.0))
-        return RenewalKernel(
-            name="DeadTimePlusRecovery", func=_func,
-            param_names=["tau_dead", "tau_recovery"], initial_guesses=[0.1, 0.1],
-            bounds=[(0.0, 1.0), (0.001, 2.0)],
-            latex_formula=r"$\rho(\Delta t) = \mathbb{1}[\Delta t \geq \tau_d]\left(1-e^{-(\Delta t-\tau_d)/\tau_r}\right)$",
         )
 
     @staticmethod
