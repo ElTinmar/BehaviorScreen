@@ -71,6 +71,36 @@ class RateKernel:
 
 
 class PreyCapture:
+    """
+    λ(t, m) = [A·e^(−t/τ)·e^(α_peak m) + B·e^(α_baseline m)]
+              · [1 + A_ripple·s(m, α_ripple)·wave(t)]
+    wave(t) = ½[sin(ωt+φ1) + sin(2ωt+φ2)] ∈ [-1, 1]
+    s(m, α) = bounded_trial_scale(m, α) ∈ (0, 2)
+
+    No reparametrization needed for A/B -- already conform to convention.
+
+    Parameters
+    ----------
+    A : Hz. LITERAL height of the onset-burst at t=0, trial m=0 (the
+        exponential decay means this IS the true peak, unlike
+        phototaxis_ipsi's old A_peak). Comparable in Hz to B, H, etc.
+    tau : seconds. Onset-burst decay time constant. Not comparable across
+        kernels.
+    B : Hz. Sustained/tonic rate during ongoing stimulus, trial m=0.
+        Comparable in Hz to other kernels' baseline terms.
+    A_ripple : dimensionless, in (0, 0.49). NOT an amplitude in Hz --
+        this is the depth of an oscillatory modulation phase-locked to
+        the stimulus's own motion. Do not compare to A/B/H; it answers a
+        qualitatively different question (bout-timing coordination with
+        the stimulus, not response magnitude).
+    phi1, phi2 : radians. Phase offsets of the ripple's fundamental and
+        2nd harmonic. Timing-coordination parameters, not amplitudes.
+    alpha_peak, alpha_baseline : 1/trial (log-scale). Independent
+        trial-modulation of A and B respectively.
+    alpha_ripple : 1/trial. Modulates A_ripple via the same saturating
+        logistic as phototaxis_contra's alpha_dip -- bounded effect,
+        unlike alpha_peak/alpha_baseline's unbounded exponential.
+    """
 
     _PARAM_NAMES: List[str] = ["A", "tau", "B", "A_ripple", "phi1", "phi2"]
     _GUESSES: List[float] = [0.56, 1.15, 0.40, 0.1, 0.0, 0.0]
@@ -302,50 +332,83 @@ class RateKernelFactory:
 
     @staticmethod
     def phototaxis_ipsi() -> RateKernel:
+        """
+        λ(t, m) = B·e^(α_B m)·(1 − f_dip·e^(−t/τ)) + A_peak·e^(α_peak m)·e·(t/τ)·e^(−t/τ)
+
+        Parameters
+        ----------
+        B : Hz. Tonic/asymptotic rate at trial m=0. Comparable in Hz across
+            kernels.
+        f_dip : dimensionless fraction, in [0, 0.99). Depth of onset
+            suppression AS A FRACTION OF B, at trial m=0. Structurally
+            guarantees rate(t=0, m=0) = B*(1-f_dip) > 0 for ANY B > 0 -- no
+            runtime clamping needed, unlike an independently-fit Hz depth.
+            For a Hz-comparable "dip depth" (e.g. to compare against other
+            kernels' amplitude terms), compute the DERIVED quantity
+            dip_depth_hz = f_dip * B post-fit (see dip_depth_hz() below) --
+            do not fit this product directly.
+        tau : seconds. Shared time constant for dip recovery AND peak-bump
+            dynamics -- not comparable across kernels; coupled, see caveat
+            in earlier discussion.
+        A_peak : Hz. Literal peak height of the delayed excitatory bump above
+            the dip-recovery curve, at t=tau, trial m=0 (peak-normalized).
+        alpha_B : 1/trial (log-scale). Trial-modulation of B (dip term scales
+            proportionally, since it's a fixed fraction of B).
+        alpha_peak : 1/trial (log-scale). Trial-modulation of A_peak.
+        """
         def _func(t, trial, params):
-            B, f_dip, A_peak, tau, alpha_B, alpha_peak = params
+            B, f_dip, tau, A_peak, alpha_B, alpha_peak = params
 
             mod_B = B * np.exp(alpha_B * trial)
             mod_peak = A_peak * np.exp(alpha_peak * trial)
 
-            # Guaranteed positive dip component
             dip_component = mod_B * (1.0 - f_dip * np.exp(-t / tau))
-            # Non-negative peak component for t >= 0
-            peak_component = mod_peak * (t / tau) * np.exp(-t / tau)
+            peak_component = mod_peak * np.e * (t / tau) * np.exp(-t / tau)
 
             return dip_component + peak_component
 
         return RateKernel(
             name="Phototaxis Minimal Dip+Peak λ(t, m)",
             func=_func,
-            param_names=["B", "f_dip", "A_peak", "tau", "alpha_B", "alpha_peak"],
-            initial_guesses=[0.4, 0.5, 1.5, 0.2, 0.0, 0.0],
+            param_names=["B", "f_dip", "tau", "A_peak", "alpha_B", "alpha_peak"],
+            initial_guesses=[0.4, 0.5, 0.2, 0.55, 0.0, 0.0],
             bounds=[
-                (0.01, 5.0),   # B
-                (0.0, 0.99),   # f_dip in [0, 0.99) guarantees positivity at all t
-                (0.0, 10.0),   # A_peak
-                (0.01, 2.0),   # tau
+                (0.01, 5.0),   # B (Hz)
+                (0.0, 0.99),   # f_dip -- guarantees positivity for ANY B
+                (0.01, 2.0),   # tau (s)
+                (0.0, 27.0),   # A_peak (Hz)
                 (-0.2, 0.2),   # alpha_B
-                (-0.2, 0.2)    # alpha_peak
+                (-0.2, 0.2),   # alpha_peak
             ],
-            latex_formula=r"$\lambda(t, m) = B e^{\alpha_B m} \left(1 - f_{\text{dip}} e^{-t/\tau}\right) + A_{\text{peak}} e^{\alpha_{\text{peak}} m} \left(\frac{t}{\tau}\right) e^{-t/\tau}$"
+            latex_formula=(
+                r"$\lambda(t, m) = B e^{\alpha_B m} \left(1 - f_{\text{dip}} e^{-t/\tau}\right)"
+                r" + A_{\text{peak}} e^{\alpha_{\text{peak}} m}\, e\,(t/\tau) e^{-t/\tau}$"
+            ),
         )
 
     @staticmethod
     def phototaxis_contra() -> RateKernel:
+        """
+        λ(t, m) = B·e^(α_B m)·(1 − f_dip·s(m, α_dip)·e^(−t/τ_dip))
+        s(m, α) = bounded_trial_scale(m, α) ∈ (0, 2), s(0, α) = 1
+
+        Parameters
+        ----------
+        B : Hz. Tonic rate at trial m=0.
+        f_dip : dimensionless, in [0, 0.49). Dip depth as a fraction of B at
+            trial m=0. Capped at 0.49 (not 0.99) so that even at s(m)=2 (its
+            max), 2*f_dip < 0.98, structurally guaranteeing positivity for
+            ANY trial/alpha_dip combination -- no clamp needed.
+        tau_dip : seconds. Dip recovery time constant.
+        alpha_B : 1/trial (log-scale). Trial-modulation of B.
+        alpha_dip : 1/trial. Modulates dip depth via a saturating logistic --
+            bounded effect (max 2x), unlike alpha_B's unbounded exponential.
+        """
         def _func(t, trial, params):
             B, f_dip, tau_dip, alpha_B, alpha_dip = params
 
             mod_B = B * np.exp(alpha_B * trial)
-
-            # bounded_trial_scale(trial=0, alpha) == 1.0 by construction, so
-            # effective_f_dip(trial=0) == f_dip exactly (matches PreyCapture's
-            # ripple_amplitude convention). bounded_trial_scale is always in
-            # (0, 2), so effective_f_dip is always in (0, 2*f_dip).
             effective_f_dip = f_dip * bounded_trial_scale(trial, alpha_dip)
-
-            # Guaranteed positive for all t >= 0: effective_f_dip < 2*f_dip <= 0.98,
-            # so dip_factor > 1 - 0.98 = 0.02 > 0.
             dip_factor = 1.0 - effective_f_dip * np.exp(-t / tau_dip)
 
             return mod_B * dip_factor
@@ -356,23 +419,30 @@ class RateKernelFactory:
             param_names=["B", "f_dip", "tau_dip", "alpha_B", "alpha_dip"],
             initial_guesses=[0.4, 0.5, 0.5, 0.0, 0.0],
             bounds=[
-                (0.01, 10.0),  # B: baseline rate
-                (0.0, 0.49),   # f_dip: dip depth AT TRIAL 0. Capped at 0.49 so
-                            #   2*f_dip < 0.98, guaranteeing dip_factor > 0
-                            #   for ANY alpha_dip/trial (mirrors PreyCapture's
-                            #   A_ripple bound).
-                (0.01, 5.0),   # tau_dip: decay time constant
-                (-0.1, 0.1),   # alpha_B: baseline modulation across trials
-                (-0.2, 0.2),   # alpha_dip: dip-depth modulation rate across trials
+                (0.01, 10.0),
+                (0.0, 0.49),
+                (0.01, 5.0),
+                (-0.1, 0.1),
+                (-0.2, 0.2),
             ],
             latex_formula=(
                 r"$\lambda(t, m) = B e^{\alpha_B m}\left(1 - f_{\text{dip}}\,"
                 r"\frac{2}{1+e^{-\alpha_{\text{dip}} m}}\, e^{-t/\tau_{\text{dip}}}\right)$"
             ),
         )
-        
+ 
     @staticmethod
     def omr_forward() -> RateKernel:
+        """
+        λ(t) = B·(1 − f_dip·e^(−t/τ_dip))
+
+        Parameters
+        ----------
+        B : Hz. Tonic rate.
+        f_dip : dimensionless, in [0, 0.99). Dip depth as a fraction of B.
+            Structurally positive for any B; no trial modulation currently.
+        tau_dip : seconds. Dip recovery time constant.
+        """
         def _func(t, trial, params):
             B, f_dip, tau_dip = params
             return B * (1.0 - f_dip * np.exp(-t / tau_dip))
@@ -382,16 +452,14 @@ class RateKernelFactory:
             func=_func,
             param_names=["B", "f_dip", "tau_dip"],
             initial_guesses=[0.4, 0.5, 0.5],
-            bounds=[
-                (0.01, 5.0), 
-                (0.0, 0.99), 
-                (0.01, 5.0)
-            ],
+            bounds=[(0.01, 5.0), (0.0, 0.99), (0.01, 5.0)],
             latex_formula=r"$\lambda(t) = B \left(1 - f_{\text{dip}} e^{-t/\tau_{\text{dip}}}\right)$",
         )
 
+
     @staticmethod
     def omr_lateral_contra() -> RateKernel:
+        """Identical parameterization/convention to omr_forward -- see there."""
         def _func(t, trial, params):
             B, f_dip, tau_dip = params
             return B * (1.0 - f_dip * np.exp(-t / tau_dip))
@@ -401,21 +469,33 @@ class RateKernelFactory:
             func=_func,
             param_names=["B", "f_dip", "tau_dip"],
             initial_guesses=[0.4, 0.5, 0.5],
-            bounds=[
-                (0.01, 5.0), 
-                (0.0, 0.99), 
-                (0.01, 5.0)
-            ],
+            bounds=[(0.01, 5.0), (0.0, 0.99), (0.01, 5.0)],
             latex_formula=r"$\lambda(t) = B \left(1 - f_{\text{dip}} e^{-t/\tau_{\text{dip}}}\right)$",
         )
             
     @staticmethod
     def looming_gaussian(t_critical: float = 5.0) -> RateKernel:
+        """
+        λ(t, m) = B + H·e^(α m)·exp(−(t−μ)²/2σ²)
+
+        No reparametrization needed -- already conforms to convention.
+
+        Parameters
+        ----------
+        B : Hz. Additive tonic floor (present at all t, unaffected by the
+            burst). Comparable in Hz to other kernels' baseline terms.
+        H : Hz. LITERAL peak height of the burst above B, at t=mu, trial m=0.
+            Directly comparable to dark_flash's A and phototaxis_ipsi's
+            A_peak.
+        mu : seconds. Latency of peak response (not a rate parameter).
+        sigma : seconds. Width (std) of the burst. Not comparable across
+            kernels.
+        alpha : 1/trial (log-scale). Trial-modulation of H only.
+        """
         def _func(t, trial, params):
             B, H, alpha, mu, sigma = params
-
             height = H * np.exp(alpha * trial)
-            exponent = -0.5 * ((t - mu) / sigma)**2
+            exponent = -0.5 * ((t - mu) / sigma) ** 2
             return B + (height * np.exp(exponent))
 
         return RateKernel(
@@ -424,31 +504,53 @@ class RateKernelFactory:
             param_names=["B", "H", "alpha", "mu", "sigma"],
             initial_guesses=[0.1, 1.2, 0.0, 5.0, 0.1],
             bounds=[
-                (0.001, 10.0), (0.001, 10.0), (-2.0, 2.0), 
-                (t_critical-1.5, t_critical+1), (0.001, 3.0)
+                (0.001, 10.0), (0.001, 10.0), (-2.0, 2.0),
+                (t_critical - 1.5, t_critical + 1), (0.001, 3.0)
             ],
             latex_formula=r"$\lambda(t, m) = B + H e^{\alpha m} \exp\left(-\frac{(t - \mu)^2}{2\sigma^2}\right)$",
         )
 
-
     @staticmethod
     def dark_flash_smooth() -> RateKernel:
+        """
+        λ(t, m) = A·pulse(t; t_peak, k)·e^(−m/τ_hab) + B·e^(α_B m)
+        pulse(x; x_peak, k) peak-normalized to 1 at x=x_peak (see kernel_shapes)
+
+        No reparametrization needed for A/B -- already conforms to convention.
+        Renamed tau_decay -> tau_habituation (pure rename, same values/units)
+        to avoid confusion with time-domain tau parameters in other kernels:
+        this tau is in TRIALS, not seconds, and governs how fast the flash
+        burst amplitude A shrinks across the session -- it's a trial-
+        plasticity parameter in disguise, not a within-trial dynamic.
+
+        Parameters
+        ----------
+        A : Hz. LITERAL peak height of the flash-evoked burst, at t=t_peak,
+            trial m=0. Directly comparable to looming's H.
+        t_peak : seconds. Latency to peak.
+        k : dimensionless. Pulse shape/sharpness -- not comparable across
+            kernels.
+        B : Hz. Additive baseline at trial m=0.
+        alpha_B : 1/trial (log-scale). Trial-modulation of B.
+        tau_habituation : TRIALS (not seconds). Time constant for A's decay
+            across the session: A(m) = A * exp(-m / tau_habituation).
+        """
         def _func(t, trial, params):
-            A, t_peak, k, B, alpha_B, tau_decay = params
+            A, t_peak, k, B, alpha_B, tau_habituation = params
             time_pulse = peak_normalized_pulse(t, t_peak, k)
-            trial_scale = np.exp(-trial/tau_decay)
+            trial_scale = np.exp(-trial / tau_habituation)
             baseline = B * np.exp(alpha_B * trial)
             return A * time_pulse * trial_scale + baseline
 
         return RateKernel(
             name="Dark Flash",
             func=_func,
-            param_names=["A", "t_peak", "k", "B", "alpha_B", "tau_decay"],
+            param_names=["A", "t_peak", "k", "B", "alpha_B", "tau_habituation"],
             initial_guesses=[2.2, 0.108, 5.1, 0.02, -0.18, 3.0],
             bounds=[(0.0, None), (0.005, 2.0), (0.5, 20.0), (0.001, 10.0), (-1.0, 1.0), (0.1, 20.0)],
             latex_formula=(
                 r"$\lambda(t,m) = A \left(\frac{t}{t_{\text{peak}}}\right)^{k}"
-                r"e^{k(1-t/t_{\text{peak}})} e^{-m/\tau_{\text{decay}}} + B e^{\alpha_B m}$"
+                r"e^{k(1-t/t_{\text{peak}})} e^{-m/\tau_{\text{hab}}} + B e^{\alpha_B m}$"
             ),
         )
 
