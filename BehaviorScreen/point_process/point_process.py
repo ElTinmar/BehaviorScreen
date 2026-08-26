@@ -704,8 +704,19 @@ class ModelComparator:
         method: str = "L-BFGS-B",
         n_jobs: int = -1,
         verbose: int = 0,
+        null_model: Optional[PointProcess] = None,
         **kwargs,
     ) -> Tuple[pd.DataFrame, List[PointProcess]]:
+
+        if null_model is not None:
+            null_fitted, null_error = _fit_one_model(null_model, dataset, method, kwargs)
+            if null_error is not None:
+                print(f"[ModelComparator] WARNING: null model fit failed: {null_error}")
+                ll_null = np.nan
+            else:
+                ll_null = null_fitted.log_likelihood
+        else:
+            ll_null = np.nan
 
         if n_jobs == 1:
             results = [_fit_one_model(m, dataset, method, kwargs) for m in models]
@@ -721,11 +732,16 @@ class ModelComparator:
         for model, error in results:
             if error is None:
                 fitted_models.append(model)
+                mcfadden_r2 = (
+                    1.0 - model.log_likelihood / ll_null
+                    if not np.isnan(ll_null) else np.nan
+                )
                 records.append({
                     "Model Name": model.name,
                     "Params (k)": len(model.param_names),
                     "Log-Likelihood": model.log_likelihood,
                     "AIC": model.aic,
+                    "McFadden R2": mcfadden_r2,
                     "r_dispersion": model.dispersion_r,
                     "Overdispersion (1/r)": model.overdispersion_index,
                     "Converged": True,
@@ -737,6 +753,7 @@ class ModelComparator:
                     "Params (k)": len(model.param_names),
                     "Log-Likelihood": np.nan,
                     "AIC": np.nan,
+                    "McFadden R2": np.nan,
                     "r_dispersion": np.nan,
                     "Overdispersion (1/r)": np.nan,
                     "Converged": False,
@@ -750,20 +767,11 @@ class ModelComparator:
             weights = np.exp(-0.5 * df["ΔAIC"])
             df["AIC Weight"] = weights / np.nansum(weights)
         else:
-            # every model failed -- avoid nan-propagation edge cases below
             df["ΔAIC"] = np.nan
             df["AIC Weight"] = np.nan
 
-        # NaN AIC values sort to the end by default (kind='quicksort' with
-        # NaNs last is pandas' documented behavior for argsort on a Series
-        # with NaNs) -- failed models correctly rank last, not first.
         sort_idx = df["AIC"].argsort(kind="stable").values
         df = df.iloc[sort_idx].reset_index(drop=True)
-
-        # fitted_models only ever contains successes, so it's independently
-        # re-sorted by its own .aic rather than reindexed against df's
-        # sort_idx (which spans BOTH successes and failures and would be
-        # the wrong length/order to index fitted_models with directly).
         fitted_models.sort(key=lambda m: m.aic)
 
         return df, fitted_models
