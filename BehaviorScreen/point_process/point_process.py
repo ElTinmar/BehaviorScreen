@@ -787,7 +787,7 @@ class PointProcess:
             else:
                 times.append(float(np.min(t_ev))); censored.append(False)
         times, censored = np.array(times), np.array(censored)
-        grid, surv = self._kaplan_meier(times, censored)
+        grid, surv = self._survival_estimate(times, censored)
         ax.step(grid, surv, where='post', color='black', linewidth=2, label=r'Empirical $\hat{S}(t)$')
 
         if hasattr(self, "population_survival_curve"):
