@@ -86,6 +86,24 @@ class SurvivalKernelFactory:
             latex_formula=r"$h(t) = H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right)$",
         )
 
+    @staticmethod
+    def gaussian_bump_baseline() -> RateKernel:
+        """h(t) = H*exp(-(t-mu)^2/2sigma^2) + B. Add ONLY if LR test against
+        the no-baseline bump is significant -- KM plateau not being flat
+        (slow decline continuing well past the burst) is the empirical
+        trigger for trying this."""
+        def _func(t, trial, params):
+            H, mu, sigma, B = params
+            return H * np.exp(-0.5 * ((t - mu) / sigma) ** 2) + B
+        return RateKernel(
+            name="SurvivalGaussianBump(Baseline)",
+            func=_func,
+            param_names=["H", "mu", "sigma", "B"],
+            initial_guesses=[1.0, 0.15, 0.1, 0.02],
+            bounds=[(0.001, 30.0), (0.01, 2.0), (0.005, 3.0), (1e-4, 1.0)],
+            latex_formula=r"$h(t) = H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right) + B$",
+        )
+
 class SurvivalProcess(PointProcess):
     """
     First-passage-time (right-censored survival) model built on the SAME
