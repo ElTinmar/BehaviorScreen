@@ -302,16 +302,13 @@ model_config = {
             't_start': 0.0,
             't_end': 9.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'null_model': SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
         'models': [
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            PoissonProcess(RateKernelFactory.looming_gaussian()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.looming_gaussian())),
-            HawkesProcess(
-                RateKernelFactory.looming_gaussian(),
-                HistoryKernelFactory.exponential()
-            )
+            SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4,6))),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6))),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4,6)))),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6)))),
         ]
     },
 
@@ -324,35 +321,13 @@ model_config = {
             't_start': 0.0,
             't_end': 9.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            PoissonProcess(RateKernelFactory.looming_gaussian()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.looming_gaussian())),
-            HawkesProcess(
-                RateKernelFactory.looming_gaussian(),
-                HistoryKernelFactory.exponential()
-            )
-        ]
-    },
-
-    'looming_contra_survival': {
-        'dataset': {
-            'stim': Stim.LOOMING,
-            'bout_name': 'SLC',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 9.0,
-        },
         'null_model': SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
         'models': [
             SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_critical=5)),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_critical=5)),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_critical=5))),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_critical=5))),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4,6))),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6))),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4,6)))),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6)))),
         ]
     },
 
@@ -368,10 +343,10 @@ model_config = {
         'null_model': SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
         'models': [
             SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline()),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating()),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline())),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating())),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.2, t_bounds=(0.01,1))),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=0.2, t_bounds=(0.01,1))),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.2, t_bounds=(0.01,1)))),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=0.2, t_bounds=(0.01,1)))),
         ]
     },
 }

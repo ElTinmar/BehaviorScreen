@@ -29,7 +29,10 @@ class SurvivalKernelFactory:
         )
 
     @staticmethod
-    def gaussian_bump_baseline(t_critical: float = 1) -> RateKernel:
+    def gaussian_bump_baseline(
+            t_init: float = 1,
+            t_bounds: Tuple[float, float] = (0.001,2)
+        ) -> RateKernel:
         """h(t) = H*exp(-(t-mu)^2/2sigma^2) + B. Add ONLY if LR test against
         the no-baseline bump is significant -- KM plateau not being flat
         (slow decline continuing well past the burst) is the empirical
@@ -41,13 +44,16 @@ class SurvivalKernelFactory:
             name="SurvivalGaussianBump(Baseline)",
             func=_func,
             param_names=["H", "mu", "sigma", "B"],
-            initial_guesses=[1.0, t_critical, 0.1, 0.02],
-            bounds=[(0.001, 30.0), (t_critical-1, t_critical+1), (0.005, 3.0), (1e-4, 1.0)],
+            initial_guesses=[1.0, t_init, 0.1, 0.02],
+            bounds=[(0.001, 30.0), t_bounds, (0.005, 3.0), (1e-4, 1.0)],
             latex_formula=r"$h(t) = H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right) + B$",
         )
 
     @staticmethod
-    def gaussian_bump_baseline_habituating(t_critical: float = 1) -> RateKernel:
+    def gaussian_bump_baseline_habituating(
+            t_init: float = 1,
+            t_bounds: Tuple[float, float] = (0.001,2)
+        ) -> RateKernel:
         """
         h(t,m) = H * exp(alpha*m) * exp(-(t-mu)^2/2sigma^2) + B
 
@@ -74,8 +80,8 @@ class SurvivalKernelFactory:
             name="SurvivalGaussianBump(Baseline_Habituating)",
             func=_func,
             param_names=["H", "mu", "sigma", "B", "alpha"],
-            initial_guesses=[1.0, t_critical, 0.1, 0.02, 0.0],
-            bounds=[(0.001, 30.0), (t_critical-1, t_critical+1), (0.005, 3.0), (1e-4, 1.0), (-2.0, 2.0)],
+            initial_guesses=[1.0, t_init, 0.1, 0.02, 0.0],
+            bounds=[(0.001, 30.0), t_bounds, (0.005, 3.0), (1e-4, 1.0), (-2.0, 2.0)],
             latex_formula=(
                 r"$h(t,m) = H e^{\alpha m} \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right) + B$"
             ),
