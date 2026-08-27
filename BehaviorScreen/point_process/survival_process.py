@@ -8,7 +8,6 @@ from .dataset import PointProcessDataset
 from .point_process import PointProcess
 from .poisson_process import RateKernel
 
-from .kernel_shapes import peak_normalized_pulse
 class SurvivalKernelFactory:
 
     @staticmethod
@@ -30,64 +29,7 @@ class SurvivalKernelFactory:
         )
 
     @staticmethod
-    def gaussian_bump_time_only() -> RateKernel:
-        """
-        h(t) = H * exp(-(t-mu)^2 / 2*sigma^2)
-
-        No baseline (see class-level rationale: a tonic floor explains ongoing
-        bouts in a recurrent model, but is largely redundant once only the
-        first response per trial matters). H simultaneously sets peak hazard
-        AND -- via its Gaussian integral -- the trial's total implied response
-        probability; mu/sigma give latency and its spread. This is the
-        survival-analysis equivalent of a mixture-cure model, with cure
-        fraction and latency density coupled through H/sigma rather than fit
-        as separate parameters -- deliberately, to keep this minimal.
-        """
-        def _func(t, trial, params):
-            H, mu, sigma = params
-            return H * np.exp(-0.5 * ((t - mu) / sigma) ** 2)
-        return RateKernel(
-            name="SurvivalGaussianBump(TimeOnly)",
-            func=_func,
-            param_names=["H", "mu", "sigma"],
-            initial_guesses=[1.0, 0.15, 0.1],
-            bounds=[(0.001, 30.0), (0.01, 2.0), (0.005, 3.0)],
-            latex_formula=r"$h(t) = H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right)$",
-        )
-
-    @staticmethod
-    def gaussian_bump_habituating() -> RateKernel:
-        """As above, +1 param: H(m) = H * exp(alpha * m). Only add this if
-        LR test against the time_only nested null (see below) justifies it."""
-        def _func(t, trial, params):
-            H, mu, sigma, alpha = params
-            height = H * np.exp(alpha * trial)
-            return height * np.exp(-0.5 * ((t - mu) / sigma) ** 2)
-        return RateKernel(
-            name="SurvivalGaussianBump(Habituating)",
-            func=_func,
-            param_names=["H", "mu", "sigma", "alpha"],
-            initial_guesses=[1.0, 0.15, 0.1, 0.0],
-            bounds=[(0.001, 30.0), (0.01, 2.0), (0.005, 3.0), (-2.0, 2.0)],
-            latex_formula=r"$h(t,m) = H e^{\alpha m} \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right)$",
-        )
-
-    @staticmethod
-    def survival_looming_bump(t_critical: float = 5.0) -> RateKernel:
-        def _func(t, trial, params):
-            H, mu, sigma = params
-            return H * np.exp(-0.5 * ((t - mu) / sigma) ** 2)
-        return RateKernel(
-            name="SurvivalLoomingBump",
-            func=_func,
-            param_names=["H", "mu", "sigma"],
-            initial_guesses=[1.2, t_critical, 0.15],
-            bounds=[(0.001, 30.0), (t_critical - 1.5, t_critical + 1.0), (0.005, 3.0)],
-            latex_formula=r"$h(t) = H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right)$",
-        )
-
-    @staticmethod
-    def gaussian_bump_baseline() -> RateKernel:
+    def gaussian_bump_baseline(t_critical: float = 1) -> RateKernel:
         """h(t) = H*exp(-(t-mu)^2/2sigma^2) + B. Add ONLY if LR test against
         the no-baseline bump is significant -- KM plateau not being flat
         (slow decline continuing well past the burst) is the empirical
@@ -99,72 +41,45 @@ class SurvivalKernelFactory:
             name="SurvivalGaussianBump(Baseline)",
             func=_func,
             param_names=["H", "mu", "sigma", "B"],
-            initial_guesses=[1.0, 0.15, 0.1, 0.02],
-            bounds=[(0.001, 30.0), (0.01, 2.0), (0.005, 3.0), (1e-4, 1.0)],
+            initial_guesses=[1.0, t_critical, 0.1, 0.02],
+            bounds=[(0.001, 30.0), (t_critical-1, t_critical+1), (0.005, 3.0), (1e-4, 1.0)],
             latex_formula=r"$h(t) = H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right) + B$",
         )
 
     @staticmethod
-    def looming_bump_baseline(t_critical: float = 5.0) -> RateKernel:
+    def gaussian_bump_baseline_habituating(t_critical: float = 1) -> RateKernel:
         """
-        h(t) = B + H*exp(-(t-mu)^2/2*sigma^2)
+        h(t,m) = H * exp(alpha*m) * exp(-(t-mu)^2/2sigma^2) + B
 
-        Unlike dark_flash's baseline variant (added only as an optional test),
-        this is the DEFAULT starting kernel for looming: the empirical KM
-        curve declines substantially (~1.0 -> ~0.88) well BEFORE t_critical,
-        i.e. before the stimulus poses any threat -- direct evidence of a
-        real baseline SLC hazard operating independently of loom timing, not
-        a marginal tail effect.
-        """
-        def _func(t, trial, params):
-            B, H, mu, sigma = params
-            return B + H * np.exp(-0.5 * ((t - mu) / sigma) ** 2)
-        return RateKernel(
-            name="SurvivalLoomingBump(Baseline)",
-            func=_func,
-            param_names=["B", "H", "mu", "sigma"],
-            initial_guesses=[0.03, 1.2, t_critical, 0.15],
-            bounds=[(1e-4, 2.0), (0.001, 30.0),
-                    (t_critical - 1.5, t_critical + 1.0), (0.005, 3.0)],
-            latex_formula=r"$h(t) = B + H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right)$",
-        )
+        Combines gaussian_bump_baseline (B absorbs the slow KM tail past
+        the burst) with gaussian_bump_habituating (H declines across the
+        session) -- habituation acts on the bump amplitude H only, B is
+        trial-constant, same asymmetry as looming_bump_habituating's
+        alpha_H-only design (see plot_response_by_trial: if P(respond)
+        declines across trials while nothing suggests LATENCY itself
+        shifts, that decline is better attributed to a shrinking bump than
+        a shrinking/growing floor).
 
-    @staticmethod
-    def dark_flash_pulse() -> RateKernel:
-        """
-        h(t,m) = A * peak_normalized_pulse(t; t_peak, k) * exp(-m/tau_hab) + B
-
-        Same shape as RateKernelFactory.dark_flash_smooth (asymmetric
-        Gamma/alpha-function pulse, NOT a symmetric Gaussian) -- reused
-        directly because the hard_absorption vs. exponential_recovery
-        comparison (same RenewalProcess likelihood scope, repeat-event rate
-        only 0.4%) showed the Gaussian-bump SurvivalProcess losing to
-        dark_flash_smooth by ~1850 AIC almost entirely on hazard SHAPE, not
-        on the survival/absorption assumption itself. A symmetric Gaussian
-        cannot simultaneously match the sharp near-instant rise AND the
-        long slow KM tail -- see empirical Kaplan-Meier curve -- and ends up
-        smeared into an unrealistically wide, early bump. peak_normalized_pulse
-        decouples rise sharpness (k) from peak location (t_peak) and lets B
-        absorb the slow tail, which the Gaussian variant structurally can't do.
+        Nest this against gaussian_bump_baseline (LR test on alpha) before
+        keeping it, and against dark_flash_pulse-style shapes if the
+        symmetric bump is still visibly mismatched in Panel D even with
+        baseline+habituation added (shape mismatch and missing habituation
+        are separate problems -- fixing one does not fix the other).
         """
         def _func(t, trial, params):
-            A, t_peak, k, B, alpha_B, tau_hab = params
-            pulse = peak_normalized_pulse(t, t_peak, k)
-            return A * pulse * np.exp(-trial / tau_hab) + B * np.exp(alpha_B * trial)
-
+            H, mu, sigma, B, alpha = params
+            height = H * np.exp(alpha * trial)
+            return height * np.exp(-0.5 * ((t - mu) / sigma) ** 2) + B
         return RateKernel(
-            name="SurvivalDarkFlashPulse",
+            name="SurvivalGaussianBump(Baseline_Habituating)",
             func=_func,
-            param_names=["A", "t_peak", "k", "B", "alpha_B", "tau_habituation"],
-            initial_guesses=[2.2, 0.108, 5.1, 0.02, -0.18, 3.0],
-            bounds=[(0.0, None), (0.005, 2.0), (0.5, 20.0),
-                    (1e-4, 5.0), (-1.0, 1.0), (0.1, 20.0)],
+            param_names=["H", "mu", "sigma", "B", "alpha"],
+            initial_guesses=[1.0, t_critical, 0.1, 0.02, 0.0],
+            bounds=[(0.001, 30.0), (t_critical-1, t_critical+1), (0.005, 3.0), (1e-4, 1.0), (-2.0, 2.0)],
             latex_formula=(
-                r"$h(t,m) = A \left(\frac{t}{t_{\text{peak}}}\right)^{k}"
-                r"e^{k(1-t/t_{\text{peak}})} e^{-m/\tau_{\text{hab}}} + B e^{\alpha_B m}$"
+                r"$h(t,m) = H e^{\alpha m} \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right) + B$"
             ),
         )
-
 
 class SurvivalProcess(PointProcess):
     """

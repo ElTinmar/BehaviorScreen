@@ -337,49 +337,26 @@ model_config = {
         ]
     },
 
-    'dark_flash': {
+    'looming_contra_survival': {
         'dataset': {
-            'epoch_name': "flash dark",
-            'bout_name': 'O',
-            'laterality': Laterality.NONDIRECTIONAL,
-            'binning_dt': 0.025,
+            'stim': Stim.LOOMING,
+            'bout_name': 'SLC',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05,
             't_start': 0.0,
-            't_end': 5.0,
+            't_end': 9.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'null_model': SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
         'models': [
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            PoissonProcess(RateKernelFactory.dark_flash_smooth()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.dark_flash_smooth())),
-            RenewalProcess(
-                RateKernelFactory.dark_flash_smooth(),
-                RenewalKernelFactory.exponential_recovery()
-            ),
-            GammaMixedEffectsProcess(
-                RenewalProcess(
-                    RateKernelFactory.dark_flash_smooth(),
-                    RenewalKernelFactory.exponential_recovery()
-                ),
-            ),
-            RenewalProcess(
-                SurvivalKernelFactory.gaussian_bump_time_only(), 
-                RenewalKernelFactory.hard_absorption()
-            ),
-            RenewalProcess(
-                SurvivalKernelFactory.dark_flash_pulse(), 
-                RenewalKernelFactory.hard_absorption()
-            ),
-            GammaMixedEffectsProcess(
-                RenewalProcess(
-                    SurvivalKernelFactory.gaussian_bump_time_only(), 
-                    RenewalKernelFactory.hard_absorption()
-                ),
-            ),
+            SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_critical=5)),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_critical=5)),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_critical=5))),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_critical=5))),
         ]
     },
 
-    'dark_flash_survival': {
+    'dark_flash': {
         'dataset': {
             'epoch_name': "flash dark",
             'bout_name': 'O',
@@ -391,11 +368,10 @@ model_config = {
         'null_model': SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
         'models': [
             SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_time_only()),
             SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline()),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_habituating()),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_time_only())),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_habituating())),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating()),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline())),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating())),
         ]
     },
 }
