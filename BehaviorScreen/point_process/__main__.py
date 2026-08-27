@@ -90,64 +90,64 @@ loader = BehavioralDataLoader(ROOT / 'bouts_control.csv')
 
 model_config = {
 
-    # 'prey_capture_ipsi': {
-    #     'dataset': {
-    #         'stim': Stim.PREY_CAPTURE,
-    #         'bout_name': 'JT',
-    #         'laterality': Laterality.IPSILATERAL,
-    #         'binning_dt': 0.05,
-    #         't_start': 0.0,
-    #         't_end': 24.0,
-    #     },
-    #     'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    #     'models': [
-    #         PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    #         PoissonProcess(PreyCapture.time_only(stim_freq=prey_stim_freq)),
-    #         PoissonProcess(PreyCapture.peak(stim_freq=prey_stim_freq)),
-    #         PoissonProcess(PreyCapture.baseline(stim_freq=prey_stim_freq)),
-    #         PoissonProcess(PreyCapture.peak_baseline(stim_freq=prey_stim_freq)),
-    #         PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)),
-    #         PoissonProcess(PreyCapture.peak_baseline_shared(stim_freq=prey_stim_freq)),
-    #         PoissonProcess(PreyCapture.peak_baseline_shared_ripple(stim_freq=prey_stim_freq)),
-    #         PoissonProcess(PreyCapture.peak_baseline_ripple_shared(stim_freq=prey_stim_freq)),
-    #         GammaMixedEffectsProcess(
-    #             PoissonProcess(RateKernelFactory.homogeneous_poisson())
-    #         ),
-    #         GammaMixedEffectsProcess(
-    #             PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
-    #         ),
-    #         RenewalProcess(
-    #             RateKernelFactory.homogeneous_poisson(), 
-    #             RenewalKernelFactory.exponential_excitation()
-    #         ),
-    #         GammaMixedEffectsProcess(
-    #             RenewalProcess(
-    #                 RateKernelFactory.homogeneous_poisson(), 
-    #                 RenewalKernelFactory.exponential_excitation()
-    #             )
-    #         ),
-    #         RenewalProcess(
-    #             PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
-    #             RenewalKernelFactory.exponential_excitation()
-    #         ),
-    #         GammaMixedEffectsProcess(
-    #             RenewalProcess(
-    #                 PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
-    #                 RenewalKernelFactory.exponential_excitation()
-    #             )
-    #         ),
-    #         HawkesProcess(
-    #             PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-    #             HistoryKernelFactory.exponential()
-    #         ),
-    #         GammaMixedEffectsProcess(
-    #             HawkesProcess(
-    #                 PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-    #                 HistoryKernelFactory.exponential()
-    #             )
-    #         )
-    #     ]
-    # },
+    'prey_capture_ipsi': {
+        'dataset': {
+            'stim': Stim.PREY_CAPTURE,
+            'bout_name': 'JT',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
+        },
+        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'models': [
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            PoissonProcess(PreyCapture.time_only(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.baseline(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_shared(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_shared_ripple(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_ripple_shared(stim_freq=prey_stim_freq)),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
+            GammaMixedEffectsProcess(
+                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
+            ),
+            RenewalProcess(
+                RateKernelFactory.homogeneous_poisson(), 
+                RenewalKernelFactory.exponential_excitation()
+            ),
+            GammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.homogeneous_poisson(), 
+                    RenewalKernelFactory.exponential_excitation()
+                )
+            ),
+            RenewalProcess(
+                PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+                RenewalKernelFactory.exponential_excitation()
+            ),
+            GammaMixedEffectsProcess(
+                RenewalProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+                    RenewalKernelFactory.exponential_excitation()
+                )
+            ),
+            HawkesProcess(
+                PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                HistoryKernelFactory.exponential()
+            ),
+            GammaMixedEffectsProcess(
+                HawkesProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                    HistoryKernelFactory.exponential()
+                )
+            )
+        ]
+    },
 
     'prey_capture_contra': {
         'dataset': {
