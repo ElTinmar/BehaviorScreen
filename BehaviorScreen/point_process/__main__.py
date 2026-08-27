@@ -388,6 +388,7 @@ model_config = {
         'models': [
             SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
             SurvivalProcess(SurvivalKernelFactory.gaussian_bump_time_only()),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline()),
             SurvivalProcess(SurvivalKernelFactory.gaussian_bump_habituating()),
             GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_time_only())),
             GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_habituating())),
