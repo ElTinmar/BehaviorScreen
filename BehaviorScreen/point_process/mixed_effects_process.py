@@ -1,5 +1,6 @@
-from typing import Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
+from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 from scipy.special import gammaln
@@ -204,6 +205,9 @@ class GammaMixedEffectsProcess(PointProcess):
                 S_prev = S_offset  # reset reference point to this trial's end / next trial's start
 
         return result
+
+    def diagnose(self, dataset: PointProcessDataset, *args, **kwargs) -> Tuple[Any, Dict[str, Any]]:
+        return self.base_process.diagnose(dataset, *args, **kwargs)
 
     @property
     def dispersion_r(self) -> float:
