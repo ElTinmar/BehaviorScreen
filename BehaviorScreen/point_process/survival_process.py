@@ -104,6 +104,31 @@ class SurvivalKernelFactory:
             latex_formula=r"$h(t) = H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right) + B$",
         )
 
+    @staticmethod
+    def looming_bump_baseline(t_critical: float = 5.0) -> RateKernel:
+        """
+        h(t) = B + H*exp(-(t-mu)^2/2*sigma^2)
+
+        Unlike dark_flash's baseline variant (added only as an optional test),
+        this is the DEFAULT starting kernel for looming: the empirical KM
+        curve declines substantially (~1.0 -> ~0.88) well BEFORE t_critical,
+        i.e. before the stimulus poses any threat -- direct evidence of a
+        real baseline SLC hazard operating independently of loom timing, not
+        a marginal tail effect.
+        """
+        def _func(t, trial, params):
+            B, H, mu, sigma = params
+            return B + H * np.exp(-0.5 * ((t - mu) / sigma) ** 2)
+        return RateKernel(
+            name="SurvivalLoomingBump(Baseline)",
+            func=_func,
+            param_names=["B", "H", "mu", "sigma"],
+            initial_guesses=[0.03, 1.2, t_critical, 0.15],
+            bounds=[(1e-4, 2.0), (0.001, 30.0),
+                    (t_critical - 1.5, t_critical + 1.0), (0.005, 3.0)],
+            latex_formula=r"$h(t) = B + H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right)$",
+        )
+
 class SurvivalProcess(PointProcess):
     """
     First-passage-time (right-censored survival) model built on the SAME
