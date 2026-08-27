@@ -8,6 +8,7 @@ import pandas as pd
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
 from scipy.special import gammaln   
+from scipy.stats import norm
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -396,6 +397,8 @@ class DatasetPlotter:
     missing trials -- that would otherwise only surface indirectly through
     a fitted model's residual diagnostics.
     """
+
+    # POINT PROCESS PLOTS ------
 
     @staticmethod
     def _pooled_isis(dataset: PointProcessDataset) -> np.ndarray:
@@ -1053,5 +1056,203 @@ class DatasetPlotter:
         ax.set_title(f"Time-resolved Dispersion (bin={bin_width_s}s)", fontsize=12, fontweight='bold')
         ax.legend(fontsize=9)
         ax.grid(True, linestyle=':', alpha=0.4)
+        plt.tight_layout()
+        return fig, ax
+
+    # SURVIVAL PLOTS ------
+
+    @staticmethod
+    def plot_kaplan_meier(
+        dataset: PointProcessDataset,
+        ci: float = 95.0,
+        figsize: Tuple[int, int] = (8, 5),
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Model-free empirical survival curve S(t) = P(no response by t), pooling
+        every (fish, trial) stream as an independent right-censored first-event
+        observation (subsequent events in a stream are ignored -- exactly the
+        reduction SurvivalProcess uses; see frac_streams_with_multiple_events
+        below for whether that's a safe reduction for this condition).
+
+        Run BEFORE fitting anything. Look for:
+        - A clear plateau well below 1.0 -> most fish never respond; the
+        plateau height is your model-free target for H(duration_s).
+        - A plateau near 0.0 -> nearly everyone responds; a constant-hazard
+        (exponential) kernel may already be adequate, no bump needed.
+        - Greenwood CI band very wide at late t -> few fish still at risk
+        there; don't over-interpret tail shape.
+        """
+        times, censored = [], []
+        for _, _, t_ev in dataset.iter_streams():
+            if len(t_ev) == 0:
+                times.append(dataset.duration_s); censored.append(True)
+            else:
+                times.append(float(np.min(t_ev))); censored.append(False)
+        times, censored = np.array(times), np.array(censored)
+
+        order = np.argsort(times)
+        t_sorted, c_sorted = times[order], censored[order]
+        n = len(t_sorted)
+
+        grid, surv, var_sum = [0.0], [1.0], [0.0]
+        S, V = 1.0, 0.0
+        i = 0
+        while i < n:
+            t = t_sorted[i]
+            j = i
+            d = 0
+            while j < n and t_sorted[j] == t:
+                if not c_sorted[j]:
+                    d += 1
+                j += 1
+            n_at_risk = n - i
+            if n_at_risk > 0 and d > 0:
+                S *= (1.0 - d / n_at_risk)
+                if n_at_risk > d:
+                    V += d / (n_at_risk * (n_at_risk - d))
+                grid.append(float(t)); surv.append(S); var_sum.append(V)
+            i = j
+
+        grid, surv, var_sum = np.array(grid), np.array(surv), np.array(var_sum)
+        se = surv * np.sqrt(var_sum)  # Greenwood's formula
+        z = norm.ppf(0.5 + ci / 200.0)
+        lower = np.clip(surv - z * se, 0.0, 1.0)
+        upper = np.clip(surv + z * se, 0.0, 1.0)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.step(grid, surv, where='post', color='black', linewidth=2, label='Kaplan-Meier $\\hat{S}(t)$')
+        ax.fill_between(grid, lower, upper, step='post', color='steelblue', alpha=0.25,
+                        label=f'{ci:.0f}% CI (Greenwood)')
+        ax.axhline(surv[-1], color='crimson', linestyle='--', linewidth=1,
+                label=f'Plateau = {surv[-1]:.2f} (frac. never responding)')
+        ax.set_xlabel("Time in trial (s)"); ax.set_ylabel("P(no response by t)")
+        ax.set_ylim(0, 1.02)
+        ax.set_title(f"Empirical Survival Curve (N={n} streams, {int(np.sum(~censored))} responders)",
+                    fontsize=12, fontweight='bold')
+        ax.legend(loc='upper right', fontsize=9); ax.grid(True, linestyle=':', alpha=0.4)
+        plt.tight_layout()
+        return fig, ax
+
+    @staticmethod
+    def plot_repeat_event_gap(
+        dataset: PointProcessDataset,
+        bins: int = 40,
+        figsize: Tuple[int, int] = (8, 5),
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        For streams with >=2 events, the gap between the 1st and 2nd event.
+        Model-free sanity check on the absorption assumption underlying
+        SurvivalProcess / RenewalKernelFactory.hard_absorption(): a gap
+        distribution piled up near zero (tight, short-latency repeats) argues
+        the 'first event only' reduction is throwing away a real, structured
+        second response (bad for absorption); a gap distribution that looks
+        flat/uniform over the remaining trial window is more consistent with
+        unrelated background activity that's fine to discard.
+        """
+        gaps = [np.diff(np.sort(t_ev))[0] for _, _, t_ev in dataset.iter_streams() if len(t_ev) >= 2]
+        n_multi = len(gaps)
+        n_total = len(dataset.stream_event_counts)
+
+        fig, ax = plt.subplots(figsize=figsize)
+        if n_multi == 0:
+            ax.text(0.5, 0.5, f"No streams with >=2 events\n(0 / {n_total})",
+                    ha='center', va='center')
+        else:
+            ax.hist(gaps, bins=bins, color='indianred', alpha=0.75, edgecolor='none')
+            ax.set_xlabel("Gap: 1st -> 2nd event (s)")
+            ax.set_ylabel("Count")
+        ax.set_title(f"1st-to-2nd Event Gap ({n_multi}/{n_total} = "
+                    f"{n_multi/n_total:.1%} of streams affected)", fontsize=12, fontweight='bold')
+        plt.tight_layout()
+        return fig, ax
+
+    @staticmethod
+    def plot_response_by_trial(
+        dataset: PointProcessDataset,
+        figsize: Tuple[int, int] = (10, 5),
+    ) -> Tuple[plt.Figure, Tuple[plt.Axes, plt.Axes]]:
+        """
+        Per trial: (top) fraction of streams that responded, with a binomial
+        CI band; (bottom) latency of responders as a scatter, censored streams
+        omitted from the scatter but counted in the top panel.
+
+        A declining top-panel trend -> habituation of RESPONSE PROBABILITY
+        (motivates an alpha/habituation term on H). A rising/falling bottom-
+        panel trend -> habituation of LATENCY, a distinct effect the
+        Gaussian-bump kernels here don't currently capture (mu is fit
+        trial-constant) -- if this trend is visible, that's a concrete,
+        data-driven argument for adding trial-dependence to mu, not just H.
+        """
+        n_resp = np.zeros(dataset.num_trials)
+        n_obs = np.zeros(dataset.num_trials)
+        latencies = {t: [] for t in range(dataset.num_trials)}
+
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            n_obs[t_idx] += 1
+            if len(t_ev) > 0:
+                n_resp[t_idx] += 1
+                latencies[t_idx].append(float(np.min(t_ev)))
+
+        with np.errstate(invalid='ignore', divide='ignore'):
+            p_hat = np.where(n_obs > 0, n_resp / n_obs, np.nan)
+            se = np.where(n_obs > 0, np.sqrt(p_hat * (1 - p_hat) / n_obs), np.nan)
+
+        fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=figsize, sharex=True)
+        trials = np.arange(dataset.num_trials)
+        ax_top.errorbar(trials, p_hat, yerr=1.96 * se, fmt='o-', color='darkorange', capsize=3)
+        ax_top.set_ylabel("P(respond)"); ax_top.set_ylim(0, 1.02)
+        ax_top.set_title("Response Probability & Latency by Trial", fontsize=12, fontweight='bold')
+        ax_top.grid(True, linestyle=':', alpha=0.4)
+
+        for t_idx, lats in latencies.items():
+            if lats:
+                ax_bot.scatter(np.full(len(lats), t_idx), lats, color='steelblue', alpha=0.5, s=12)
+        ax_bot.set_xlabel("Trial Index"); ax_bot.set_ylabel("Latency (s)")
+        ax_bot.grid(True, linestyle=':', alpha=0.4)
+        plt.tight_layout()
+        return fig, (ax_top, ax_bot)
+
+    @staticmethod
+    def plot_fish_response_rate_distribution(
+        dataset: PointProcessDataset,
+        figsize: Tuple[int, int] = (8, 5),
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        """
+        Per fish: fraction of its observed trials in which it responded at all
+        (ignores WHEN within the trial -- pure yes/no), vs. a Binomial(n_f, p_pop)
+        null built from the pooled population response rate. Overdispersion
+        relative to that binomial null (variance clearly exceeding p(1-p)/n)
+        is the survival-analysis analog of dataset.dispersion_fano_ratio, and
+        is the model-free argument for GammaMixedEffectsProcess(SurvivalProcess(...))
+        over a plain SurvivalProcess.
+        """
+        resp_frac, n_trials_obs = [], []
+        for f_idx in range(dataset.num_fish):
+            trial_idxs = np.where(dataset.fish_trial_mask[f_idx])[0]
+            if len(trial_idxs) == 0:
+                continue
+            n_resp = sum(
+                1 for t_idx in trial_idxs
+                if len(dataset._stream_index.get((f_idx, t_idx), np.array([]))) > 0
+            )
+            resp_frac.append(n_resp / len(trial_idxs))
+            n_trials_obs.append(len(trial_idxs))
+
+        resp_frac = np.array(resp_frac)
+        p_pop = np.mean(resp_frac) if len(resp_frac) else np.nan
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.hist(resp_frac, bins=np.linspace(0, 1, 21), density=True, alpha=0.65,
+                color='mediumseagreen', edgecolor='none', label='Observed per-fish response rate')
+        if np.isfinite(p_pop):
+            mean_n = np.mean(n_trials_obs)
+            se_null = np.sqrt(p_pop * (1 - p_pop) / mean_n)
+            x = np.linspace(0, 1, 200)
+            ax.plot(x, norm.pdf(x, p_pop, se_null), 'r--', linewidth=2,
+                    label=f'Binomial null (p={p_pop:.2f}, mean n={mean_n:.1f})')
+        ax.set_xlabel("Fraction of trials responded"); ax.set_ylabel("Density")
+        ax.set_title(f"Per-Fish Response Rate Heterogeneity (N={len(resp_frac)} fish)",
+                    fontsize=12, fontweight='bold')
+        ax.legend(loc='upper right', fontsize=9)
         plt.tight_layout()
         return fig, ax

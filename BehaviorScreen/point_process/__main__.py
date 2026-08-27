@@ -362,6 +362,30 @@ model_config = {
                     RenewalKernelFactory.exponential_recovery()
                 ),
             ),
+            RenewalProcess(
+                SurvivalKernelFactory.gaussian_bump_time_only(), 
+                RenewalKernelFactory.hard_absorption()
+            ),
+            GammaMixedEffectsProcess(
+                RenewalProcess(
+                    SurvivalKernelFactory.gaussian_bump_time_only(), 
+                    RenewalKernelFactory.hard_absorption()
+                ),
+            ),
+        ]
+    },
+
+    'dark_flash_survival': {
+        'dataset': {
+            'epoch_name': "flash dark",
+            'bout_name': 'O',
+            'laterality': Laterality.NONDIRECTIONAL,
+            'binning_dt': 0.025,
+            't_start': 0.0,
+            't_end': 5.0,
+        },
+        'null_model': SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
+        'models': [
             SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
             SurvivalProcess(SurvivalKernelFactory.gaussian_bump_time_only()),
             SurvivalProcess(SurvivalKernelFactory.gaussian_bump_habituating()),
@@ -433,6 +457,21 @@ for exp_name, dataset in datasets.items():
 
     fig, _ = DatasetPlotter.plot_fish_rank_activity(dataset)
     save_fig(fig, diag_dir, "fish_rank_activity")
+
+    survival_diag_dir = OUTPUT_ROOT / exp_name / "survival_diagnostics"
+    print(f"--- Survival-specific diagnostics: {exp_name} ---")
+
+    fig, _ = DatasetPlotter.plot_kaplan_meier(dataset)
+    save_fig(fig, survival_diag_dir, "kaplan_meier")
+
+    fig, _ = DatasetPlotter.plot_repeat_event_gap(dataset)
+    save_fig(fig, survival_diag_dir, "repeat_event_gap")
+
+    fig, _ = DatasetPlotter.plot_response_by_trial(dataset)
+    save_fig(fig, survival_diag_dir, "response_by_trial")
+
+    fig, _ = DatasetPlotter.plot_fish_response_rate_distribution(dataset)
+    save_fig(fig, survival_diag_dir, "fish_response_rate_distribution")
 
     plt.close("all")
 

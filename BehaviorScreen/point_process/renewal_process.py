@@ -107,6 +107,36 @@ class RenewalKernelFactory:
             latex_formula=r"$\rho(\Delta t) = 1 + A_{\text{exc}}\, e^{-\Delta t/\tau_{\text{exc}}}$",
         )
 
+    @staticmethod
+    def hard_absorption() -> RenewalKernel:
+        """
+        rho(lag) = 0 for all lag > 0 -- an infinite, non-recovering refractory
+        period. This is the "absorbing"/survival hypothesis expressed as a
+        RenewalKernel, fit on the FULL (unreduced) event stream -- unlike
+        SurvivalProcess, which achieves the same assumption via a differently-
+        scoped likelihood over manually-reduced data and is therefore NOT
+        directly AIC-comparable to this module's other process families.
+
+        RenewalProcess(kernel, hard_absorption) reproduces SurvivalProcess(kernel)
+        EXACTLY for any stream with 0 or 1 events (verify: _stream_integral_and_ll
+        reduces to integral_0^t_obs h - log(h(t_obs)) for n=1, integral_0^T h for
+        n=0 -- identical to SurvivalProcess's NLL terms). The difference is that
+        it also correctly penalizes (rather than silently discarding) any stream
+        with >=2 events, via the existing 1e-12 floor in
+        RenewalProcess._stream_integral_and_ll's per-event log-intensity clamp --
+        so fitting THIS, nested against ordinary RenewalProcess/HawkesProcess
+        kernels, is the statistically valid way to test whether the absorbing
+        assumption holds, rather than assuming it via SurvivalProcess's data
+        reduction.
+        """
+        def _func(lag, params):
+            return np.zeros_like(lag)
+        return RenewalKernel(
+            name="HardAbsorption", func=_func,
+            param_names=[], initial_guesses=[], bounds=[],
+            integral_func=lambda duration, params: 0.0 * np.asarray(duration, dtype=float),
+            latex_formula=r"$\rho(\Delta t) = 0,\ \Delta t > 0$",
+        )
 class RenewalProcess(PointProcess):
     """
     Modulated renewal process: intensity depends on absolute time-in-trial
