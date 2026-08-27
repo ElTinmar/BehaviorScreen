@@ -187,75 +187,164 @@ class PointProcess:
 
         return corr
 
-    def _stream_tau_values(self, dataset: PointProcessDataset) -> Dict[Tuple[int, int], np.ndarray]:
+    def stream_compensator_profile(
+        self, t_ev: np.ndarray, trial: float, duration_s: float,
+    ) -> Tuple[np.ndarray, np.ndarray, bool, float]:
         """
-        Compute the time-rescaled inter-event intervals (tau_k, in the notation
-        of Ogata's time-rescaling theorem) for every (fish, trial) stream, as
-        the input to time_rescaling()'s KS/ACF/D_n diagnostics.
+        Polymorphic hook: for ONE (fish, trial) stream, which points count as
+        exact calibration residuals under THIS process's own likelihood
+        convention, whether the last one is right-censored, and how much
+        exposure this trial contributes to a fish's running total (consumed
+        by GammaMixedEffectsProcess). Also used by _stream_tau_values/
+        time_rescaling below.
 
-        WHY THIS METHOD EXISTS (read before overriding):
+        Returns (probe_times, compensator_at_probes, last_is_censored,
+        full_trial_exposure).
 
-        Ogata's time-rescaling theorem says that if tau_k = Lambda(t_k) -
-        Lambda(t_{k-1}), where Lambda is the TRUE compensator (cumulative
-        conditional intensity) of the process, then u_k = 1 - exp(-tau_k) are
-        i.i.d. Uniform(0,1) -- this is what licenses every diagnostic built on
-        top of it (Panels B/D/F in PointProcess.diagnose()).
-
-        The critical word is CONDITIONAL: Lambda(t) must be computed using only
-        information available strictly BEFORE t (the "predictable" / F_{t-}-
-        measurable compensator). This is trivially satisfied for PoissonProcess,
-        HawkesProcess, and RenewalProcess -- their intensity at t depends only
-        on t, the trial, and/or PAST events in that same stream, so integrating
-        cumulative_integrated_intensity() forward in time already gives a valid
-        predictable compensator. That's what the default implementation below
-        does, and it is correct for those model classes.
-
-        It is NOT automatically correct for models with a SHARED, MARGINALIZED
-        per-fish random effect (e.g. GammaPoissonProcess's g_f ~ Gamma(r, r)).
-        For such models, cumulative_integrated_intensity() only describes the
-        POPULATION-AVERAGE process (E[g_f] = 1) -- using it directly ignores
-        the fact that observing a fish's events should update your belief
-        about that SPECIFIC fish's gain, which is exactly the informative
-        signal a random-effects model is built to use.
-
-        The tempting fix -- multiply by a single posterior-mean gain estimate
-        per fish, e.g. (r + N_f) / (r + S_f) using that fish's WHOLE observed
-        history -- is WRONG for this purpose, even though it's a perfectly
-        valid empirical-Bayes point estimate for other uses (e.g. reporting
-        "fish 12 appears ~1.4x more active than average"). It's wrong here
-        specifically because N_f/S_f are computed using events that occur
-        AFTER t for events early in that fish's session -- violating the
-        F_{t-}-measurability the theorem requires. Concretely, this means the
-        correction is calibrated using the same outcomes it is then used to
-        test for uniformity: a textbook case of the "estimated parameters bias
-        a goodness-of-fit test" problem (cf. the Lilliefors correction needed
-        for KS tests after fitting distribution parameters from the sample
-        being tested). It makes the model look BETTER calibrated than it is,
-        with the bias worst for fish with the fewest independent trials (a
-        fish with exactly one observed trial has its "correction" computed
-        ENTIRELY from the outcome being corrected -- pure circularity, not an
-        edge case here: see PointProcessDataset occupancy diagnostics, where
-        min_trials_per_fish == 1 for most conditions in this dataset).
-
-        CONSEQUENCE FOR SUBCLASSES: any model with a marginalized per-fish (or
-        other shared/global) latent variable MUST override this method to
-        compute a genuinely sequential/predictable version of E[gain | H_{t-}]
-        -- using only that fish's events and exposure strictly before each t_k
-        -- rather than reuse this default. 
-
-        Default (this implementation): assumes no such shared latent variable,
-        i.e. cumulative_integrated_intensity() as-is is already a valid
-        predictable compensator. Correct for PoissonProcess, HawkesProcess,
-        RenewalProcess. Do not reuse this default for a new model class without
-        checking whether that assumption actually holds.
+        DEFAULT = RECURRENT convention (correct as-is for PoissonProcess/
+        HawkesProcess/RenewalProcess): every real event in t_ev is an exact
+        residual, nothing is censored, and exposure always accrues to
+        duration_s regardless of event count -- exactly what these classes'
+        own _nll methods already assume. Override only for a terminating
+        process (see SurvivalProcess).
         """
-        result = {}
+        if len(t_ev) == 0:
+            full_exposure = self.cumulative_integrated_intensity(
+                np.array([duration_s]), trial
+            )[0]
+            return np.array([]), np.array([]), False, float(full_exposure)
+
+        t_sorted = np.sort(t_ev)
+        probes = np.append(t_sorted, duration_s)
+        cum = self.cumulative_integrated_intensity(probes, trial)
+        return t_sorted, cum[:-1], False, float(cum[-1])
+
+    def _stream_tau_values(
+        self, dataset: PointProcessDataset
+    ) -> Dict[Tuple[int, int], List[Tuple[float, bool]]]:
+        """
+        Compute time-rescaled residuals for every (fish, trial) stream, now as
+        a list of (residual, is_censored) pairs per stream rather than a bare
+        array -- built on stream_compensator_profile, so any override of that
+        hook (e.g. SurvivalProcess's terminating-process convention) is picked
+        up automatically here with no isinstance checks anywhere.
+
+        Default behavior (recurrent processes: PoissonProcess, HawkesProcess,
+        RenewalProcess) is numerically IDENTICAL to before this change -- every
+        pair has is_censored=False, since stream_compensator_profile's default
+        never censors.
+
+        PRECONDITION UNCHANGED FROM BEFORE: this default assumes
+        cumulative_integrated_intensity is already a valid PREDICTABLE
+        compensator (see GammaMixedEffectsProcess's own override and its
+        docstring for why a marginalized shared random effect breaks that
+        assumption and requires a different override).
+        """
+        result: Dict[Tuple[int, int], List[Tuple[float, bool]]] = {}
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            if len(t_ev) == 0:
+            probes, cum, last_censored, _ = self.stream_compensator_profile(
+                t_ev, t_idx, dataset.duration_s
+            )
+            if len(probes) == 0:
                 continue
-            Lambda = self.cumulative_integrated_intensity(t_events=t_ev, trial=t_idx)
-            result[(f_idx, t_idx)] = np.diff(np.insert(Lambda, 0, 0.0))
+            diffs = np.diff(np.insert(cum, 0, 0.0))
+            pairs = [(float(d), False) for d in diffs]
+            if last_censored:
+                pairs[-1] = (pairs[-1][0], True)
+            result[(f_idx, t_idx)] = pairs
         return result
+
+    @staticmethod
+    def _autocorrelation(z_seqs: List[np.ndarray], max_lags: int) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Lag-1..max_lags autocorrelation of pooled, per-stream z-score
+        sequences (Gaussian-transformed EXACT time-rescaled residuals).
+        Extracted from time_rescaling's former nested closure so it's
+        independently testable/reusable.
+        """
+        all_z = np.concatenate(z_seqs) if len(z_seqs) > 0 else np.array([])
+        n = len(all_z)
+
+        if n < max_lags + 1:
+            return (np.array([]), np.array([]), 0.0)
+
+        z_mean = np.mean(all_z)
+        z_var = np.var(all_z)
+        lags = np.arange(1, max_lags + 1)
+
+        if z_var == 0:
+            return (lags, np.zeros(max_lags), 1.96 / np.sqrt(n))
+
+        z_centered_seqs = [seq - z_mean for seq in z_seqs]
+        acf = []
+        for lag in lags:
+            cov_sum = 0.0
+            pair_count = 0
+            for z_c in z_centered_seqs:
+                if len(z_c) > lag:
+                    cov_sum += np.sum(z_c[:-lag] * z_c[lag:])
+                    pair_count += (len(z_c) - lag)
+            r_j = (cov_sum / (pair_count * z_var)) if pair_count > 0 else 0.0
+            acf.append(r_j)
+
+        conf_limit = 1.96 / np.sqrt(n)
+        return (lags, np.array(acf), conf_limit)
+
+    def _pool_stream_residuals(
+        self, dataset: PointProcessDataset
+    ) -> Tuple[np.ndarray, np.ndarray, Dict[int, List[Tuple[float, bool]]], List[np.ndarray]]:
+        """
+        Walks _stream_tau_values(dataset) once and builds every pooled
+        representation the calibration/ACF/per-fish checks need:
+        - all_vals, all_censored: flat arrays of every (residual, censored) pair
+        - fish_pairs: same pairs, grouped by fish (bootstrap bands / D_n)
+        - pooled_z_seqs: per-stream sequences of Gaussian-transformed EXACT
+            residuals only -- a trailing censored residual is not a real
+            inter-event gap, so it's excluded here specifically for ACF.
+        """
+        tau_by_stream = self._stream_tau_values(dataset)
+
+        all_vals: List[float] = []
+        all_censored: List[bool] = []
+        fish_pairs: Dict[int, List[Tuple[float, bool]]] = {f: [] for f in range(dataset.num_fish)}
+        pooled_z_seqs: List[np.ndarray] = []
+
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            pairs = tau_by_stream.get((f_idx, t_idx))
+            if not pairs:
+                continue
+
+            exact_vals = [v for v, c in pairs if not c]
+            if exact_vals:
+                u = np.clip(1.0 - np.exp(-np.array(exact_vals)), 1e-10, 1 - 1e-10)
+                pooled_z_seqs.append(norm.ppf(u))
+
+            for v, c in pairs:
+                all_vals.append(v)
+                all_censored.append(c)
+                fish_pairs[f_idx].append((v, c))
+
+        return np.array(all_vals), np.array(all_censored), fish_pairs, pooled_z_seqs
+
+    def _compute_fish_dn_stats(
+        self,
+        fish_pairs: Dict[int, List[Tuple[float, bool]]],
+        min_events_per_fish: int,
+    ) -> np.ndarray:
+        """
+        Per-fish product-limit sup-distance to the Exp(1) reference -- the
+        censoring-aware analog of a per-fish KS D_n statistic. Fish with
+        fewer than min_events_per_fish pooled residuals are excluded.
+        """
+        fish_dn_stats = []
+        for f_idx, pairs in fish_pairs.items():
+            if len(pairs) < min_events_per_fish:
+                continue
+            vals = np.array([v for v, _ in pairs])
+            cens = np.array([c for _, c in pairs])
+            g_grid, g_S = self._survival_estimate(vals, cens)
+            fish_dn_stats.append(float(np.max(np.abs(g_S - np.exp(-g_grid)))))
+        return np.array(fish_dn_stats)
 
     def time_rescaling(
             self, 
@@ -263,110 +352,118 @@ class PointProcess:
             acf_lags: int = 20,
             min_events_per_fish: int = 5
         ) -> Dict[str, Any]:
+        """
+        Ogata time-rescaling / Cox-Snell calibration check, censoring-aware.
+        Orchestrates four independently-testable helpers:
+        _pool_stream_residuals   -- gather + pool residuals across streams
+        _survival_estimate        -- product-limit estimator (shared, static)
+        _autocorrelation           -- lag-k ACF of exact residuals
+        _compute_fish_dn_stats      -- per-fish calibration effect size
 
-        def autocorrelation(z_seqs: List[np.ndarray], max_lags: int) -> Tuple[np.ndarray, np.ndarray, float]:
-            all_z = np.concatenate(z_seqs) if len(z_seqs) > 0 else np.array([])
-            n = len(all_z)
-
-            if n < max_lags + 1:
-                return (np.array([]), np.array([]), 0.0)
-
-            z_mean = np.mean(all_z)
-            z_var = np.var(all_z)
-            lags = np.arange(1, max_lags + 1)
-
-            if z_var == 0:
-                return (lags, np.zeros(max_lags), 1.96 / np.sqrt(n))
-
-            z_centered_seqs = [seq - z_mean for seq in z_seqs]
-            acf = []
-            
-            for lag in lags:
-                cov_sum = 0.0
-                pair_count = 0
-                for z_c in z_centered_seqs:
-                    if len(z_c) > lag:
-                        cov_sum += np.sum(z_c[:-lag] * z_c[lag:])
-                        pair_count += (len(z_c) - lag)
-                
-                r_j = (cov_sum / (pair_count * z_var)) if pair_count > 0 else 0.0
-                acf.append(r_j)
-            
-            conf_limit = 1.96 / np.sqrt(n)  
-            return (lags, np.array(acf), conf_limit)
-
+        For any process with no censored residuals (every recurrent process
+        family in this module), every quantity below is numerically identical
+        to the plain-ECDF/uncensored KS diagnostics this replaced.
+        """
         if self.params_ is None:
             raise ValueError("Model must be fitted before running time-rescaling analysis.")
 
-        pooled_u = []
-        pooled_z = []
-        fish_u = {f_idx: [] for f_idx in range(dataset.num_fish)}
+        all_vals_arr, all_censored_arr, fish_pairs, pooled_z_seqs = self._pool_stream_residuals(dataset)
+        n_rescaled = len(all_vals_arr)
 
-        tau_by_stream = self._stream_tau_values(dataset)
+        residual_grid, surv = self._survival_estimate(all_vals_arr, all_censored_arr)
+        neg_log_S = -np.log(np.maximum(surv, 1e-12))
 
-        for f_idx, t_idx, t_ev in dataset.iter_streams():
-            if len(t_ev) == 0:
-                continue
-
-            tau = tau_by_stream[(f_idx, t_idx)]
-            u = 1.0 - np.exp(-tau)
-            u_clipped = np.clip(u, 1e-10, 1 - 1e-10)
-            z = norm.ppf(u_clipped)
-
-            pooled_u.extend(u)
-            pooled_z.append(z)
-            fish_u[f_idx].extend(u)
-
-
-        rescaled_u = np.sort(np.array(pooled_u))
-        n_pooled = len(rescaled_u)
-
-        lags, acf, conf_limit = autocorrelation(pooled_z, acf_lags)
-        
-        fish_dn_stats = []
-        for f_idx, u_list in fish_u.items():
-            if len(u_list) >= min_events_per_fish:
-                d_stat, _ = kstest(u_list, 'uniform')
-                fish_dn_stats.append(d_stat)
-
-        fish_dn_stats = np.array(fish_dn_stats)
+        lags, acf, conf_limit = self._autocorrelation(pooled_z_seqs, acf_lags)
+        fish_dn_stats = self._compute_fish_dn_stats(fish_pairs, min_events_per_fish)
+        n_multi_residual_streams = sum(1 for seq in pooled_z_seqs if len(seq) >= 2)
 
         return {
-            "rescaled_u": rescaled_u,
-            "n_rescaled": n_pooled,
-            "fish_u": fish_u, 
+            "residuals": all_vals_arr,
+            "censored": all_censored_arr,
+            "residual_grid": residual_grid,
+            "survival_estimate": surv,
+            "neg_log_survival": neg_log_S,
+            "n_rescaled": n_rescaled,
+            "n_exact": int(np.sum(~all_censored_arr)),
+            "n_multi_residual_streams": n_multi_residual_streams,
+            "fish_pairs": fish_pairs,
             "fish_dn_stats": fish_dn_stats,
             "median_fish_dn": float(np.median(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
             "mean_fish_dn": float(np.mean(fish_dn_stats)) if len(fish_dn_stats) > 0 else np.nan,
             "acf_lags": lags,
             "acf": acf,
-            "acf_conf": conf_limit
+            "acf_conf": conf_limit,
         }
 
     @staticmethod
-    def bootstrap_pooled_ecdf_band(
-        fish_u: Dict[int, List[float]],
+    def _survival_estimate(times: np.ndarray, censored: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Generic Kaplan-Meier estimator over (possibly right-censored)
+        non-negative values. Reduces exactly to 1-ECDF when nothing is
+        censored, so this is a strict generalization of the plain empirical
+        CDF used everywhere in this module previously -- not a different
+        statistic for the already-correct recurrent-process diagnostics.
+        Ties are treated as censoring occurring after events at that value.
+        """
+        if len(times) == 0:
+            return np.array([0.0]), np.array([1.0])
+
+        order = np.argsort(times)
+        t_sorted, c_sorted = times[order], censored[order]
+        n = len(t_sorted)
+
+        grid, surv = [0.0], [1.0]
+        S, i = 1.0, 0
+        while i < n:
+            t = t_sorted[i]
+            j = i
+            d = 0
+            while j < n and t_sorted[j] == t:
+                if not c_sorted[j]:
+                    d += 1
+                j += 1
+            n_at_risk = n - i
+            if n_at_risk > 0 and d > 0:
+                S *= (1.0 - d / n_at_risk)
+                grid.append(float(t))
+                surv.append(S)
+            i = j
+
+        return np.array(grid), np.array(surv)
+
+    @staticmethod
+    def bootstrap_pooled_survival_band(
+        fish_pairs: Dict[int, List[Tuple[float, bool]]],
         n_boot: int = 300,
-        grid: np.ndarray = np.linspace(0, 1, 201),
+        grid: np.ndarray = np.linspace(0, 5, 201),
         ci: float = 95.0,
         seed: int = 0,
     ) -> Tuple[np.ndarray, np.ndarray]:
-
+        """
+        Fish-level bootstrap CI band on the KM SURVIVAL curve itself (bounded
+        in [0,1]), evaluated on `grid` (a grid of Cox-Snell residual values).
+        Deliberately computed in bounded S-space rather than -log(S)-space:
+        percentiles of an UNBOUNDED quantity blow up in a sparse tail (a
+        handful of bootstrap resamples with slightly different rare large
+        residuals produce wildly different -log(S) values), which is exactly
+        what makes diagnose()'s Panel B look unstable if plotted that way.
+        """
         rng = np.random.default_rng(seed)
-        fish_ids = [f for f, u in fish_u.items() if len(u) > 0]
+        fish_ids = [f for f, pairs in fish_pairs.items() if len(pairs) > 0]
         if not fish_ids:
             return np.full_like(grid, np.nan), np.full_like(grid, np.nan)
 
         boot_curves = np.empty((n_boot, len(grid)))
         for b in range(n_boot):
             sampled_fish = rng.choice(fish_ids, size=len(fish_ids), replace=True)
-            pooled = np.concatenate([fish_u[f] for f in sampled_fish]) if sampled_fish.size else np.array([])
-            if len(pooled) == 0:
+            pooled_pairs = [p for f in sampled_fish for p in fish_pairs[f]]
+            if not pooled_pairs:
                 boot_curves[b, :] = np.nan
                 continue
-            sorted_u = np.sort(pooled)
-            ecdf_vals = (np.arange(1, len(sorted_u) + 1) - 0.5) / len(sorted_u)
-            boot_curves[b, :] = np.interp(grid, sorted_u, ecdf_vals, left=0.0, right=1.0)
+            vals = np.array([v for v, _ in pooled_pairs])
+            cens = np.array([c for _, c in pooled_pairs])
+            residual_grid, km_S = PointProcess._survival_estimate(vals, cens)
+            boot_curves[b, :] = np.interp(grid, residual_grid, km_S, left=1.0, right=km_S[-1])
 
         alpha = (100.0 - ci) / 2.0
         lower = np.nanpercentile(boot_curves, alpha, axis=0)
@@ -470,104 +567,252 @@ class PointProcess:
             "conf_limit": 1.96 / np.sqrt(n_trials * n_time),  # see note below
         }
 
-    def diagnose(
-        self, 
-        dataset: PointProcessDataset, 
-        figsize: Tuple[int, int] = (15, 18),
-        eps: float = 1e-5,
+    def compute_diagnostics_data(
+        self,
+        dataset: PointProcessDataset,
         max_trial_lag: int = 10,
         max_time_lag: int = 30,
-    ) -> Tuple[plt.Figure, Dict[str, Any]]:
+        eps: float = 1e-5,
+    ) -> Dict[str, Any]:
+        """
+        Runs every diagnostic sub-analysis ONCE. Each plot_panel_* method below
+        accepts the result of this call via `diag_data` (computing it itself
+        if not supplied), so diagnose() can compute it a single time and share
+        it across all 8 panels rather than each panel silently repeating
+        expensive work (Hessian estimation, 2D residual autocorrelation, etc).
+        """
+        return {
+            "residuals": self.compute_residuals(dataset),
+            "time_rescaling": self.time_rescaling(dataset),
+            "parameter_correlation": self.estimate_parameter_correlation(dataset, eps=eps),
+            "acf2d": self.residual_2d_autocorrelation(
+                dataset, max_trial_lag=max_trial_lag, max_time_lag=max_time_lag
+            ),
+        }
 
-        # 1. Execute sub-analyses
-        res_data = self.compute_residuals(dataset)
-        tr_data = self.time_rescaling(dataset)
-        corr_matrix = self.estimate_parameter_correlation(dataset, eps=eps)
-        acf2d_data = self.residual_2d_autocorrelation(
-            dataset, max_trial_lag=max_trial_lag, max_time_lag=max_time_lag
-        )
-        deviance_res = res_data["deviance_residuals"]
+    def plot_panel_residual_surface(
+        self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+        """Panel A: 2D deviance residual surface over (trial, time)."""
+        if diag_data is None:
+            diag_data = self.compute_diagnostics_data(dataset)
+        if ax is None:
+            _, ax = plt.subplots()
 
-        # 2. Render Plot Dashboard (4 rows x 2 columns)
-        fig, axes = plt.subplots(4, 2, figsize=figsize)
-        plt.subplots_adjust(hspace=0.38, wspace=0.3)
-
-        fig.suptitle(self.latex_formula, fontsize=15, fontweight='bold', y=0.99)
-
-        # Panel A: 2D Residual Surface
-        ax_heat = axes[0, 0]
+        deviance_res = diag_data["residuals"]["deviance_residuals"]
         vmax = np.percentile(np.abs(deviance_res), 98)
-        im = ax_heat.imshow(
-            deviance_res,
-            aspect='auto',
-            origin='lower',
+        im = ax.imshow(
+            deviance_res, aspect='auto', origin='lower',
             extent=[dataset.t_grid[0], dataset.t_grid[-1], 0, dataset.num_trials],
-            cmap='coolwarm',
-            vmin=-vmax, vmax=vmax
+            cmap='coolwarm', vmin=-vmax, vmax=vmax,
         )
-        ax_heat.set_title("A. Deviance Residual Surface $(m, t)$", fontsize=11, fontweight='bold')
-        ax_heat.set_xlabel("Time in Trial (s)")
-        ax_heat.set_ylabel("Trial Number")
-        divider = make_axes_locatable(ax_heat)
+        ax.set_title("A. Deviance Residual Surface $(m, t)$", fontsize=11, fontweight='bold')
+        ax.set_xlabel("Time in Trial (s)")
+        ax.set_ylabel("Trial Number")
+        divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="3%", pad=0.08)
-        fig.colorbar(im, cax=cax, label="Deviance Residual")
+        ax.figure.colorbar(im, cax=cax, label="Deviance Residual")
+        return ax
 
-        # Panel B: Time-Rescaling Kolmogorov-Smirnov Plot (Pooled)
-        ax_ks = axes[0, 1]
+    def plot_panel_calibration_ks(
+        self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+
+        if diag_data is None:
+            diag_data = self.compute_diagnostics_data(dataset)
+        if ax is None:
+            _, ax = plt.subplots()
+
+        tr_data = diag_data["time_rescaling"]
         n_rescaled = tr_data["n_rescaled"]
 
-        if n_rescaled > 0:
-            e_cdf = (np.arange(1, n_rescaled + 1) - 0.5) / n_rescaled
-            ax_ks.plot(tr_data["rescaled_u"], e_cdf, label="Empirical CDF", color="crimson", lw=2)
-            grid = np.linspace(0, 1, 201)
-            lower, upper = self.bootstrap_pooled_ecdf_band(tr_data["fish_u"], grid=grid)
-            ax_ks.fill_between(grid, lower, upper, color="crimson", alpha=0.15,
-                                label="95% band (fish-level bootstrap)", zorder=1)
+        if n_rescaled == 0:
+            ax.text(0.5, 0.5, "No events available for calibration check", ha='center', va='center')
+            ax.set_title("B. Time-Rescaling Calibration", fontsize=11, fontweight='bold')
+            return ax
 
-            ax_ks.plot([0, 1], [0, 1], 'k--', label="Uniform(0,1) Ideal", lw=1.5)
+        r_grid, surv = tr_data["residual_grid"], tr_data["survival_estimate"]
+        u_grid = 1.0 - np.exp(-r_grid)
+        empirical_cdf = 1.0 - surv
+        ax.step(u_grid, empirical_cdf, where='post', color='crimson', lw=2,
+                label="Empirical CDF of $U_k$")
 
-            ks_bound = 1.36 / np.sqrt(n_rescaled)
-            ax_ks.plot([0, 1], [ks_bound, 1 + ks_bound], 'k:', alpha=0.5, label="95% KS Limits")
-            ax_ks.plot([0, 1], [-ks_bound, 1 - ks_bound], 'k:', alpha=0.5)
+        grid_r_boot = np.linspace(0, r_grid[-1], 201)
+        lower_S, upper_S = self.bootstrap_pooled_survival_band(tr_data["fish_pairs"], grid=grid_r_boot)
+        u_boot = 1.0 - np.exp(-grid_r_boot)
+        ax.fill_between(u_boot, 1 - upper_S, 1 - lower_S, color="crimson", alpha=0.15,
+                        label="95% band (fish-level bootstrap)", zorder=1)
 
-            ax_ks.set_xlim([0, 1])
-            ax_ks.set_ylim([0, 1])
-        else:
-            ax_ks.text(0.5, 0.5, "No events available for KS test", ha='center', va='center')
-        ax_ks.set_title("B. Time-Rescaling Kolmogorov-Smirnov Plot", fontsize=11, fontweight='bold')
-        ax_ks.set_xlabel("Transformed Interval ($U_k$)")
-        ax_ks.set_ylabel("Cumulative Probability")
-        ax_ks.legend(loc="upper left", fontsize=8)
+        ax.plot([0, 1], [0, 1], 'k--', label="Uniform(0,1) Ideal", lw=1.5)
+        ks_bound = 1.36 / np.sqrt(n_rescaled)
+        ax.plot([0, 1], [ks_bound, 1 + ks_bound], 'k:', alpha=0.5, label="95% KS Limits")
+        ax.plot([0, 1], [-ks_bound, 1 - ks_bound], 'k:', alpha=0.5)
+        ax.set_xlim([0, 1]); ax.set_ylim([0, 1])
+        ax.set_title("B. Time-Rescaling: Rescaled-Interval CDF vs. Uniform(0,1)",
+                    fontsize=11, fontweight='bold')
+        ax.set_xlabel("Transformed Interval ($U_k$)")
+        ax.set_ylabel("Cumulative Probability")
+        ax.legend(loc="upper left", fontsize=8)
+        return ax
 
-        # Panel C: Deviance Residual Distribution
-        ax_dist = axes[1, 0]
-        flat_dev = deviance_res.flatten()
-        ax_dist.hist(flat_dev, bins=40, density=True, alpha=0.6, color="steelblue", edgecolor="none")
 
+    def plot_panel_residual_histogram(
+        self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+        """Panel C: deviance residual distribution vs N(0,1)."""
+        if diag_data is None:
+            diag_data = self.compute_diagnostics_data(dataset)
+        if ax is None:
+            _, ax = plt.subplots()
+
+        flat_dev = diag_data["residuals"]["deviance_residuals"].flatten()
+        ax.hist(flat_dev, bins=40, density=True, alpha=0.6, color="steelblue", edgecolor="none")
         x_norm = np.linspace(-4, 4, 200)
-        ax_dist.plot(x_norm, norm.pdf(x_norm), 'r--', lw=2, label=r"$\mathcal{N}(0, 1)$ Ref")
-        ax_dist.set_title("C. Deviance Residual Distribution", fontsize=11, fontweight='bold')
-        ax_dist.set_xlabel("Deviance Residual Value")
-        ax_dist.set_ylabel("Density")
-        ax_dist.legend(loc="upper right", fontsize=8)
+        ax.plot(x_norm, norm.pdf(x_norm), 'r--', lw=2, label=r"$\mathcal{N}(0, 1)$ Ref")
+        ax.set_title("C. Deviance Residual Distribution", fontsize=11, fontweight='bold')
+        ax.set_xlabel("Deviance Residual Value")
+        ax.set_ylabel("Density")
+        ax.legend(loc="upper right", fontsize=8)
+        return ax
 
-        # Panel D: time rescaled event autocorrelation
-        ax_acf = axes[1, 1]
-        ax_acf.vlines(tr_data["acf_lags"], 0, tr_data["acf"], color="navy", lw=2)
-        ax_acf.axhline(0, color="black", lw=1)
+    def plot_panel_event_lag_acf(
+        self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+        """
+        Panel D: autocorrelation of time-rescaled EXACT residuals across event
+        lag. Meaningless (and will naturally render empty/near-zero) for any
+        stream capped at <=1 event -- e.g. SurvivalProcess -- since there's no
+        sequence of intervals within a stream to autocorrelate; no special
+        casing needed, this falls out automatically because time_rescaling
+        only feeds exact-residual sequences into the ACF pool.
+        """
+        if diag_data is None:
+            diag_data = self.compute_diagnostics_data(dataset)
+        if ax is None:
+            _, ax = plt.subplots()
 
+        tr_data = diag_data["time_rescaling"]
+        ax.vlines(tr_data["acf_lags"], 0, tr_data["acf"], color="navy", lw=2)
+        ax.axhline(0, color="black", lw=1)
         conf_limit = tr_data["acf_conf"]
-        ax_acf.axhline(conf_limit, color="red", linestyle="--", alpha=0.7, label="95% CI")
-        ax_acf.axhline(-conf_limit, color="red", linestyle="--", alpha=0.7)
+        ax.axhline(conf_limit, color="red", linestyle="--", alpha=0.7, label="95% CI")
+        ax.axhline(-conf_limit, color="red", linestyle="--", alpha=0.7)
+        ax.set_title("D. Time-rescaled event autocorrelation (Event Lag)", fontsize=11, fontweight='bold')
+        ax.set_xlabel("Lag (event)")
+        ax.set_ylabel("Autocorrelation")
+        ax.set_ylim([-0.5, 0.5])
+        ax.legend(loc="upper right", fontsize=8)
+        return ax
 
-        ax_acf.set_title("D. Time-rescaled event autocorrelation (Event Lag)", fontsize=11, fontweight='bold')
-        ax_acf.set_xlabel("Lag (event)")
-        ax_acf.set_ylabel("Autocorrelation")
-        ax_acf.set_ylim([-0.5, 0.5])
-        ax_acf.legend(loc="upper right", fontsize=8)
+    def plot_panel_calibration_cox_snell(
+        self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+        """
+        Survival-analysis-native Cox-Snell residual plot: -log(S_hat(r)) vs r,
+        checked against the Exp(1) diagonal, with N total/exact/censored
+        annotated in the title (the risk-composition context a survival-
+        trained reader expects, per Klein & Moeschberger). Caller (diagnose())
+        is responsible for choosing this over plot_panel_calibration_ks based
+        on whether any residual is censored.
+        """
+        if diag_data is None:
+            diag_data = self.compute_diagnostics_data(dataset)
+        if ax is None:
+            _, ax = plt.subplots()
 
-        # Panel E: 2D Residual Autocorrelation Surface R(Δm, Δt)
-        ax_acf2d = axes[2, 0]
+        tr_data = diag_data["time_rescaling"]
+        n_rescaled = tr_data["n_rescaled"]
+
+        if n_rescaled == 0:
+            ax.text(0.5, 0.5, "No events available for calibration check", ha='center', va='center')
+            ax.set_title("B. Cox-Snell Residual Plot", fontsize=11, fontweight='bold')
+            return ax
+
+        r_grid, surv = tr_data["residual_grid"], tr_data["survival_estimate"]
+        neg_log_S = -np.log(np.maximum(surv, 1e-12))
+        max_r = r_grid[-1]
+        ax.step(r_grid, neg_log_S, where='post', color='navy', lw=2, label=r"$-\log \hat{S}(r)$")
+
+        grid_r_boot = np.linspace(0, max_r, 201)
+        lower_S, upper_S = self.bootstrap_pooled_survival_band(tr_data["fish_pairs"], grid=grid_r_boot)
+        # Band legitimately widens toward the sparse tail -- expected feature
+        # of Cox-Snell plots, not an artifact to hide (unlike plotting
+        # -log(S) directly from raw bootstrap percentiles, which is unstable;
+        # this transforms bounded S-space percentiles instead).
+        neg_log_lower = -np.log(np.maximum(upper_S, 1e-12))
+        neg_log_upper = -np.log(np.maximum(lower_S, 1e-12))
+        ax.fill_between(grid_r_boot, neg_log_lower, neg_log_upper, color='navy', alpha=0.15,
+                        label="95% band (fish-level bootstrap)")
+
+        ax.plot([0, max_r], [0, max_r], 'k--', lw=1.5, label="Ideal (Exp(1))")
+        ax.set_xlim(left=0); ax.set_ylim(bottom=0)
+        n_censored = int(np.sum(tr_data["censored"]))
+        ax.set_title(f"B. Cox-Snell Residual Plot (N={n_rescaled}, "
+                    f"exact={tr_data['n_exact']}, censored={n_censored})",
+                    fontsize=11, fontweight='bold')
+        ax.set_xlabel("Cox-Snell residual $r$")
+        ax.set_ylabel(r"$-\log \hat{S}(r)$")
+        ax.legend(loc="upper left", fontsize=8)
+        return ax
+
+    def plot_panel_survival_curve(
+        self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+        """
+        Empirical first-event survival curve (product-limit estimator, built
+        directly from dataset.iter_streams() -- needs no model), overlaid with
+        this model's own population_survival_curve() IF it defines one.
+        Checked via hasattr, not isinstance: this lets SurvivalProcess and
+        GammaMixedEffectsProcess(SurvivalProcess(...)) contribute a model
+        overlay without this base-class method (or diagnose(), which decides
+        to call this panel at all) referencing either class by name. Any
+        process that doesn't define population_survival_curve (Poisson/
+        Hawkes/Renewal) still gets the empirical curve alone -- a reasonable
+        fallback, though diagnose() should not normally route here for those
+        (see n_multi_residual_streams).
+        """
+        if ax is None:
+            _, ax = plt.subplots()
+
+        times, censored = [], []
+        for _, _, t_ev in dataset.iter_streams():
+            if len(t_ev) == 0:
+                times.append(dataset.duration_s); censored.append(True)
+            else:
+                times.append(float(np.min(t_ev))); censored.append(False)
+        times, censored = np.array(times), np.array(censored)
+        grid, surv = self._kaplan_meier(times, censored)
+        ax.step(grid, surv, where='post', color='black', linewidth=2, label=r'Empirical $\hat{S}(t)$')
+
+        if hasattr(self, "population_survival_curve"):
+            model_t, model_S = self.population_survival_curve(dataset)
+            ax.plot(model_t, model_S, color='crimson', linestyle='--', linewidth=2, label='Model $S(t)$')
+
+        ax.set_ylim(0, 1.02)
+        ax.set_xlabel("Time in trial (s)")
+        ax.set_ylabel("P(no first event by t)")
+        ax.set_title("D. First-Event Survival Curve: Empirical vs Model", fontsize=11, fontweight='bold')
+        ax.legend(loc='upper right', fontsize=9)
+        ax.grid(True, linestyle=':', alpha=0.4)
+        return ax
+
+    def plot_panel_residual_acf2d(
+        self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+        """Panel E: 2D residual autocorrelation surface R(delta_m, delta_t)."""
+        if diag_data is None:
+            diag_data = self.compute_diagnostics_data(dataset)
+        if ax is None:
+            _, ax = plt.subplots()
+
+        acf2d_data = diag_data["acf2d"]
         acf2d = acf2d_data["acf2d"]
         trial_lags = acf2d_data["trial_lags"]
         time_lags_sec = acf2d_data["time_lags_sec"]
@@ -575,7 +820,6 @@ class PointProcess:
 
         m_zero_idx = np.where(trial_lags == 0)[0][0]
         t_zero_idx = np.where(acf2d_data["time_lags_bins"] == 0)[0][0]
-        
         acf_offdiag = acf2d.copy()
         acf_offdiag[m_zero_idx, t_zero_idx] = np.nan
         vmax_2d = max(0.05, np.nanmax(np.abs(acf_offdiag)))
@@ -585,99 +829,165 @@ class PointProcess:
             time_lags_sec[0] - dt / 2, time_lags_sec[-1] + dt / 2,
             trial_lags[0] - 0.5, trial_lags[-1] + 0.5
         ]
+        im_2d = ax.imshow(acf2d, extent=extent_2d, origin="lower", cmap="coolwarm",
+                        vmin=-vmax_2d, vmax=vmax_2d, aspect="auto")
 
-        im_2d = ax_acf2d.imshow(
-            acf2d, extent=extent_2d, origin="lower", cmap="coolwarm",
-            vmin=-vmax_2d, vmax=vmax_2d, aspect="auto"
-        )
-        
         T_mesh, M_mesh = np.meshgrid(time_lags_sec, trial_lags)
-        contours = ax_acf2d.contour(
-            T_mesh, M_mesh, np.abs(acf2d), levels=[conf_lim_2d],
-            colors="black", linewidths=1.0, linestyles="--"
-        )
-        ax_acf2d.clabel(contours, fmt={conf_lim_2d: f"95% CI"}, inline=True, fontsize=7)
-        ax_acf2d.axhline(0, color="gray", lw=0.8, ls=":")
-        ax_acf2d.axvline(0, color="gray", lw=0.8, ls=":")
-
-        ax_acf2d.set_title("E. Autocorrelation of deviance residuals $R(\\Delta m, \\Delta t)$", fontsize=11, fontweight='bold')
-        ax_acf2d.set_xlabel("Time Lag $\\Delta t$ (s)")
-        ax_acf2d.set_ylabel("Trial Lag $\\Delta m$ (trials)")
-        
-        divider_2d = make_axes_locatable(ax_acf2d)
+        contours = ax.contour(T_mesh, M_mesh, np.abs(acf2d), levels=[conf_lim_2d],
+                            colors="black", linewidths=1.0, linestyles="--")
+        ax.clabel(contours, fmt={conf_lim_2d: "95% CI"}, inline=True, fontsize=7)
+        ax.axhline(0, color="gray", lw=0.8, ls=":")
+        ax.axvline(0, color="gray", lw=0.8, ls=":")
+        ax.set_title("E. Autocorrelation of deviance residuals $R(\\Delta m, \\Delta t)$",
+                    fontsize=11, fontweight='bold')
+        ax.set_xlabel("Time Lag $\\Delta t$ (s)")
+        ax.set_ylabel("Trial Lag $\\Delta m$ (trials)")
+        divider_2d = make_axes_locatable(ax)
         cax_2d = divider_2d.append_axes("right", size="3%", pad=0.08)
-        fig.colorbar(im_2d, cax=cax_2d, label="Autocorrelation")
+        ax.figure.colorbar(im_2d, cax=cax_2d, label="Autocorrelation")
+        return ax
 
-        # Panel F: Per-Fish D_n Effect Size Distribution
-        ax_dn = axes[2, 1]
+    def plot_panel_fish_dn_distribution(
+        self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+        """Panel F: per-fish calibration effect-size (KM/product-limit sup-distance to Exp(1))."""
+        if diag_data is None:
+            diag_data = self.compute_diagnostics_data(dataset)
+        if ax is None:
+            _, ax = plt.subplots()
+
+        tr_data = diag_data["time_rescaling"]
         dn_values = tr_data["fish_dn_stats"]
         median_dn = tr_data["median_fish_dn"]
 
         if len(dn_values) > 0:
-            ax_dn.hist(
-                dn_values, bins='auto', density=True, alpha=0.6, 
-                color='skyblue', edgecolor='navy', label='Per-Fish $D_n$'
-            )
-            ax_dn.axvline(
-                median_dn, color='darkblue', linestyle='--', linewidth=2, 
-                label=f'Median $D_n$ ({median_dn:.3f})'
-            )
-            ax_dn.axvspan(0.0, 0.05, color='green', alpha=0.1, label='Good Fit ($D_n < 0.05$)')
-            ax_dn.set_title(f"F. Per-Fish $D_n$ Distribution ($N_{{fish}}={len(dn_values)}$)", fontsize=11, fontweight='bold')
-            ax_dn.set_xlabel("KS Distance ($D_n$)")
-            ax_dn.set_ylabel("Density")
-            ax_dn.legend(loc="upper right", fontsize=8)
+            ax.hist(dn_values, bins='auto', density=True, alpha=0.6,
+                    color='skyblue', edgecolor='navy', label='Per-Fish $D_n$')
+            ax.axvline(median_dn, color='darkblue', linestyle='--', linewidth=2,
+                    label=f'Median $D_n$ ({median_dn:.3f})')
+            ax.axvspan(0.0, 0.05, color='green', alpha=0.1, label='Good Fit ($D_n < 0.05$)')
+            ax.set_title(f"F. Per-Fish $D_n$ Distribution ($N_{{fish}}={len(dn_values)}$)",
+                        fontsize=11, fontweight='bold')
+            ax.set_xlabel("KS Distance ($D_n$)")
+            ax.set_ylabel("Density")
+            ax.legend(loc="upper right", fontsize=8)
         else:
-            ax_dn.text(0.5, 0.5, "Insufficient events per fish for $D_n$", ha='center', va='center')
+            ax.text(0.5, 0.5, "Insufficient events per fish for $D_n$", ha='center', va='center')
+        return ax
 
-        # Panel G: Parameter Correlation Matrix
-        ax_corr = axes[3, 0]
-        im_corr = ax_corr.imshow(corr_matrix, cmap='coolwarm', vmin=-1.0, vmax=1.0)
-        ax_corr.set_title("G. Parameter Correlation Matrix", fontsize=11, fontweight='bold')
+    def plot_panel_parameter_correlation(
+        self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+        """Panel G: parameter correlation matrix."""
+        if diag_data is None:
+            diag_data = self.compute_diagnostics_data(dataset)
+        if ax is None:
+            _, ax = plt.subplots()
 
+        corr_matrix = diag_data["parameter_correlation"]
+        im_corr = ax.imshow(corr_matrix, cmap='coolwarm', vmin=-1.0, vmax=1.0)
+        ax.set_title("G. Parameter Correlation Matrix", fontsize=11, fontweight='bold')
         n_params = len(self.param_names)
-
-        ax_corr.set_xticks(np.arange(n_params))
-        ax_corr.set_yticks(np.arange(n_params))
-        ax_corr.set_xticklabels(self.param_names, rotation=45, ha='right', fontsize=9)
-        ax_corr.set_yticklabels(self.param_names, fontsize=9)
-
+        ax.set_xticks(np.arange(n_params)); ax.set_yticks(np.arange(n_params))
+        ax.set_xticklabels(self.param_names, rotation=45, ha='right', fontsize=9)
+        ax.set_yticklabels(self.param_names, fontsize=9)
         for i in range(n_params):
             for j in range(n_params):
                 val = corr_matrix[i, j]
-                text_color = "white" if abs(val) > 0.6 else "black"
-                ax_corr.text(j, i, f"{val:.2f}", ha='center', va='center', color=text_color, fontsize=8)
-
-        divider_corr = make_axes_locatable(ax_corr)
+                ax.text(j, i, f"{val:.2f}", ha='center', va='center',
+                        color="white" if abs(val) > 0.6 else "black", fontsize=8)
+        divider_corr = make_axes_locatable(ax)
         cax_corr = divider_corr.append_axes("right", size="3%", pad=0.08)
-        fig.colorbar(im_corr, cax=cax_corr, label="Correlation")
+        ax.figure.colorbar(im_corr, cax=cax_corr, label="Correlation")
+        return ax
 
-        # Panel H: Summary Diagnostic Metrics Text Box
-        ax_text = axes[3, 1]
-        ax_text.axis('off')
-        
+    def plot_panel_summary_text(
+        self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+        """Panel H: global diagnostic summary metrics."""
+        if diag_data is None:
+            diag_data = self.compute_diagnostics_data(dataset)
+        if ax is None:
+            _, ax = plt.subplots()
+
+        tr_data = diag_data["time_rescaling"]
+        acf2d_data = diag_data["acf2d"]
+        m_zero_idx = np.where(acf2d_data["trial_lags"] == 0)[0][0]
+        t_zero_idx = np.where(acf2d_data["time_lags_bins"] == 0)[0][0]
+        acf_offdiag = acf2d_data["acf2d"].copy()
+        acf_offdiag[m_zero_idx, t_zero_idx] = np.nan
+
+        ax.axis('off')
         summary_text = (
             f"DIAGNOSTIC SUMMARY METRICS\n"
             f"----------------------------------------\n"
             f"Log-Likelihood      : {self.log_likelihood:.2f}\n"
             f"Akaike Info (AIC)   : {self.aic:.2f}\n"
-            f"Pooled KS Rescaled  : N = {n_rescaled}\n"
+            f"Pooled Residuals    : N = {tr_data['n_rescaled']} "
+            f"(exact={tr_data['n_exact']})\n"
             f"Median Per-Fish D_n : {tr_data['median_fish_dn']:.4f}\n"
             f"Max 2D Autocorr     : {np.nanmax(np.abs(acf_offdiag)):.4f}\n"
-            f"95% 2D CI Limit     : ±{conf_lim_2d:.4f}\n"
+            f"95% 2D CI Limit     : ±{acf2d_data['conf_limit']:.4f}\n"
         )
-        ax_text.text(
-            0.1, 0.5, summary_text, fontsize=10, fontfamily='monospace',
-            verticalalignment='center', bbox=dict(boxstyle='round,pad=0.8', facecolor='wheat', alpha=0.3)
-        )
-        ax_text.set_title("H. Global Model Diagnostics", fontsize=11, fontweight='bold')
+        ax.text(0.1, 0.5, summary_text, fontsize=10, fontfamily='monospace',
+                verticalalignment='center',
+                bbox=dict(boxstyle='round,pad=0.8', facecolor='wheat', alpha=0.3))
+        ax.set_title("H. Global Model Diagnostics", fontsize=11, fontweight='bold')
+        return ax
 
-        return fig, {
-            "residuals": res_data,
-            "time_rescaling": tr_data,
-            "parameter_correlation": corr_matrix,
-            "acf2d": acf2d_data,
-        }
+    def diagnose(
+        self, 
+        dataset: PointProcessDataset, 
+        figsize: Tuple[int, int] = (15, 18),
+        eps: float = 1e-5,
+        max_trial_lag: int = 10,
+        max_time_lag: int = 30,
+    ) -> Tuple[plt.Figure, Dict[str, Any]]:
+        """
+        Assembles the 8-panel dashboard. Two panels are chosen dynamically,
+        based on properties of the residuals actually produced by this model
+        on this dataset -- not on the model's class:
+
+        - Panel B: Cox-Snell (survival-native) if any residual is censored,
+        else the classic Ogata KS/CDF plot.
+        - Panel D: event-lag ACF if at least one stream contributed >=2 exact
+        residuals (the minimum needed to say anything about lag-1
+        autocorrelation), else the first-event survival curve overlay
+        (structurally the only sensible panel for a process capped at <=1
+        event per stream).
+        """
+        diag_data = self.compute_diagnostics_data(
+            dataset, max_trial_lag=max_trial_lag, max_time_lag=max_time_lag, eps=eps
+        )
+        tr_data = diag_data["time_rescaling"]
+
+        fig, axes = plt.subplots(4, 2, figsize=figsize)
+        plt.subplots_adjust(hspace=0.38, wspace=0.3)
+        fig.suptitle(self.latex_formula, fontsize=15, fontweight='bold', y=0.99)
+
+        self.plot_panel_residual_surface(dataset, diag_data, ax=axes[0, 0])
+
+        if np.any(tr_data["censored"]):
+            self.plot_panel_calibration_cox_snell(dataset, diag_data, ax=axes[0, 1])
+        else:
+            self.plot_panel_calibration_ks(dataset, diag_data, ax=axes[0, 1])
+
+        self.plot_panel_residual_histogram(dataset, diag_data, ax=axes[1, 0])
+
+        if tr_data["n_multi_residual_streams"] > 0:
+            self.plot_panel_event_lag_acf(dataset, diag_data, ax=axes[1, 1])
+        else:
+            self.plot_panel_survival_curve(dataset, diag_data, ax=axes[1, 1])
+
+        self.plot_panel_residual_acf2d(dataset, diag_data, ax=axes[2, 0])
+        self.plot_panel_fish_dn_distribution(dataset, diag_data, ax=axes[2, 1])
+        self.plot_panel_parameter_correlation(dataset, diag_data, ax=axes[3, 0])
+        self.plot_panel_summary_text(dataset, diag_data, ax=axes[3, 1])
+
+        return fig, diag_data
 
     @property
     def dispersion_r(self) -> float:

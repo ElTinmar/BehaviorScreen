@@ -1,6 +1,5 @@
-from typing import Any, Dict, List, Tuple, Union
+from typing import Optional, Dict, List, Tuple, Union
 
-from matplotlib.figure import Figure
 import numpy as np
 import pandas as pd
 from scipy.special import gammaln
@@ -141,73 +140,96 @@ class GammaMixedEffectsProcess(PointProcess):
             "estimated_gain": g_hat[active],
         })
 
-    def _stream_tau_values(self, dataset: PointProcessDataset) -> Dict[Tuple[int, int], np.ndarray]:
+    def _stream_tau_values(
+        self, dataset: PointProcessDataset
+    ) -> Dict[Tuple[int, int], List[Tuple[float, bool]]]:
         """
-        Correct predictable compensator (see PointProcess._stream_tau_values
-        base docstring for why this override is required at all).
+        Correct predictable compensator for the marginalized shared frailty
+        g_f -- see class docstring for why the base class's default
+        (equivalent to plugging in E[g_f]=1) is invalid here.
 
-        For each fish, walks its OWN observed trials in ascending t_idx
-        order (== chronological order, assuming trial_num reflects actual
-        session order -- guaranteed zero-based/contiguous by
-        PointProcessDataset, but ascending-order-== chronological is not
-        independently verified here), maintaining a running (N_count,
+        Delegates entirely to base_process.stream_compensator_profile per
+        trial, so this is automatically correct whether base_process is
+        recurrent (PoissonProcess/HawkesProcess/RenewalProcess) or terminating
+        (SurvivalProcess) -- no isinstance check needed. Walks each fish's own
+        trials in ascending t_idx order, maintaining a running (N_count,
         S_offset) using only that fish's own history strictly before each
-        event -- unlike _fish_scale_factors (whole-session posterior mean),
-        this never uses information from AFTER the event being rescaled.
-
-        Implementation note: reuses base_process.cumulative_integrated_
-        intensity(t_events, trial) directly, probing it at [this fish's
-        real event times in this trial] + [duration_s]. This works for ANY
-        base process family because that method's existing contract
-        already treats every entry in t_events as potential self/
-        refractory history for later entries in the SAME array --
-        appending duration_s as the last (largest) probe point correctly
-        returns the trial's full exposure integral, using this trial's own
-        real events as history, with no extra base-process-specific logic
-        needed here.
+        probe point.
         """
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
-        _, r = self._split_params(self.params_)  # base_process.params_ already synced by fit()
+        _, r = self._split_params(self.params_)
 
-        result: Dict[Tuple[int, int], np.ndarray] = {}
+        result: Dict[Tuple[int, int], List[Tuple[float, bool]]] = {}
 
         for f_idx in range(dataset.num_fish):
-            S_offset = 0.0   # cumulative baseline exposure from all fully completed prior trials
-            S_prev = 0.0     # absolute cumulative exposure at the last processed reference point
-            N_count = 0      # cumulative event count strictly before the current event
+            S_offset = 0.0
+            S_prev = 0.0
+            N_count = 0
 
             for t_idx in range(dataset.num_trials):
                 if not dataset.fish_trial_mask[f_idx, t_idx]:
-                    continue  # unobserved trial: no exposure, no events -- matches _nll's convention
+                    continue
 
-                mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
-                t_ev = np.sort(dataset.event_times[mask])
-
-                probe_times = np.append(t_ev, dataset.duration_s)
-                cum_within = self.base_process.cumulative_integrated_intensity(
-                    t_events=probe_times, trial=t_idx
+                t_ev = dataset._stream_index.get((f_idx, t_idx), np.array([], dtype=float))
+                probes, cum, last_censored, full_exposure = self.base_process.stream_compensator_profile(
+                    t_ev, t_idx, dataset.duration_s
                 )
 
-                if len(t_ev) > 0:
-                    tau_vals = np.empty(len(t_ev))
-                    for j in range(len(t_ev)):
-                        S_abs = S_offset + cum_within[j]
-                        tau_vals[j] = (r + N_count) * np.log((r + S_abs) / (r + S_prev))
+                pairs: List[Tuple[float, bool]] = []
+                for k, cum_val in enumerate(cum):
+                    S_abs = S_offset + cum_val
+                    censored_here = (k == len(cum) - 1) and last_censored
+                    tau_val = (r + N_count) * np.log((r + S_abs) / (r + S_prev))
+                    pairs.append((float(tau_val), bool(censored_here)))
+                    if not censored_here:
                         N_count += 1
-                        S_prev = S_abs
-                    result[(f_idx, t_idx)] = tau_vals
+                    S_prev = S_abs
 
-                # Full-trial exposure always accrues, even for a trial with
-                # zero real events (cum_within[-1] == integral at
-                # duration_s regardless of len(t_ev)).
-                S_offset += cum_within[-1]
-                S_prev = S_offset  # reset reference point to this trial's end / next trial's start
+                if pairs:
+                    result[(f_idx, t_idx)] = pairs
+
+                S_offset += full_exposure
+                S_prev = S_offset
 
         return result
 
-    def diagnose(self, dataset: PointProcessDataset, *args, **kwargs) -> Tuple[Any, Dict[str, Any]]:
-        return self.base_process.diagnose(dataset, *args, **kwargs)
+    def population_survival_curve(
+        self, dataset: PointProcessDataset, trial: Optional[int] = None,
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Gamma-frailty marginal survival curve S_pop(t) = (r/(r+Lambda(t)))^r
+        (Vaupel, Manton & Stallard 1979) -- NOT exp(-Lambda(t)), which is the
+        curve for a single fish at g_f=1 exactly.
+
+        CAVEAT (documented, not isinstance-guarded, matching this class's
+        existing convention for the mixed_effects_likelihood_terms
+        precondition): only meaningful when base_process has no genuine
+        self-history -- i.e. PoissonProcess or SurvivalProcess base
+        processes, the only ones actually used with this wrapper in this
+        codebase's model_config. Calling this on a HawkesProcess/RenewalProcess
+        base evaluates cumulative_integrated_intensity on an arbitrary time
+        grid as if grid points were real self-exciting history -- don't use
+        that combination.
+        """
+        if self.params_ is None:
+            raise ValueError("Model must be fitted first.")
+        base_params, r = self._split_params(self.params_)
+        self.base_process.params_ = np.asarray(base_params, dtype=float)  # already synced by fit()
+        t_grid = dataset.t_centers
+
+        def _s(tr: int) -> np.ndarray:
+            Lambda_t = self.base_process.cumulative_integrated_intensity(t_grid, tr)
+            return np.power(r / (r + Lambda_t), r)
+
+        if trial is not None:
+            return t_grid, _s(int(trial))
+
+        S_matrix = np.array([_s(tr) for tr in range(dataset.num_trials)])
+        weights = dataset.n_fish_per_trial
+        if weights.sum() == 0:
+            return t_grid, np.mean(S_matrix, axis=0)
+        return t_grid, np.average(S_matrix, axis=0, weights=weights)
 
     @property
     def dispersion_r(self) -> float:
