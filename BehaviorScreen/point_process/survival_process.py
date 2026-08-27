@@ -129,6 +129,42 @@ class SurvivalKernelFactory:
             latex_formula=r"$h(t) = B + H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right)$",
         )
 
+    @staticmethod
+    def survival_dark_flash_pulse() -> RateKernel:
+        """
+        h(t,m) = A * peak_normalized_pulse(t; t_peak, k) * exp(-m/tau_hab) + B
+
+        Same shape as RateKernelFactory.dark_flash_smooth (asymmetric
+        Gamma/alpha-function pulse, NOT a symmetric Gaussian) -- reused
+        directly because the hard_absorption vs. exponential_recovery
+        comparison (same RenewalProcess likelihood scope, repeat-event rate
+        only 0.4%) showed the Gaussian-bump SurvivalProcess losing to
+        dark_flash_smooth by ~1850 AIC almost entirely on hazard SHAPE, not
+        on the survival/absorption assumption itself. A symmetric Gaussian
+        cannot simultaneously match the sharp near-instant rise AND the
+        long slow KM tail -- see empirical Kaplan-Meier curve -- and ends up
+        smeared into an unrealistically wide, early bump. peak_normalized_pulse
+        decouples rise sharpness (k) from peak location (t_peak) and lets B
+        absorb the slow tail, which the Gaussian variant structurally can't do.
+        """
+        def _func(t, trial, params):
+            A, t_peak, k, B, alpha_B, tau_hab = params
+            pulse = peak_normalized_pulse(t, t_peak, k)
+            return A * pulse * np.exp(-trial / tau_hab) + B * np.exp(alpha_B * trial)
+
+        return RateKernel(
+            name="SurvivalDarkFlashPulse",
+            func=_func,
+            param_names=["A", "t_peak", "k", "B", "alpha_B", "tau_habituation"],
+            initial_guesses=[2.2, 0.108, 5.1, 0.02, -0.18, 3.0],
+            bounds=[(0.0, None), (0.005, 2.0), (0.5, 20.0),
+                    (1e-4, 5.0), (-1.0, 1.0), (0.1, 20.0)],
+            latex_formula=(
+                r"$h(t,m) = A \left(\frac{t}{t_{\text{peak}}}\right)^{k}"
+                r"e^{k(1-t/t_{\text{peak}})} e^{-m/\tau_{\text{hab}}} + B e^{\alpha_B m}$"
+            ),
+        )
+
 class SurvivalProcess(PointProcess):
     """
     First-passage-time (right-censored survival) model built on the SAME
