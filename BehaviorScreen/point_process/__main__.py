@@ -518,8 +518,8 @@ for exp_name, config in model_config.items():
     save_fig(fig_diag, model_dir, f"diagnose_{best_model.name}")
 
     # NOTE: this might take a while
-    boot_df = best_model.bootstrap(dataset, n_boot=100)
-    save_csv(boot_df, model_dir, f"bootstrap_{best_model.name}")
+    # boot_df = best_model.bootstrap(dataset, n_boot=100)
+    # save_csv(boot_df, model_dir, f"bootstrap_{best_model.name}")
 
     plt.close('all')
 
