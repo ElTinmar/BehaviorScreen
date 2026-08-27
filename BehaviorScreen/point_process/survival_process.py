@@ -130,7 +130,7 @@ class SurvivalKernelFactory:
         )
 
     @staticmethod
-    def survival_dark_flash_pulse() -> RateKernel:
+    def dark_flash_pulse() -> RateKernel:
         """
         h(t,m) = A * peak_normalized_pulse(t; t_peak, k) * exp(-m/tau_hab) + B
 

@@ -366,6 +366,10 @@ model_config = {
                 SurvivalKernelFactory.gaussian_bump_time_only(), 
                 RenewalKernelFactory.hard_absorption()
             ),
+            RenewalProcess(
+                SurvivalKernelFactory.dark_flash_pulse(), 
+                RenewalKernelFactory.hard_absorption()
+            ),
             GammaMixedEffectsProcess(
                 RenewalProcess(
                     SurvivalKernelFactory.gaussian_bump_time_only(), 
