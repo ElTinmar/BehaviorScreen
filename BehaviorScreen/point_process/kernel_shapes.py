@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.stats import exponnorm
 
 def peak_normalized_pulse(x: np.ndarray, x_peak: float, k: float = 1.0) -> np.ndarray:
     """
@@ -21,3 +22,8 @@ def peak_normalized_pulse(x: np.ndarray, x_peak: float, k: float = 1.0) -> np.nd
 def bounded_trial_scale(trial: np.ndarray, alpha: float) -> np.ndarray:
     """Saturating logistic, always in (0, 2), equal to 1.0 at alpha=0 or trial=0."""
     return 2.0 / (1.0 + np.exp(-alpha * trial))
+
+
+def exgaussian_shape(t, mu, sigma, tau):
+    K = tau / sigma  
+    return exponnorm.pdf(t, K, loc=mu, scale=sigma)

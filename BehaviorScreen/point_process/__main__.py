@@ -182,8 +182,10 @@ model_config = {
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(RateKernelFactory.phototaxis_ipsi()),
+            PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak()),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_ipsi())),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
         ]
     },
 
@@ -200,6 +202,14 @@ model_config = {
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(RateKernelFactory.phototaxis_contra()),
+            RenewalProcess(
+                RateKernelFactory.phototaxis_contra(),
+                RenewalKernelFactory.exponential_excitation()
+            ),
+            HawkesProcess(
+                RateKernelFactory.phototaxis_contra(),
+                HistoryKernelFactory.exponential()
+            ),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_contra()))
         ]
@@ -289,7 +299,31 @@ model_config = {
         'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson()))
+            RenewalProcess(
+                RateKernelFactory.homogeneous_poisson(), 
+                RenewalKernelFactory.exponential_recovery()
+            ),
+            RenewalProcess(
+                RateKernelFactory.homogeneous_poisson(), 
+                RenewalKernelFactory.exponential_excitation()
+            ),
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential()
+            ),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    RenewalKernelFactory.exponential_excitation()
+                )
+            ),
+            GammaMixedEffectsProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                )
+            ),
         ]
     },
 
@@ -345,8 +379,10 @@ model_config = {
             SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
             SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.2, t_bounds=(0.01,1))),
             SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=0.2, t_bounds=(0.01,1))),
+            SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating()),
             GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.2, t_bounds=(0.01,1)))),
             GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=0.2, t_bounds=(0.01,1)))),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
         ]
     },
 }
@@ -474,8 +510,8 @@ for exp_name, config in model_config.items():
     save_fig(fig_diag, model_dir, f"diagnose_{best_model.name}")
 
     # NOTE: this might take a while
-    # boot_df = best_model.bootstrap(dataset, n_boot=100)
-    # save_csv(boot_df, model_dir, f"bootstrap_{best_model.name}")
+    boot_df = best_model.bootstrap(dataset, n_boot=100)
+    save_csv(boot_df, model_dir, f"bootstrap_{best_model.name}")
 
     plt.close('all')
 

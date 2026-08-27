@@ -6,7 +6,7 @@ from scipy.integrate import trapezoid, cumulative_trapezoid
 
 from .dataset import PointProcessDataset
 from .point_process import PointProcess
-from .kernel_shapes import peak_normalized_pulse, bounded_trial_scale
+from .kernel_shapes import exgaussian_shape, bounded_trial_scale
 
 @dataclass(frozen=True)
 class RateKernel:
@@ -471,86 +471,71 @@ class RateKernelFactory:
             initial_guesses=[0.4, 0.5, 0.5],
             bounds=[(0.01, 5.0), (0.0, 0.99), (0.01, 5.0)],
             latex_formula=r"$\lambda(t) = B \left(1 - f_{\text{dip}} e^{-t/\tau_{\text{dip}}}\right)$",
-        )
-            
+        )          
+
     @staticmethod
-    def looming_gaussian(t_critical: float = 5.0) -> RateKernel:
+    def phototaxis_dip_exgaussian_peak(
+            tau_dip_init: float = 1.0, tau_dip_bounds: Tuple[float, float] = (0.05, 5.0),
+            mu_init: float = 0.4, mu_bounds: Tuple[float, float] = (0.001, 3.0),
+            sigma_init: float = 0.15, sigma_bounds: Tuple[float, float] = (0.01, 2.0),
+            tau_decay_init: float = 0.3, tau_decay_bounds: Tuple[float, float] = (0.01, 5.0),
+        ) -> RateKernel:
         """
-        λ(t, m) = B + H·e^(α m)·exp(−(t−μ)²/2σ²)
+        lambda(t,m) = B*exp(alpha_B*m)*(1 - f_dip*exp(-t/tau_dip))
+                    + A_peak*exp(alpha_peak*m) * exGaussian(t; mu, sigma, tau_decay)
 
-        No reparametrization needed -- already conforms to convention.
+        mu/sigma control the onset location/sharpness of the peak
+        (analogous to a Gaussian rise), tau_decay is an independent
+        exponential-tail rate -- as tau_decay -> 0 this collapses toward a
+        symmetric Gaussian peak; as sigma -> 0 it collapses toward a plain
+        exponential decay from t=mu. tau_dip is now free to differ from
+        tau_decay, removing the forced dip/peak timescale coupling.
 
-        Parameters
-        ----------
-        B : Hz. Additive tonic floor (present at all t, unaffected by the
-            burst). Comparable in Hz to other kernels' baseline terms.
-        H : Hz. LITERAL peak height of the burst above B, at t=mu, trial m=0.
-            Directly comparable to dark_flash's A and phototaxis_ipsi's
-            A_peak.
-        mu : seconds. Latency of peak response (not a rate parameter).
-        sigma : seconds. Width (std) of the burst. Not comparable across
-            kernels.
-        alpha : 1/trial (log-scale). Trial-modulation of H only.
+        Numerically stable formulation: computes exp(A - arg**2) * erfcx(arg)
+        instead of exp(A) * erfc(arg) to avoid overflow/underflow when
+        lam/2*(2*mu + lam*sigma**2 - 2*t) is large and positive (i.e. well
+        past the peak, where erfc(arg) underflows before the exponential
+        prefactor overflows).
         """
         def _func(t, trial, params):
-            B, H, alpha, mu, sigma = params
-            height = H * np.exp(alpha * trial)
-            exponent = -0.5 * ((t - mu) / sigma) ** 2
-            return B + (height * np.exp(exponent))
+            (B, f_dip, tau_dip, A_peak, alpha_B, alpha_peak,
+            mu, sigma, tau_decay) = params
+
+            baseline = (
+                B * np.exp(alpha_B * trial)
+                * (1.0 - f_dip * np.exp(-t / tau_dip))
+            )
+            height = A_peak * np.exp(alpha_peak * trial)
+            peak_shape = exgaussian_shape(t, mu, sigma, tau_decay)
+
+            return baseline + height * peak_shape
 
         return RateKernel(
-            name="Looming Gaussian λ(t, m)",
+            name="PhototaxisDipExGaussianPeak",
             func=_func,
-            param_names=["B", "H", "alpha", "mu", "sigma"],
-            initial_guesses=[0.1, 1.2, 0.0, 5.0, 0.1],
-            bounds=[
-                (0.001, 10.0), (0.001, 10.0), (-2.0, 2.0),
-                (t_critical - 1.5, t_critical + 1), (0.001, 3.0)
+            param_names=[
+                "B", "f_dip", "tau_dip", "A_peak", "alpha_B", "alpha_peak",
+                "mu", "sigma", "tau_decay",
             ],
-            latex_formula=r"$\lambda(t, m) = B + H e^{\alpha m} \exp\left(-\frac{(t - \mu)^2}{2\sigma^2}\right)$",
-        )
-
-    @staticmethod
-    def dark_flash_smooth() -> RateKernel:
-        """
-        λ(t, m) = A·pulse(t; t_peak, k)·e^(−m/τ_hab) + B·e^(α_B m)
-        pulse(x; x_peak, k) peak-normalized to 1 at x=x_peak (see kernel_shapes)
-
-        No reparametrization needed for A/B -- already conforms to convention.
-        Renamed tau_decay -> tau_habituation (pure rename, same values/units)
-        to avoid confusion with time-domain tau parameters in other kernels:
-        this tau is in TRIALS, not seconds, and governs how fast the flash
-        burst amplitude A shrinks across the session -- it's a trial-
-        plasticity parameter in disguise, not a within-trial dynamic.
-
-        Parameters
-        ----------
-        A : Hz. LITERAL peak height of the flash-evoked burst, at t=t_peak,
-            trial m=0. Directly comparable to looming's H.
-        t_peak : seconds. Latency to peak.
-        k : dimensionless. Pulse shape/sharpness -- not comparable across
-            kernels.
-        B : Hz. Additive baseline at trial m=0.
-        alpha_B : 1/trial (log-scale). Trial-modulation of B.
-        tau_habituation : TRIALS (not seconds). Time constant for A's decay
-            across the session: A(m) = A * exp(-m / tau_habituation).
-        """
-        def _func(t, trial, params):
-            A, t_peak, k, B, alpha_B, tau_habituation = params
-            time_pulse = peak_normalized_pulse(t, t_peak, k)
-            trial_scale = np.exp(-trial / tau_habituation)
-            baseline = B * np.exp(alpha_B * trial)
-            return A * time_pulse * trial_scale + baseline
-
-        return RateKernel(
-            name="Dark Flash",
-            func=_func,
-            param_names=["A", "t_peak", "k", "B", "alpha_B", "tau_habituation"],
-            initial_guesses=[2.2, 0.108, 5.1, 0.02, -0.18, 3.0],
-            bounds=[(0.0, None), (0.005, 2.0), (0.5, 20.0), (0.001, 10.0), (-1.0, 1.0), (0.1, 20.0)],
+            initial_guesses=[
+                0.3, 0.5, tau_dip_init, 0.3, 0.0, 0.0,
+                mu_init, sigma_init, tau_decay_init,
+            ],
+            bounds=[
+                (1e-4, 20.0),          # B
+                (0.0, 1.0),            # f_dip
+                tau_dip_bounds,        # tau_dip
+                (0.001, 30.0),         # A_peak
+                (-2.0, 2.0),           # alpha_B
+                (-2.0, 2.0),           # alpha_peak
+                mu_bounds,             # mu
+                sigma_bounds,          # sigma
+                tau_decay_bounds,      # tau_decay
+            ],
             latex_formula=(
-                r"$\lambda(t,m) = A \left(\frac{t}{t_{\text{peak}}}\right)^{k}"
-                r"e^{k(1-t/t_{\text{peak}})} e^{-m/\tau_{\text{hab}}} + B e^{\alpha_B m}$"
+                r"$\lambda(t,m) = B e^{\alpha_B m}(1 - f_{\mathrm{dip}} e^{-t/\tau_{\mathrm{dip}}}) "
+                r"+ A_{\mathrm{peak}} e^{\alpha_{\mathrm{peak}} m}\cdot"
+                r"\mathrm{exGauss}(t;\mu,\sigma,\tau_{\mathrm{decay}})$"
             ),
         )
 

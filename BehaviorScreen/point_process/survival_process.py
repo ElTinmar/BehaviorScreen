@@ -3,10 +3,10 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 
-
 from .dataset import PointProcessDataset
 from .point_process import PointProcess
 from .poisson_process import RateKernel
+from .kernel_shapes import bounded_trial_scale, exgaussian_shape
 
 class SurvivalKernelFactory:
 
@@ -84,6 +84,126 @@ class SurvivalKernelFactory:
             bounds=[(0.001, 30.0), t_bounds, (0.005, 3.0), (1e-4, 1.0), (-2.0, 2.0)],
             latex_formula=(
                 r"$h(t,m) = H e^{\alpha m} \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right) + B$"
+            ),
+        )
+
+    @staticmethod
+    def gaussian_bump_baseline_habituating_variable_width(
+            t_init: float = 1,
+            t_bounds: Tuple[float, float] = (0.001, 2),
+        ) -> RateKernel:
+        """
+        h(t,m) = H*exp(alpha*m) * exp(-(t-mu)^2 / (2*sigma(m)^2)) + B
+        sigma(m) = sigma0 * bounded_trial_scale(m, beta_sigma)
+
+        Width changes smoothly and saturates within (0, 2*sigma0) across the
+        session rather than growing/decaying exponentially without bound --
+        matches the alpha_ripple-style saturating design used elsewhere.
+        beta_sigma > 0 => width grows toward 2*sigma0; beta_sigma < 0 => width
+        shrinks toward 0.
+
+        Nest against gaussian_bump_baseline_habituating (LR test on
+        beta_sigma). Check corr(alpha, beta_sigma) in the parameter matrix --
+        height- and width-habituation both reshape the same bump and can
+        trade off, especially with sparse per-trial event counts.
+        """
+        def _func(t, trial, params):
+            H, mu, sigma0, B, alpha, beta_sigma = params
+            height = H * np.exp(alpha * trial)
+            width = sigma0 * bounded_trial_scale(trial, beta_sigma)
+            return height * np.exp(-0.5 * ((t - mu) / width) ** 2) + B
+
+        return RateKernel(
+            name="SurvivalGaussianBump(Baseline_Habituating_VariableWidth)",
+            func=_func,
+            param_names=["H", "mu", "sigma0", "B", "alpha", "beta_sigma"],
+            initial_guesses=[1.0, t_init, 0.1, 0.02, 0.0, 0.0],
+            bounds=[(0.001, 30.0), t_bounds, (0.005, 3.0), (1e-4, 1.0),
+                    (-2.0, 2.0), (-1.0, 1.0)],
+            latex_formula=(
+                r"$h(t,m) = H e^{\alpha m} \exp\left(-\frac{(t-\mu)^2}"
+                r"{2(\sigma_0 \cdot 2/(1+e^{-\beta_\sigma m}))^2}\right) + B$"
+            ),
+        )
+
+    @staticmethod
+    def gamma_pulse_baseline_habituating(
+            tau_init: float = 0.3,
+            tau_bounds: Tuple[float, float] = (0.01, 3.0),
+        ) -> RateKernel:
+        """
+        h(t,m) = H*exp(alpha*m) * (t/tau)*exp(-t/tau) + B
+
+        Right-skewed (Erlang-2) pulse instead of a symmetric Gaussian bump --
+        same param count as gaussian_bump_baseline_habituating (H, tau, B,
+        alpha), but the shape has a heavier tail by construction. Use this
+        if Panel D shows the model survival curve S(t) sitting ABOVE the
+        empirical curve in the tail (model underestimates late hazard) even
+        after variable-width was tried -- that's a signature of a shape
+        mismatch (symmetric vs skewed), not a width mismatch, and no amount
+        of sigma(m) flexibility fixes it.
+
+        Peak location and width are coupled through tau alone (peak at
+        t=tau, "width" ~ tau) rather than being free/independent like
+        (mu, sigma) -- fewer parameters, and the coupling is often more
+        physiologically plausible for a single response process than
+        fitting an independent rise-time and decay-time.
+
+        Non-nested vs the Gaussian-bump family -- compare via AIC/BIC, not
+        an LR test.
+        """
+        def _func(t, trial, params):
+            H, tau, B, alpha = params
+            height = H * np.exp(alpha * trial)
+            pulse = (t / tau) * np.exp(-t / tau)
+            return height * pulse + B
+        return RateKernel(
+            name="SurvivalGammaPulse(Baseline_Habituating)",
+            func=_func,
+            param_names=["H", "tau", "B", "alpha"],
+            initial_guesses=[1.0, tau_init, 0.02, 0.0],
+            bounds=[(0.001, 30.0), tau_bounds, (1e-4, 1.0), (-2.0, 2.0)],
+            latex_formula=r"$h(t,m) = H e^{\alpha m} \frac{t}{\tau} e^{-t/\tau} + B$",
+        )
+
+    @staticmethod
+    def exgaussian_bump_baseline_habituating(
+            mu_init: float = 1.0, mu_bounds=(0.001, 2.0),
+            sigma_init: float = 0.1, sigma_bounds=(0.005, 1.0),
+            tau_init: float = 0.3, tau_bounds=(0.01, 3.0),
+        ) -> RateKernel:
+        """
+        h(t,m) = H*exp(alpha*m) * exGaussian(t; mu, sigma, tau) + B
+
+        exGaussian = Gaussian(mu, sigma) convolved with Exponential(tau):
+        a sharp, roughly-Gaussian onset (mu, sigma control rise) plus an
+        independent exponential right tail (tau controls how slowly hazard
+        decays after the peak). This decouples "when/how sharp is onset"
+        from "how heavy is the tail" -- the gaussian_bump family conflates
+        both into sigma alone, which is why widening sigma to fit the tail
+        also blurs the peak.
+
+        One parameter more than gaussian_bump_baseline_habituating. Only
+        justify over gamma_pulse_baseline_habituating if the extra
+        parameter earns its keep in AIC/BIC AND resolves the Panel B/D tail
+        residual -- with ~700 exact events, prefer the gamma-pulse version
+        unless this one is clearly better.
+        """
+        def _func(t, trial, params):
+            H, mu, sigma, tau, B, alpha = params
+            height = H * np.exp(alpha * trial)
+            peak_shape = exgaussian_shape(t, mu, sigma, tau)
+            return B + height * peak_shape
+        
+        return RateKernel(
+            name="SurvivalExGaussianBump(Baseline_Habituating)",
+            func=_func,
+            param_names=["H", "mu", "sigma", "tau", "B", "alpha"],
+            initial_guesses=[1.0, mu_init, sigma_init, tau_init, 0.02, 0.0],
+            bounds=[(0.001, 30.0), mu_bounds, sigma_bounds, tau_bounds,
+                    (1e-4, 1.0), (-2.0, 2.0)],
+            latex_formula=(
+                r"$h(t,m) = H e^{\alpha m}\cdot\mathrm{exGauss}(t;\mu,\sigma,\tau) + B$"
             ),
         )
 
