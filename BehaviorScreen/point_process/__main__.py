@@ -15,6 +15,7 @@ from BehaviorScreen.point_process.poisson_process import RateKernelFactory, Pois
 from BehaviorScreen.point_process.hawkes_process import HistoryKernelFactory, HawkesProcess
 from BehaviorScreen.point_process.renewal_process import RenewalKernelFactory, RenewalProcess
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
+from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
 
 def slugify(name: str) -> str:
     """Turn an arbitrary model/condition name into a filesystem-safe filename fragment."""
@@ -360,7 +361,12 @@ model_config = {
                     RateKernelFactory.dark_flash_smooth(),
                     RenewalKernelFactory.exponential_recovery()
                 ),
-            )
+            ),
+            SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_time_only()),
+            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_habituating()),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_time_only())),
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_habituating())),
         ]
     },
 }
