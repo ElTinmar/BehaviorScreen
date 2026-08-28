@@ -1,9 +1,3 @@
-"""
-Orchestration script. Reuses the SAME frozen model architecture per behavior
-that you already selected via ModelComparator.compare() in your main script's
-Phase 3 -- fill in BEHAVIOR_PROCESS_FACTORY below with the winning family per
-behavior (a zero-arg callable that returns a *fresh, unfit* PointProcess).
-"""
 from pathlib import Path
 import pandas as pd
 from BehaviorScreen.core import Stim, Laterality
