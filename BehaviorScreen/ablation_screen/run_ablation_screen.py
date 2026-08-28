@@ -6,10 +6,13 @@ behavior (a zero-arg callable that returns a *fresh, unfit* PointProcess).
 """
 from pathlib import Path
 import pandas as pd
+from BehaviorScreen.core import Stim, Laterality
 
 from BehaviorScreen.point_process.dataset import BehavioralDataLoader
-from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory
+from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory, PreyCapture
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
+from BehaviorScreen.point_process.renewal_process import RenewalKernel, RenewalKernelFactory
+from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
 
 from BehaviorScreen.ablation_screen.tier0_screen import run_tier0_screen
@@ -25,20 +28,177 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 # 1. Frozen architecture per behavior -- fill in from your Phase-3 winners.
 #    Must be zero-arg factories (fresh instance each call).
 # ---------------------------------------------------------------------------
+
+prey_stim_speed_deg_per_s = 90
+prey_stim_range_deg = 2 * 70
+prey_stim_freq = prey_stim_speed_deg_per_s / prey_stim_range_deg
+
 DATASET_CONFIGS = {
-    "phototaxis_contra": {"stim": "phototaxis", "bout_name": "RT", "laterality": "contra",
-                           "binning_dt": 0.05, "t_start": 0.0, "t_end": 24.0},
-    "looming_ipsi": {"stim": "looming", "bout_name": "SLC", "laterality": "ipsi",
-                      "binning_dt": 0.05, "t_start": 0.0, "t_end": 9.0},
-    # ... one entry per behavior in your model_config
+
+    'prey_capture_ipsi': {
+        'stim': Stim.PREY_CAPTURE,
+        'bout_name': 'JT',
+        'laterality': Laterality.IPSILATERAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 24.0,
+    },
+
+    'prey_capture_contra': {
+        'stim': Stim.PREY_CAPTURE,
+        'bout_name': 'JT',
+        'laterality': Laterality.CONTRALATERAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 24.0,
+    },
+
+    'phototaxis_ipsi': {
+        'stim': Stim.PHOTOTAXIS,
+        'bout_name': 'RT',
+        'laterality': Laterality.IPSILATERAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 24.0,
+    },
+
+    'phototaxis_contra': {
+        'stim': Stim.PHOTOTAXIS,
+        'bout_name': 'RT',
+        'laterality': Laterality.CONTRALATERAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 24.0,
+    },
+
+    'omr_lateral_ipsi': {
+        'epoch_name': ["grating right", "grating left"],
+        'bout_name': 'RT',
+        'laterality': Laterality.IPSILATERAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 9.0,
+    },
+
+    'omr_lateral_contra': {
+        'epoch_name': ["grating right", "grating left"],
+        'bout_name': 'RT',
+        'laterality': Laterality.CONTRALATERAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 9.0,
+    },
+
+    'omr_forward': {
+        'epoch_name': "grating forward",
+        'bout_name': 'BS',
+        'laterality': Laterality.NONDIRECTIONAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 9.0,
+    },
+
+    'okr_ipsi': {
+        'stim': Stim.OKR,
+        'bout_name': 'S1',
+        'laterality': Laterality.IPSILATERAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 9.0,
+    },
+
+    'okr_contra': {
+        'stim': Stim.OKR,
+        'bout_name': 'S1',
+        'laterality': Laterality.CONTRALATERAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 9.0,
+    },
+
+    'looming_ipsi': {
+        'stim': Stim.LOOMING,
+        'bout_name': 'SLC',
+        'laterality': Laterality.IPSILATERAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 9.0,
+    },
+
+    'looming_contra': {
+        'stim': Stim.LOOMING,
+        'bout_name': 'SLC',
+        'laterality': Laterality.CONTRALATERAL,
+        'binning_dt': 0.05,
+        't_start': 0.0,
+        't_end': 9.0,
+    },
+
+    'dark_flash': {
+        'epoch_name': "flash dark",
+        'bout_name': 'O',
+        'laterality': Laterality.NONDIRECTIONAL,
+        'binning_dt': 0.025,
+        't_start': 0.0,
+        't_end': 5.0,
+    },
 }
 
 BEHAVIOR_PROCESS_FACTORY = {
-    "phototaxis_contra": lambda: PoissonProcess(RateKernelFactory.phototaxis_contra()),
-    "looming_ipsi": lambda: SurvivalProcess(
-        SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6))
+
+    'prey_capture_ipsi': lambda: GammaMixedEffectsProcess(
+        PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
     ),
-    # ... one entry per behavior
+
+    'prey_capture_contra': lambda: GammaMixedEffectsProcess(
+        PoissonProcess(RateKernelFactory.homogeneous_poisson())
+    ),
+
+    'phototaxis_ipsi': lambda: GammaMixedEffectsProcess(
+        PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())
+    ),
+
+    'phototaxis_contra': lambda: GammaMixedEffectsProcess(
+        PoissonProcess(RateKernelFactory.phototaxis_contra())
+    ),
+
+    'omr_lateral_ipsi': lambda: GammaMixedEffectsProcess(
+        PoissonProcess(RateKernelFactory.homogeneous_poisson())
+    ),
+
+    'omr_lateral_contra': lambda: GammaMixedEffectsProcess(
+        PoissonProcess(RateKernelFactory.omr_lateral_contra())
+    ),
+
+    'omr_forward': lambda: GammaMixedEffectsProcess(
+        PoissonProcess(RateKernelFactory.omr_forward())
+    ),
+
+    'okr_ipsi': lambda: GammaMixedEffectsProcess(
+        PoissonProcess(RateKernelFactory.homogeneous_poisson())
+    ),
+
+    'okr_contra': lambda: GammaMixedEffectsProcess(
+        PoissonProcess(RateKernelFactory.homogeneous_poisson())
+    ),
+
+    'looming_ipsi': lambda: GammaMixedEffectsProcess(
+        SurvivalProcess(
+            SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6))
+        )
+    ),
+
+    'looming_contra': lambda: GammaMixedEffectsProcess(
+        SurvivalProcess(
+            SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6))
+        )
+    ),
+
+    'dark_flash': lambda: GammaMixedEffectsProcess(
+        SurvivalProcess(
+            SurvivalKernelFactory.exgaussian_bump_baseline_habituating()
+        )
+    ),
 }
 
 BEHAVIORS = list(DATASET_CONFIGS.keys())
@@ -49,7 +209,7 @@ BEHAVIORS = list(DATASET_CONFIGS.keys())
 loader = BehavioralDataLoader(Path("/home/martin/bouts_all.csv"))  # full dataset incl. treated lines
 
 all_lines = sorted(loader.raw_df["line"].astype(str).unique())
-STRAIGHT_MUTANTS = {"lakritz", "gr", "mecp2"}  # adjust to your actual line names
+STRAIGHT_MUTANTS = {"lakritz", "gr", "mecp2", "cort"}  # adjust to your actual line names
 NTR_LINES = [l for l in all_lines if l not in STRAIGHT_MUTANTS and l != "WT"]
 
 LINE_LABELS = {"WT": ("danieau", "ronidazole")}  # everyone else defaults to (vehicle, ronidazole)
