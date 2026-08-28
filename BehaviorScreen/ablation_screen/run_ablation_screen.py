@@ -46,9 +46,9 @@ BEHAVIORS = list(DATASET_CONFIGS.keys())
 # ---------------------------------------------------------------------------
 # 2. Load data, define line list, condition-label conventions.
 # ---------------------------------------------------------------------------
-loader = BehavioralDataLoader(Path("/path/to/bouts.csv"))  # full dataset incl. treated lines
+loader = BehavioralDataLoader(Path("/home/martin/bouts_all.csv"))  # full dataset incl. treated lines
 
-all_lines = sorted(loader.raw_df["line"].unique())
+all_lines = sorted(loader.raw_df["line"].astype(str).unique())
 STRAIGHT_MUTANTS = {"lakritz", "gr", "mecp2"}  # adjust to your actual line names
 NTR_LINES = [l for l in all_lines if l not in STRAIGHT_MUTANTS and l != "WT"]
 
