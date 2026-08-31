@@ -215,7 +215,7 @@ NULL_PROCESS_FACTORY = {
 
 BEHAVIORS = list(DATASET_CONFIGS.keys())
 all_lines = sorted(loader.raw_df["line"].unique())
-STRAIGHT_MUTANTS = {"lakritz", "gr", "mecp2", "cort"}
+STRAIGHT_MUTANTS = {"lakritz", "gr", "mecp2", "cort", "wik", "AB"}
 NTR_LINES = [l for l in all_lines if l not in STRAIGHT_MUTANTS and l != "WT"]
 LINE_LABELS = {"WT": ("danieau", "ronidazole")}
 
