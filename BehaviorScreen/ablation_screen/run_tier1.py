@@ -222,11 +222,32 @@ LINE_LABELS = {"WT": ("danieau", "ronidazole")}
 # ===========================================================================
 # Step 1: single-cell smoke test BEFORE the full batch
 # ===========================================================================
-print("Smoke test: one line, one behavior...")
-smoke_line, smoke_behavior = NTR_LINES[0], BEHAVIORS[0]
-ds_veh = safe_prepare_dataset(subset_loader(loader, smoke_line, ["vehicle"]), DATASET_CONFIGS[smoke_behavior])
-ds_drug = safe_prepare_dataset(subset_loader(loader, smoke_line, ["ronidazole"]), DATASET_CONFIGS[smoke_behavior])
-assert ds_veh is not None and ds_drug is not None, "Smoke test failed at data loading."
+
+def find_first_valid_cell(loader, lines, behaviors, dataset_configs, line_labels, default_labels):
+    """Scans lines x behaviors for the first cell with non-empty vehicle AND
+    drug datasets, instead of assuming lines[0]/behaviors[0] has data."""
+    for line in lines:
+        veh_label, drug_label = line_labels.get(line, default_labels)
+        for behavior in behaviors:
+            ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_configs[behavior])
+            ds_drug = safe_prepare_dataset(subset_loader(loader, line, [drug_label]), dataset_configs[behavior])
+            if ds_veh is not None and ds_drug is not None and ds_veh.num_fish >= 3 and ds_drug.num_fish >= 3:
+                return line, behavior, ds_veh, ds_drug
+    return None, None, None, None
+
+
+print("Smoke test: scanning for first valid (line, behavior) cell...")
+smoke_line, smoke_behavior, ds_veh, ds_drug = find_first_valid_cell(
+    loader, NTR_LINES + ["WT"], BEHAVIORS, DATASET_CONFIGS, LINE_LABELS, ("vehicle", "ronidazole")
+)
+if smoke_line is None:
+    raise RuntimeError(
+        "No (line, behavior) cell has both non-empty vehicle and drug data with >=3 fish each. "
+        "Check DATASET_CONFIGS filters (stim/epoch_name/laterality) against loader.raw_df contents "
+        "before proceeding -- this indicates a config mismatch, not just sparse individual lines."
+    )
+print(f"Using {smoke_line}/{smoke_behavior} for smoke test "
+      f"(n_veh={ds_veh.num_fish}, n_drug={ds_drug.num_fish})")
 deviance, m_veh, m_drug, m_pooled = fit_tier1(BEHAVIOR_PROCESS_FACTORY[smoke_behavior], ds_veh, ds_drug)
 print(f"Smoke test OK: deviance={deviance:.3f}, LL_veh={m_veh.log_likelihood:.2f}, LL_drug={m_drug.log_likelihood:.2f}")
 
