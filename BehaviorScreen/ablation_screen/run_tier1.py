@@ -5,6 +5,7 @@ NULL_PROCESS_FACTORY from your Phase-3 model_config winners before running.
 from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
+from tqdm import tqdm
 
 from BehaviorScreen.core import Stim, Laterality
 
@@ -24,7 +25,9 @@ import numpy as np
 OUTPUT_DIR = Path("./tier1_results")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
-loader = BehavioralDataLoader(Path("/home/martin/bouts_all.csv"))
+ROOT = Path('/media/martin/DATA_18TB/Screen')
+#ROOT = Path('/home/martin')
+loader = BehavioralDataLoader(ROOT / "bouts_all.csv")
 
 prey_stim_speed_deg_per_s = 90
 prey_stim_range_deg = 2 * 70
@@ -288,7 +291,7 @@ for behavior in BEHAVIORS:
     if ds_wt is None or ds_wt.num_fish < 10:
         continue
     null_ps = []
-    for seed in range(100):
+    for seed in tqdm(range(500)):
         rng = np.random.default_rng(seed)
         perm = rng.permutation(ds_wt.num_fish)
         half = ds_wt.num_fish // 2
