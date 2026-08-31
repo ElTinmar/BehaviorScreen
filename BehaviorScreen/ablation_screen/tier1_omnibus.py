@@ -1,69 +1,190 @@
 """
-Tier 1: per (line, behavior) omnibus LR test -- "does ablation change
-anything about this readout", using the FROZEN model architecture chosen
-once on the pooled control data (do not re-run model selection per line).
+Tier 1: omnibus test -- "does ablation change anything for this line and
+behavior" -- via three ordinary, low-dimensional fits (vehicle-only,
+drug-only, pooled) and a PERMUTATION test on the resulting deviance
+statistic (not the asymptotic chi-square LRT, given small-sample concerns
+at typical line_vehicle/line_drug arm sizes).
+
+No MultiGroupProcess needed for this saturated 2-group comparison --
+vehicle-only + drug-only IS the saturated joint model, at lower
+dimensionality and with no risk of the optimizer fragility seen in the
+originally-attempted joint fits.
 """
-from typing import Callable, Dict, List, Optional
+import math
+from typing import Callable, Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
 import joblib
 
-from BehaviorScreen.point_process.point_process import ModelComparator
-from .multi_group_process import GroupSpec, MultiGroupProcess
-from .dataset_utils import subset_loader, safe_prepare_dataset
+from BehaviorScreen.point_process.point_process import PointProcess
+from BehaviorScreen.point_process.dataset import PointProcessDataset
+
+from .dataset_ops import pool_fish, select_fish
+from .dataset_utils import subset_loader, safe_prepare_dataset, per_fish_summary, compare_fish_metric
+from .arm_contrast import output_metric
+from .model_qc import assess_group_fit
+
+# Behavior-specific minimum total-event floor. Fish count is the WRONG
+# denominator for point-process/survival identifiability -- total events
+# (or uncensored first-responses) is what actually matters. Survival-style,
+# low-base-rate behaviors need a much stricter floor.
+DEFAULT_MIN_EVENTS = 40
+MIN_EVENTS_BY_BEHAVIOR: Dict[str, int] = {
+    "looming_ipsi": 15, "looming_contra": 15, "dark_flash": 15,
+}
 
 
-def fit_two_group_omnibus(base_process_factory: Callable, ds_a, ds_b,
-                           name_a="group_a", name_b="group_b"):
-    groups = [GroupSpec(name_a, ds_a, {}), GroupSpec(name_b, ds_b, {"drug": 1.0})]
-    model_null = MultiGroupProcess(base_process_factory(), groups, covariate_names=[])
-    model_alt = MultiGroupProcess(base_process_factory(), groups, covariate_names=["drug"])
-    model_null.fit()
-    model_alt.fit()
-    lr = ModelComparator.likelihood_ratio_test(model_null, model_alt)
-    return lr, model_null, model_alt
+def _total_events(dataset: PointProcessDataset) -> int:
+    return int(dataset.stream_event_counts.sum()) if len(dataset.stream_event_counts) else 0
 
 
-def _tier1_one(line, behavior, dataset_config, base_process_factory, loader,
-                veh_label, drug_label, min_fish=3):
+def fit_tier1(process_factory: Callable[[], PointProcess],
+              ds_veh: PointProcessDataset, ds_drug: PointProcessDataset
+              ) -> Tuple[float, PointProcess, PointProcess, PointProcess]:
+    """Three independent fits; deviance = 2*(LL_independent - LL_pooled),
+    exactly the saturated-2-group joint-model comparison at lower
+    dimensionality (mathematically identical target, see module docstring)."""
+    m_veh = process_factory(); m_veh.fit(ds_veh)
+    m_drug = process_factory(); m_drug.fit(ds_drug)
+    m_pooled = process_factory(); m_pooled.fit(pool_fish(ds_veh, ds_drug))
+
+    deviance = max(0.0, 2.0 * ((m_veh.log_likelihood + m_drug.log_likelihood) - m_pooled.log_likelihood))
+    return deviance, m_veh, m_drug, m_pooled
+
+
+def tier1_permutation_test(
+    process_factory: Callable[[], PointProcess],
+    ds_veh: PointProcessDataset, ds_drug: PointProcessDataset,
+    observed_deviance: Optional[float] = None,
+    n_perm: int = 500, seed: int = 0, n_jobs: int = -1,
+) -> Dict:
+    if observed_deviance is None:
+        observed_deviance, *_ = fit_tier1(process_factory, ds_veh, ds_drug)
+
+    pooled = pool_fish(ds_veh, ds_drug)
+    n_veh = ds_veh.num_fish
+    n_distinct = math.comb(pooled.num_fish, n_veh)
+    seeds = np.random.SeedSequence(seed).spawn(n_perm)
+
+    def _one(s):
+        rng = np.random.default_rng(s)
+        perm = rng.permutation(pooled.num_fish)
+        try:
+            d, *_ = fit_tier1(process_factory,
+                               select_fish(pooled, perm[:n_veh]), select_fish(pooled, perm[n_veh:]))
+            return d
+        except Exception:
+            return None
+
+    results = joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(_one)(s) for s in seeds)
+    null_dist = np.array([v for v in results if v is not None])
+    n_failed = n_perm - len(null_dist)
+
+    if len(null_dist) < max(20, 0.3 * n_perm):
+        return {"observed_deviance": observed_deviance, "p_value": np.nan,
+                "n_perm_success": len(null_dist), "n_perm_failed": n_failed,
+                "n_distinct_permutations": n_distinct, "p_value_floor": 1.0 / (n_distinct + 1),
+                "permutation_unreliable": True}
+
+    p = (np.sum(null_dist >= observed_deviance) + 1) / (len(null_dist) + 1)
+    return {"observed_deviance": observed_deviance, "p_value": float(p),
+            "n_perm_success": len(null_dist), "n_perm_failed": n_failed,
+            "n_distinct_permutations": n_distinct, "p_value_floor": 1.0 / (n_distinct + 1),
+            "permutation_unreliable": False}
+
+
+def tier1_effect_size(m_veh: PointProcess, ds_veh: PointProcessDataset,
+                       m_drug: PointProcess, ds_drug: PointProcessDataset,
+                       eps: float = 1e-3) -> Dict:
+    val_veh, name = output_metric(m_veh, ds_veh)
+    val_drug, _ = output_metric(m_drug, ds_drug)
+    return {
+        "metric_name": name, "metric_vehicle": val_veh, "metric_drug": val_drug,
+        "log2_fold_change": float(np.log2((val_drug + eps) / (val_veh + eps))),
+    }
+
+
+def _tier1_one(
+    line: str, behavior: str, dataset_config: dict,
+    base_process_factory: Callable[[], PointProcess],
+    null_process_factory: Callable[[], PointProcess],
+    loader, veh_label: str, drug_label: str,
+    min_fish: int = 3, n_perm: int = 500,
+) -> Dict:
     ctx = f"{line}/{behavior}"
     ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_config, ctx + "/veh")
     ds_drug = safe_prepare_dataset(subset_loader(loader, line, [drug_label]), dataset_config, ctx + "/drug")
 
-    if ds_veh is None or ds_drug is None or ds_veh.num_fish < min_fish or ds_drug.num_fish < min_fish:
+    if ds_veh is None or ds_drug is None:
         return {"line": line, "behavior": behavior, "status": "skipped_insufficient_data", "p_value": np.nan}
+    if ds_veh.num_fish < min_fish or ds_drug.num_fish < min_fish:
+        return {"line": line, "behavior": behavior, "status": "skipped_insufficient_data", "p_value": np.nan}
+    if ds_veh.num_trials != ds_drug.num_trials:
+        return {"line": line, "behavior": behavior, "status": "skipped_trial_count_mismatch", "p_value": np.nan}
 
+    min_events = MIN_EVENTS_BY_BEHAVIOR.get(behavior, DEFAULT_MIN_EVENTS)
+    total_events = _total_events(ds_veh) + _total_events(ds_drug)
+    if total_events < min_events:
+        return {"line": line, "behavior": behavior, "status": "skipped_insufficient_information",
+                "total_events": total_events, "min_events_required": min_events, "p_value": np.nan}
+
+    # --- Model QC gate on each arm before trusting any comparison ---
+    qc_veh = assess_group_fit(base_process_factory, null_process_factory, ds_veh, line, behavior, "vehicle",
+                               min_fish=min_fish)
+    qc_drug = assess_group_fit(base_process_factory, null_process_factory, ds_drug, line, behavior, "drug",
+                                min_fish=min_fish)
+
+    if qc_veh.verdict == "flagged" or qc_drug.verdict == "flagged":
+        fallback_records = []
+        try:
+            sum_veh, sum_drug = per_fish_summary(ds_veh), per_fish_summary(ds_drug)
+            for metric in ["rate_hz", "response_prob", "mean_first_latency_s"]:
+                fallback_records.append(compare_fish_metric(sum_veh, sum_drug, metric))
+        except Exception:
+            pass
+        return {
+            "line": line, "behavior": behavior, "status": "flagged_architecture_collapse",
+            "qc_reasons_vehicle": qc_veh.reasons_flagged, "qc_reasons_drug": qc_drug.reasons_flagged,
+            "fallback_tier0": fallback_records, "p_value": np.nan,
+        }
+
+    # --- Real fit + permutation test ---
     try:
-        lr, _, _ = fit_two_group_omnibus(base_process_factory, ds_veh, ds_drug, "vehicle", "ronidazole")
-    except RuntimeError as e:
-        return {"line": line, "behavior": behavior, "status": f"fit_failed: {e}", "p_value": np.nan}
+        observed_deviance, m_veh, m_drug, m_pooled = fit_tier1(base_process_factory, ds_veh, ds_drug)
+    except Exception as e:
+        return {"line": line, "behavior": behavior, "status": f"fit_failed: {type(e).__name__}: {e}",
+                "p_value": np.nan}
+
+    perm = tier1_permutation_test(base_process_factory, ds_veh, ds_drug,
+                                   observed_deviance=observed_deviance, n_perm=n_perm)
+    eff = tier1_effect_size(m_veh, ds_veh, m_drug, ds_drug)
 
     return {
         "line": line, "behavior": behavior, "status": "ok",
         "n_fish_veh": ds_veh.num_fish, "n_fish_drug": ds_drug.num_fish,
-        "ll_null": lr["LL Null"], "ll_alt": lr["LL Alt"],
-        "deviance": lr["Deviance (2*ΔLL)"], "df": lr["Δk (df)"],
-        "p_value": lr["p-value"],
+        "total_events": total_events,
+        **perm, **eff,
     }
 
 
 def run_tier1_screen(
-    loader,
-    lines: List[str],
-    behaviors: List[str],
+    loader, lines: List[str], behaviors: List[str],
     dataset_configs: Dict[str, dict],
-    base_process_factories: Dict[str, Callable],
-    line_labels: Optional[Dict[str, tuple]] = None,
-    default_labels: tuple = ("vehicle", "ronidazole"),
-    n_jobs: int = -1,
+    base_process_factories: Dict[str, Callable[[], PointProcess]],
+    null_process_factories: Dict[str, Callable[[], PointProcess]],
+    line_labels: Optional[Dict[str, Tuple[str, str]]] = None,
+    default_labels: Tuple[str, str] = ("vehicle", "ronidazole"),
+    n_jobs: int = -1, n_perm: int = 500,
 ) -> pd.DataFrame:
     line_labels = line_labels or {}
     jobs = [(line, behavior) for line in lines for behavior in behaviors]
 
     records = joblib.Parallel(n_jobs=n_jobs)(
         joblib.delayed(_tier1_one)(
-            line, behavior, dataset_configs[behavior], base_process_factories[behavior],
-            loader, *line_labels.get(line, default_labels)
+            line, behavior, dataset_configs[behavior],
+            base_process_factories[behavior], null_process_factories[behavior],
+            loader, *line_labels.get(line, default_labels), n_perm=n_perm,
         )
         for line, behavior in jobs
     )

@@ -24,6 +24,11 @@ def benjamini_hochberg(pvals: np.ndarray) -> np.ndarray:
 
 def add_fdr(df: pd.DataFrame, pval_col: str = "p_value", alpha: float = 0.05, prefix: str = "") -> pd.DataFrame:
     df = df.copy()
+    if pval_col not in df.columns:
+        raise KeyError(
+            f"add_fdr: expected column '{pval_col}' not found in DataFrame with "
+            f"columns {list(df.columns)} -- did the upstream tier actually produce rows?"
+        )
     df[f"{prefix}q_value"] = benjamini_hochberg(df[pval_col].values)
     df[f"{prefix}significant"] = df[f"{prefix}q_value"] < alpha
     return df
