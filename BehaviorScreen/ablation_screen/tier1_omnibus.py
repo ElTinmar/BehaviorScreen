@@ -16,6 +16,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 import joblib
+from tqdm import tqdm
+import contextlib
 
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.dataset import PointProcessDataset
@@ -168,19 +170,34 @@ def _tier1_one(
     }
 
 
+@contextlib.contextmanager
+def tqdm_joblib(tqdm_object):
+    """Patches joblib to report progress into a tqdm bar. Standard recipe --
+    joblib has no native tqdm hook, so this intercepts the batch-completion
+    callback."""
+    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
+        def __call__(self, *args, **kwargs):
+            tqdm_object.update(n=self.batch_size)
+            return super().__call__(*args, **kwargs)
+
+    old_callback = joblib.parallel.BatchCompletionCallBack
+    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
+    try:
+        yield tqdm_object
+    finally:
+        joblib.parallel.BatchCompletionCallBack = old_callback
+        tqdm_object.close()
+
 def run_tier1_screen(
-    loader, lines: List[str], behaviors: List[str],
-    dataset_configs: Dict[str, dict],
-    base_process_factories: Dict[str, Callable[[], PointProcess]],
-    null_process_factories: Dict[str, Callable[[], PointProcess]],
-    line_labels: Optional[Dict[str, Tuple[str, str]]] = None,
-    default_labels: Tuple[str, str] = ("vehicle", "ronidazole"),
-    n_jobs: int = -1, n_perm: int = 500,
+    loader, lines, behaviors, dataset_configs,
+    base_process_factories, null_process_factories,
+    line_labels=None, default_labels=("vehicle", "ronidazole"),
+    n_jobs=-1, n_perm=500, show_progress=True,
 ) -> pd.DataFrame:
     line_labels = line_labels or {}
     jobs = [(line, behavior) for line in lines for behavior in behaviors]
 
-    records = joblib.Parallel(n_jobs=n_jobs)(
+    task_iter = (
         joblib.delayed(_tier1_one)(
             line, behavior, dataset_configs[behavior],
             base_process_factories[behavior], null_process_factories[behavior],
@@ -188,4 +205,11 @@ def run_tier1_screen(
         )
         for line, behavior in jobs
     )
+
+    if show_progress:
+        with tqdm_joblib(tqdm(total=len(jobs), desc="Tier 1", unit="cell")):
+            records = joblib.Parallel(n_jobs=n_jobs)(task_iter)
+    else:
+        records = joblib.Parallel(n_jobs=n_jobs)(task_iter)
+
     return pd.DataFrame(records)
