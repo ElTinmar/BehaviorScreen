@@ -36,9 +36,10 @@ class BoundedLink:
     lo: Optional[float]
     hi: Optional[float]
     eps: float = 1e-6
+    clip: float = 50.0
 
     def to_natural(self, x: float) -> float:
-        x = float(x)
+        x = float(np.clip(x, -self.clip, self.clip))
         if self.lo is not None and self.hi is not None:
             return self.lo + (self.hi - self.lo) / (1.0 + np.exp(-x))
         elif self.lo is not None:
