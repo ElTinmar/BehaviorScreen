@@ -255,9 +255,9 @@ class PointProcessDataset:
                 boot_fish.append(np.full(np.sum(mask), new_id, dtype=int))
 
         return PointProcessDataset(
-            event_times=np.concatenate(boot_times) if boot_times else np.array([]),
-            event_trials_idx=np.concatenate(boot_trials) if boot_trials else np.array([]),
-            event_fish_idx=np.concatenate(boot_fish) if boot_fish else np.array([]),
+            event_times=np.concatenate(boot_times) if boot_times else np.array([], dtype=float),
+            event_trials_idx=np.concatenate(boot_trials) if boot_trials else np.array([], dtype=int),
+            event_fish_idx=np.concatenate(boot_fish) if boot_fish else np.array([], dtype=int),
             fish_trial_mask=self.fish_trial_mask[boot_fish_idx, :],
             duration_s=self.duration_s,
             binning_dt=self.binning_dt,
