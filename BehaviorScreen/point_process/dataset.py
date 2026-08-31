@@ -295,6 +295,13 @@ class BehavioralDataLoader:
         else:
             raise ValueError("Either 'stim' or 'epoch_name' must be provided to filter dataset.")
 
+        if sub_df.empty:
+            raise ValueError(
+                f"No rows remain after filtering by stim/epoch_name "
+                f"(stim={stim!r}, epoch_name={epoch_name!r}) -- check that this "
+                f"line/condition combination was actually run under this stimulus."
+            )
+
         # 2. Extract metadata & build integer index mappings
         all_fish_ids = np.sort(sub_df['file'].unique())
         unique_trials = np.sort(sub_df['trial_num'].unique()) 
