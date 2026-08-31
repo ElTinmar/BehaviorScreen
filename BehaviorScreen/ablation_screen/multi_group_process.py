@@ -95,9 +95,12 @@ class MultiGroupProcess(PointProcess):
             total += self.base_process._nll(natural, group.dataset)
         return total
 
-    def fit(self, method: str = "L-BFGS-B", **kwargs):
+    def fit(self, method: str = "L-BFGS-B", options: Optional[dict] = None, **kwargs):
         # dataset is irrelevant here -- each group carries its own; pass None
-        return super().fit(dataset=None, method=method, **kwargs)
+        options = dict(options or {})
+        options.setdefault("maxfun", 50000)
+        options.setdefault("maxiter", 20000)
+        return super().fit(dataset=None, method=method, options=options, **kwargs)
 
     def group_params(self, group_name: str) -> Dict[str, float]:
         if self.params_ is None:
