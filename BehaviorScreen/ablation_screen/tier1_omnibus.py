@@ -192,7 +192,7 @@ def run_tier1_screen(
     loader, lines, behaviors, dataset_configs,
     base_process_factories, null_process_factories,
     line_labels=None, default_labels=("vehicle", "ronidazole"),
-    n_jobs=-1, n_perm=500, show_progress=True,
+    n_jobs=1, n_perm=500, show_progress=True,
 ) -> pd.DataFrame:
     line_labels = line_labels or {}
     jobs = [(line, behavior) for line in lines for behavior in behaviors]
