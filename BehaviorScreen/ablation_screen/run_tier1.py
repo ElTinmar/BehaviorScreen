@@ -1,234 +1,243 @@
 """
-Tier 1 end-to-end run. Fill in DATASET_CONFIGS / BEHAVIOR_PROCESS_FACTORY /
-NULL_PROCESS_FACTORY from your Phase-3 model_config winners before running.
+Tier 1 end-to-end run. BEHAVIOR_CONFIG is the single source of truth: one
+entry per behavior with its dataset filter, the (already partially-fixed)
+architecture factory, and the null model. Shape parameters are pinned
+directly in each 'architecture' lambda via PartiallyFixedProcess, using
+values already fitted on the Phase-3 pooled-vehicle population -- no
+runtime computation needed, so they're just constants written in here.
 """
 from pathlib import Path
 import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import numpy as np
 
 from BehaviorScreen.core import Stim, Laterality
-
 from BehaviorScreen.point_process.dataset import BehavioralDataLoader
 from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory, PreyCapture
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
 
-from BehaviorScreen.ablation_screen.tier1_omnibus import run_tier1_screen
+from BehaviorScreen.ablation_screen.partially_fixed_process import PartiallyFixedProcess
+from BehaviorScreen.ablation_screen.tier1_omnibus import run_tier1_screen, tier1_permutation_test, fit_tier1
 from BehaviorScreen.ablation_screen.fdr import add_fdr
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.ablation_screen.dataset_utils import subset_loader, safe_prepare_dataset
-from BehaviorScreen.ablation_screen.tier1_omnibus import tier1_permutation_test, fit_tier1
 from BehaviorScreen.ablation_screen.dataset_ops import select_fish
-import numpy as np
 
 OUTPUT_DIR = Path("./tier1_results")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 ROOT = Path('/media/martin/DATA_18TB/Screen')
-#ROOT = Path('/home/martin')
 loader = BehavioralDataLoader(ROOT / "bouts_all.csv")
 
 prey_stim_speed_deg_per_s = 90
 prey_stim_range_deg = 2 * 70
 prey_stim_freq = prey_stim_speed_deg_per_s / prey_stim_range_deg
 
-DATASET_CONFIGS = {
+# ===========================================================================
+# ONE dict per behavior. 'architecture' already returns a fully-formed,
+# fitting-ready process -- PartiallyFixedProcess wraps the raw architecture
+# and pins its shape parameters to values already known from the Phase-3
+# pooled-vehicle fit. Whatever's NOT listed in the fixed dict stays free and
+# gets estimated per line/condition arm.
+# ===========================================================================
+BEHAVIOR_CONFIG = {
 
     'prey_capture_ipsi': {
-        'stim': Stim.PREY_CAPTURE,
-        'bout_name': 'JT',
-        'laterality': Laterality.IPSILATERAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 24.0,
+        'dataset': {
+            'stim': Stim.PREY_CAPTURE, 'bout_name': 'JT',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 24.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))),
+            {'tau': 1.152, 'phi1': 0.031, 'phi2': -0.184, 'A_ripple': 0.087, 'r_dispersion': 4.62},
+        ),
+        # free: A, B
+        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
     'prey_capture_contra': {
-        'stim': Stim.PREY_CAPTURE,
-        'bout_name': 'JT',
-        'laterality': Laterality.CONTRALATERAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 24.0,
+        'dataset': {
+            'stim': Stim.PREY_CAPTURE, 'bout_name': 'JT',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 24.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            {'r_dispersion': 5.1},
+        ),
+        # free: B
+        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
     'phototaxis_ipsi': {
-        'stim': Stim.PHOTOTAXIS,
-        'bout_name': 'RT',
-        'laterality': Laterality.IPSILATERAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 24.0,
+        'dataset': {
+            'stim': Stim.PHOTOTAXIS, 'bout_name': 'RT',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 24.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
+            {'f_dip': 0.483, 'tau_dip': 0.201, 'mu': 0.402, 'sigma': 0.147,
+             'tau_decay': 0.312, 'alpha_B': 0.02, 'alpha_peak': -0.01, 'r_dispersion': 3.8},
+        ),
+        # free: B, A_peak
+        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
     'phototaxis_contra': {
-        'stim': Stim.PHOTOTAXIS,
-        'bout_name': 'RT',
-        'laterality': Laterality.CONTRALATERAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 24.0,
+        'dataset': {
+            'stim': Stim.PHOTOTAXIS, 'bout_name': 'RT',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 24.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_contra())),
+            {'tau_dip': 0.55, 'alpha_B': 0.0, 'alpha_dip': 0.0, 'r_dispersion': 4.4},
+        ),
+        # free: B, f_dip
+        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
     'omr_lateral_ipsi': {
-        'epoch_name': ["grating right", "grating left"],
-        'bout_name': 'RT',
-        'laterality': Laterality.IPSILATERAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 9.0,
+        'dataset': {
+            'epoch_name': ["grating right", "grating left"], 'bout_name': 'RT',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            {'r_dispersion': 6.0},
+        ),
+        # free: B
+        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
     'omr_lateral_contra': {
-        'epoch_name': ["grating right", "grating left"],
-        'bout_name': 'RT',
-        'laterality': Laterality.CONTRALATERAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 9.0,
+        'dataset': {
+            'epoch_name': ["grating right", "grating left"], 'bout_name': 'RT',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_lateral_contra())),
+            {'tau_dip': 0.5, 'r_dispersion': 5.5},
+        ),
+        # free: B, f_dip
+        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
     'omr_forward': {
-        'epoch_name': "grating forward",
-        'bout_name': 'BS',
-        'laterality': Laterality.NONDIRECTIONAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 9.0,
+        'dataset': {
+            'epoch_name': "grating forward", 'bout_name': 'BS',
+            'laterality': Laterality.NONDIRECTIONAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_forward())),
+            {'tau_dip': 0.5, 'r_dispersion': 5.0},
+        ),
+        # free: B, f_dip
+        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
     'okr_ipsi': {
-        'stim': Stim.OKR,
-        'bout_name': 'S1',
-        'laterality': Laterality.IPSILATERAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 9.0,
+        'dataset': {
+            'stim': Stim.OKR, 'bout_name': 'S1',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            {'r_dispersion': 6.2},
+        ),
+        # free: B
+        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
     'okr_contra': {
-        'stim': Stim.OKR,
-        'bout_name': 'S1',
-        'laterality': Laterality.CONTRALATERAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 9.0,
+        'dataset': {
+            'stim': Stim.OKR, 'bout_name': 'S1',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            {'r_dispersion': 6.2},
+        ),
+        # free: B
+        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
     'looming_ipsi': {
-        'stim': Stim.LOOMING,
-        'bout_name': 'SLC',
-        'laterality': Laterality.IPSILATERAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 9.0,
+        'dataset': {
+            'stim': Stim.LOOMING, 'bout_name': 'SLC',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(
+                SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6)))
+            ),
+            {'mu': 5.05, 'sigma': 0.42, 'alpha': 0.03, 'r_dispersion': 2.9},
+        ),
+        # free: H, B
+        'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
     },
 
     'looming_contra': {
-        'stim': Stim.LOOMING,
-        'bout_name': 'SLC',
-        'laterality': Laterality.CONTRALATERAL,
-        'binning_dt': 0.05,
-        't_start': 0.0,
-        't_end': 9.0,
+        'dataset': {
+            'stim': Stim.LOOMING, 'bout_name': 'SLC',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(
+                SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6)))
+            ),
+            {'mu': 5.11, 'sigma': 0.39, 'alpha': 0.01, 'r_dispersion': 3.1},
+        ),
+        # free: H, B
+        'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
     },
 
     'dark_flash': {
-        'epoch_name': "flash dark",
-        'bout_name': 'O',
-        'laterality': Laterality.NONDIRECTIONAL,
-        'binning_dt': 0.025,
-        't_start': 0.0,
-        't_end': 5.0,
+        'dataset': {
+            'epoch_name': "flash dark", 'bout_name': 'O',
+            'laterality': Laterality.NONDIRECTIONAL,
+            'binning_dt': 0.025, 't_start': 0.0, 't_end': 5.0,
+        },
+        'architecture': lambda: PartiallyFixedProcess(
+            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
+            {'mu': 0.183, 'sigma': 0.061, 'tau': 0.29, 'alpha': -0.02, 'r_dispersion': 2.4},
+        ),
+        # free: H, B
+        'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
     },
 }
 
-BEHAVIOR_PROCESS_FACTORY = {
+BEHAVIORS = list(BEHAVIOR_CONFIG.keys())
+DATASET_CONFIGS = {b: cfg['dataset'] for b, cfg in BEHAVIOR_CONFIG.items()}
+BEHAVIOR_PROCESS_FACTORY = {b: cfg['architecture'] for b, cfg in BEHAVIOR_CONFIG.items()}
+NULL_PROCESS_FACTORY = {b: cfg['null'] for b, cfg in BEHAVIOR_CONFIG.items()}
 
-    'prey_capture_ipsi': lambda: GammaMixedEffectsProcess(
-        PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
-    ),
+print("Per-behavior free parameters (everything else pinned in BEHAVIOR_CONFIG):")
+for behavior in BEHAVIORS:
+    print(f"  {behavior}: free={BEHAVIOR_PROCESS_FACTORY[behavior]().param_names}")
 
-    'prey_capture_contra': lambda: GammaMixedEffectsProcess(
-        PoissonProcess(RateKernelFactory.homogeneous_poisson())
-    ),
-
-    'phototaxis_ipsi': lambda: GammaMixedEffectsProcess(
-        PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())
-    ),
-
-    'phototaxis_contra': lambda: GammaMixedEffectsProcess(
-        PoissonProcess(RateKernelFactory.phototaxis_contra())
-    ),
-
-    'omr_lateral_ipsi': lambda: GammaMixedEffectsProcess(
-        PoissonProcess(RateKernelFactory.homogeneous_poisson())
-    ),
-
-    'omr_lateral_contra': lambda: GammaMixedEffectsProcess(
-        PoissonProcess(RateKernelFactory.omr_lateral_contra())
-    ),
-
-    'omr_forward': lambda: GammaMixedEffectsProcess(
-        PoissonProcess(RateKernelFactory.omr_forward())
-    ),
-
-    'okr_ipsi': lambda: GammaMixedEffectsProcess(
-        PoissonProcess(RateKernelFactory.homogeneous_poisson())
-    ),
-
-    'okr_contra': lambda: GammaMixedEffectsProcess(
-        PoissonProcess(RateKernelFactory.homogeneous_poisson())
-    ),
-
-    'looming_ipsi': lambda: GammaMixedEffectsProcess(
-        SurvivalProcess(
-            SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6))
-        )
-    ),
-
-    'looming_contra': lambda: GammaMixedEffectsProcess(
-        SurvivalProcess(
-            SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6))
-        )
-    ),
-
-    'dark_flash': lambda: GammaMixedEffectsProcess(
-        SurvivalProcess(
-            SurvivalKernelFactory.exgaussian_bump_baseline_habituating()
-        )
-    ),
-}
-
-NULL_PROCESS_FACTORY = {
-    'prey_capture_ipsi': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    'prey_capture_contra': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    'phototaxis_ipsi': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    'phototaxis_contra': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    'omr_lateral_ipsi': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    'omr_lateral_contra': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    'omr_forward': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    'okr_ipsi': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    'okr_contra': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    'looming_ipsi':  lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-    'looming_contra':  lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-    'dark_flash':  lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-}
-
-BEHAVIORS = list(DATASET_CONFIGS.keys())
 all_lines = sorted(loader.raw_df["line"].astype(str).unique())
 STRAIGHT_MUTANTS = {"lakritz", "gr", "mecp2", "cort", "wik", "AB"}
 NTR_LINES = [l for l in all_lines if l not in STRAIGHT_MUTANTS and l != "WT"]
 LINE_LABELS = {"WT": ("danieau", "ronidazole")}
+
 
 # ===========================================================================
 # Step 1: single-cell smoke test BEFORE the full batch
 # ===========================================================================
 
 def find_first_valid_cell(loader, lines, behaviors, dataset_configs, line_labels, default_labels):
-    """Scans lines x behaviors for the first cell with non-empty vehicle AND
-    drug datasets, instead of assuming lines[0]/behaviors[0] has data."""
     for line in lines:
         veh_label, drug_label = line_labels.get(line, default_labels)
         for behavior in behaviors:
@@ -239,20 +248,21 @@ def find_first_valid_cell(loader, lines, behaviors, dataset_configs, line_labels
     return None, None, None, None
 
 
-print("Smoke test: scanning for first valid (line, behavior) cell...")
+print("\nSmoke test: scanning for first valid (line, behavior) cell...")
 smoke_line, smoke_behavior, ds_veh, ds_drug = find_first_valid_cell(
     loader, NTR_LINES + ["WT"], BEHAVIORS, DATASET_CONFIGS, LINE_LABELS, ("vehicle", "ronidazole")
 )
 if smoke_line is None:
     raise RuntimeError(
         "No (line, behavior) cell has both non-empty vehicle and drug data with >=3 fish each. "
-        "Check DATASET_CONFIGS filters (stim/epoch_name/laterality) against loader.raw_df contents "
-        "before proceeding -- this indicates a config mismatch, not just sparse individual lines."
+        "Check DATASET_CONFIGS filters against loader.raw_df contents before proceeding."
     )
 print(f"Using {smoke_line}/{smoke_behavior} for smoke test "
       f"(n_veh={ds_veh.num_fish}, n_drug={ds_drug.num_fish})")
 deviance, m_veh, m_drug, m_pooled = fit_tier1(BEHAVIOR_PROCESS_FACTORY[smoke_behavior], ds_veh, ds_drug)
-print(f"Smoke test OK: deviance={deviance:.3f}, LL_veh={m_veh.log_likelihood:.2f}, LL_drug={m_drug.log_likelihood:.2f}")
+print(f"Smoke test OK: deviance={deviance:.3f}, LL_veh={m_veh.log_likelihood:.2f}, "
+      f"LL_drug={m_drug.log_likelihood:.2f}, free_params={m_veh.param_names}")
+
 
 # ===========================================================================
 # Step 2: full batch
@@ -266,6 +276,7 @@ tier1_df = run_tier1_screen(
 tier1_df = add_fdr(tier1_df, alpha=0.05)
 tier1_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
 print(tier1_df["status"].value_counts())
+
 
 # ===========================================================================
 # Step 3: calibration checkpoint -- p-value histograms per behavior
@@ -281,11 +292,11 @@ for behavior in BEHAVIORS:
     fig.savefig(OUTPUT_DIR / f"pvalue_hist_{behavior}.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
 
+
 # ===========================================================================
 # Step 4: negative control -- WT split-half permutation
 # ===========================================================================
 print("\nRunning WT split-half negative control...")
-null_pvals_by_behavior = {}
 for behavior in BEHAVIORS:
     ds_wt = safe_prepare_dataset(subset_loader(loader, "WT", ["danieau"]), DATASET_CONFIGS[behavior])
     if ds_wt is None or ds_wt.num_fish < 10:
@@ -304,7 +315,6 @@ for behavior in BEHAVIORS:
         except Exception:
             continue
     if null_ps:
-        null_pvals_by_behavior[behavior] = np.array(null_ps)
         fig, ax = plt.subplots(figsize=(6, 4))
         plot_pvalue_histogram(np.array(null_ps), ax=ax, title=f"Negative control (WT split-half): {behavior}")
         fig.savefig(OUTPUT_DIR / f"negctrl_pvalue_hist_{behavior}.png", dpi=150, bbox_inches="tight")
