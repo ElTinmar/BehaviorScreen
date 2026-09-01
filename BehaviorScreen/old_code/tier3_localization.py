@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from .multi_group_process import MultiGroupProcess
+from ..ablation_screen.multi_group_process import MultiGroupProcess
 
 
 def wald_test_covariate(model: MultiGroupProcess, covariate_name: str = "genotype:drug") -> pd.DataFrame:

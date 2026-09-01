@@ -16,8 +16,8 @@ import pandas as pd
 import joblib
 
 from BehaviorScreen.point_process.point_process import ModelComparator
-from .multi_group_process import GroupSpec, MultiGroupProcess
-from .dataset_utils import subset_loader, safe_prepare_dataset
+from ..ablation_screen.multi_group_process import GroupSpec, MultiGroupProcess
+from ..ablation_screen.dataset_utils import subset_loader, safe_prepare_dataset
 
 
 def fit_interaction_model(base_process_factory, ds_wt_veh, ds_wt_drug, ds_line_veh, ds_line_drug):

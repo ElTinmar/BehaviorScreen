@@ -11,8 +11,8 @@ from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffects
 
 from BehaviorScreen.ablation_screen.tier0_screen import run_tier0_screen
 from BehaviorScreen.ablation_screen.tier1_omnibus import run_tier1_screen
-from BehaviorScreen.ablation_screen.tier2_interaction import run_tier2_screen, build_wt_dataset_cache
-from BehaviorScreen.ablation_screen.tier3_localization import localize_effect
+from BehaviorScreen.old_code.tier2_interaction import run_tier2_screen, build_wt_dataset_cache
+from BehaviorScreen.old_code.tier3_localization import localize_effect
 from BehaviorScreen.ablation_screen.fdr import add_fdr
 
 OUTPUT_DIR = Path("./ablation_screen_results")
