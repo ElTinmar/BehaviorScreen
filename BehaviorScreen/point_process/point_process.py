@@ -15,6 +15,7 @@ def _fit_single_bootstrap(seed_seq, dataset: PointProcessDataset, model: "PointP
     rng = np.random.default_rng(seed_seq)
     ds_boot = dataset.resample(rng)
     model_copy = copy.deepcopy(model)
+    model_copy.initial_guesses = list(model.params_) # warm-start at parent MLE
     try:
         model_copy.fit(ds_boot)
         return model_copy.params_
