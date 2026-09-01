@@ -27,3 +27,24 @@ def bounded_trial_scale(trial: np.ndarray, alpha: float) -> np.ndarray:
 def exgaussian_shape(t, mu, sigma, tau):
     K = tau / sigma  
     return exponnorm.pdf(t, K, loc=mu, scale=sigma)
+
+def sigmoid_bounded(z: np.ndarray, upper: float) -> np.ndarray:
+    """
+    Squash an unconstrained real z into (0, upper) via a logistic.
+
+    Strictly bounded away from both 0 and `upper` for any FINITE z, and only
+    approaches 0/upper asymptotically as z -> -inf/+inf. This means "the true
+    MLE wants near-total suppression/enhancement" shows up as a LARGE z with a
+    correspondingly wide bootstrap spread, rather than as a hard box-bound
+    saturation (z_param pinned at a wall, CI collapsed to a point, or right-
+    censored against the bound) -- see the A_ripple/f_dip boundary-pinning
+    issue this replaces.
+    """
+    return upper / (1.0 + np.exp(-z))
+
+
+def logit_bounded(p: np.ndarray, upper: float) -> np.ndarray:
+    """Inverse of sigmoid_bounded. Used only to convert an old-style directly-
+    bounded point estimate/initial guess into the equivalent unconstrained z."""
+    p = np.clip(np.asarray(p, dtype=float), 1e-6, upper - 1e-6)
+    return np.log(p / (upper - p))
