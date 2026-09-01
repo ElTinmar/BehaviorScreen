@@ -61,7 +61,7 @@ def assess_group_fit(
     group_name: str,
     delta_aic_threshold: float = 2.0,
     corr_threshold: float = 0.95,
-    min_fish: int = 3,
+    min_fish: int = 6,
 ) -> GroupFitQC:
 
     n_fish = dataset.num_fish
