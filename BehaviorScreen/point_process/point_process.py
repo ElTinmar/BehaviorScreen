@@ -137,7 +137,7 @@ class PointProcess:
         seed: int = 0,
         n_jobs: int = -1,
         log_scale_params: Optional[set] = None,
-        tol_same_optimum: float = 1e-2,
+        tol_same_optimum: float = 2e-2,
         **kwargs,
     ) -> pd.DataFrame:
         """
@@ -1127,10 +1127,9 @@ def _fit_one_model(
     dataset: PointProcessDataset,
     method: str,
     kwargs: dict,
-    n_starts=20
 ) -> Tuple[PointProcess, Optional[str]]:
     try:
-        model.fit_multistart(dataset, n_starts=n_starts, method=method, **kwargs)
+        model.fit_multistart(dataset, method=method, **kwargs)
         return model, None
     except RuntimeError as e:
         return model, str(e)

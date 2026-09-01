@@ -496,7 +496,8 @@ for exp_name, config in model_config.items():
     summary_table, fitted_models = ModelComparator.compare(
         models=config['models'],
         dataset=dataset,
-        null_model=config['null_model']
+        null_model=config['null_model'],
+        n_starts = 40
     )
     save_csv(summary_table, model_dir, "model_comparison_table")
     best_model = fitted_models[0]
@@ -520,7 +521,7 @@ for exp_name, config in model_config.items():
     save_fig(fig_diag, model_dir, f"diagnose_{best_model.name}")
 
     # NOTE: this might take a while
-    boot_df = best_model.bootstrap(dataset, n_boot=100)
+    boot_df = best_model.bootstrap(dataset, n_boot=200)
     save_csv(boot_df, model_dir, f"bootstrap_{best_model.name}")
 
     plt.close('all')
