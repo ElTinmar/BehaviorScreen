@@ -5,11 +5,13 @@ import re
 import numpy as np
 import pandas as pd
 import joblib
+from tqdm import tqdm
 from scipy.optimize import minimize
-from scipy.stats import norm, kstest, chi2
+from scipy.stats import norm, chi2
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+from .tqdm_joblib import tqdm_joblib
 from .dataset import PointProcessDataset
 
 def _fit_single_bootstrap(seed_seq, dataset: PointProcessDataset, model: "PointProcess"):
@@ -70,8 +72,7 @@ class PointProcess:
             )
     
         self.fit_result = res
-        self.params_ = res.x
-        self.param_dict_ = dict(zip(self.param_names, res.x))
+        self.set_params(res.x)
         return self
 
     def set_params(self, params: np.ndarray) -> None:
@@ -163,9 +164,10 @@ class PointProcess:
             except Exception:
                 return None
 
-        results = joblib.Parallel(n_jobs=n_jobs)(
-            joblib.delayed(_run_one)(x0) for x0 in inits
-        )
+        with tqdm_joblib(tqdm(total=n_starts, desc="Fit multistart")):
+            results = joblib.Parallel(n_jobs=n_jobs)(
+                joblib.delayed(_run_one)(x0) for x0 in inits
+            )
 
         valid = [r for r in results if r is not None]
         if not valid:
@@ -182,8 +184,7 @@ class PointProcess:
               f"best NLL={best.fun:.3f}. {status}")
 
         self.fit_result = best
-        self.params_ = best.x
-        self.param_dict_ = dict(zip(self.param_names, best.x))
+        self.set_params(best.x)
 
         return pd.DataFrame({
             "start_idx": range(len(results)),
@@ -214,10 +215,11 @@ class PointProcess:
 
         seeds = np.random.SeedSequence(seed).spawn(n_boot)
 
-        boot_results = joblib.Parallel(n_jobs=n_jobs)(
-            joblib.delayed(_fit_single_bootstrap)(s, dataset, self)
-            for s in seeds
-        )
+        with tqdm_joblib(tqdm(total=n_boot, desc="Bootstrap")):
+            boot_results = joblib.Parallel(n_jobs=n_jobs)(
+                joblib.delayed(_fit_single_bootstrap)(s, dataset, self)
+                for s in seeds
+            )
         
         valid_boot_params = [p for p in boot_results if p is not None]
         print(f"Bootstrap fit: {len(valid_boot_params)}/{n_boot}")
@@ -1174,8 +1176,6 @@ class ModelComparator:
         models: List[PointProcess],
         dataset: PointProcessDataset,
         method: str = "L-BFGS-B",
-        n_jobs: int = 1,
-        verbose: int = 0,
         null_model: Optional[PointProcess] = None,
         **kwargs,
     ) -> Tuple[pd.DataFrame, List[PointProcess]]:
@@ -1190,14 +1190,7 @@ class ModelComparator:
         else:
             ll_null = np.nan
 
-        if n_jobs == 1:
-            results = [_fit_one_model(m, dataset, method, kwargs) for m in models]
-        else:
-            results = joblib.Parallel(n_jobs=n_jobs, verbose=verbose)(
-                joblib.delayed(_fit_one_model)(m, dataset, method, kwargs)
-                for m in models
-            )
-
+        results = [_fit_one_model(m, dataset, method, kwargs) for m in models]
         fitted_models: List[PointProcess] = []
         records = []
 

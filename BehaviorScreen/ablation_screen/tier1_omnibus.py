@@ -17,10 +17,10 @@ import numpy as np
 import pandas as pd
 import joblib
 from tqdm import tqdm
-import contextlib
 
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.tqdm_joblib import tqdm_joblib
 
 from .dataset_ops import pool_fish, select_fish
 from .dataset_utils import subset_loader, safe_prepare_dataset, per_fish_summary, compare_fish_metric
@@ -79,7 +79,9 @@ def tier1_permutation_test(
         except Exception:
             return None
 
-    results = joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(_one)(s) for s in seeds)
+    with tqdm_joblib(tqdm(total=n_perm, desc="Permutation")):
+        results = joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(_one)(s) for s in seeds)
+
     null_dist = np.array([v for v in results if v is not None])
     n_failed = n_perm - len(null_dist)
 
@@ -183,24 +185,6 @@ def _tier1_one(
         "qc_notes_drug": qc_drug.informational_notes,
         **perm, **eff,
     }
-
-@contextlib.contextmanager
-def tqdm_joblib(tqdm_object):
-    """Patches joblib to report progress into a tqdm bar. Standard recipe --
-    joblib has no native tqdm hook, so this intercepts the batch-completion
-    callback."""
-    class TqdmBatchCompletionCallback(joblib.parallel.BatchCompletionCallBack):
-        def __call__(self, *args, **kwargs):
-            tqdm_object.update(n=self.batch_size)
-            return super().__call__(*args, **kwargs)
-
-    old_callback = joblib.parallel.BatchCompletionCallBack
-    joblib.parallel.BatchCompletionCallBack = TqdmBatchCompletionCallback
-    try:
-        yield tqdm_object
-    finally:
-        joblib.parallel.BatchCompletionCallBack = old_callback
-        tqdm_object.close()
 
 def run_tier1_screen(
     loader, lines, behaviors, dataset_configs,
