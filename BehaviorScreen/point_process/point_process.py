@@ -1,5 +1,6 @@
 from typing import List, Tuple, Dict, Optional, Any, Union
 import copy
+import re
 
 import numpy as np
 import pandas as pd
@@ -24,6 +25,14 @@ def _fit_single_bootstrap(seed_seq, dataset: PointProcessDataset, model: "PointP
 
     
 class PointProcess:
+    # Heuristic: parameter names matching these patterns get log-uniform
+    # sampling and log-normal jitter instead of linear -- they are
+    # scale/time-constant-like quantities where the likelihood surface is
+    # naturally curved in log-space (tau, sigma, beta_hawkes, r_dispersion,
+    # A_ripple/tau_excitation, etc).
+    _LOG_SCALE_PATTERN = re.compile(
+        r"(tau|sigma|beta|r_dispersion|A_excitation|A_ripple)", re.IGNORECASE
+    )
 
     def __init__(self, integration_dt: float = 0.02):
         self.name: str = ""
@@ -64,6 +73,119 @@ class PointProcess:
         self.params_ = res.x
         self.param_dict_ = dict(zip(self.param_names, res.x))
         return self
+
+    def _infer_log_scale_params(self) -> set:
+        return {p for p in self.param_names if self._LOG_SCALE_PATTERN.search(p)}
+
+    def _sampling_bounds(self, i: int, default: np.ndarray, fallback_scale: float = 10.0):
+        lo, hi = self.bounds[i]
+        d = default[i]
+        if lo is None:
+            lo = d - fallback_scale * (abs(d) + 1.0)
+        if hi is None:
+            hi = d + fallback_scale * (abs(d) + 1.0)
+        return lo, hi
+
+    def _generate_multistart_inits(
+        self,
+        rng: np.random.Generator,
+        n_starts: int,
+        jitter_frac: float = 0.3,
+        log_scale_params: Optional[set] = None,
+    ) -> List[np.ndarray]:
+        default = np.asarray(self.initial_guesses, dtype=float)
+        k = len(default)
+        log_scale = log_scale_params if log_scale_params is not None else self._infer_log_scale_params()
+
+        starts = [default.copy()]
+        n_jitter = (n_starts - 1) // 2
+        n_uniform = n_starts - 1 - n_jitter
+
+        # (a) local jitter around the default guess
+        for _ in range(n_jitter):
+            x = default.copy()
+            for i in range(k):
+                lo, hi = self._sampling_bounds(i, default)
+                name = self.param_names[i]
+                if name in log_scale and default[i] > 0:
+                    x[i] = default[i] * np.exp(rng.normal(0, jitter_frac))
+                else:
+                    span = (hi - lo) if np.isfinite(hi - lo) else max(abs(default[i]), 1.0)
+                    x[i] = default[i] + rng.normal(0, jitter_frac * span)
+                x[i] = np.clip(x[i], lo, hi)
+            starts.append(x)
+
+        # (b) global draws across the (sampling) bounds
+        for _ in range(n_uniform):
+            x = np.empty(k)
+            for i in range(k):
+                lo, hi = self._sampling_bounds(i, default)
+                name = self.param_names[i]
+                if name in log_scale and lo > 0:
+                    x[i] = np.exp(rng.uniform(np.log(lo), np.log(hi)))
+                else:
+                    x[i] = rng.uniform(lo, hi)
+            starts.append(x)
+
+        return starts
+
+    def fit_multistart(
+        self,
+        dataset: PointProcessDataset,
+        n_starts: int = 20,
+        method: str = 'L-BFGS-B',
+        seed: int = 0,
+        n_jobs: int = -1,
+        log_scale_params: Optional[set] = None,
+        tol_same_optimum: float = 1e-2,
+        **kwargs,
+    ) -> pd.DataFrame:
+        """
+        Refit from n_starts different initializations, keep the best
+        converged result as self.params_/self.fit_result (same
+        postcondition as .fit()), and return a per-start table so
+        multimodality is visible rather than hidden by AIC silently
+        picking whichever local optimum was reached.
+        """
+        rng = np.random.default_rng(seed)
+        inits = self._generate_multistart_inits(rng, n_starts, log_scale_params=log_scale_params)
+
+        def _run_one(x0):
+            try:
+                res = minimize(self._nll, x0=x0, args=(dataset,), method=method,
+                                bounds=self.bounds, **kwargs)
+                ok = res.success and np.isfinite(res.fun) and np.all(np.isfinite(res.x))
+                return res if ok else None
+            except Exception:
+                return None
+
+        results = joblib.Parallel(n_jobs=n_jobs)(
+            joblib.delayed(_run_one)(x0) for x0 in inits
+        )
+
+        valid = [r for r in results if r is not None]
+        if not valid:
+            raise RuntimeError(f"All {n_starts} multistart optimizations failed for {self.name}.")
+
+        best = min(valid, key=lambda r: r.fun)
+        n_converged = len(valid)
+        n_at_global = sum(1 for r in valid if r.fun <= best.fun + tol_same_optimum)
+
+        status = "OK (looks unimodal)" if n_at_global == n_converged else \
+                 f"WARNING: {n_converged - n_at_global} start(s) converged to a DIFFERENT, worse optimum " \
+                 f"-- {self.name} may be poorly identified; treat AIC comparisons involving it with caution."
+        print(f"[{self.name}] multistart: {n_converged}/{n_starts} converged, "
+              f"best NLL={best.fun:.3f}. {status}")
+
+        self.fit_result = best
+        self.params_ = best.x
+        self.param_dict_ = dict(zip(self.param_names, best.x))
+
+        return pd.DataFrame({
+            "start_idx": range(len(results)),
+            "converged": [r is not None for r in results],
+            "nll": [r.fun if r is not None else np.nan for r in results],
+        })
     
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
         raise NotImplementedError
@@ -1005,9 +1127,10 @@ def _fit_one_model(
     dataset: PointProcessDataset,
     method: str,
     kwargs: dict,
+    n_starts=20
 ) -> Tuple[PointProcess, Optional[str]]:
     try:
-        model.fit(dataset, method=method, **kwargs)
+        model.fit_multistart(dataset, n_starts=n_starts, method=method, **kwargs)
         return model, None
     except RuntimeError as e:
         return model, str(e)
@@ -1048,7 +1171,7 @@ class ModelComparator:
         models: List[PointProcess],
         dataset: PointProcessDataset,
         method: str = "L-BFGS-B",
-        n_jobs: int = -1,
+        n_jobs: int = 1,
         verbose: int = 0,
         null_model: Optional[PointProcess] = None,
         **kwargs,
