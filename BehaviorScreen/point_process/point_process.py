@@ -74,6 +74,10 @@ class PointProcess:
         self.param_dict_ = dict(zip(self.param_names, res.x))
         return self
 
+    def set_params(self, params: np.ndarray) -> None:
+        self.params_ = np.asarray(params, dtype=float)
+        self.param_dict_ = dict(zip(self.param_names, self.params_))
+
     def _infer_log_scale_params(self) -> set:
         return {p for p in self.param_names if self._LOG_SCALE_PATTERN.search(p)}
 
