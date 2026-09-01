@@ -116,26 +116,26 @@ model_config = {
             GammaMixedEffectsProcess(
                 PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
             ),
-            RenewalProcess(
-                RateKernelFactory.homogeneous_poisson(), 
-                RenewalKernelFactory.exponential_excitation()
-            ),
-            GammaMixedEffectsProcess(
-                RenewalProcess(
-                    RateKernelFactory.homogeneous_poisson(), 
-                    RenewalKernelFactory.exponential_excitation()
-                )
-            ),
-            RenewalProcess(
-                PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
-                RenewalKernelFactory.exponential_excitation()
-            ),
-            GammaMixedEffectsProcess(
-                RenewalProcess(
-                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
-                    RenewalKernelFactory.exponential_excitation()
-                )
-            ),
+            # RenewalProcess(
+            #     RateKernelFactory.homogeneous_poisson(), 
+            #     RenewalKernelFactory.exponential_excitation()
+            # ),
+            # GammaMixedEffectsProcess(
+            #     RenewalProcess(
+            #         RateKernelFactory.homogeneous_poisson(), 
+            #         RenewalKernelFactory.exponential_excitation()
+            #     )
+            # ),
+            # RenewalProcess(
+            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+            #     RenewalKernelFactory.exponential_excitation()
+            # ),
+            # GammaMixedEffectsProcess(
+            #     RenewalProcess(
+            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+            #         RenewalKernelFactory.exponential_excitation()
+            #     )
+            # ),
             HawkesProcess(
                 PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
                 HistoryKernelFactory.exponential()
@@ -522,6 +522,8 @@ for exp_name, config in model_config.items():
 
     # NOTE: this might take a while
     boot_df = best_model.bootstrap(dataset, n_boot=200)
+    print("\n### BOOTSTRAP ###")
+    print(boot_df.to_string(index=False))
     save_csv(boot_df, model_dir, f"bootstrap_{best_model.name}")
 
     plt.close('all')
