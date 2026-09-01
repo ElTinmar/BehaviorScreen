@@ -71,3 +71,10 @@ class PartiallyFixedProcess(PointProcess):
 
     def mixed_effects_likelihood_terms(self, dataset, params):
         return self.base_process.mixed_effects_likelihood_terms(dataset, self._expand(params))
+
+    @property
+    def dispersion_r(self) -> float:
+        return self.base_process.dispersion_r
+
+    def population_survival_curve(self, dataset, trial=None):
+        return self.base_process.population_survival_curve(dataset, trial=trial)
