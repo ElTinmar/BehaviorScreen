@@ -18,7 +18,7 @@ from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKer
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
 
-from BehaviorScreen.ablation_screen.partially_fixed_process import PartiallyFixedProcess
+from BehaviorScreen.point_process.partially_fixed_process import PartiallyFixedProcess
 from BehaviorScreen.ablation_screen.tier1_omnibus import run_tier1_screen, tier1_permutation_test, fit_tier1
 from BehaviorScreen.ablation_screen.fdr import add_fdr
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
