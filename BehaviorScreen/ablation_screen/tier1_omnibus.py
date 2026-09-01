@@ -112,7 +112,7 @@ def _tier1_one(
     base_process_factory: Callable[[], PointProcess],
     null_process_factory: Callable[[], PointProcess],
     loader, veh_label: str, drug_label: str,
-    min_fish: int = 3, n_perm: int = 500,
+    min_fish: int = 6, n_perm: int = 500,
 ) -> Dict:
     ctx = f"{line}/{behavior}"
     ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_config, ctx + "/veh")
