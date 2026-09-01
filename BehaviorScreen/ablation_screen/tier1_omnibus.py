@@ -137,6 +137,9 @@ def _tier1_one(
     qc_drug = assess_group_fit(base_process_factory, null_process_factory, ds_drug, line, behavior, "drug",
                                 min_fish=min_fish)
 
+    # Only a HARD flag on either arm excludes the cell. "reliable_no_signal"
+    # (architecture didn't beat null, but fit is otherwise trustworthy)
+    # proceeds to the real fit_tier1 comparison below -- see GroupFitQC.verdict.
     if qc_veh.verdict == "flagged" or qc_drug.verdict == "flagged":
         fallback_records = []
         try:
@@ -148,6 +151,7 @@ def _tier1_one(
         return {
             "line": line, "behavior": behavior, "status": "flagged_architecture_collapse",
             "qc_reasons_vehicle": qc_veh.reasons_flagged, "qc_reasons_drug": qc_drug.reasons_flagged,
+            "qc_notes_vehicle": qc_veh.informational_notes, "qc_notes_drug": qc_drug.informational_notes,
             "fallback_tier0": fallback_records, "p_value": np.nan,
         }
 
@@ -166,9 +170,19 @@ def _tier1_one(
         "line": line, "behavior": behavior, "status": "ok",
         "n_fish_veh": ds_veh.num_fish, "n_fish_drug": ds_drug.num_fish,
         "total_events": total_events,
+        # Surfaced for reporting -- lets you see, per arm, whether the
+        # architecture found real structure or collapsed to null-like
+        # behavior, without that fact ever having excluded the cell.
+        "qc_verdict_vehicle": qc_veh.verdict,
+        "qc_verdict_drug": qc_drug.verdict,
+        "qc_beats_null_vehicle": qc_veh.beats_null,
+        "qc_beats_null_drug": qc_drug.beats_null,
+        "qc_delta_aic_vehicle": qc_veh.delta_aic,
+        "qc_delta_aic_drug": qc_drug.delta_aic,
+        "qc_notes_vehicle": qc_veh.informational_notes,
+        "qc_notes_drug": qc_drug.informational_notes,
         **perm, **eff,
     }
-
 
 @contextlib.contextmanager
 def tqdm_joblib(tqdm_object):

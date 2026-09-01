@@ -1,10 +1,3 @@
-"""
-Per-arm QC layer: checks whether a fitted model actually explains structure
-in THIS SPECIFIC dataset, before trusting any comparison built on top of it.
-Guards against the "successful fit, meaningless result" failure mode
-(architecture collapse, boundary-pinned parameters, flat/collinear
-likelihood surfaces) that a bare try/except around .fit() cannot catch.
-"""
 from dataclasses import dataclass, field
 from typing import Callable, List, Optional, Tuple
 
@@ -30,11 +23,36 @@ class GroupFitQC:
     params_near_bound: List[str] = field(default_factory=list)
     hessian_positive_definite: bool = True
     max_abs_param_correlation: float = np.nan
+
+    # Hard failures: fit is not trustworthy -- these exclude the cell from
+    # the parametric comparison and trigger the Tier-0 fallback.
     reasons_flagged: List[str] = field(default_factory=list)
+
+    # Soft/diagnostic notes: worth surfacing in the report, but NOT grounds
+    # to distrust the fit or exclude the cell. "architecture doesn't beat
+    # null" belongs here -- a well-converged, well-conditioned fit whose
+    # complex kernel collapses to null-like behavior is a legitimate result
+    # (e.g. ablation flattened the response), not a broken fit.
+    informational_notes: List[str] = field(default_factory=list)
 
     @property
     def verdict(self) -> str:
-        return "reliable" if not self.reasons_flagged else "flagged"
+        """
+        - "flagged": hard failure, do not trust this fit for any comparison
+          (too few fish, fit exception, non-PD Hessian, near-collinear
+          params). Triggers Tier-0 fallback.
+        - "reliable_no_signal": fit converged cleanly and is well-identified,
+          but the architecture didn't beat the null in THIS arm. Still fine
+          to feed into fit_tier1's deviance test -- in fact this is exactly
+          the pattern a real ablation-abolishes-the-response effect would
+          produce in the drug arm.
+        - "reliable": converged, well-identified, and beats the null.
+        """
+        if self.reasons_flagged:
+            return "flagged"
+        if self.converged and not self.beats_null:
+            return "reliable_no_signal"
+        return "reliable"
 
 
 def _near_bound(value: float, bound: Tuple[Optional[float], Optional[float]],
@@ -93,8 +111,13 @@ def assess_group_fit(
     qc.beats_null = qc.delta_aic > delta_aic_threshold
 
     if not qc.beats_null:
-        qc.reasons_flagged.append(
-            f"architecture_does_not_beat_null (ΔAIC={qc.delta_aic:.2f})"
+        # Informational only -- see verdict docstring. Do NOT add to
+        # reasons_flagged: this must not exclude the cell or trigger fallback.
+        qc.informational_notes.append(
+            f"architecture_does_not_beat_null (ΔAIC={qc.delta_aic:.2f}) -- "
+            f"kernel collapsed to null-like behavior in this arm; may itself "
+            f"be the finding (e.g. ablation abolished the response) rather "
+            f"than a fit problem."
         )
 
     kernel = getattr(model_arch, "kernel", None)
@@ -104,6 +127,11 @@ def assess_group_fit(
             if _near_bound(val, bound):
                 qc.params_near_bound.append(name)
     if qc.params_near_bound:
+        # Boundary-pinning invalidates Wald-style SEs on that parameter
+        # (relevant for Tier 2 parameter inference) but does not by itself
+        # mean the log-likelihood/deviance used by Tier 1 is wrong -- still
+        # treated as a hard flag here since MultiGroupProcess's per-parameter
+        # contrasts downstream would be unreliable for this arm.
         qc.reasons_flagged.append(f"params_near_bound: {qc.params_near_bound}")
 
     try:
@@ -126,6 +154,9 @@ def assess_group_fit(
         qc.reasons_flagged.append(f"hessian_estimation_failed: {type(e).__name__}: {e}")
 
     if qc.is_low_power:
-        qc.reasons_flagged.append("dataset_is_low_power_for_dispersion (mean count/stream < 1)")
+        # Also informational-only: low power is a caveat on interpretation
+        # (wide CIs, less sensitive test) but not evidence the fit itself is
+        # broken -- it shouldn't trigger the Tier-0 fallback on its own.
+        qc.informational_notes.append("dataset_is_low_power_for_dispersion (mean count/stream < 1)")
 
     return qc
