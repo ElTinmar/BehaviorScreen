@@ -190,24 +190,24 @@ def run_tier1_screen(
     loader, lines, behaviors, dataset_configs,
     base_process_factories, null_process_factories,
     line_labels=None, default_labels=("vehicle", "ronidazole"),
-    n_jobs=1, n_perm=500, show_progress=True,
+    n_perm=500, show_progress=True,
 ) -> pd.DataFrame:
+
     line_labels = line_labels or {}
     jobs = [(line, behavior) for line in lines for behavior in behaviors]
+    cell_iter = tqdm(jobs, desc="Tier 1 cells", position=0, unit="cell") if show_progress else jobs
 
-    task_iter = (
-        joblib.delayed(_tier1_one)(
-            line, behavior, dataset_configs[behavior],
-            base_process_factories[behavior], null_process_factories[behavior],
-            loader, *line_labels.get(line, default_labels), n_perm=n_perm,
-        )
-        for line, behavior in jobs
-    )
-
-    if show_progress:
-        with tqdm_joblib(tqdm(total=len(jobs), desc="Tier 1", unit="cell", position=0)):
-            records = joblib.Parallel(n_jobs=n_jobs)(task_iter)
-    else:
-        records = joblib.Parallel(n_jobs=n_jobs)(task_iter)
+    records = []
+    for line, behavior in cell_iter:
+        try:
+            record = _tier1_one(
+                line, behavior, dataset_configs[behavior],
+                base_process_factories[behavior], null_process_factories[behavior],
+                loader, *line_labels.get(line, default_labels), n_perm=n_perm,
+            )
+        except Exception as e:
+            record = {"line": line, "behavior": behavior,
+                      "status": f"unexpected_error: {type(e).__name__}: {e}", "p_value": np.nan}
+        records.append(record)
 
     return pd.DataFrame(records)
