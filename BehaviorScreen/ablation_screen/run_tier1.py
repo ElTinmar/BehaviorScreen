@@ -323,7 +323,7 @@ print("\nRunning Tier 1 across all lines x behaviors...")
 tier1_df = run_tier1_screen(
     loader, lines=NTR_LINES + ["WT"], behaviors=BEHAVIORS,
     dataset_configs=DATASET_CONFIGS, base_process_factories=BEHAVIOR_PROCESS_FACTORY,
-    null_process_factories=NULL_PROCESS_FACTORY, line_labels=LINE_LABELS, n_perm=500,
+    null_process_factories=NULL_PROCESS_FACTORY, line_labels=LINE_LABELS, n_perm=1000,
 )
 tier1_df = add_fdr(tier1_df, alpha=0.05)
 tier1_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
