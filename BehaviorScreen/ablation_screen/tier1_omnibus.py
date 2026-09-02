@@ -766,13 +766,25 @@ def plot_fish_gain_correlation(
     min_fish_shared: int = 5,
     cmap: str = "coolwarm",
     figsize: Tuple[float, float] = (7, 6),
+    ax: Optional[plt.Axes] = None,
+    title: str = "Fish-level frailty gain correlation across behaviors",
 ) -> Tuple[plt.Figure, plt.Axes, pd.DataFrame]:
-
+    """
+    Same as before, now optionally drawing into a caller-supplied `ax`
+    (e.g. one panel of a side-by-side vehicle/drug figure) instead of
+    always creating its own standalone figure.
+    """
     wide = gain_long_df.pivot_table(index="file", columns="behavior", values="estimated_gain")
     corr = wide.corr(min_periods=min_fish_shared)
-    n_pairs = wide.notna().T.dot(wide.notna()).astype(int)
 
-    fig, ax = plt.subplots(figsize=figsize)
+    notna_int = wide.notna().astype(int)
+    n_pairs = notna_int.T.dot(notna_int)
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize)
+    else:
+        fig = ax.figure
+
     im = ax.imshow(corr, cmap=cmap, vmin=-1, vmax=1)
     ax.set_xticks(range(len(corr.columns))); ax.set_xticklabels(corr.columns, rotation=45, ha="right", fontsize=8)
     ax.set_yticks(range(len(corr.index))); ax.set_yticklabels(corr.index, fontsize=8)
@@ -785,7 +797,35 @@ def plot_fish_gain_correlation(
                 ax.text(j, i, f"{val:.2f}\n(n={n})", ha="center", va="center",
                         color="white" if abs(val) > 0.5 else "black", fontsize=6)
 
-    ax.set_title("Fish-level frailty gain correlation across behaviors", fontsize=11, fontweight="bold")
-    fig.colorbar(im, ax=ax, shrink=0.8, label="Correlation")
-    plt.tight_layout()
+    ax.set_title(title, fontsize=10, fontweight="bold")
     return fig, ax, corr
+
+def plot_fish_gain_correlation_vehicle_vs_drug(
+    line: str,
+    loader, dataset_configs: dict, base_process_factories: dict,
+    labels: Tuple[str, str] = ("vehicle", "ronidazole"),
+    line_labels: Optional[Dict[str, Tuple[str, str]]] = None,
+    min_behaviors: int = 2,
+) -> Optional[plt.Figure]:
+    """
+    Side-by-side fish-level frailty gain correlation heatmaps (vehicle |
+    drug) for one line, sharing a colorbar. Returns None if either arm has
+    fewer than `min_behaviors` behaviors with usable gains (nothing
+    meaningful to correlate).
+    """
+    line_labels = line_labels or {}
+    veh_label, drug_label = line_labels.get(line, labels)
+
+    gain_veh = extract_fish_gains_across_behaviors(line, veh_label, loader, dataset_configs, base_process_factories)
+    gain_drug = extract_fish_gains_across_behaviors(line, drug_label, loader, dataset_configs, base_process_factories)
+
+    if gain_veh["behavior"].nunique() < min_behaviors or gain_drug["behavior"].nunique() < min_behaviors:
+        return None
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 6))
+    plot_fish_gain_correlation(gain_veh, ax=axes[0], title="Vehicle")
+    plot_fish_gain_correlation(gain_drug, ax=axes[1], title="Drug")
+
+    fig.suptitle(f"{line}: fish-level frailty gain correlation, vehicle vs drug", fontsize=13, fontweight="bold")
+    fig.colorbar(axes[1].images[0], ax=axes, shrink=0.7, label="Correlation")
+    return fig
