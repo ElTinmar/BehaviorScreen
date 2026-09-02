@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Behavioral Kernel Explorer</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<style>
+  :root { --accent:#2563eb; --accent2:#dc2626; --bg:#f8fafc; --panel:#ffffff; --border:#e2e8f0; }
+  body { font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); margin:0; padding:20px; color:#1e293b; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.sub { color:#64748b; font-size:13px; margin:0 0 16px; max-width:900px; }
+  #tabs { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:14px; }
+  .tab-btn { padding:6px 12px; border:1px solid var(--border); background:var(--panel); border-radius:8px;
+             cursor:pointer; font-size:12px; }
+  .tab-btn.active { background:var(--accent); color:white; border-color:var(--accent); }
+  .panel { display:none; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px; }
+  .panel.active { display:block; }
+  .panel h2 { margin:0 0 4px; font-size:16px; }
+  .formula-block { background:#f1f5f9; padding:12px 16px; border-radius:8px; margin:8px 0 14px; overflow-x:auto; }
+  .formula-main { font-size:15px; }
+  .formula-where { margin-top:8px; padding-top:8px; border-top:1px dashed #cbd5e1; }
+  .formula-where-label { font-size:11px; color:#94a3b8; margin-bottom:4px; }
+  .formula-where-item { margin:4px 0; font-size:13px; }
+  .layout { display:flex; gap:22px; flex-wrap:wrap; }
+  .controls { flex: 1 1 300px; min-width:280px; }
+  .plots { flex: 2 1 480px; min-width:420px; }
+  .param-row { margin-bottom:10px; }
+  .param-row label { display:flex; justify-content:space-between; font-size:12px; color:#334155; margin-bottom:2px; }
+  .param-row .val { font-variant-numeric: tabular-nums; color:var(--accent); font-weight:600; }
+  .param-row input[type=range] { width:100%; }
+  .derived { font-size:11px; color:#64748b; margin-top:-4px; margin-bottom:6px; }
+  .plot-block { margin-bottom:16px; }
+  .plot-title { font-size:12px; font-weight:600; color:#334155; margin-bottom:4px; }
+  canvas { background:#fff; border:1px solid var(--border); border-radius:8px; width:100%; height:220px; display:block; }
+  .legend { font-size:11px; color:#64748b; margin-top:4px; }
+  .legend span { display:inline-flex; align-items:center; margin-right:14px; }
+  .swatch { width:14px; height:2px; display:inline-block; margin-right:5px; }
+  .reset-btn { font-size:11px; padding:4px 10px; border-radius:6px; border:1px solid var(--border); background:#f1f5f9; cursor:pointer; margin-top:6px; }
+  .note { font-size:11px; color:#94a3b8; margin-top:10px; }
+</style>
+</head>
+<body>
+
+<h1>Behavioral Kernel Explorer</h1>
+<p class="sub">Interactive rate/hazard kernels for every Tier-1 retained architecture. Sliders start at the fitted
+(pooled-vehicle) values discussed in the analysis; move them to see how each parameter reshapes the temporal
+kernel. Dashed gray = same kernel at trial m=0. Rate/hazard axes are fixed at 2 Hz. Formulas are rendered with
+KaTeX; every slider parameter appears somewhere in the main formula or its "where" definitions.</p>
+
+<div id="tabs"></div>
+<div id="panels"></div>
+
+<script>
+// ---------------------------------------------------------------------
+// Math helpers
+// ---------------------------------------------------------------------
+function erf(x) {
+  const sign = x < 0 ? -1 : 1; x = Math.abs(x);
+  const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+  const t = 1/(1+p*x);
+  const y = 1-((((a5*t+a4)*t+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
+  return sign*y;
+}
+function exGaussianPdf(t, mu, sigma, tau) {
+  if (sigma<=0 || tau<=0) return 0;
+  const lambda = 1/tau;
+  const arg1 = lambda*(mu-t) + (sigma*sigma)/(2*tau*tau);
+  const erfcArg = (mu + lambda*sigma*sigma - t) / (Math.SQRT2*sigma);
+  const erfcVal = 1 - erf(erfcArg);
+  let val = (lambda/2) * Math.exp(Math.min(arg1, 50)) * erfcVal;
+  if (!isFinite(val) || val < 0) val = 0;
+  return val;
+}
+function sigmoidBounded(z, upper) { return upper / (1 + Math.exp(-z)); }
+function linspace(a, b, n) { const out=new Array(n); const step=(b-a)/(n-1); for(let i=0;i<n;i++) out[i]=a+i*step; return out; }
+
+// ---------------------------------------------------------------------
+// Kernel configs. formulaLatex = main equation. whereLatex = optional
+// array of sub-definitions (rendered below the main formula) -- used
+// whenever the main formula references a composite term (depth(m),
+// wave(t), exG(...), the Hawkes self-excitation sum) so every slider
+// parameter is visibly tied to the math somewhere on the page.
+// ---------------------------------------------------------------------
+const STIM_FREQ_PREY = 90/(2*70);          // 0.643 Hz
+const OMEGA_PREY = 2*Math.PI*STIM_FREQ_PREY; // ~4.04 rad/s (fixed constant, not a fitted parameter)
+
+const EXG_WHERE = "\\text{exG}(t;\\mu,\\sigma,\\tau) = \\frac{1}{2\\tau}\\exp\\!\\left(\\frac{\\sigma^2}{2\\tau^2}-\\frac{t-\\mu}{\\tau}\\right)\\,\\mathrm{erfc}\\!\\left(\\frac{1}{\\sqrt2}\\left(\\frac{\\sigma}{\\tau}-\\frac{t-\\mu}{\\sigma}\\right)\\right)";
+
+const KERNELS = [
+  {
+    id:"prey_capture_ipsi",
+    title:"Prey Capture (ipsi) -- Hawkes + PreyCapture(Peak_Baseline_Ripple)",
+    formulaLatex:"\\lambda(t,m) = \\Big[A e^{-t/\\tau} e^{\\alpha_{\\text{peak}} m} + B e^{\\alpha_{\\text{base}} m}\\Big]\\Big[1 + d(m)\\,w(t)\\Big] + \\sum_{t_i<t}\\alpha_{\\text{hawkes}}\\,e^{-\\beta_{\\text{hawkes}}(t-t_i)}",
+    whereLatex:[
+      "d(m) = \\dfrac{0.95}{1+e^{-(z_{0,\\text{ripple}} + \\alpha_{\\text{ripple}} m)}}",
+      "w(t) = \\tfrac{1}{2}\\left[\\sin(\\omega t+\\phi_1)+\\sin(2\\omega t+\\phi_2)\\right],\\quad \\omega = 2\\pi f_{\\text{stim}} \\approx 4.04\\,\\text{rad/s (fixed)}",
+    ],
+    durationS:24, trialMax:25, hasTrial:true, isSurvival:false, hasHistory:true,
+    params:[
+      {key:"A",label:"A (peak amplitude, Hz)",min:0,max:3,step:0.01,default:0.74},
+      {key:"tau",label:"τ (peak decay, s)",min:0.05,max:3,step:0.01,default:0.81},
+      {key:"B",label:"B (baseline, Hz)",min:0,max:1,step:0.01,default:0.18},
+      {key:"z0_ripple",label:"z0_ripple (logit ripple depth)",min:-6,max:6,step:0.05,default:0.89,
+        derived:(p)=>`depth(m=0) = ${sigmoidBounded(p.z0_ripple,0.95).toFixed(3)}`},
+      {key:"phi1",label:"φ1 (ripple phase 1)",min:-3.14,max:3.14,step:0.01,default:0.27},
+      {key:"phi2",label:"φ2 (ripple phase 2)",min:-3.14,max:3.14,step:0.01,default:-2.72},
+      {key:"alpha_peak",label:"α_peak (trial mod. of A)",min:-1,max:1,step:0.01,default:-0.19},
+      {key:"alpha_baseline",label:"α_base (trial mod. of B)",min:-1,max:1,step:0.01,default:-0.10},
+      {key:"alpha_ripple",label:"α_ripple (trial mod. of depth)",min:-2,max:2,step:0.01,default:-0.23},
+      {key:"alpha_hawkes",label:"α_hawkes (self-excitation amp.)",min:0,max:1,step:0.005,default:0.27},
+      {key:"beta_hawkes",label:"β_hawkes (self-excitation decay)",min:0.05,max:3,step:0.01,default:0.63},
+    ],
+    rateFn:(t,m,p)=>{
+      const transient = p.A*Math.exp(-t/p.tau)*Math.exp(p.alpha_peak*m);
+      const baseline = p.B*Math.exp(p.alpha_baseline*m);
+      const depth = sigmoidBounded(p.z0_ripple + p.alpha_ripple*m, 0.95);
+      const wave = 0.5*(Math.sin(OMEGA_PREY*t+p.phi1)+Math.sin(2*OMEGA_PREY*t+p.phi2));
+      return (transient+baseline)*(1+depth*wave);
+    },
+    historyFn:(dt,p)=> p.alpha_hawkes*Math.exp(-p.beta_hawkes*dt),
+  },
+  {
+    id:"prey_capture_contra",
+    title:"Prey Capture (contra) -- Homogeneous Poisson",
+    formulaLatex:"\\lambda = B",
+    durationS:24, hasTrial:false, isSurvival:false, hasHistory:false,
+    params:[ {key:"B",label:"B (Hz)",min:0,max:1,step:0.01,default:0.124} ],
+    rateFn:(t,m,p)=> p.B,
+  },
+  {
+    id:"phototaxis_ipsi",
+    title:"Phototaxis (ipsi) -- Dip + ExGaussian Peak",
+    formulaLatex:"\\lambda(t,m) = B e^{\\alpha_B m}\\left(1-f_{\\text{dip}} e^{-t/\\tau_{\\text{dip}}}\\right) + A_{\\text{peak}} e^{\\alpha_{\\text{peak}} m}\\,\\text{exG}(t;\\mu,\\sigma,\\tau_{\\text{decay}})",
+    whereLatex:[EXG_WHERE],
+    durationS:24, trialMax:25, hasTrial:true, isSurvival:false, hasHistory:false,
+    params:[
+      {key:"B",label:"B (baseline, Hz)",min:0,max:1,step:0.01,default:0.36},
+      {key:"f_dip",label:"f_dip (dip depth, fraction of B)",min:0,max:0.99,step:0.01,default:0.33},
+      {key:"tau_dip",label:"τ_dip (dip recovery, s)",min:0.01,max:3,step:0.01,default:0.43},
+      {key:"A_peak",label:"A_peak (peak height, Hz)",min:0,max:1,step:0.01,default:0.084},
+      {key:"alpha_B",label:"α_B (trial mod. of B)",min:-0.5,max:0.5,step:0.005,default:0.034},
+      {key:"alpha_peak",label:"α_peak (trial mod. of A_peak)",min:-0.5,max:0.5,step:0.005,default:0.047},
+      {key:"mu",label:"μ (peak location, s)",min:0.001,max:3,step:0.005,default:0.283},
+      {key:"sigma",label:"σ (peak width, s)",min:0.01,max:2,step:0.005,default:0.069},
+      {key:"tau_decay",label:"τ_decay (peak tail, s)",min:0.01,max:5,step:0.01,default:0.175},
+    ],
+    rateFn:(t,m,p)=>{
+      const baseline = p.B*Math.exp(p.alpha_B*m)*(1-p.f_dip*Math.exp(-t/p.tau_dip));
+      const height = p.A_peak*Math.exp(p.alpha_peak*m);
+      return baseline + height*exGaussianPdf(t,p.mu,p.sigma,p.tau_decay);
+    },
+  },
+  {
+    id:"phototaxis_contra",
+    title:"Phototaxis (contra) -- Trial-modulated Dip",
+    formulaLatex:"\\lambda(t,m) = B e^{\\alpha_B m}\\left(1 - d(m)\\,e^{-t/\\tau_{\\text{dip}}}\\right)",
+    whereLatex:["d(m) = \\dfrac{0.95}{1+e^{-(z_{0,\\text{dip}}+\\alpha_{\\text{dip}} m)}}"],
+    durationS:24, trialMax:25, hasTrial:true, isSurvival:false, hasHistory:false,
+    params:[
+      {key:"B",label:"B (baseline, Hz)",min:0,max:1,step:0.01,default:0.399},
+      {key:"z0_dip",label:"z0_dip (logit dip depth)",min:-6,max:6,step:0.05,default:1.44,
+        derived:(p)=>`depth(m=0) = ${sigmoidBounded(p.z0_dip,0.95).toFixed(3)}`},
+      {key:"tau_dip",label:"τ_dip (dip recovery, s)",min:0.01,max:5,step:0.01,default:0.87},
+      {key:"alpha_B",label:"α_B (trial mod. of B)",min:-0.5,max:0.5,step:0.005,default:0.037},
+      {key:"alpha_dip",label:"α_dip (trial mod. of depth, logit)",min:-2,max:2,step:0.01,default:-0.15},
+    ],
+    rateFn:(t,m,p)=>{
+      const depth = sigmoidBounded(p.z0_dip + p.alpha_dip*m, 0.95);
+      return p.B*Math.exp(p.alpha_B*m)*(1-depth*Math.exp(-t/p.tau_dip));
+    },
+  },
+  {
+    id:"omr_lateral_ipsi",
+    title:"OMR Lateral (ipsi) -- Hawkes + Homogeneous",
+    formulaLatex:"\\lambda(t) = B + \\sum_{t_i<t}\\alpha_{\\text{hawkes}}\\,e^{-\\beta_{\\text{hawkes}}(t-t_i)}",
+    durationS:9, hasTrial:false, isSurvival:false, hasHistory:true,
+    params:[
+      {key:"B",label:"B (Hz)",min:0,max:1,step:0.01,default:0.43},
+      {key:"alpha_hawkes",label:"α_hawkes",min:0,max:1,step:0.005,default:0.038},
+      {key:"beta_hawkes",label:"β_hawkes",min:0.05,max:3,step:0.01,default:0.33},
+    ],
+    rateFn:(t,m,p)=> p.B,
+    historyFn:(dt,p)=> p.alpha_hawkes*Math.exp(-p.beta_hawkes*dt),
+  },
+  {
+    id:"omr_lateral_contra",
+    title:"OMR Lateral (contra) -- Dip kernel",
+    formulaLatex:"\\lambda(t) = B\\left(1 - f_{\\text{dip}}\\,e^{-t/\\tau_{\\text{dip}}}\\right)",
+    durationS:9, hasTrial:false, isSurvival:false, hasHistory:false,
+    params:[
+      {key:"B",label:"B (Hz)",min:0,max:1,step:0.01,default:0.293},
+      {key:"f_dip",label:"f_dip",min:0,max:0.99,step:0.01,default:0.343},
+      {key:"tau_dip",label:"τ_dip (s)",min:0.01,max:5,step:0.01,default:1.668},
+    ],
+    rateFn:(t,m,p)=> p.B*(1-p.f_dip*Math.exp(-t/p.tau_dip)),
+  },
+  {
+    id:"omr_forward",
+    title:"OMR Forward -- Dip kernel (reparametrized)",
+    formulaLatex:"\\lambda(t) = B\\left(1 - d\\,e^{-t/\\tau_{\\text{dip}}}\\right)",
+    whereLatex:["d = \\dfrac{0.995}{1+e^{-z_{\\text{dip}}}}"],
+    durationS:9, hasTrial:false, isSurvival:false, hasHistory:false,
+    params:[
+      {key:"B",label:"B (Hz)",min:0,max:1,step:0.01,default:0.203},
+      {key:"z_dip",label:"z_dip (logit dip depth)",min:-6,max:8,step:0.05,default:2.5,
+        derived:(p)=>`depth = ${sigmoidBounded(p.z_dip,0.995).toFixed(3)}`},
+      {key:"tau_dip",label:"τ_dip (s)",min:0.01,max:5,step:0.01,default:1.654},
+    ],
+    rateFn:(t,m,p)=> p.B*(1-sigmoidBounded(p.z_dip,0.995)*Math.exp(-t/p.tau_dip)),
+  },
+  {
+    id:"okr_ipsi",
+    title:"OKR (ipsi) -- Homogeneous Poisson",
+    formulaLatex:"\\lambda = B",
+    durationS:9, hasTrial:false, isSurvival:false, hasHistory:false,
+    params:[ {key:"B",label:"B (Hz)",min:0,max:1,step:0.01,default:0.275} ],
+    rateFn:(t,m,p)=> p.B,
+  },
+  {
+    id:"okr_contra",
+    title:"OKR (contra) -- Hawkes + Homogeneous",
+    formulaLatex:"\\lambda(t) = B + \\sum_{t_i<t}\\alpha_{\\text{hawkes}}\\,e^{-\\beta_{\\text{hawkes}}(t-t_i)}",
+    durationS:9, hasTrial:false, isSurvival:false, hasHistory:true,
+    params:[
+      {key:"B",label:"B (Hz)",min:0,max:1,step:0.01,default:0.0785},
+      {key:"alpha_hawkes",label:"α_hawkes",min:0,max:1,step:0.005,default:0.038},
+      {key:"beta_hawkes",label:"β_hawkes",min:0.05,max:3,step:0.01,default:0.452},
+    ],
+    rateFn:(t,m,p)=> p.B,
+    historyFn:(dt,p)=> p.alpha_hawkes*Math.exp(-p.beta_hawkes*dt),
+  },
+  {
+    id:"looming_ipsi",
+    title:"Looming (ipsi) -- Gaussian Bump + Baseline, Habituating (SURVIVAL)",
+    formulaLatex:"h(t,m) = H e^{\\alpha m}\\exp\\!\\left(-\\dfrac{(t-\\mu)^2}{2\\sigma^2}\\right) + B",
+    durationS:9, trialMax:25, hasTrial:true, isSurvival:true, hasHistory:false,
+    params:[
+      {key:"H",label:"H (bump height, 1/s)",min:0,max:5,step:0.01,default:1.542},
+      {key:"mu",label:"μ (bump location, s)",min:4,max:6,step:0.01,default:4.952},
+      {key:"sigma",label:"σ (bump width, s)",min:0.005,max:1,step:0.005,default:0.103},
+      {key:"B",label:"B (baseline hazard, 1/s)",min:0,max:0.5,step:0.005,default:0.0285},
+      {key:"alpha",label:"α (habituation of H)",min:-1,max:1,step:0.01,default:-0.12},
+    ],
+    rateFn:(t,m,p)=> p.H*Math.exp(p.alpha*m)*Math.exp(-0.5*Math.pow((t-p.mu)/p.sigma,2)) + p.B,
+  },
+  {
+    id:"looming_contra",
+    title:"Looming (contra) -- Gaussian Bump + Baseline, Habituating (SURVIVAL)",
+    formulaLatex:"h(t,m) = H e^{\\alpha m}\\exp\\!\\left(-\\dfrac{(t-\\mu)^2}{2\\sigma^2}\\right) + B",
+    durationS:9, trialMax:25, hasTrial:true, isSurvival:true, hasHistory:false,
+    params:[
+      {key:"H",label:"H (bump height, 1/s)",min:0,max:5,step:0.01,default:2.162},
+      {key:"mu",label:"μ (bump location, s)",min:4,max:6,step:0.01,default:4.955},
+      {key:"sigma",label:"σ (bump width, s)",min:0.005,max:1,step:0.005,default:0.102},
+      {key:"B",label:"B (baseline hazard, 1/s)",min:0,max:0.5,step:0.005,default:0.0289},
+      {key:"alpha",label:"α (habituation of H)",min:-1,max:1,step:0.01,default:-0.14},
+    ],
+    rateFn:(t,m,p)=> p.H*Math.exp(p.alpha*m)*Math.exp(-0.5*Math.pow((t-p.mu)/p.sigma,2)) + p.B,
+  },
+  {
+    id:"dark_flash",
+    title:"Dark Flash -- ExGaussian Bump + Baseline, Habituating (SURVIVAL)",
+    formulaLatex:"h(t,m) = H e^{\\alpha m}\\,\\text{exG}(t;\\mu,\\sigma,\\tau) + B",
+    whereLatex:[EXG_WHERE],
+    durationS:5, trialMax:25, hasTrial:true, isSurvival:true, hasHistory:false,
+    params:[
+      {key:"H",label:"H (bump height, 1/s)",min:0,max:3,step:0.005,default:0.388},
+      {key:"mu",label:"μ (bump onset, s)",min:0.001,max:2,step:0.002,default:0.074},
+      {key:"sigma",label:"σ (rise width, s)",min:0.001,max:0.5,step:0.001,default:0.0162},
+      {key:"tau",label:"τ (tail decay, s)",min:0.001,max:1,step:0.001,default:0.0784},
+      {key:"B",label:"B (baseline hazard, 1/s)",min:0,max:0.5,step:0.002,default:0.018},
+      {key:"alpha",label:"α (habituation of H)",min:-1,max:1,step:0.01,default:-0.188},
+    ],
+    rateFn:(t,m,p)=> p.H*Math.exp(p.alpha*m)*exGaussianPdf(t,p.mu,p.sigma,p.tau) + p.B,
+  },
+];
+
+// ---------------------------------------------------------------------
+// Formula rendering (KaTeX, with plain-text fallback if it failed to load)
+// ---------------------------------------------------------------------
+function renderFormulas(panel, cfg) {
+  const haveKatex = (typeof katex !== "undefined");
+  const mainEl = panel.querySelector(`#formula-${cfg.id}`);
+  if (haveKatex) {
+    try { katex.render(cfg.formulaLatex, mainEl, {throwOnError:false, displayMode:true}); }
+    catch(e) { mainEl.textContent = cfg.formulaLatex; }
+  } else {
+    mainEl.textContent = cfg.formulaLatex; // raw LaTeX source as a readable fallback
+  }
+
+  if (cfg.whereLatex && cfg.whereLatex.length) {
+    const whereEl = panel.querySelector(`#formulawhere-${cfg.id}`);
+    whereEl.innerHTML = `<div class="formula-where-label">where:</div>`;
+    cfg.whereLatex.forEach(latex=>{
+      const item = document.createElement("div");
+      item.className = "formula-where-item";
+      whereEl.appendChild(item);
+      if (haveKatex) {
+        try { katex.render(latex, item, {throwOnError:false, displayMode:false}); }
+        catch(e) { item.textContent = latex; }
+      } else {
+        item.textContent = latex;
+      }
+    });
+  }
+}
+
+// ---------------------------------------------------------------------
+// Generic plotting
+// ---------------------------------------------------------------------
+function plotLine(canvas, xs, seriesList, opts) {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth, cssH = canvas.clientHeight;
+  if (cssW === 0 || cssH === 0) return;
+  canvas.width = cssW*dpr; canvas.height = cssH*dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,cssW,cssH);
+
+  const padL=42, padR=10, padT=10, padB=26;
+  const plotW = cssW-padL-padR, plotH = cssH-padT-padB;
+
+  let yMax;
+  if (opts.yMax !== undefined) {
+    yMax = opts.yMax;
+  } else {
+    yMax = 1e-6;
+    seriesList.forEach(s=> s.ys.forEach(v=>{ if(isFinite(v)) yMax=Math.max(yMax,v); }));
+    yMax *= 1.15;
+  }
+
+  const xMin = xs[0], xMax = xs[xs.length-1];
+  const X = (x)=> padL + (x-xMin)/(xMax-xMin)*plotW;
+  const Y = (y)=> padT + plotH - (y/yMax)*plotH;
+
+  ctx.strokeStyle="#cbd5e1"; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.moveTo(padL,padT); ctx.lineTo(padL,padT+plotH); ctx.lineTo(padL+plotW,padT+plotH); ctx.stroke();
+
+  ctx.fillStyle="#64748b"; ctx.font="10px sans-serif"; ctx.textAlign="center";
+  const nXTicks=5;
+  for(let i=0;i<=nXTicks;i++){
+    const xv = xMin + i*(xMax-xMin)/nXTicks;
+    const xp = X(xv);
+    ctx.strokeStyle="#f1f5f9"; ctx.beginPath(); ctx.moveTo(xp,padT); ctx.lineTo(xp,padT+plotH); ctx.stroke();
+    ctx.fillText(xv.toFixed(2), xp, padT+plotH+14);
+  }
+  ctx.textAlign="right";
+  const nYTicks=4;
+  for(let i=0;i<=nYTicks;i++){
+    const yv = i*yMax/nYTicks;
+    const yp = Y(yv);
+    ctx.strokeStyle="#f1f5f9"; ctx.beginPath(); ctx.moveTo(padL,yp); ctx.lineTo(padL+plotW,yp); ctx.stroke();
+    ctx.fillText(yv.toFixed(2), padL-6, yp+3);
+  }
+
+  ctx.fillStyle="#334155"; ctx.textAlign="center";
+  ctx.fillText(opts.xLabel||"t (s)", padL+plotW/2, cssH-4);
+  ctx.save(); ctx.translate(11, padT+plotH/2); ctx.rotate(-Math.PI/2);
+  ctx.fillText(opts.yLabel||"Rate (Hz)", 0, 0); ctx.restore();
+
+  seriesList.forEach(s=>{
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width||2;
+    if (s.dash) ctx.setLineDash(s.dash); else ctx.setLineDash([]);
+    ctx.beginPath();
+    xs.forEach((xv,i)=>{
+      const px=X(xv), py=Y(Math.max(0,s.ys[i]));
+      if(i===0) ctx.moveTo(px,py); else ctx.lineTo(px,py);
+    });
+    ctx.stroke();
+  });
+  ctx.setLineDash([]);
+}
+
+function estimateMaxHistory(cfg) {
+  if (!cfg.hasHistory) return null;
+  const betaParam = cfg.params.find(p=>p.key==="beta_hawkes");
+  const dt_grid = linspace(0, 6/Math.max(0.05, betaParam ? betaParam.min : 0.05), 60);
+  const testState = {};
+  cfg.params.forEach(pr => testState[pr.key] = pr.default);
+  let maxVal = 1e-6;
+  function scan(state) {
+    dt_grid.forEach(dt=>{
+      const v = cfg.historyFn(dt, state);
+      if (isFinite(v)) maxVal = Math.max(maxVal, v);
+    });
+  }
+  scan(testState);
+  cfg.params.forEach(pr => {
+    [pr.min, pr.max].forEach(edgeVal=>{
+      const trial = Object.assign({}, testState, {[pr.key]: edgeVal});
+      scan(trial);
+    });
+  });
+  return maxVal * 1.15;
+}
+
+// ---------------------------------------------------------------------
+// Widget builder
+// ---------------------------------------------------------------------
+function buildWidget(cfg) {
+  const panel = document.createElement("div");
+  panel.className = "panel"; panel.id = "panel-"+cfg.id;
+
+  panel.innerHTML = `
+    <h2>${cfg.title}</h2>
+    <div class="formula-block">
+      <div class="formula-main" id="formula-${cfg.id}"></div>
+      ${cfg.whereLatex && cfg.whereLatex.length ? `<div class="formula-where" id="formulawhere-${cfg.id}"></div>` : ``}
+    </div>
+    <div class="layout">
+      <div class="controls">
+        <div id="params-${cfg.id}"></div>
+        ${cfg.hasTrial ? `
+          <div class="param-row">
+            <label>Trial m <span class="val" id="mval-${cfg.id}">0</span></label>
+            <input type="range" id="mslider-${cfg.id}" min="0" max="${cfg.trialMax||25}" step="1" value="0">
+          </div>` : `<p class="note">This kernel has no trial-dependent modulation in the retained architecture.</p>`}
+        <button class="reset-btn" id="reset-${cfg.id}">Reset to fitted defaults</button>
+      </div>
+      <div class="plots">
+        <div class="plot-block">
+          <div class="plot-title">${cfg.isSurvival ? "Hazard h(t)" : "Rate λ(t)"} (capped at 2 Hz)</div>
+          <canvas id="rateplot-${cfg.id}"></canvas>
+          ${cfg.hasTrial ? `<div class="legend">
+            <span><span class="swatch" style="background:#2563eb"></span>current m</span>
+            <span><span class="swatch" style="background:#94a3b8;border-top:2px dashed #94a3b8;height:0;"></span>m = 0</span>
+          </div>` : ``}
+        </div>
+        ${cfg.hasHistory ? `
+        <div class="plot-block">
+          <div class="plot-title">Self-excitation kernel</div>
+          <canvas id="histplot-${cfg.id}"></canvas>
+          <div class="note">Added to the baseline rate immediately after each observed event. Own scale (not the 2 Hz cap) since this is an additive kick, not the total rate.</div>
+        </div>` : ``}
+        ${cfg.isSurvival ? `
+        <div class="plot-block">
+          <div class="plot-title">Population survival curve S(t) = P(no response by t)</div>
+          <canvas id="survplot-${cfg.id}"></canvas>
+          <div class="legend">
+            <span><span class="swatch" style="background:#2563eb"></span>current m</span>
+            <span><span class="swatch" style="background:#94a3b8;border-top:2px dashed #94a3b8;height:0;"></span>m = 0</span>
+          </div>
+        </div>` : ``}
+      </div>
+    </div>
+  `;
+  document.getElementById("panels").appendChild(panel);
+  renderFormulas(panel, cfg);
+
+  const state = {};
+  cfg.params.forEach(pr=> state[pr.key]=pr.default);
+  let m = 0;
+
+  const fixedRateYMax = 2.0;
+  const fixedHistYMax = estimateMaxHistory(cfg);
+  const fixedSurvYMax = 1.0;
+
+  const paramsDiv = panel.querySelector(`#params-${cfg.id}`);
+  cfg.params.forEach(pr=>{
+    const row = document.createElement("div"); row.className="param-row";
+    row.innerHTML = `
+      <label>${pr.label} <span class="val" id="v-${cfg.id}-${pr.key}">${pr.default}</span></label>
+      <input type="range" id="s-${cfg.id}-${pr.key}" min="${pr.min}" max="${pr.max}" step="${pr.step}" value="${pr.default}">
+      ${pr.derived ? `<div class="derived" id="d-${cfg.id}-${pr.key}"></div>` : ``}
+    `;
+    paramsDiv.appendChild(row);
+  });
+
+  function render() {
+    const t_grid = linspace(0, cfg.durationS, 300);
+    const y_current = t_grid.map(t=> cfg.rateFn(t, m, state));
+    const series = [{ys:y_current, color:"#2563eb", width:2}];
+    if (cfg.hasTrial && m!==0) {
+      const y_base = t_grid.map(t=> cfg.rateFn(t, 0, state));
+      series.push({ys:y_base, color:"#94a3b8", width:1.5, dash:[5,4]});
+    }
+    plotLine(panel.querySelector(`#rateplot-${cfg.id}`), t_grid, series,
+      {yLabel: cfg.isSurvival ? "Hazard (1/s)" : "Rate (Hz)", yMax: fixedRateYMax});
+
+    if (cfg.hasHistory) {
+      const dt_grid = linspace(0, Math.max(1, 6/Math.max(state.beta_hawkes,0.05)), 200);
+      const y_hist = dt_grid.map(dt=> cfg.historyFn(dt, state));
+      plotLine(panel.querySelector(`#histplot-${cfg.id}`), dt_grid, [{ys:y_hist, color:"#dc2626", width:2}],
+        {xLabel:"Δt since last event (s)", yLabel:"ρ(Δt) (1/s)", yMax: fixedHistYMax});
+    }
+
+    if (cfg.isSurvival) {
+      const fine = linspace(0, cfg.durationS, 400);
+      const cumIntegral = (mVal)=>{
+        const h = fine.map(t=> cfg.rateFn(t, mVal, state));
+        const S = new Array(fine.length); let acc=0; S[0]=1;
+        for (let i=1;i<fine.length;i++){
+          acc += 0.5*(h[i]+h[i-1])*(fine[i]-fine[i-1]);
+          S[i] = Math.exp(-acc);
+        }
+        return S;
+      };
+      const S_current = cumIntegral(m);
+      const survSeries = [{ys:S_current, color:"#2563eb", width:2}];
+      if (m!==0) survSeries.push({ys:cumIntegral(0), color:"#94a3b8", width:1.5, dash:[5,4]});
+      plotLine(panel.querySelector(`#survplot-${cfg.id}`), fine, survSeries, {yLabel:"S(t)", yMax: fixedSurvYMax});
+    }
+  }
+
+  cfg.params.forEach(pr=>{
+    const slider = panel.querySelector(`#s-${cfg.id}-${pr.key}`);
+    const valSpan = panel.querySelector(`#v-${cfg.id}-${pr.key}`);
+    const derivedDiv = pr.derived ? panel.querySelector(`#d-${cfg.id}-${pr.key}`) : null;
+    slider.addEventListener("input", ()=>{
+      state[pr.key] = parseFloat(slider.value);
+      valSpan.textContent = state[pr.key].toFixed(3);
+      if (derivedDiv) derivedDiv.textContent = pr.derived(state);
+      render();
+    });
+    if (derivedDiv) derivedDiv.textContent = pr.derived(state);
+  });
+
+  if (cfg.hasTrial) {
+    const mSlider = panel.querySelector(`#mslider-${cfg.id}`);
+    const mVal = panel.querySelector(`#mval-${cfg.id}`);
+    mSlider.addEventListener("input", ()=>{
+      m = parseInt(mSlider.value); mVal.textContent = m; render();
+    });
+  }
+
+  panel.querySelector(`#reset-${cfg.id}`).addEventListener("click", ()=>{
+    cfg.params.forEach(pr=>{
+      state[pr.key]=pr.default;
+      panel.querySelector(`#s-${cfg.id}-${pr.key}`).value = pr.default;
+      panel.querySelector(`#v-${cfg.id}-${pr.key}`).textContent = pr.default.toFixed(3);
+      if (pr.derived) panel.querySelector(`#d-${cfg.id}-${pr.key}`).textContent = pr.derived(state);
+    });
+    if (cfg.hasTrial) {
+      m = 0;
+      panel.querySelector(`#mslider-${cfg.id}`).value = 0;
+      panel.querySelector(`#mval-${cfg.id}`).textContent = 0;
+    }
+    render();
+  });
+
+  render();
+  panel._render = render;
+  return panel;
+}
+
+// ---------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------
+const tabsDiv = document.getElementById("tabs");
+KERNELS.forEach((cfg,i)=>{
+  const btn = document.createElement("button");
+  btn.className = "tab-btn"+(i===0?" active":"");
+  btn.textContent = cfg.id;
+
+  const panel = buildWidget(cfg);
+  if (i===0) panel.classList.add("active");
+
+  btn.addEventListener("click", ()=>{
+    document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
+    document.querySelectorAll(".panel").forEach(p=>p.classList.remove("active"));
+    btn.classList.add("active");
+    panel.classList.add("active");
+    if (panel._render) panel._render();
+  });
+
+  tabsDiv.appendChild(btn);
+});
+</script>
+</body>
+</html>
