@@ -1,6 +1,9 @@
+
+
 *.csv
 model/
 figures/
+tier1_results/
 Martin_Apr2026_Full
 Martin_Jan2026_Full
 Martin_Mar2026_Eyes
