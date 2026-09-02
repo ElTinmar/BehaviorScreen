@@ -280,7 +280,7 @@ for behavior in BEHAVIORS:
     print(f"  {behavior}: free={BEHAVIOR_PROCESS_FACTORY[behavior]().param_names}")
 
 all_lines = sorted(loader.raw_df["line"].astype(str).unique())
-STRAIGHT_MUTANTS = {"lakritz", "gr", "mecp2", "cort", "wik", "AB"}
+STRAIGHT_MUTANTS = {"lak", "gr", "mecp2", "cort", "wik", "AB"}
 NTR_LINES = [l for l in all_lines if l not in STRAIGHT_MUTANTS and l != "WT"]
 LINE_LABELS = {"WT": ("danieau", "ronidazole")}
 
