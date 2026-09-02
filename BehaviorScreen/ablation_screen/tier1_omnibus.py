@@ -629,16 +629,26 @@ def plot_volcano(
     effect_col: str = "effect_size",
     label_col: str = "line",
     figsize_per_panel: Tuple[float, float] = (4.0, 3.5),
+    max_labels_per_panel: int = 15,
+    min_labels_per_panel: int = 3,
 ) -> Tuple[plt.Figure, np.ndarray]:
     """
-    Volcano plot(s): log2_fold_change (x) vs -log10(p_value) (y), for every
-    'ok'/'ok_response_abolished' cell. Points are colored/shaped by
-    fit-quality cause (from build_bad_fit_triage) rather than plain
-    significance alone -- this matters here specifically because several
-    known issues (permutation-floor pinning, weak QC margin, one-arm
-    collapse) can make a cell LOOK like a clean hit by q-value alone while
-    still deserving a discount. If triage_df isn't supplied, falls back to
-    a plain significant/not-significant coloring.
+    Volcano plot(s): effect_size (x) vs -log10(p_value) (y), for every
+    'ok'/'ok_response_abolished' cell, one panel per behavior. Points are
+    colored/shaped by fit-quality cause (from build_bad_fit_triage) rather
+    than plain significance alone -- this matters here specifically
+    because several known issues (permutation-floor pinning, weak QC
+    margin, one-arm collapse) can make a cell LOOK like a clean hit by
+    q-value alone while still deserving a discount. If triage_df isn't
+    supplied, falls back to a plain significant/not-significant coloring.
+
+    effect_col is now METRIC-AWARE at the axis-label level: depending on
+    which effect-size path produced a given behavior's cells (aggregate
+    response_probability -> logit_diff, aggregate rate ->
+    log2_fold_change, or a single free parameter -> log2_fold_change on
+    that PARAMETER specifically, e.g. param_H/param_B), the x-axis label
+    is built to describe the actual quantity plotted rather than assuming
+    only the first two cases exist.
     """
     plot_df = df[df["status"].isin(["ok", "ok_response_abolished"])].copy()
     plot_df = plot_df.dropna(subset=[effect_col, "p_value"])
@@ -672,9 +682,35 @@ def plot_volcano(
             style = cause_style.get(cause, default_style)
             ax.scatter(group[effect_col], group["neg_log10_p"], s=22, edgecolors="none", **style)
 
-    def _resolve_top_n(sub: pd.DataFrame, max_labels: int = 15, min_labels: int = 3) -> int:
+    def _resolve_top_n(sub: pd.DataFrame, max_labels: int, min_labels: int) -> int:
         n_sig = int(sub.get("significant", pd.Series(dtype=bool)).sum())
         return int(np.clip(n_sig, min_labels, max_labels))
+
+    def _axis_label_for(sub: pd.DataFrame) -> str:
+
+        if "metric_name" not in sub.columns or sub.empty:
+            return "effect size"
+        metric_names = sub["metric_name"].dropna().unique()
+        if len(metric_names) == 0:
+            return "effect size"
+        if len(metric_names) > 1:
+            return f"effect size (mixed metrics: {', '.join(metric_names)})"
+
+        name = metric_names[0]
+        etype = (
+            sub["effect_size_type"].dropna().iloc[0]
+            if "effect_size_type" in sub.columns and sub["effect_size_type"].notna().any()
+            else None
+        )
+
+        if name.startswith("param_"):
+            pname = name[len("param_"):]
+            return f"log2({pname}_drug / {pname}_vehicle)"
+        if name == "response_probability" and etype == "logit_diff":
+            return "logit(p_drug) - logit(p_vehicle)"
+        if etype == "log2_fold_change":
+            return f"log2({name}_drug / {name}_vehicle)"
+        return f"effect size ({name})"
 
     behaviors = sorted(plot_df["behavior"].unique())
     n_cols = 4
@@ -691,21 +727,24 @@ def plot_volcano(
         ax = axes[i // n_cols, i % n_cols]
         sub = plot_df[plot_df["behavior"] == behavior]
         _scatter_by_cause(ax, sub)
-        q_line_p = _behavior_q_line(sub)          # <-- per-facet now
+
+        q_line_p = _behavior_q_line(sub)
         if q_line_p is not None:
             ax.axhline(-np.log10(q_line_p), color="black", linestyle=":", linewidth=0.8)
         ax.axvline(0, color="black", linewidth=0.5)
+
         local_xmax = sub[effect_col].abs().max() if len(sub) else 1.0
         ax.set_xlim(-local_xmax * 1.15, local_xmax * 1.15)
         ax.set_ylim(0, y_max * 1.1)
         ax.set_title(behavior, fontsize=9, fontweight="bold")
         ax.tick_params(labelsize=7)
-        panel_top_n = _resolve_top_n(sub, max_labels=15, min_labels=3)
+
+        panel_top_n = _resolve_top_n(sub, max_labels=max_labels_per_panel, min_labels=min_labels_per_panel)
         _label_top_hits(ax, sub, effect_col, label_col, panel_top_n)
-        etype = sub["effect_size_type"].mode().iat[0] if "effect_size_type" in sub.columns and len(sub) else "effect_size"
-        ax.set_xlabel("logit(p_drug) - logit(p_veh)" if etype == "logit_diff" else "log2(drug/vehicle rate)", fontsize=8)
+
+        ax.set_xlabel(_axis_label_for(sub), fontsize=7)
         if i % n_cols == 0:
-            ax.set_ylabel("-log10(p)", fontsize=8) 
+            ax.set_ylabel("-log10(p)", fontsize=8)
 
     for j in range(len(behaviors), n_rows * n_cols):
         axes[j // n_cols, j % n_cols].axis("off")
@@ -716,7 +755,6 @@ def plot_volcano(
     fig.suptitle("Volcano: effect size vs. significance, by behavior", fontsize=13, fontweight="bold")
     plt.tight_layout(rect=[0, 0.05, 1, 0.97])
     return fig, axes
-
 
 def _label_top_hits(ax, sub: pd.DataFrame, effect_col: str, label_col: str, top_n: int):
     if top_n <= 0 or "p_value" not in sub.columns:
