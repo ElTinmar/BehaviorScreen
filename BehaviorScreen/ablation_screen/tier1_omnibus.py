@@ -107,24 +107,28 @@ def tier1_effect_size(m_veh: PointProcess, ds_veh: PointProcessDataset,
     val_veh, name = output_metric(m_veh, ds_veh)
     val_drug, _ = output_metric(m_drug, ds_drug)
 
-    result = {
+    if name == "response_probability":
+        # Bounded metric (0,1) -- log2-ratio is NOT symmetric here (a
+        # change from 0.5->0.9 and 0.5->0.1 are the "same size" in the
+        # opposite direction but get very different |log2FC|; and a tiny
+        # absolute change near 0 produces an enormous log2FC). Use the
+        # logit difference instead: unbounded, symmetric under p<->1-p,
+        # and the standard transform for exactly this situation (same
+        # scale logistic regression coefficients live on).
+        p_veh = np.clip(val_veh, eps, 1 - eps)
+        p_drug = np.clip(val_drug, eps, 1 - eps)
+        effect = float(np.log(p_drug / (1 - p_drug)) - np.log(p_veh / (1 - p_veh)))
+        effect_name = "logit_diff"
+    else:
+        # Unbounded positive rate -- log2-ratio is appropriate here:
+        # symmetric under doubling/halving, scale-invariant.
+        effect = float(np.log2(max(val_drug, eps) / max(val_veh, eps)))
+        effect_name = "log2_fold_change"
+
+    return {
         "metric_name": name, "metric_vehicle": val_veh, "metric_drug": val_drug,
-        # multiplicative eps floor instead of additive -- avoids the
-        # near-zero shrinkage bias of val+1e-3 for low-rate behaviors
-        "log2_fold_change": float(np.log2(max(val_drug, eps) / max(val_veh, eps))),
+        "effect_size": effect, "effect_size_type": effect_name,
     }
-
-    # Per-free-parameter fold changes: catches offsetting-parameter
-    # phenotypes (e.g. peak up / baseline down) that the aggregate AUC
-    # metric alone can mask. Free of charge -- m_veh/m_drug are already fit.
-    for pname in m_veh.param_names:
-        v_veh = m_veh.param_dict_.get(pname)
-        v_drug = m_drug.param_dict_.get(pname)
-        if v_veh is not None and v_drug is not None:
-            result[f"param_{pname}_vehicle"] = v_veh
-            result[f"param_{pname}_drug"] = v_drug
-
-    return result
 
 def _tier1_one(
     line: str, behavior: str, dataset_config: dict,
@@ -583,7 +587,7 @@ def summarize_bad_fits(triage_df: pd.DataFrame) -> pd.DataFrame:
 def plot_volcano(
     df: pd.DataFrame,
     triage_df: Optional[pd.DataFrame] = None,   # from build_bad_fit_triage, for cause-aware markers
-    effect_col: str = "log2_fold_change",
+    effect_col: str = "effect_size",
     label_col: str = "line",
     figsize_per_panel: Tuple[float, float] = (4.0, 3.5),
     label_top_n: int = 5,
@@ -643,7 +647,6 @@ def plot_volcano(
         squeeze=False,
     )
 
-    x_max = plot_df[effect_col].abs().max()
     y_max = plot_df["neg_log10_p"].max()
 
     for i, behavior in enumerate(behaviors):
@@ -654,16 +657,17 @@ def plot_volcano(
         if q_line_p is not None:
             ax.axhline(-np.log10(q_line_p), color="black", linestyle=":", linewidth=0.8)
         ax.axvline(0, color="black", linewidth=0.5)
-        ax.set_xlim(-x_max * 1.1, x_max * 1.1)
+        local_xmax = sub[effect_col].abs().max() if len(sub) else 1.0
+        ax.set_xlim(-local_xmax * 1.15, local_xmax * 1.15)
         ax.set_ylim(0, y_max * 1.1)
         ax.set_title(behavior, fontsize=9, fontweight="bold")
         ax.tick_params(labelsize=7)
         panel_top_n = _resolve_top_n(sub, max_labels=15, min_labels=3)
         _label_top_hits(ax, sub, effect_col, label_col, panel_top_n)
+        etype = sub["effect_size_type"].mode().iat[0] if "effect_size_type" in sub.columns and len(sub) else "effect_size"
+        ax.set_xlabel("logit(p_drug) - logit(p_veh)" if etype == "logit_diff" else "log2(drug/vehicle rate)", fontsize=8)
         if i % n_cols == 0:
-            ax.set_ylabel("-log10(p)", fontsize=8)
-        if i // n_cols == n_rows - 1:
-            ax.set_xlabel(effect_col, fontsize=8)
+            ax.set_ylabel("-log10(p)", fontsize=8) 
 
     for j in range(len(behaviors), n_rows * n_cols):
         axes[j // n_cols, j % n_cols].axis("off")
