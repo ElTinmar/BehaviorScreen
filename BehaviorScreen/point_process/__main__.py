@@ -16,7 +16,7 @@ from BehaviorScreen.point_process.renewal_process import RenewalKernelFactory, R
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
 from BehaviorScreen.point_process.io import save_fig, save_csv
-
+from BehaviorScreen.point_process.frailty_analysis import collect_fish_gains, plot_fish_gain_correlation
 
 def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDataset]) -> pd.DataFrame:
     """
@@ -183,10 +183,10 @@ model_config = {
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(RateKernelFactory.phototaxis_contra()),
-            RenewalProcess(
-                RateKernelFactory.phototaxis_contra(),
-                RenewalKernelFactory.exponential_excitation()
-            ),
+            # RenewalProcess(
+            #     RateKernelFactory.phototaxis_contra(),
+            #     RenewalKernelFactory.exponential_excitation()
+            # ),
             HawkesProcess(
                 RateKernelFactory.phototaxis_contra(),
                 HistoryKernelFactory.exponential()
@@ -290,25 +290,25 @@ model_config = {
         'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            RenewalProcess(
-                RateKernelFactory.homogeneous_poisson(), 
-                RenewalKernelFactory.exponential_recovery()
-            ),
-            RenewalProcess(
-                RateKernelFactory.homogeneous_poisson(), 
-                RenewalKernelFactory.exponential_excitation()
-            ),
+            # RenewalProcess(
+            #     RateKernelFactory.homogeneous_poisson(), 
+            #     RenewalKernelFactory.exponential_recovery()
+            # ),
+            # RenewalProcess(
+            #     RateKernelFactory.homogeneous_poisson(), 
+            #     RenewalKernelFactory.exponential_excitation()
+            # ),
             HawkesProcess(
                 RateKernelFactory.homogeneous_poisson(),
                 HistoryKernelFactory.exponential()
             ),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(
-                RenewalProcess(
-                    RateKernelFactory.homogeneous_poisson(),
-                    RenewalKernelFactory.exponential_excitation()
-                )
-            ),
+            # GammaMixedEffectsProcess(
+            #     RenewalProcess(
+            #         RateKernelFactory.homogeneous_poisson(),
+            #         RenewalKernelFactory.exponential_excitation()
+            #     )
+            # ),
             GammaMixedEffectsProcess(
                 HawkesProcess(
                     RateKernelFactory.homogeneous_poisson(),
@@ -464,6 +464,7 @@ for exp_name, dataset in datasets.items():
 # =============================================================================
 
 all_summaries = []
+best_model_by_exp = {}
 
 for exp_name, config in model_config.items():
 
@@ -482,6 +483,7 @@ for exp_name, config in model_config.items():
     )
     save_csv(summary_table, model_dir, "model_comparison_table")
     best_model = fitted_models[0]
+    best_model_by_exp[exp_name] = best_model
 
     summary_table.insert(0, "Condition", exp_name)
     all_summaries.append(summary_table)
@@ -513,3 +515,16 @@ master_summary_df = pd.concat(all_summaries, ignore_index=True)
 print("\n================ MASTER MODEL COMPARISON TABLE ================")
 print(master_summary_df.to_string(index=False))
 save_csv(master_summary_df, OUTPUT_ROOT, "master_model_comparison")
+
+
+# frailty correlation
+models_and_datasets = {
+    exp_name: (best_model_by_exp[exp_name], datasets[exp_name])
+    for exp_name in model_config
+    if hasattr(best_model_by_exp[exp_name], "estimate_fish_gains")
+}
+gain_df = collect_fish_gains(models_and_datasets)
+fig, ax, corr = plot_fish_gain_correlation(
+    gain_df, title="Pooled control population: cross-behavior frailty gain correlation",
+)
+save_fig(fig, OUTPUT_ROOT, "fish_gain_correlation_pooled_population")
