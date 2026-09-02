@@ -270,6 +270,9 @@ class BehavioralDataLoader:
     def __init__(self, csv_path: Union[Path, str]):
         self.raw_df = pd.read_csv(csv_path)
 
+        # normalize columns
+        self.raw_df["line"] = self.raw_df["line"].astype(str)
+
     def prepare_dataset(
         self,
         bout_name: str,
