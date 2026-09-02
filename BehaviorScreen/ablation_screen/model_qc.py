@@ -132,21 +132,21 @@ def assess_group_fit(
         # mean the log-likelihood/deviance used by Tier 1 is wrong -- still
         # treated as a hard flag here since MultiGroupProcess's per-parameter
         # contrasts downstream would be unreliable for this arm.
-        qc.reasons_flagged.append(f"params_near_bound: {qc.params_near_bound}")
+        qc.informational_notes.append(f"params_near_bound: {qc.params_near_bound}")
 
     try:
         hessian = model_arch.estimate_hessian(dataset)
         eigvals = np.linalg.eigvalsh(hessian)
         qc.hessian_positive_definite = bool(np.all(eigvals > 1e-8))
         if not qc.hessian_positive_definite:
-            qc.reasons_flagged.append("hessian_not_positive_definite (flat/ridge likelihood)")
+            qc.informational_notes.append("hessian_not_positive_definite (flat/ridge likelihood)")
 
         corr = model_arch.estimate_parameter_correlation(dataset)
         off_diag = corr - np.diag(np.diag(corr))
         qc.max_abs_param_correlation = float(np.max(np.abs(off_diag))) if off_diag.size else np.nan
         if qc.max_abs_param_correlation > corr_threshold:
             i, j = np.unravel_index(np.argmax(np.abs(off_diag)), off_diag.shape)
-            qc.reasons_flagged.append(
+            qc.informational_notes.append(
                 f"near_collinear_parameters: {model_arch.param_names[i]}~{model_arch.param_names[j]} "
                 f"(r={off_diag[i,j]:.2f})"
             )
