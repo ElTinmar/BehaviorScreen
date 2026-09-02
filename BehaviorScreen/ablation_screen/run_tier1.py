@@ -32,7 +32,9 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
     plot_parameter_change_heatmaps,
     generate_arm_surface_grids,
     build_bad_fit_triage,
-    plot_volcano
+    plot_volcano,
+    extract_fish_gains_across_behaviors,
+    plot_fish_gain_correlation
 )
 from BehaviorScreen.ablation_screen.fdr import add_fdr, add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
@@ -382,6 +384,20 @@ generate_arm_surface_grids(
 
 fig, axes = plot_volcano(tier1_df)
 save_fig(fig, OUTPUT_DIR, "tier1_volcano_by_behavior")
+
+for line in NTR_LINES + ["WT"]:
+    veh_label, drug_label = LINE_LABELS.get(line, ("vehicle", "ronidazole"))
+
+    for arm_name, label in [("vehicle", veh_label), ("drug", drug_label)]:
+        gain_df = extract_fish_gains_across_behaviors(
+            line, label, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY,
+        )
+        if gain_df.empty or gain_df["behavior"].nunique() < 2:
+            continue
+
+        fig, ax, corr = plot_fish_gain_correlation(gain_df)
+        save_fig(fig, OUTPUT_DIR / "fish_gain_correlations", f"{line}_{arm_name}")
+        plt.close(fig)
 
 # ===========================================================================
 # Step 3: calibration checkpoint -- p-value histograms per behavior

@@ -700,3 +700,92 @@ def _label_top_hits(ax, sub: pd.DataFrame, effect_col: str, label_col: str, top_
             fontsize=6, xytext=(3, 3), textcoords="offset points",
             rotation=45, rotation_mode="anchor", ha="left", va="bottom"
         )
+
+def extract_fish_gains_across_behaviors(
+    line: str, label: str,
+    loader, dataset_configs: dict, base_process_factories: dict,
+    behaviors: Optional[List[str]] = None,
+) -> pd.DataFrame:
+    """
+    For ONE (line, label) -- e.g. one line's vehicle arm -- fits every
+    behavior's GammaMixedEffectsProcess architecture and extracts each
+    fish's estimated frailty gain (posterior mean, via
+    estimate_fish_gains), joined back to the fish's REAL identifier (the
+    underlying 'file' column), not the dataset-local fish_idx (which is
+    only valid within one PointProcessDataset and does NOT correspond to
+    the same physical fish across different behaviors' datasets).
+
+    Only behaviors whose pinned architecture is a GammaMixedEffectsProcess
+    are included (checked via hasattr) -- estimate_fish_gains has no
+    meaning otherwise.
+    """
+    behaviors = behaviors or list(dataset_configs.keys())
+    records = []
+
+    broad = subset_loader(loader, line, [label])
+    # file -> fish index used ANYWHERE in this (line, label)'s raw data,
+    # so we can recover which dataset-local fish_idx maps to which real fish.
+    file_ids = np.sort(broad.raw_df["file"].unique())
+
+    for behavior in behaviors:
+        ds = safe_prepare_dataset(broad, dataset_configs[behavior])
+        if ds is None:
+            continue
+
+        model = base_process_factories[behavior]()
+        if not hasattr(model, "estimate_fish_gains"):
+            continue  # not a GammaMixedEffectsProcess architecture -- skip
+
+        try:
+            model.fit(ds)
+            gains = model.estimate_fish_gains(ds)   # columns: fish_idx, n_events, expected_events_base, estimated_gain
+        except Exception as e:
+            tqdm.write(f"[{line}/{label}/{behavior}] gain extraction failed: {e}")
+            continue
+
+        cfg = dataset_configs[behavior]
+        sub = broad.raw_df
+        if cfg.get("stim") is not None:
+            sub = sub[sub["stim"] == cfg["stim"]]
+        elif cfg.get("epoch_name") is not None:
+            en = cfg["epoch_name"]
+            sub = sub[sub["epoch_name"].isin(en)] if isinstance(en, list) else sub[sub["epoch_name"] == en]
+        local_file_ids = np.sort(sub["file"].unique())
+
+        gains = gains.copy()
+        gains["file"] = gains["fish_idx"].map(lambda i: local_file_ids[i] if i < len(local_file_ids) else None)
+        gains["behavior"] = behavior
+        records.append(gains[["file", "behavior", "estimated_gain"]])
+
+    if not records:
+        return pd.DataFrame(columns=["file", "behavior", "estimated_gain"])
+    return pd.concat(records, ignore_index=True)
+
+def plot_fish_gain_correlation(
+    gain_long_df: pd.DataFrame,
+    min_fish_shared: int = 5,
+    cmap: str = "coolwarm",
+    figsize: Tuple[float, float] = (7, 6),
+) -> Tuple[plt.Figure, plt.Axes, pd.DataFrame]:
+
+    wide = gain_long_df.pivot_table(index="file", columns="behavior", values="estimated_gain")
+    corr = wide.corr(min_periods=min_fish_shared)
+    n_pairs = wide.notna().T.dot(wide.notna()).astype(int)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    im = ax.imshow(corr, cmap=cmap, vmin=-1, vmax=1)
+    ax.set_xticks(range(len(corr.columns))); ax.set_xticklabels(corr.columns, rotation=45, ha="right", fontsize=8)
+    ax.set_yticks(range(len(corr.index))); ax.set_yticklabels(corr.index, fontsize=8)
+
+    for i in range(len(corr)):
+        for j in range(len(corr)):
+            val = corr.iloc[i, j]
+            n = n_pairs.iloc[i, j]
+            if pd.notna(val):
+                ax.text(j, i, f"{val:.2f}\n(n={n})", ha="center", va="center",
+                        color="white" if abs(val) > 0.5 else "black", fontsize=6)
+
+    ax.set_title("Fish-level frailty gain correlation across behaviors", fontsize=11, fontweight="bold")
+    fig.colorbar(im, ax=ax, shrink=0.8, label="Correlation")
+    plt.tight_layout()
+    return fig, ax, corr
