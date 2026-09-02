@@ -15,6 +15,7 @@ import numpy as np
 from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.point_process.dataset import BehavioralDataLoader
 from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory, PreyCapture
+from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
 
@@ -50,9 +51,24 @@ BEHAVIOR_CONFIG = {
             'laterality': Laterality.IPSILATERAL,
             'binning_dt': 0.05, 't_start': 0.0, 't_end': 24.0,
         },
+        # AIC winner (ΔAIC=0). Requires the hawkes_process.py per-trial
+        # integral fix to be practical for a full per-line screen -- see
+        # conversation notes; re-benchmark before running the full sweep.
         'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))),
-            {'tau': 1.152, 'phi1': 0.031, 'phi2': -0.184, 'A_ripple': 0.087, 'r_dispersion': 4.62},
+            GammaMixedEffectsProcess(
+                HawkesProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                    HistoryKernelFactory.exponential(),
+                )
+            ),
+            {
+                'tau': 0.812041, 'z0_ripple': 0.889359,
+                'phi1': 0.267287, 'phi2': -2.720154,
+                'alpha_peak': -0.192392, 'alpha_baseline': -0.100840,
+                'alpha_ripple': -0.230097,
+                'alpha_hawkes': 0.266288, 'beta_hawkes': 0.628789,  # pinned as shape -- see caveat
+                'r_dispersion': 6.236294,
+            },
         ),
         # free: A, B
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -66,7 +82,7 @@ BEHAVIOR_CONFIG = {
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            {'r_dispersion': 5.1},
+            {'r_dispersion': 2.733626},
         ),
         # free: B
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -80,8 +96,12 @@ BEHAVIOR_CONFIG = {
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
-            {'f_dip': 0.483, 'tau_dip': 0.201, 'mu': 0.402, 'sigma': 0.147,
-             'tau_decay': 0.312, 'alpha_B': 0.02, 'alpha_peak': -0.01, 'r_dispersion': 3.8},
+            {
+                'f_dip': 0.330746, 'tau_dip': 0.429057, 'mu': 0.282779,
+                'sigma': 0.069307, 'tau_decay': 0.175063,
+                'alpha_B': 0.033644, 'alpha_peak': 0.046725,
+                'r_dispersion': 2.273735,
+            },
         ),
         # free: B, A_peak
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -95,9 +115,14 @@ BEHAVIOR_CONFIG = {
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_contra())),
-            {'tau_dip': 0.55, 'alpha_B': 0.0, 'alpha_dip': 0.0, 'r_dispersion': 4.4},
+            {
+                'tau_dip': 0.870464,
+                'alpha_B': 0.037437,
+                'alpha_dip': -0.151756,
+                'r_dispersion': 1.851101,
+            },
         ),
-        # free: B, f_dip
+        # free: B, z0_dip
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
@@ -107,9 +132,17 @@ BEHAVIOR_CONFIG = {
             'laterality': Laterality.IPSILATERAL,
             'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
         },
+        # AIC winner (ΔAIC=0). Homogeneous baseline -> cheap regardless of
+        # the Hawkes integral fix (trivial kernel.integrate), so this one
+        # was never the bottleneck.
         'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            {'r_dispersion': 6.0},
+            GammaMixedEffectsProcess(
+                HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
+            ),
+            {
+                'alpha_hawkes': 0.037930, 'beta_hawkes': 0.330805,  # pinned as shape -- see caveat
+                'r_dispersion': 2.485696,
+            },
         ),
         # free: B
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -123,7 +156,7 @@ BEHAVIOR_CONFIG = {
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_lateral_contra())),
-            {'tau_dip': 0.5, 'r_dispersion': 5.5},
+            {'tau_dip': 1.667727, 'r_dispersion': 0.761771},
         ),
         # free: B, f_dip
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -137,9 +170,9 @@ BEHAVIOR_CONFIG = {
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_forward())),
-            {'tau_dip': 0.5, 'r_dispersion': 5.0},
+            {'tau_dip': 1.653539, 'r_dispersion': 0.443042},
         ),
-        # free: B, f_dip
+        # free: B, z_dip
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
@@ -149,9 +182,12 @@ BEHAVIOR_CONFIG = {
             'laterality': Laterality.IPSILATERAL,
             'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
         },
+        # CAVEAT: no Hawkes/Renewal candidate was ever fit for this condition
+        # in Phase 3 -- best of what was TRIED, not a confirmed winner over
+        # history-dependence.
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            {'r_dispersion': 6.2},
+            {'r_dispersion': 0.853827},
         ),
         # free: B
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -163,9 +199,16 @@ BEHAVIOR_CONFIG = {
             'laterality': Laterality.CONTRALATERAL,
             'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
         },
+        # AIC winner (ΔAIC=0; Renewal-ExponentialExcitation close second at
+        # ΔAIC=13.08, AIC weight 0.14% -- Hawkes still clearly preferred).
         'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            {'r_dispersion': 6.2},
+            GammaMixedEffectsProcess(
+                HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
+            ),
+            {
+                'alpha_hawkes': 0.038189, 'beta_hawkes': 0.452438,  # pinned as shape -- see caveat
+                'r_dispersion': 1.698480,
+            },
         ),
         # free: B
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
@@ -181,7 +224,10 @@ BEHAVIOR_CONFIG = {
             GammaMixedEffectsProcess(
                 SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6)))
             ),
-            {'mu': 5.05, 'sigma': 0.42, 'alpha': 0.03, 'r_dispersion': 2.9},
+            {
+                'mu': 4.952208, 'sigma': 0.102790, 'alpha': -0.120006,
+                'r_dispersion': 2.845518,
+            },
         ),
         # free: H, B
         'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
@@ -197,7 +243,10 @@ BEHAVIOR_CONFIG = {
             GammaMixedEffectsProcess(
                 SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6)))
             ),
-            {'mu': 5.11, 'sigma': 0.39, 'alpha': 0.01, 'r_dispersion': 3.1},
+            {
+                'mu': 4.955200, 'sigma': 0.101784, 'alpha': -0.139564,
+                'r_dispersion': 2.910379,
+            },
         ),
         # free: H, B
         'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
@@ -211,7 +260,10 @@ BEHAVIOR_CONFIG = {
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
-            {'mu': 0.183, 'sigma': 0.061, 'tau': 0.29, 'alpha': -0.02, 'r_dispersion': 2.4},
+            {
+                'mu': 0.073930, 'sigma': 0.016163, 'tau': 0.078449,
+                'alpha': -0.187736, 'r_dispersion': 2.549803,
+            },
         ),
         # free: H, B
         'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
