@@ -27,7 +27,7 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
     run_tier1_screen, 
     tier1_permutation_test, 
     fit_tier1, 
-    wide_tier1_to_param_long, 
+    extract_fitted_parameters, 
     compute_parameter_deltas, 
     plot_parameter_change_heatmaps,
     generate_arm_surface_grids,
@@ -359,8 +359,10 @@ print(tier1_df["status"].value_counts())
 
 bad_fits = build_bad_fit_triage(tier1_df)
 
-param_df = wide_tier1_to_param_long(tier1_df)
-param_df = compute_parameter_deltas(param_df)
+param_df = extract_fitted_parameters(
+    tier1_df, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY,
+    line_labels=LINE_LABELS,
+)
 
 line_order = (
     tier1_df[tier1_df["significant"]]
