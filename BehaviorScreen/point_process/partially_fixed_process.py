@@ -82,3 +82,6 @@ class PartiallyFixedProcess(PointProcess):
     @property
     def is_survival(self) -> bool:
         return self.base_process.is_survival
+
+    def estimate_fish_gains(self, dataset):
+        return self.base_process.estimate_fish_gains(dataset)

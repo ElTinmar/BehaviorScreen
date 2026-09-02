@@ -254,6 +254,9 @@ class PointProcess:
         k = len(self.params_)
         return 2 * k - 2 * self.log_likelihood
 
+    def estimate_fish_gains(self, dataset):
+        raise NotImplementedError
+
     def mixed_effects_likelihood_terms(self, dataset, params) -> Tuple[float, np.ndarray, np.ndarray]:
         """Used for mixed-effect model at the fish level"""
         raise NotImplementedError
