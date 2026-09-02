@@ -79,7 +79,7 @@ def tier1_permutation_test(
         except Exception:
             return None
 
-    with tqdm_joblib(tqdm(total=n_perm, desc="Permutation")):
+    with tqdm_joblib(tqdm(total=n_perm, desc="Permutation", position=1, leave=False)):
         results = joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(_one)(s) for s in seeds)
 
     null_dist = np.array([v for v in results if v is not None])
@@ -205,7 +205,7 @@ def run_tier1_screen(
     )
 
     if show_progress:
-        with tqdm_joblib(tqdm(total=len(jobs), desc="Tier 1", unit="cell")):
+        with tqdm_joblib(tqdm(total=len(jobs), desc="Tier 1", unit="cell", position=0)):
             records = joblib.Parallel(n_jobs=n_jobs)(task_iter)
     else:
         records = joblib.Parallel(n_jobs=n_jobs)(task_iter)
