@@ -817,3 +817,129 @@ def plot_fish_gain_correlation_vehicle_vs_drug(
     )
 
 
+def bootstrap_parameter_deltas(
+    tier1_df: pd.DataFrame,
+    param_df: pd.DataFrame,   # from extract_fitted_parameters -- used only to decide log-ratio vs. difference per (behavior, parameter)
+    loader, dataset_configs: dict, base_process_factories: dict,
+    cells: Optional[pd.DataFrame] = None,   # subset; defaults to significant hits
+    line_labels=None, default_labels=("vehicle", "ronidazole"),
+    n_boot: int = 200, ci: float = 95.0, seed: int = 0,
+) -> pd.DataFrame:
+
+    line_labels = line_labels or {}
+    if cells is None:
+        cells = tier1_df[tier1_df["significant"] == True][["line", "behavior"]]
+
+    transform_lookup = {}
+    for (behavior, pname), group in param_df.groupby(["behavior", "parameter"]):
+        vals = pd.concat([group["value_vehicle"], group["value_drug"]]).dropna()
+        transform_lookup[(behavior, pname)] = "log2_ratio" if len(vals) > 0 and (vals > 0).all() else "difference"
+
+    def _delta(v_veh, v_drug, transform):
+        if transform == "log2_ratio":
+            return np.log2(max(v_drug, 1e-9) / max(v_veh, 1e-9))
+        return v_drug - v_veh
+
+    records = []
+    for _, row in tqdm(cells.iterrows(), total=len(cells), desc="Bootstrapping parameter deltas"):
+        line, behavior = row["line"], row["behavior"]
+        veh_label, drug_label = line_labels.get(line, default_labels)
+
+        ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_configs[behavior])
+        ds_drug = safe_prepare_dataset(subset_loader(loader, line, [drug_label]), dataset_configs[behavior])
+        if ds_veh is None or ds_drug is None:
+            continue
+
+        try:
+            m_veh0 = base_process_factories[behavior](); m_veh0.fit(ds_veh)
+            m_drug0 = base_process_factories[behavior](); m_drug0.fit(ds_drug)
+        except Exception as e:
+            tqdm.write(f"[{line}/{behavior}] initial fit failed: {e}")
+            continue
+
+        param_names = m_veh0.param_names
+        boot_deltas = {p: [] for p in param_names}
+
+        seeds = np.random.SeedSequence(seed).spawn(n_boot)
+        for s in seeds:
+            rng = np.random.default_rng(s)
+            ds_veh_b = ds_veh.resample(rng)
+            ds_drug_b = ds_drug.resample(rng)
+            try:
+                m_veh_b = base_process_factories[behavior](); m_veh_b.fit(ds_veh_b)
+                m_drug_b = base_process_factories[behavior](); m_drug_b.fit(ds_drug_b)
+            except Exception:
+                continue
+            for pname in param_names:
+                v_v, v_d = m_veh_b.param_dict_.get(pname), m_drug_b.param_dict_.get(pname)
+                if v_v is None or v_d is None:
+                    continue
+                boot_deltas[pname].append(_delta(v_v, v_d, transform_lookup.get((behavior, pname), "difference")))
+
+        alpha = (100.0 - ci) / 2.0
+        for pname in param_names:
+            arr = np.array(boot_deltas[pname])
+            if len(arr) < max(20, 0.3 * n_boot):
+                continue
+            transform = transform_lookup.get((behavior, pname), "difference")
+            point_delta = _delta(m_veh0.param_dict_.get(pname), m_drug0.param_dict_.get(pname), transform)
+            records.append({
+                "line": line, "behavior": behavior, "parameter": pname, "transform": transform,
+                "delta": point_delta, "boot_mean": float(np.mean(arr)),
+                "ci_lo": float(np.percentile(arr, alpha)), "ci_hi": float(np.percentile(arr, 100 - alpha)),
+                "n_boot_success": len(arr),
+            })
+
+    return pd.DataFrame(records)
+
+def plot_parameter_forest(
+    boot_delta_df: pd.DataFrame,
+    behavior: str,
+    sort_by_abs: bool = False,
+) -> Optional[plt.Figure]:
+    """
+    Forest plot for one behavior: one subplot per free parameter, lines on
+    the y-axis (sorted by delta, or |delta| if sort_by_abs), bootstrap CI
+    as a horizontal whisker. Gray points = CI crosses zero (not
+    distinguishable from no change at this line's sample size); colored
+    points = CI excludes zero in that direction.
+    """
+    sub = boot_delta_df[boot_delta_df["behavior"] == behavior]
+    if sub.empty:
+        return None
+
+    parameters = sorted(sub["parameter"].unique())
+    n_lines = sub["line"].nunique()
+    fig_h = max(3.0, 0.35 * n_lines + 1.0)
+    fig, axes = plt.subplots(1, len(parameters), figsize=(4.2 * len(parameters), fig_h), squeeze=False)
+    axes = axes[0]
+
+    for ax, pname in zip(axes, parameters):
+        psub = sub[sub["parameter"] == pname].copy()
+        sort_key = psub["delta"].abs() if sort_by_abs else psub["delta"]
+        psub = psub.assign(_sort_key=sort_key).sort_values("_sort_key").reset_index(drop=True)
+
+        y_pos = np.arange(len(psub))
+        excludes_zero = ~((psub["ci_lo"] <= 0) & (psub["ci_hi"] >= 0))
+        colors = np.where(~excludes_zero, "lightgray", np.where(psub["delta"] > 0, "crimson", "steelblue"))
+
+        xerr_lo = np.maximum(psub["delta"] - psub["ci_lo"], 0)
+        xerr_hi = np.maximum(psub["ci_hi"] - psub["delta"], 0)
+
+        ax.errorbar(psub["delta"], y_pos, xerr=[xerr_lo, xerr_hi],
+                    fmt="none", ecolor="lightgray", elinewidth=1.3, capsize=2, zorder=1)
+        ax.scatter(psub["delta"], y_pos, c=colors, s=28, zorder=3, edgecolors="none")
+        ax.axvline(0, color="black", linewidth=0.8, linestyle="--", zorder=0)
+
+        ax.set_yticks(y_pos)
+        ax.set_yticklabels(psub["line"], fontsize=7)
+        transform = psub["transform"].iloc[0]
+        xlabel = f"log2({pname}_drug / {pname}_vehicle)" if transform == "log2_ratio" else f"Δ{pname} (drug − vehicle)"
+        ax.set_xlabel(xlabel, fontsize=8)
+        ax.set_title(pname, fontsize=9, fontweight="bold")
+        ax.tick_params(labelsize=7)
+        ax.grid(axis="x", linestyle=":", alpha=0.4)
+
+    fig.suptitle(f"{behavior}: bootstrap parameter deltas (95% CI)", fontsize=12, fontweight="bold")
+    plt.tight_layout()
+    return fig

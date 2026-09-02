@@ -33,7 +33,9 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
     generate_arm_surface_grids,
     build_bad_fit_triage,
     plot_volcano,
-    plot_fish_gain_correlation_vehicle_vs_drug
+    plot_fish_gain_correlation_vehicle_vs_drug,
+    bootstrap_parameter_deltas,
+    plot_parameter_forest
 )
 from BehaviorScreen.ablation_screen.fdr import add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
@@ -391,6 +393,19 @@ for line in NTR_LINES + ["WT"]:
     if fig is None:
         continue
     save_fig(fig, OUTPUT_DIR / "fish_gain_correlations", line)
+    plt.close(fig)
+
+boot_delta_df = bootstrap_parameter_deltas(
+    tier1_df, param_df, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY,
+    line_labels=LINE_LABELS, n_boot=100,
+)
+boot_delta_df.to_csv(OUTPUT_DIR / "bootstrap_parameter_deltas.csv", index=False)
+
+for behavior in boot_delta_df["behavior"].unique():
+    fig = plot_parameter_forest(boot_delta_df, behavior)
+    if fig is None:
+        continue
+    save_fig(fig, OUTPUT_DIR / "parameter_forest_plots", behavior)
     plt.close(fig)
 
 # ===========================================================================
