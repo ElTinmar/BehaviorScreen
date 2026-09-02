@@ -11,6 +11,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy as np
+import re
 
 from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.point_process.dataset import BehavioralDataLoader
@@ -18,13 +19,40 @@ from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKer
 from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
+from BehaviorScreen.point_process.io import save_fig
+
 
 from BehaviorScreen.point_process.partially_fixed_process import PartiallyFixedProcess
-from BehaviorScreen.ablation_screen.tier1_omnibus import run_tier1_screen, tier1_permutation_test, fit_tier1
+from BehaviorScreen.ablation_screen.tier1_omnibus import (
+    run_tier1_screen, 
+    tier1_permutation_test, 
+    fit_tier1, 
+    wide_tier1_to_param_long, 
+    compute_parameter_deltas, 
+    plot_parameter_change_heatmaps,
+    generate_arm_surface_grids,
+    build_bad_fit_triage
+
+)
 from BehaviorScreen.ablation_screen.fdr import add_fdr
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.ablation_screen.dataset_utils import subset_loader, safe_prepare_dataset
 from BehaviorScreen.ablation_screen.dataset_ops import select_fish
+
+
+def slugify(name: str) -> str:
+    """Turn an arbitrary model/condition name into a filesystem-safe filename fragment."""
+    name = name.strip()
+    name = re.sub(r"[^\w\-.]+", "_", name)   # anything not alnum/_/-/. -> underscore
+    return re.sub(r"_+", "_", name).strip("_")
+
+def save_fig(fig: plt.Figure, out_dir: Path, filename: str, dpi: int = 150) -> Path:
+    """Save fig as PNG under out_dir/filename (creating out_dir if needed) and return the path."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{slugify(filename)}.png"
+    fig.savefig(path, dpi=dpi, bbox_inches="tight")
+    return path
+
 
 OUTPUT_DIR = Path("./tier1_results")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -39,7 +67,7 @@ prey_stim_freq = prey_stim_speed_deg_per_s / prey_stim_range_deg
 # ===========================================================================
 # ONE dict per behavior. 'architecture' already returns a fully-formed,
 # fitting-ready process -- PartiallyFixedProcess wraps the raw architecture
-# and pins its shape parameters to values already known from the Phase-3
+# and pins its shape parameters to values already known from the 
 # pooled-vehicle fit. Whatever's NOT listed in the fixed dict stays free and
 # gets estimated per line/condition arm.
 # ===========================================================================
@@ -49,7 +77,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'stim': Stim.PREY_CAPTURE, 'bout_name': 'JT',
             'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 24.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
         },
         # AIC winner (ΔAIC=0). Requires the hawkes_process.py per-trial
         # integral fix to be practical for a full per-line screen -- see
@@ -78,7 +106,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'stim': Stim.PREY_CAPTURE, 'bout_name': 'JT',
             'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 24.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
@@ -92,7 +120,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'stim': Stim.PHOTOTAXIS, 'bout_name': 'RT',
             'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 24.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
@@ -111,7 +139,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'stim': Stim.PHOTOTAXIS, 'bout_name': 'RT',
             'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 24.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_contra())),
@@ -130,7 +158,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'epoch_name': ["grating right", "grating left"], 'bout_name': 'RT',
             'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
         # AIC winner (ΔAIC=0). Homogeneous baseline -> cheap regardless of
         # the Hawkes integral fix (trivial kernel.integrate), so this one
@@ -152,7 +180,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'epoch_name': ["grating right", "grating left"], 'bout_name': 'RT',
             'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_lateral_contra())),
@@ -166,7 +194,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'epoch_name': "grating forward", 'bout_name': 'BS',
             'laterality': Laterality.NONDIRECTIONAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_forward())),
@@ -180,7 +208,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'stim': Stim.OKR, 'bout_name': 'S1',
             'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
         # CAVEAT: no Hawkes/Renewal candidate was ever fit for this condition
         # in Phase 3 -- best of what was TRIED, not a confirmed winner over
@@ -197,7 +225,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'stim': Stim.OKR, 'bout_name': 'S1',
             'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
         # AIC winner (ΔAIC=0; Renewal-ExponentialExcitation close second at
         # ΔAIC=13.08, AIC weight 0.14% -- Hawkes still clearly preferred).
@@ -218,7 +246,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'stim': Stim.LOOMING, 'bout_name': 'SLC',
             'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(
@@ -237,7 +265,7 @@ BEHAVIOR_CONFIG = {
         'dataset': {
             'stim': Stim.LOOMING, 'bout_name': 'SLC',
             'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05, 't_start': 0.0, 't_end': 9.0,
+            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(
@@ -329,6 +357,25 @@ tier1_df = add_fdr(tier1_df, alpha=0.05)
 tier1_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
 print(tier1_df["status"].value_counts())
 
+bad_fits = build_bad_fit_triage(tier1_df)
+
+param_df = wide_tier1_to_param_long(tier1_df)
+param_df = compute_parameter_deltas(param_df)
+
+line_order = (
+    tier1_df[tier1_df["significant"]]
+    .groupby("line").size()
+    .reindex(sorted(param_df["line"].unique()), fill_value=0)
+    .sort_values(ascending=False).index.tolist()
+)
+
+fig, axes = plot_parameter_change_heatmaps(param_df, line_order=line_order)
+save_fig(fig, OUTPUT_DIR, "tier1_parameter_change_heatmaps")
+
+generate_arm_surface_grids(
+    tier1_df, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY,
+    output_dir=OUTPUT_DIR / "arm_surface_grids", line_labels=LINE_LABELS
+)
 
 # ===========================================================================
 # Step 3: calibration checkpoint -- p-value histograms per behavior

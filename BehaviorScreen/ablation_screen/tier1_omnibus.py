@@ -12,15 +12,18 @@ originally-attempted joint fits.
 """
 import math
 from typing import Callable, Dict, List, Optional, Tuple
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import joblib
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.tqdm_joblib import tqdm_joblib
+from BehaviorScreen.point_process.io import save_fig
 
 from .dataset_ops import pool_fish, select_fish
 from .dataset_utils import subset_loader, safe_prepare_dataset, per_fish_summary, compare_fish_metric
@@ -225,3 +228,379 @@ def run_tier1_screen(
         records.append(record)
 
     return pd.DataFrame(records)
+
+
+def compute_parameter_deltas(param_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Adds 'delta' (drug vs vehicle change) and 'delta_z' (z-scored within
+    each (behavior, parameter) column, across lines) to a long-format
+    parameter table.
+
+    log2-ratio vs raw-difference is chosen PER (behavior, parameter) column
+    based on whether every observed value is strictly positive -- not by
+    name pattern, since parameter names aren't consistent enough across
+    architectures (B means 'baseline rate in Hz' in one kernel, tau means
+    'decay time constant' in another). Rate/scale-like parameters (B, A, H,
+    tau, sigma, mu) are virtually always positive across a whole screen and
+    get log2-ratio (scale-invariant); parameters that can be negative
+    (alpha_*, z0_*, z_dip -- already living on a log/logit scale by
+    construction, see the reparametrization work) get a raw difference,
+    which is the natural, already-additive unit for those.
+    """
+    df = param_df.copy()
+    df["delta"] = np.nan
+
+    for (behavior, pname), group in df.groupby(["behavior", "parameter"]):
+        vals = pd.concat([group["value_vehicle"], group["value_drug"]]).dropna()
+        use_log_ratio = len(vals) > 0 and (vals > 0).all()
+
+        idx = group.index
+        if use_log_ratio:
+            df.loc[idx, "delta"] = np.log2(
+                group["value_drug"].clip(lower=1e-9) / group["value_vehicle"].clip(lower=1e-9)
+            )
+        else:
+            df.loc[idx, "delta"] = group["value_drug"] - group["value_vehicle"]
+
+    # Z-score within each (behavior, parameter) column across lines --
+    # makes heterogeneous units/scales comparable as "how unusual is this
+    # line relative to the rest of the screen", which is what the heatmap
+    # color should mean.
+    df["delta_z"] = df.groupby(["behavior", "parameter"])["delta"].transform(
+        lambda x: (x - x.mean()) / x.std() if x.std() > 0 else 0.0
+    )
+    return df
+
+def wide_tier1_to_param_long(tier1_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Converts tier1_df's wide param_{name}_vehicle/param_{name}_drug columns
+    (from the extended tier1_effect_size) into the long format expected by
+    compute_parameter_deltas/plot_parameter_change_heatmaps: one row per
+    (line, behavior, parameter).
+    """
+    veh_cols = [c for c in tier1_df.columns if c.startswith("param_") and c.endswith("_vehicle")]
+    records = []
+
+    for _, row in tier1_df.iterrows():
+        if row["status"] not in ("ok", "ok_response_abolished"):
+            continue
+        for veh_col in veh_cols:
+            pname = veh_col[len("param_"):-len("_vehicle")]
+            drug_col = f"param_{pname}_drug"
+            if drug_col not in tier1_df.columns:
+                continue
+            v_veh, v_drug = row[veh_col], row[drug_col]
+            if pd.isna(v_veh) or pd.isna(v_drug):
+                continue
+            records.append({
+                "line": row["line"], "behavior": row["behavior"], "parameter": pname,
+                "value_vehicle": v_veh, "value_drug": v_drug,
+                "significant": bool(row.get("significant", False)),
+            })
+
+    return pd.DataFrame(records)
+
+def plot_parameter_change_heatmaps(
+    param_df: pd.DataFrame,
+    line_order: Optional[List[str]] = None,
+    cmap: str = "coolwarm",
+    figsize_per_col: float = 1.2,
+    row_height: float = 0.28,
+) -> Tuple[plt.Figure, np.ndarray]:
+    """
+    Small-multiples grid: one heatmap panel per behavior, rows=lines,
+    columns=that behavior's free parameters, color=z-scored drug-vs-vehicle
+    change (delta_z). Deliberately NOT a single combined (line x
+    behavior_parameter) matrix -- most parameter names are behavior-
+    specific (e.g. z0_ripple only exists for prey_capture_ipsi), so a
+    combined matrix would be mostly gray/NaN and hard to scan; one panel
+    per behavior keeps each subplot dense and legible.
+
+    Significant cells (per tier1's omnibus test) are marked with '*'.
+    """
+    behaviors = sorted(param_df["behavior"].unique())
+    if line_order is None:
+        line_order = sorted(param_df["line"].unique())
+
+    n_behaviors = len(behaviors)
+    n_cols = 4
+    n_rows = int(np.ceil(n_behaviors / n_cols))
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(n_cols * 3.2, n_rows * max(2.5, len(line_order) * row_height)),
+        squeeze=False,
+    )
+
+    vmax = np.nanmax(np.abs(param_df["delta_z"])) if len(param_df) else 1.0
+    vmax = max(vmax, 1e-6)
+
+    for i, behavior in enumerate(behaviors):
+        ax = axes[i // n_cols, i % n_cols]
+        sub = param_df[param_df["behavior"] == behavior]
+        params = sorted(sub["parameter"].unique())
+
+        matrix = np.full((len(line_order), len(params)), np.nan)
+        sig_mask = np.zeros_like(matrix, dtype=bool)
+        for r, line in enumerate(line_order):
+            for c, pname in enumerate(params):
+                cell = sub[(sub["line"] == line) & (sub["parameter"] == pname)]
+                if len(cell):
+                    matrix[r, c] = cell["delta_z"].iloc[0]
+                    sig_mask[r, c] = cell["significant"].iloc[0]
+
+        cmap_obj = plt.get_cmap(cmap).copy()
+        cmap_obj.set_bad(color="lightgray")
+        masked = np.ma.masked_invalid(matrix)
+        im = ax.imshow(masked, aspect="auto", cmap=cmap_obj, vmin=-vmax, vmax=vmax)
+
+        for r in range(len(line_order)):
+            for c in range(len(params)):
+                if sig_mask[r, c]:
+                    ax.text(c, r, "*", ha="center", va="center", color="black", fontsize=10, fontweight="bold")
+
+        ax.set_title(behavior, fontsize=9, fontweight="bold")
+        ax.set_xticks(range(len(params)))
+        ax.set_xticklabels(params, rotation=45, ha="right", fontsize=7)
+        if i % n_cols == 0:
+            ax.set_yticks(range(len(line_order)))
+            ax.set_yticklabels(line_order, fontsize=6)
+        else:
+            ax.set_yticks([])
+
+    for j in range(n_behaviors, n_rows * n_cols):
+        axes[j // n_cols, j % n_cols].axis("off")
+
+    sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=-vmax, vmax=vmax))
+    sm.set_array([])
+    fig.colorbar(sm, ax=axes, shrink=0.5, label="Z-scored Δ (drug vs vehicle)\n* = significant (Tier 1)")
+
+    return fig, axes
+
+def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
+    """(unchanged from before)"""
+    n_fish = dataset.n_fish_per_trial
+    active = n_fish > 0
+
+    time_marginal = np.full(surface.shape[1], np.nan)
+    if active.any():
+        time_marginal = np.average(surface[active], axis=0, weights=n_fish[active])
+
+    trial_marginal = np.full(surface.shape[0], np.nan)
+    trial_marginal[active] = np.mean(surface[active], axis=1)
+
+    return time_marginal, trial_marginal
+
+def _robust_vmax(surfaces: List[np.ndarray], percentile: float = 95.0) -> float:
+    pooled = np.concatenate([s[np.isfinite(s) & (s > 0)].ravel() for s in surfaces])
+    if len(pooled) == 0:
+        return 1e-9
+    return float(np.percentile(pooled, percentile))
+
+def plot_arm_surface_grid_with_marginals(
+    ds_veh: PointProcessDataset, ds_drug: PointProcessDataset,
+    m_veh: PointProcess, m_drug: PointProcess,
+    title: str = "",
+    cmap: str = "plasma",
+    figsize: Tuple[float, float] = (12, 10),
+    vmax_percentile: float = 95.0,
+) -> plt.Figure:
+    """
+    Per arm (vehicle, drug): empirical heatmap | model heatmap, with ONE
+    shared time-marginal strip above (spanning both heatmap columns) and
+    ONE shared trial-marginal column to the right -- each marginal overlays
+    empirical (solid) vs model (dashed) on the same axis, rather than
+    living in 4 separate locations. This directly shows fit calibration
+    (the actual point of a marginal) without making the eye hop between
+    two physically separate line plots, and removes the redundancy of the
+    previous version (where the "vehicle" time marginal was effectively
+    shown twice, once framed under each heatmap).
+
+    Single shared GridSpec for the whole figure (not nested per-panel
+    GridSpecs) -- guarantees pixel alignment across rows/columns. Colorbar
+    is an explicit, manually-positioned axis, not matplotlib-placed.
+    """
+    surf_veh_emp = ds_veh.time_trial_histogram_hz
+    surf_veh_model = m_veh.compute_expected_rate(ds_veh)
+    surf_drug_emp = ds_drug.time_trial_histogram_hz
+    surf_drug_model = m_drug.compute_expected_rate(ds_drug)
+
+    tm_veh_emp, trm_veh_emp = _weighted_marginals(surf_veh_emp, ds_veh)
+    tm_veh_model, trm_veh_model = _weighted_marginals(surf_veh_model, ds_veh)
+    tm_drug_emp, trm_drug_emp = _weighted_marginals(surf_drug_emp, ds_drug)
+    tm_drug_model, trm_drug_model = _weighted_marginals(surf_drug_model, ds_drug)
+
+    vmax = _robust_vmax([surf_veh_emp, surf_drug_emp], percentile=vmax_percentile)
+    time_ymax = max(np.nanmax(x) for x in [tm_veh_emp, tm_veh_model, tm_drug_emp, tm_drug_model]
+                     if np.any(np.isfinite(x)))
+    trial_xmax = max(np.nanmax(x) for x in [trm_veh_emp, trm_veh_model, trm_drug_emp, trm_drug_model]
+                      if np.any(np.isfinite(x)))
+    time_ymax, trial_xmax = max(time_ymax, 1e-9), max(trial_xmax, 1e-9)
+
+    fig = plt.figure(figsize=figsize)
+    gs = fig.add_gridspec(
+        nrows=4, ncols=3,
+        width_ratios=[4, 4, 1.3],
+        height_ratios=[1, 4, 1, 4],
+        wspace=0.12, hspace=0.35,
+        left=0.07, right=0.86, top=0.90, bottom=0.07,
+    )
+
+    def _draw_arm(row0: int, ds, surf_emp, surf_model, tm_emp, tm_model, trm_emp, trm_model, row_label: str,
+                  show_legend: bool):
+        ax_time = fig.add_subplot(gs[row0, 0:2])
+        ax_emp = fig.add_subplot(gs[row0 + 1, 0], sharex=ax_time)
+        ax_model = fig.add_subplot(gs[row0 + 1, 1], sharex=ax_time, sharey=ax_emp)
+        ax_trial = fig.add_subplot(gs[row0 + 1, 2], sharey=ax_emp)
+
+        ax_time.plot(ds.t_centers, tm_emp, color="black", linestyle="-", linewidth=1.3, label="Empirical")
+        ax_time.plot(ds.t_centers, tm_model, color="crimson", linestyle="--", linewidth=1.3, label="Model")
+        ax_time.set_ylim(0, time_ymax * 1.05)
+        ax_time.set_title(row_label, fontsize=11, fontweight="bold", loc="left")
+        plt.setp(ax_time.get_xticklabels(), visible=False)
+        ax_time.tick_params(labelsize=6)
+        if show_legend:
+            ax_time.legend(loc="upper right", fontsize=7, frameon=False)
+
+        mesh = ax_emp.pcolormesh(ds.t_grid, ds.trial_edges, surf_emp, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
+        ax_model.pcolormesh(ds.t_grid, ds.trial_edges, surf_model, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
+        if row0 == 0:
+            ax_emp.set_title("Empirical", fontsize=9)
+            ax_model.set_title("Model", fontsize=9)
+        ax_emp.set_xlabel("Time in trial (s)", fontsize=8)
+        ax_model.set_xlabel("Time in trial (s)", fontsize=8)
+        ax_emp.set_ylabel("Trial", fontsize=8)
+        plt.setp(ax_model.get_yticklabels(), visible=False)
+        ax_emp.tick_params(labelsize=7)
+        ax_model.tick_params(labelsize=7)
+
+        trial_centers = np.arange(ds.num_trials)
+        ax_trial.plot(trm_emp, trial_centers, color="black", linestyle="-", linewidth=1.3)
+        ax_trial.plot(trm_model, trial_centers, color="crimson", linestyle="--", linewidth=1.3)
+        ax_trial.set_xlim(0, trial_xmax * 1.05)
+        plt.setp(ax_trial.get_yticklabels(), visible=False)
+        ax_trial.tick_params(labelsize=6)
+
+        return mesh
+
+    _draw_arm(0, ds_veh, surf_veh_emp, surf_veh_model, tm_veh_emp, tm_veh_model, trm_veh_emp, trm_veh_model,
+              "Vehicle", show_legend=True)
+    mesh = _draw_arm(2, ds_drug, surf_drug_emp, surf_drug_model, tm_drug_emp, tm_drug_model, trm_drug_emp, trm_drug_model,
+                      "Drug", show_legend=False)
+
+    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.97)
+    cax = fig.add_axes([0.89, 0.15, 0.02, 0.65])
+    cbar = fig.colorbar(mesh, cax=cax)
+    cbar.set_label("Rate (Hz)", fontsize=9)
+
+    return fig
+
+def generate_arm_surface_grids(
+    cells: pd.DataFrame,
+    loader, dataset_configs, base_process_factories,
+    output_dir: Path,
+    line_labels=None, default_labels=("vehicle", "ronidazole"),
+) -> pd.DataFrame:
+    """Returns a per-(line, behavior) status table -- 'plotted' / 'no_data' /
+    'fit_failed' -- so missing plots are traceable without re-deriving them
+    from the output directory after the fact."""
+    line_labels = line_labels or {}
+    results = []
+
+    for _, row in tqdm(cells.iterrows(), total=len(cells), desc="Arm surface grids"):
+        line, behavior = row["line"], row["behavior"]
+        veh_label, drug_label = line_labels.get(line, default_labels)
+
+        ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_configs[behavior])
+        ds_drug = safe_prepare_dataset(subset_loader(loader, line, [drug_label]), dataset_configs[behavior])
+        if ds_veh is None or ds_drug is None:
+            results.append({"line": line, "behavior": behavior, "plot_status": "no_data"})
+            continue
+
+        try:
+            m_veh = base_process_factories[behavior](); m_veh.fit(ds_veh)
+            m_drug = base_process_factories[behavior](); m_drug.fit(ds_drug)
+        except Exception as e:
+            tqdm.write(f"[{line}/{behavior}] fit failed, skipping plot: {e}")
+            results.append({"line": line, "behavior": behavior, "plot_status": f"fit_failed: {e}"})
+            continue
+
+        reason = row.get("plot_reason", "")
+        title = f"{line} / {behavior}" + (f"  [{reason}]" if reason else "")
+        fig = plot_arm_surface_grid_with_marginals(ds_veh, ds_drug, m_veh, m_drug, title=title)
+        path = save_fig(fig, output_dir / (reason or "all"), f"{line}_{behavior}")
+        plt.close(fig)
+        results.append({"line": line, "behavior": behavior, "plot_status": "plotted", "path": str(path)})
+
+    status_df = pd.DataFrame(results)
+    print(status_df["plot_status"].value_counts())
+    return status_df
+
+def build_bad_fit_triage(tier1_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Single triage table over every (line, behavior) cell, tagging each with
+    a `cause` bucket -- using ONLY columns already present in tier1_df (no
+    refitting, no D_n/calibration statistics involved anywhere).
+
+    One row per cell; a cell gets exactly ONE cause (first match wins, in
+    priority order below), so counts are non-overlapping and sum to the
+    total.
+
+    Priority order (highest first): structural skips (no data / trial
+    mismatch / too few events) rank above hard fit failures (exception /
+    architecture collapse), which rank above soft fit-quality flags
+    (permutation near its own resolution floor, one arm collapsing to
+    null-like behavior, weak AIC margin over the null).
+    """
+    df = tier1_df.copy()
+    df["cause"] = "ok"
+
+    status = df["status"]
+    df.loc[status == "skipped_insufficient_data", "cause"] = "no_data"
+    df.loc[status == "skipped_trial_count_mismatch", "cause"] = "trial_count_mismatch"
+    df.loc[status == "skipped_insufficient_information", "cause"] = "insufficient_events"
+    df.loc[status.str.startswith("fit_failed", na=False), "cause"] = "fit_exception"
+    df.loc[status.str.startswith("unexpected_error", na=False), "cause"] = "fit_exception"
+    df.loc[status == "flagged_architecture_collapse", "cause"] = "architecture_collapse"
+    df.loc[status == "ok_response_abolished", "cause"] = "response_abolished"  # informational, not "bad"
+
+    is_ok = df["cause"] == "ok"
+
+    # Soft flag 1: permutation p-value sitting exactly at (or within one
+    # unit of) its own reported floor -- you know p is small but not how
+    # small; worth a higher-n_perm re-run before trusting its exact rank
+    # against other floored cells.
+    at_floor = is_ok & (df["p_value"] <= df["p_value_floor"] * 1.5)
+    df.loc[at_floor, "cause"] = "p_value_near_floor"
+
+    # Soft flag 2: permutation itself was flagged unreliable (too many
+    # failed permutation fits to trust the null distribution).
+    unreliable = is_ok & df["permutation_unreliable"].fillna(False)
+    df.loc[unreliable, "cause"] = "permutation_unreliable"
+
+    # Soft flag 3: one arm's architecture didn't actually beat the null
+    # (qc_verdict == "reliable_no_signal") even though the overall cell
+    # still converged and produced a p-value.
+    no_signal_arm = is_ok & (
+        (df["qc_verdict_vehicle"] == "reliable_no_signal") |
+        (df["qc_verdict_drug"] == "reliable_no_signal")
+    )
+    df.loc[no_signal_arm, "cause"] = "one_arm_no_signal"
+
+    # Soft flag 4: architecture only weakly beat the null in at least one
+    # arm (ΔAIC < 5, a conventional weak-support cutoff).
+    weak_margin = is_ok & (
+        (df["qc_delta_aic_vehicle"].fillna(np.inf) < 5) |
+        (df["qc_delta_aic_drug"].fillna(np.inf) < 5)
+    )
+    df.loc[weak_margin, "cause"] = "weak_qc_margin"
+
+    return df
+
+
+def summarize_bad_fits(triage_df: pd.DataFrame) -> pd.DataFrame:
+    """Cause counts, sorted descending -- the quick top-level view."""
+    return (
+        triage_df["cause"].value_counts()
+        .rename_axis("cause").reset_index(name="n_cells")
+        .sort_values("n_cells", ascending=False)
+    )
