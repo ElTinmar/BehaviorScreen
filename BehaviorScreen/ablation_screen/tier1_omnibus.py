@@ -629,7 +629,6 @@ def plot_volcano(
     effect_col: str = "effect_size",
     label_col: str = "line",
     figsize_per_panel: Tuple[float, float] = (4.0, 3.5),
-    label_top_n: int = 5,
 ) -> Tuple[plt.Figure, np.ndarray]:
     """
     Volcano plot(s): log2_fold_change (x) vs -log10(p_value) (y), for every
