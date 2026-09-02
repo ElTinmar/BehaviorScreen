@@ -32,3 +32,9 @@ def add_fdr(df: pd.DataFrame, pval_col: str = "p_value", alpha: float = 0.05, pr
     df[f"{prefix}q_value"] = benjamini_hochberg(df[pval_col].values)
     df[f"{prefix}significant"] = df[f"{prefix}q_value"] < alpha
     return df
+
+def add_fdr_per_behavior(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
+    parts = []
+    for behavior, group in df.groupby("behavior", dropna=False):
+        parts.append(add_fdr(group.copy(), alpha=alpha))
+    return pd.concat(parts, ignore_index=True)

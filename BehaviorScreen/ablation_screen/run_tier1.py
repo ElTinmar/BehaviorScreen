@@ -31,10 +31,10 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
     compute_parameter_deltas, 
     plot_parameter_change_heatmaps,
     generate_arm_surface_grids,
-    build_bad_fit_triage
-
+    build_bad_fit_triage,
+    plot_volcano
 )
-from BehaviorScreen.ablation_screen.fdr import add_fdr
+from BehaviorScreen.ablation_screen.fdr import add_fdr, add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.ablation_screen.dataset_utils import subset_loader, safe_prepare_dataset
 from BehaviorScreen.ablation_screen.dataset_ops import select_fish
@@ -353,7 +353,7 @@ tier1_df = run_tier1_screen(
     dataset_configs=DATASET_CONFIGS, base_process_factories=BEHAVIOR_PROCESS_FACTORY,
     null_process_factories=NULL_PROCESS_FACTORY, line_labels=LINE_LABELS, n_perm=1000,
 )
-tier1_df = add_fdr(tier1_df, alpha=0.05)
+tier1_df = add_fdr_per_behavior(tier1_df, alpha=0.05)
 tier1_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
 print(tier1_df["status"].value_counts())
 
@@ -376,6 +376,9 @@ generate_arm_surface_grids(
     tier1_df, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY,
     output_dir=OUTPUT_DIR / "arm_surface_grids", line_labels=LINE_LABELS
 )
+
+fig, axes = plot_volcano(tier1_df)
+save_fig(fig, OUTPUT_DIR, "tier1_volcano_by_behavior")
 
 # ===========================================================================
 # Step 3: calibration checkpoint -- p-value histograms per behavior

@@ -536,21 +536,6 @@ def generate_arm_surface_grids(
     return status_df
 
 def build_bad_fit_triage(tier1_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Single triage table over every (line, behavior) cell, tagging each with
-    a `cause` bucket -- using ONLY columns already present in tier1_df (no
-    refitting, no D_n/calibration statistics involved anywhere).
-
-    One row per cell; a cell gets exactly ONE cause (first match wins, in
-    priority order below), so counts are non-overlapping and sum to the
-    total.
-
-    Priority order (highest first): structural skips (no data / trial
-    mismatch / too few events) rank above hard fit failures (exception /
-    architecture collapse), which rank above soft fit-quality flags
-    (permutation near its own resolution floor, one arm collapsing to
-    null-like behavior, weak AIC margin over the null).
-    """
     df = tier1_df.copy()
     df["cause"] = "ok"
 
@@ -565,29 +550,18 @@ def build_bad_fit_triage(tier1_df: pd.DataFrame) -> pd.DataFrame:
 
     is_ok = df["cause"] == "ok"
 
-    # Soft flag 1: permutation p-value sitting exactly at (or within one
-    # unit of) its own reported floor -- you know p is small but not how
-    # small; worth a higher-n_perm re-run before trusting its exact rank
-    # against other floored cells.
     at_floor = is_ok & (df["p_value"] <= df["p_value_floor"] * 1.5)
     df.loc[at_floor, "cause"] = "p_value_near_floor"
 
-    # Soft flag 2: permutation itself was flagged unreliable (too many
-    # failed permutation fits to trust the null distribution).
     unreliable = is_ok & df["permutation_unreliable"].fillna(False)
     df.loc[unreliable, "cause"] = "permutation_unreliable"
 
-    # Soft flag 3: one arm's architecture didn't actually beat the null
-    # (qc_verdict == "reliable_no_signal") even though the overall cell
-    # still converged and produced a p-value.
     no_signal_arm = is_ok & (
         (df["qc_verdict_vehicle"] == "reliable_no_signal") |
         (df["qc_verdict_drug"] == "reliable_no_signal")
     )
     df.loc[no_signal_arm, "cause"] = "one_arm_no_signal"
 
-    # Soft flag 4: architecture only weakly beat the null in at least one
-    # arm (ΔAIC < 5, a conventional weak-support cutoff).
     weak_margin = is_ok & (
         (df["qc_delta_aic_vehicle"].fillna(np.inf) < 5) |
         (df["qc_delta_aic_drug"].fillna(np.inf) < 5)
@@ -604,3 +578,105 @@ def summarize_bad_fits(triage_df: pd.DataFrame) -> pd.DataFrame:
         .rename_axis("cause").reset_index(name="n_cells")
         .sort_values("n_cells", ascending=False)
     )
+
+
+def plot_volcano(
+    df: pd.DataFrame,
+    triage_df: Optional[pd.DataFrame] = None,   # from build_bad_fit_triage, for cause-aware markers
+    effect_col: str = "log2_fold_change",
+    label_col: str = "line",
+    figsize_per_panel: Tuple[float, float] = (4.0, 3.5),
+    label_top_n: int = 5,
+) -> Tuple[plt.Figure, np.ndarray]:
+    """
+    Volcano plot(s): log2_fold_change (x) vs -log10(p_value) (y), for every
+    'ok'/'ok_response_abolished' cell. Points are colored/shaped by
+    fit-quality cause (from build_bad_fit_triage) rather than plain
+    significance alone -- this matters here specifically because several
+    known issues (permutation-floor pinning, weak QC margin, one-arm
+    collapse) can make a cell LOOK like a clean hit by q-value alone while
+    still deserving a discount. If triage_df isn't supplied, falls back to
+    a plain significant/not-significant coloring.
+    """
+    plot_df = df[df["status"].isin(["ok", "ok_response_abolished"])].copy()
+    plot_df = plot_df.dropna(subset=[effect_col, "p_value"])
+    plot_df["neg_log10_p"] = -np.log10(plot_df["p_value"].clip(lower=1e-300))
+
+    if triage_df is not None:
+        merged = plot_df.merge(
+            triage_df[["line", "behavior", "cause"]], on=["line", "behavior"], how="left"
+        )
+        plot_df["cause"] = merged["cause"].fillna("ok")
+    else:
+        plot_df["cause"] = np.where(plot_df.get("significant", False), "significant", "ok")
+
+    cause_style = {
+        "ok": dict(color="lightsteelblue", marker="o", alpha=0.5, label="ok, not significant"),
+        "significant": dict(color="crimson", marker="o", alpha=0.85, label="significant"),
+        "p_value_near_floor": dict(color="darkorange", marker="^", alpha=0.85, label="p near permutation floor"),
+        "permutation_unreliable": dict(color="gray", marker="x", alpha=0.7, label="permutation unreliable"),
+        "one_arm_no_signal": dict(color="purple", marker="s", alpha=0.7, label="one arm no signal vs null"),
+        "weak_qc_margin": dict(color="goldenrod", marker="D", alpha=0.6, label="weak QC margin (ΔAIC<5)"),
+        "response_abolished": dict(color="black", marker="*", alpha=0.9, label="response abolished (Fisher test)"),
+    }
+    default_style = dict(color="gray", marker="o", alpha=0.4, label="other")
+
+    def _behavior_q_line(sub: pd.DataFrame) -> Optional[float]:
+        sig_rows = sub[sub.get("significant", False)]
+        return sig_rows["p_value"].max() if len(sig_rows) else None
+
+    def _scatter_by_cause(ax, sub):
+        for cause, group in sub.groupby("cause"):
+            style = cause_style.get(cause, default_style)
+            ax.scatter(group[effect_col], group["neg_log10_p"], s=22, edgecolors="none", **style)
+
+    behaviors = sorted(plot_df["behavior"].unique())
+    n_cols = 4
+    n_rows = int(np.ceil(len(behaviors) / n_cols))
+    fig, axes = plt.subplots(
+        n_rows, n_cols,
+        figsize=(figsize_per_panel[0] * n_cols, figsize_per_panel[1] * n_rows),
+        squeeze=False,
+    )
+
+    x_max = plot_df[effect_col].abs().max()
+    y_max = plot_df["neg_log10_p"].max()
+
+    for i, behavior in enumerate(behaviors):
+        ax = axes[i // n_cols, i % n_cols]
+        sub = plot_df[plot_df["behavior"] == behavior]
+        _scatter_by_cause(ax, sub)
+        q_line_p = _behavior_q_line(sub)          # <-- per-facet now
+        if q_line_p is not None:
+            ax.axhline(-np.log10(q_line_p), color="black", linestyle=":", linewidth=0.8)
+        ax.axvline(0, color="black", linewidth=0.5)
+        ax.set_xlim(-x_max * 1.1, x_max * 1.1)
+        ax.set_ylim(0, y_max * 1.1)
+        ax.set_title(behavior, fontsize=9, fontweight="bold")
+        ax.tick_params(labelsize=7)
+        _label_top_hits(ax, sub, effect_col, label_col, label_top_n)
+        if i % n_cols == 0:
+            ax.set_ylabel("-log10(p)", fontsize=8)
+        if i // n_cols == n_rows - 1:
+            ax.set_xlabel(effect_col, fontsize=8)
+
+    for j in range(len(behaviors), n_rows * n_cols):
+        axes[j // n_cols, j % n_cols].axis("off")
+
+    handles = [plt.Line2D([0], [0], linestyle="", marker=s["marker"], color=s["color"], label=s["label"])
+               for s in cause_style.values()]
+    fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=7, bbox_to_anchor=(0.5, -0.02))
+    fig.suptitle("Volcano: effect size vs. significance, by behavior", fontsize=13, fontweight="bold")
+    plt.tight_layout(rect=[0, 0.05, 1, 0.97])
+    return fig, axes
+
+
+def _label_top_hits(ax, sub: pd.DataFrame, effect_col: str, label_col: str, top_n: int):
+    if top_n <= 0 or "p_value" not in sub.columns:
+        return
+    top = sub.nsmallest(top_n, "p_value")
+    for _, row in top.iterrows():
+        ax.annotate(
+            str(row[label_col]), (row[effect_col], row["neg_log10_p"]),
+            fontsize=6, xytext=(3, 3), textcoords="offset points",
+        )
