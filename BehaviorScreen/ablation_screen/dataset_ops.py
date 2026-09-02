@@ -25,6 +25,7 @@ def select_fish(dataset: PointProcessDataset, fish_indices: np.ndarray) -> Point
         event_trials_idx=new_trials,
         event_fish_idx=new_fish_idx,
         fish_trial_mask=dataset.fish_trial_mask[fish_indices, :],
+        fish_ids=dataset.fish_ids[fish_indices],
         duration_s=dataset.duration_s,
         binning_dt=dataset.binning_dt,
         bout_name=dataset.bout_name,
@@ -53,12 +54,14 @@ def pool_fish(ds_a: PointProcessDataset, ds_b: PointProcessDataset) -> PointProc
         np.concatenate([ds_a.event_fish_idx.astype(int), (ds_b.event_fish_idx + n_a).astype(int)])
         if has_events else np.array([], dtype=int)
     )
-
+    pooled_fish_ids = np.concatenate([ds_a.fish_ids, ds_b.fish_ids])
+    
     return PointProcessDataset(
         event_times=np.concatenate([ds_a.event_times, ds_b.event_times]),
         event_trials_idx=np.concatenate([ds_a.event_trials_idx, ds_b.event_trials_idx]).astype(int),
         event_fish_idx=pooled_fish_idx,
         fish_trial_mask=np.vstack([ds_a.fish_trial_mask, ds_b.fish_trial_mask]),
+        fish_ids=pooled_fish_ids,
         duration_s=ds_a.duration_s,
         binning_dt=ds_a.binning_dt,
         bout_name=ds_a.bout_name,

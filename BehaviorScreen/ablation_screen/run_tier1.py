@@ -255,10 +255,10 @@ BEHAVIOR_CONFIG = {
             ),
             {
                 'mu': 4.952208, 'sigma': 0.102790, 'alpha': -0.120006,
-                'r_dispersion': 2.845518,
+                'r_dispersion': 2.845518, 'B': 0.0284841
             },
         ),
-        # free: H, B
+        # free: H
         'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
     },
 
@@ -274,10 +274,10 @@ BEHAVIOR_CONFIG = {
             ),
             {
                 'mu': 4.955200, 'sigma': 0.101784, 'alpha': -0.139564,
-                'r_dispersion': 2.910379,
+                'r_dispersion': 2.910379, 'B': 0.0289052
             },
         ),
-        # free: H, B
+        # free: H
         'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
     },
 
@@ -291,10 +291,10 @@ BEHAVIOR_CONFIG = {
             GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
             {
                 'mu': 0.073930, 'sigma': 0.016163, 'tau': 0.078449,
-                'alpha': -0.187736, 'r_dispersion': 2.549803,
+                'alpha': -0.187736, 'r_dispersion': 2.549803, 'B': 0.0179795
             },
         ),
-        # free: H, B
+        # free: H
         'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
     },
 }
