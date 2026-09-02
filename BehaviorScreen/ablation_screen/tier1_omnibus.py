@@ -100,14 +100,28 @@ def tier1_permutation_test(
 
 def tier1_effect_size(m_veh: PointProcess, ds_veh: PointProcessDataset,
                        m_drug: PointProcess, ds_drug: PointProcessDataset,
-                       eps: float = 1e-3) -> Dict:
+                       eps: float = 1e-9) -> Dict:
     val_veh, name = output_metric(m_veh, ds_veh)
     val_drug, _ = output_metric(m_drug, ds_drug)
-    return {
+
+    result = {
         "metric_name": name, "metric_vehicle": val_veh, "metric_drug": val_drug,
-        "log2_fold_change": float(np.log2((val_drug + eps) / (val_veh + eps))),
+        # multiplicative eps floor instead of additive -- avoids the
+        # near-zero shrinkage bias of val+1e-3 for low-rate behaviors
+        "log2_fold_change": float(np.log2(max(val_drug, eps) / max(val_veh, eps))),
     }
 
+    # Per-free-parameter fold changes: catches offsetting-parameter
+    # phenotypes (e.g. peak up / baseline down) that the aggregate AUC
+    # metric alone can mask. Free of charge -- m_veh/m_drug are already fit.
+    for pname in m_veh.param_names:
+        v_veh = m_veh.param_dict_.get(pname)
+        v_drug = m_drug.param_dict_.get(pname)
+        if v_veh is not None and v_drug is not None:
+            result[f"param_{pname}_vehicle"] = v_veh
+            result[f"param_{pname}_drug"] = v_drug
+
+    return result
 
 def _tier1_one(
     line: str, behavior: str, dataset_config: dict,

@@ -9,7 +9,7 @@ from BehaviorScreen.point_process.point_process import PointProcess
 def output_metric(fitted_process: PointProcess, dataset: PointProcessDataset) -> Tuple[float, str]:
     """Single-number behavioral summary for an ALREADY-FITTED process,
     evaluated on the dataset it was fit on."""
-    if hasattr(fitted_process, "population_survival_curve"):
+    if fitted_process.is_survival:
         _, surv = fitted_process.population_survival_curve(dataset)
         return float(1.0 - surv[-1]), "response_probability"
 

@@ -78,3 +78,7 @@ class PartiallyFixedProcess(PointProcess):
 
     def population_survival_curve(self, dataset, trial=None):
         return self.base_process.population_survival_curve(dataset, trial=trial)
+
+    @property
+    def is_survival(self) -> bool:
+        return self.base_process.is_survival

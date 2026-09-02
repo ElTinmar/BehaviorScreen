@@ -1127,6 +1127,10 @@ class PointProcess:
         r = self.dispersion_r
         return 0.0 if np.isinf(r) else 1.0 / r
 
+    @property
+    def is_survival(self) -> bool:
+        return False
+
 
 def _fit_one_model(
     model: PointProcess,

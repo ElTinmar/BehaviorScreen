@@ -399,3 +399,7 @@ class SurvivalProcess(PointProcess):
         if weights.sum() == 0:
             return t_grid, np.mean(S_matrix, axis=0)
         return t_grid, np.average(S_matrix, axis=0, weights=weights)
+
+    @property
+    def is_survival(self) -> bool:
+        return True

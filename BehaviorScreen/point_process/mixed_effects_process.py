@@ -242,3 +242,7 @@ class GammaMixedEffectsProcess(PointProcess):
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
         return float(self.params_[-1])
+
+    @property
+    def is_survival(self) -> bool:
+        return self.base_process.is_survival
