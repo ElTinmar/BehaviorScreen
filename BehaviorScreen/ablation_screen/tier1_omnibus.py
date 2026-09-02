@@ -124,7 +124,7 @@ def tier1_effect_size(m_veh: PointProcess, ds_veh: PointProcessDataset,
         # symmetric under doubling/halving, scale-invariant.
         effect = float(np.log2(max(val_drug, eps) / max(val_veh, eps)))
         effect_name = "log2_fold_change"
-
+    
     return {
         "metric_name": name, "metric_vehicle": val_veh, "metric_drug": val_drug,
         "effect_size": effect, "effect_size_type": effect_name,
@@ -275,29 +275,39 @@ def compute_parameter_deltas(param_df: pd.DataFrame) -> pd.DataFrame:
     )
     return df
 
-def wide_tier1_to_param_long(tier1_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Converts tier1_df's wide param_{name}_vehicle/param_{name}_drug columns
-    (from the extended tier1_effect_size) into the long format expected by
-    compute_parameter_deltas/plot_parameter_change_heatmaps: one row per
-    (line, behavior, parameter).
-    """
-    veh_cols = [c for c in tier1_df.columns if c.startswith("param_") and c.endswith("_vehicle")]
+def extract_fitted_parameters(
+    tier1_df: pd.DataFrame,
+    loader, dataset_configs, base_process_factories,
+    line_labels=None, default_labels=("vehicle", "ronidazole"),
+) -> pd.DataFrame:
+
+    line_labels = line_labels or {}
     records = []
 
-    for _, row in tier1_df.iterrows():
-        if row["status"] not in ("ok", "ok_response_abolished"):
+    valid = tier1_df[tier1_df["status"] == "ok"]
+    for _, row in valid.iterrows():
+        line, behavior = row["line"], row["behavior"]
+        veh_label, drug_label = line_labels.get(line, default_labels)
+
+        ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_configs[behavior])
+        ds_drug = safe_prepare_dataset(subset_loader(loader, line, [drug_label]), dataset_configs[behavior])
+        if ds_veh is None or ds_drug is None:
             continue
-        for veh_col in veh_cols:
-            pname = veh_col[len("param_"):-len("_vehicle")]
-            drug_col = f"param_{pname}_drug"
-            if drug_col not in tier1_df.columns:
-                continue
-            v_veh, v_drug = row[veh_col], row[drug_col]
-            if pd.isna(v_veh) or pd.isna(v_drug):
+
+        try:
+            m_veh = base_process_factories[behavior](); m_veh.fit(ds_veh)
+            m_drug = base_process_factories[behavior](); m_drug.fit(ds_drug)
+        except Exception as e:
+            tqdm.write(f"[{line}/{behavior}] refit failed during parameter extraction: {e}")
+            continue
+
+        for pname in m_veh.param_names:
+            v_veh = m_veh.param_dict_.get(pname)
+            v_drug = m_drug.param_dict_.get(pname)
+            if v_veh is None or v_drug is None:
                 continue
             records.append({
-                "line": row["line"], "behavior": row["behavior"], "parameter": pname,
+                "line": line, "behavior": behavior, "parameter": pname,
                 "value_vehicle": v_veh, "value_drug": v_drug,
                 "significant": bool(row.get("significant", False)),
             })
