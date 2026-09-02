@@ -1251,45 +1251,104 @@ class ModelComparator:
 class ModelPlotter:
 
     @staticmethod
+    def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        time_marginal: rate(t), n_fish-weighted average across trials --
+            same convention as dataset.time_histogram_hz, so empirical and
+            model surfaces are reduced identically.
+        trial_marginal: rate(trial), simple mean across time bins. Trials
+            with n_fish_per_trial == 0 are NaN (not 0) -- distinguishes
+            "no data" from "zero rate", matching
+            plot_time_trial_rate_heatmap's convention.
+        """
+        n_fish = dataset.n_fish_per_trial
+        active = n_fish > 0
+
+        time_marginal = np.full(surface.shape[1], np.nan)
+        if active.any():
+            time_marginal = np.average(surface[active], axis=0, weights=n_fish[active])
+
+        trial_marginal = np.full(surface.shape[0], np.nan)
+        trial_marginal[active] = np.mean(surface[active], axis=1)
+
+        return time_marginal, trial_marginal
+    
+    @staticmethod
     def plot_histogram(
         dataset: PointProcessDataset,
         model: PointProcess,
-        figsize: Tuple[int, int] = (14, 5),
+        figsize: Tuple[float, float] = (22, 8),
         cmap: str = "plasma",
     ) -> Tuple[plt.Figure, np.ndarray]:
+        """
+        Empirical vs. model rate surface, each with overlaid empirical
+        (solid) / model (dashed) marginals: one time-marginal strip
+        spanning both heatmap columns, one shared trial-marginal column to
+        the right. Same layout convention as the ablation_screen arm-
+        surface-grid plots -- single shared GridSpec (not per-panel
+        independent ones) so heatmaps and marginals stay pixel-aligned,
+        and an explicit colorbar axis (not make_axes_locatable) so the
+        colorbar never overlaps a title.
+        """
+        surf_emp = dataset.time_trial_histogram_hz
+        surf_model = model.compute_expected_rate(dataset)
 
-        fig, (ax_emp, ax_mod) = plt.subplots(1, 2, figsize=figsize, sharey=True)
+        tm_emp, trm_emp = ModelPlotter._weighted_marginals(surf_emp, dataset)
+        tm_model, trm_model = ModelPlotter._weighted_marginals(surf_model, dataset)
 
-        model_surface = model.compute_expected_rate(dataset)
-        vmax = max(np.max(dataset.time_trial_histogram_hz), np.max(model_surface))
+        vmax = max(np.nanmax(surf_emp), np.nanmax(surf_model))
+        vmax = max(vmax, 1e-9)
+        time_ymax = max(np.nanmax(x) for x in [tm_emp, tm_model] if np.any(np.isfinite(x)))
+        trial_xmax = max(np.nanmax(x) for x in [trm_emp, trm_model] if np.any(np.isfinite(x)))
+        time_ymax, trial_xmax = max(time_ymax, 1e-9), max(trial_xmax, 1e-9)
 
-        # Panel 1: Empirical Data
-        ax_emp.pcolormesh(
-            dataset.t_grid, dataset.trial_edges, dataset.time_trial_histogram_hz, 
-            shading='flat', cmap=cmap, vmin=0.0, vmax=vmax
+        fig = plt.figure(figsize=figsize)
+        gs = fig.add_gridspec(
+            nrows=2, ncols=3,
+            width_ratios=[4, 4, 1.3],
+            height_ratios=[1, 4],
+            wspace=0.12, hspace=0.12,
+            left=0.07, right=0.86, top=0.90, bottom=0.09,
         )
-        ax_emp.set_title("Empirical Surface & Raster", fontsize=12, fontweight='bold')
-        ax_emp.set_xlabel("Time in Trial (s)", fontsize=11)
-        ax_emp.set_ylabel("Trial Number", fontsize=11)
+
+        ax_time = fig.add_subplot(gs[0, 0:2])
+        ax_emp = fig.add_subplot(gs[1, 0], sharex=ax_time)
+        ax_mod = fig.add_subplot(gs[1, 1], sharex=ax_time, sharey=ax_emp)
+        ax_trial = fig.add_subplot(gs[1, 2], sharey=ax_emp)
+
+        ax_time.plot(dataset.t_centers, tm_emp, color="black", linestyle="-", linewidth=1.3, label="Empirical")
+        ax_time.plot(dataset.t_centers, tm_model, color="crimson", linestyle="--", linewidth=1.3, label="Model")
+        ax_time.set_ylim(0, time_ymax * 1.05)
+        plt.setp(ax_time.get_xticklabels(), visible=False)
+        ax_time.tick_params(labelsize=7)
+        ax_time.legend(loc="upper right", fontsize=8, frameon=False)
+
+        mesh = ax_emp.pcolormesh(dataset.t_grid, dataset.trial_edges, surf_emp,
+                                  shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
+        ax_mod.pcolormesh(dataset.t_grid, dataset.trial_edges, surf_model,
+                           shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
+        ax_emp.set_title("Empirical Surface", fontsize=11, fontweight="bold")
+        ax_mod.set_title(f"Fitted Surface: {model.name}", fontsize=11, fontweight="bold")
+        ax_emp.set_xlabel("Time in Trial (s)", fontsize=10)
+        ax_mod.set_xlabel("Time in Trial (s)", fontsize=10)
+        ax_emp.set_ylabel("Trial Number", fontsize=10)
+        plt.setp(ax_mod.get_yticklabels(), visible=False)
         ax_emp.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
+        ax_emp.tick_params(labelsize=8)
+        ax_mod.tick_params(labelsize=8)
 
-        # Panel 2: Model Surface
-        mesh_mod = ax_mod.pcolormesh(
-            dataset.t_grid, dataset.trial_edges, model_surface, 
-            shading='flat', cmap=cmap, vmin=0.0, vmax=vmax
-        )
-        ax_mod.set_title(f"Fitted Surface: {model.name}", fontsize=12, fontweight='bold')
-        ax_mod.set_xlabel("Time in Trial (s)", fontsize=11)
-        ax_mod.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
+        trial_centers = np.arange(dataset.num_trials)
+        ax_trial.plot(trm_emp, trial_centers, color="black", linestyle="-", linewidth=1.3)
+        ax_trial.plot(trm_model, trial_centers, color="crimson", linestyle="--", linewidth=1.3)
+        ax_trial.set_xlim(0, trial_xmax * 1.05)
+        plt.setp(ax_trial.get_yticklabels(), visible=False)
+        ax_trial.tick_params(labelsize=7)
 
-        # Colorbar
-        divider = make_axes_locatable(ax_mod)
-        cax = divider.append_axes("right", size="3%", pad=0.12)
-        cbar = fig.colorbar(mesh_mod, cax=cax)
+        cax = fig.add_axes([0.89, 0.15, 0.02, 0.65])
+        cbar = fig.colorbar(mesh, cax=cax)
         cbar.set_label("Event Rate [Hz]", fontsize=10)
 
-        plt.tight_layout()
-        return fig, np.array([ax_emp, ax_mod])
+        return fig, np.array([ax_time, ax_emp, ax_mod, ax_trial])
 
     @staticmethod
     def plot_model_fits(
