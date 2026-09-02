@@ -630,6 +630,10 @@ def plot_volcano(
             style = cause_style.get(cause, default_style)
             ax.scatter(group[effect_col], group["neg_log10_p"], s=22, edgecolors="none", **style)
 
+    def _resolve_top_n(sub: pd.DataFrame, max_labels: int = 15, min_labels: int = 3) -> int:
+        n_sig = int(sub.get("significant", pd.Series(dtype=bool)).sum())
+        return int(np.clip(n_sig, min_labels, max_labels))
+
     behaviors = sorted(plot_df["behavior"].unique())
     n_cols = 4
     n_rows = int(np.ceil(len(behaviors) / n_cols))
@@ -654,7 +658,8 @@ def plot_volcano(
         ax.set_ylim(0, y_max * 1.1)
         ax.set_title(behavior, fontsize=9, fontweight="bold")
         ax.tick_params(labelsize=7)
-        _label_top_hits(ax, sub, effect_col, label_col, label_top_n)
+        panel_top_n = _resolve_top_n(sub, max_labels=15, min_labels=3)
+        _label_top_hits(ax, sub, effect_col, label_col, panel_top_n)
         if i % n_cols == 0:
             ax.set_ylabel("-log10(p)", fontsize=8)
         if i // n_cols == n_rows - 1:
@@ -679,4 +684,5 @@ def _label_top_hits(ax, sub: pd.DataFrame, effect_col: str, label_col: str, top_
         ax.annotate(
             str(row[label_col]), (row[effect_col], row["neg_log10_p"]),
             fontsize=6, xytext=(3, 3), textcoords="offset points",
+            rotation=45, rotation_mode="anchor", ha="left", va="bottom"
         )
