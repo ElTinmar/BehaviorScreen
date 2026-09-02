@@ -397,7 +397,7 @@ for line in NTR_LINES + ["WT"]:
 
 boot_delta_df = bootstrap_parameter_deltas(
     tier1_df, param_df, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY,
-    line_labels=LINE_LABELS, n_boot=100,
+    line_labels=LINE_LABELS, n_boot=1000,
 )
 boot_delta_df.to_csv(OUTPUT_DIR / "bootstrap_parameter_deltas.csv", index=False)
 

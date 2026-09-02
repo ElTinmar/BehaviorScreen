@@ -816,16 +816,55 @@ def plot_fish_gain_correlation_vehicle_vs_drug(
         min_behaviors=min_behaviors,
     )
 
+def _bootstrap_one_delta_iteration(
+    seed_seq, ds_veh: PointProcessDataset, ds_drug: PointProcessDataset,
+    behavior: str, base_process_factories: dict, transform_lookup: dict,
+) -> Optional[Dict[str, float]]:
+    """
+    One bootstrap iteration: resample both arms, refit both, return the
+    delta for every free parameter. Returns None on any fit failure (kept
+    silent here -- failure counting happens at the aggregation level).
+    Top-level function (not a closure) so it pickles cleanly for
+    joblib's process-based backends.
+    """
+    rng = np.random.default_rng(seed_seq)
+    ds_veh_b = ds_veh.resample(rng)
+    ds_drug_b = ds_drug.resample(rng)
+    try:
+        m_veh_b = base_process_factories[behavior](); m_veh_b.fit(ds_veh_b)
+        m_drug_b = base_process_factories[behavior](); m_drug_b.fit(ds_drug_b)
+    except Exception:
+        return None
+
+    out = {}
+    for pname in m_veh_b.param_names:
+        v_v, v_d = m_veh_b.param_dict_.get(pname), m_drug_b.param_dict_.get(pname)
+        if v_v is None or v_d is None:
+            continue
+        transform = transform_lookup.get((behavior, pname), "difference")
+        out[pname] = (
+            np.log2(max(v_d, 1e-9) / max(v_v, 1e-9)) if transform == "log2_ratio" else v_d - v_v
+        )
+    return out
 
 def bootstrap_parameter_deltas(
     tier1_df: pd.DataFrame,
-    param_df: pd.DataFrame,   # from extract_fitted_parameters -- used only to decide log-ratio vs. difference per (behavior, parameter)
+    param_df: pd.DataFrame,
     loader, dataset_configs: dict, base_process_factories: dict,
-    cells: Optional[pd.DataFrame] = None,   # subset; defaults to significant hits
+    cells: Optional[pd.DataFrame] = None,
     line_labels=None, default_labels=("vehicle", "ronidazole"),
-    n_boot: int = 200, ci: float = 95.0, seed: int = 0,
+    n_boot: int = 200, ci: float = 95.0, seed: int = 0, n_jobs: int = -1,
 ) -> pd.DataFrame:
-
+    """
+    Bootstrap CI on the drug-vs-vehicle DELTA of each free parameter, for a
+    subset of (line, behavior) cells. Parallelized at the BOOTSTRAP-
+    ITERATION level within each cell (via joblib), not across cells --
+    matches the existing PointProcess.bootstrap/tier1_permutation_test
+    pattern and avoids the nested-parallelism/oversubscription risk of
+    also parallelizing the outer cells loop (see conversation notes on
+    Tier 1's own nested joblib.Parallel discussion). A single bounded
+    worker pool is active at any time, reused across cells sequentially.
+    """
     line_labels = line_labels or {}
     if cells is None:
         cells = tier1_df[tier1_df["significant"] == True][["line", "behavior"]]
@@ -835,13 +874,13 @@ def bootstrap_parameter_deltas(
         vals = pd.concat([group["value_vehicle"], group["value_drug"]]).dropna()
         transform_lookup[(behavior, pname)] = "log2_ratio" if len(vals) > 0 and (vals > 0).all() else "difference"
 
-    def _delta(v_veh, v_drug, transform):
+    def _point_delta(v_veh, v_drug, transform):
         if transform == "log2_ratio":
             return np.log2(max(v_drug, 1e-9) / max(v_veh, 1e-9))
         return v_drug - v_veh
 
     records = []
-    for _, row in tqdm(cells.iterrows(), total=len(cells), desc="Bootstrapping parameter deltas"):
+    for _, row in tqdm(cells.iterrows(), total=len(cells), desc="Bootstrapping parameter deltas (cells)"):
         line, behavior = row["line"], row["behavior"]
         veh_label, drug_label = line_labels.get(line, default_labels)
 
@@ -858,31 +897,32 @@ def bootstrap_parameter_deltas(
             continue
 
         param_names = m_veh0.param_names
-        boot_deltas = {p: [] for p in param_names}
-
         seeds = np.random.SeedSequence(seed).spawn(n_boot)
-        for s in seeds:
-            rng = np.random.default_rng(s)
-            ds_veh_b = ds_veh.resample(rng)
-            ds_drug_b = ds_drug.resample(rng)
-            try:
-                m_veh_b = base_process_factories[behavior](); m_veh_b.fit(ds_veh_b)
-                m_drug_b = base_process_factories[behavior](); m_drug_b.fit(ds_drug_b)
-            except Exception:
+
+        with tqdm_joblib(tqdm(total=n_boot, desc=f"  {line}/{behavior}", position=1, leave=False)):
+            results = joblib.Parallel(n_jobs=n_jobs)(
+                joblib.delayed(_bootstrap_one_delta_iteration)(
+                    s, ds_veh, ds_drug, behavior, base_process_factories, transform_lookup,
+                )
+                for s in seeds
+            )
+
+        boot_deltas = {p: [] for p in param_names}
+        for r in results:
+            if r is None:
                 continue
-            for pname in param_names:
-                v_v, v_d = m_veh_b.param_dict_.get(pname), m_drug_b.param_dict_.get(pname)
-                if v_v is None or v_d is None:
-                    continue
-                boot_deltas[pname].append(_delta(v_v, v_d, transform_lookup.get((behavior, pname), "difference")))
+            for pname, val in r.items():
+                if pname in boot_deltas:
+                    boot_deltas[pname].append(val)
 
         alpha = (100.0 - ci) / 2.0
+        min_success = max(1, int(0.3 * n_boot))   # fixed: scaled to n_boot, not an unreachable absolute floor
         for pname in param_names:
             arr = np.array(boot_deltas[pname])
-            if len(arr) < max(20, 0.3 * n_boot):
+            if len(arr) < min_success:
                 continue
             transform = transform_lookup.get((behavior, pname), "difference")
-            point_delta = _delta(m_veh0.param_dict_.get(pname), m_drug0.param_dict_.get(pname), transform)
+            point_delta = _point_delta(m_veh0.param_dict_.get(pname), m_drug0.param_dict_.get(pname), transform)
             records.append({
                 "line": line, "behavior": behavior, "parameter": pname, "transform": transform,
                 "delta": point_delta, "boot_mean": float(np.mean(arr)),
