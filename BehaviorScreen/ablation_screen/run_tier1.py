@@ -185,9 +185,9 @@ BEHAVIOR_CONFIG = {
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_lateral_contra())),
-            {'tau_dip': 1.667727, 'r_dispersion': 0.761771},
+            {'tau_dip': 1.667727, 'r_dispersion': 0.761771, 'f_dip': 0.34305359},
         ),
-        # free: B, f_dip
+        # free: B
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
@@ -199,9 +199,9 @@ BEHAVIOR_CONFIG = {
         },
         'architecture': lambda: PartiallyFixedProcess(
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_forward())),
-            {'tau_dip': 1.653539, 'r_dispersion': 0.443042},
+            {'tau_dip': 1.653539, 'r_dispersion': 0.443042, 'z_dip': 2.504278},
         ),
-        # free: B, z_dip
+        # free: B
         'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
     },
 
