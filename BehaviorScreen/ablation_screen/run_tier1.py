@@ -363,6 +363,7 @@ param_df = extract_fitted_parameters(
     tier1_df, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY,
     line_labels=LINE_LABELS,
 )
+param_df = compute_parameter_deltas(param_df)
 
 line_order = (
     tier1_df[tier1_df["significant"]]
