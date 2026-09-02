@@ -24,6 +24,11 @@ from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.tqdm_joblib import tqdm_joblib
 from BehaviorScreen.point_process.io import save_fig
+from BehaviorScreen.point_process.frailty_analysis import (
+    collect_fish_gains, 
+    plot_fish_gain_correlation_dual, 
+    plot_fish_gain_correlation,
+)
 
 from .dataset_ops import pool_fish, select_fish
 from .dataset_utils import subset_loader, safe_prepare_dataset, per_fish_summary, compare_fish_metric
@@ -701,104 +706,34 @@ def _label_top_hits(ax, sub: pd.DataFrame, effect_col: str, label_col: str, top_
             rotation=45, rotation_mode="anchor", ha="left", va="bottom"
         )
 
-def extract_fish_gains_across_behaviors(
+def build_models_and_datasets_for_line(
     line: str, label: str,
     loader, dataset_configs: dict, base_process_factories: dict,
     behaviors: Optional[List[str]] = None,
-) -> pd.DataFrame:
+) -> Dict[str, Tuple[PointProcess, PointProcessDataset]]:
     """
-    For ONE (line, label) -- e.g. one line's vehicle arm -- fits every
-    behavior's GammaMixedEffectsProcess architecture and extracts each
-    fish's estimated frailty gain (posterior mean, via
-    estimate_fish_gains), joined back to the fish's REAL identifier (the
-    underlying 'file' column), not the dataset-local fish_idx (which is
-    only valid within one PointProcessDataset and does NOT correspond to
-    the same physical fish across different behaviors' datasets).
-
-    Only behaviors whose pinned architecture is a GammaMixedEffectsProcess
-    are included (checked via hasattr) -- estimate_fish_gains has no
-    meaning otherwise.
+    Fits every behavior's pinned architecture for ONE (line, label) arm.
+    This is the ablation-screen-specific orchestration (knows about
+    loader/line/label); frailty_analysis knows nothing about any of it.
     """
     behaviors = behaviors or list(dataset_configs.keys())
-    records = []
-
     broad = subset_loader(loader, line, [label])
-    # file -> fish index used ANYWHERE in this (line, label)'s raw data,
-    # so we can recover which dataset-local fish_idx maps to which real fish.
-    file_ids = np.sort(broad.raw_df["file"].unique())
+    result = {}
 
     for behavior in behaviors:
         ds = safe_prepare_dataset(broad, dataset_configs[behavior])
         if ds is None:
             continue
-
         model = base_process_factories[behavior]()
-        if not hasattr(model, "estimate_fish_gains"):
-            continue  # not a GammaMixedEffectsProcess architecture -- skip
-
         try:
             model.fit(ds)
-            gains = model.estimate_fish_gains(ds)   # columns: fish_idx, n_events, expected_events_base, estimated_gain
         except Exception as e:
-            tqdm.write(f"[{line}/{label}/{behavior}] gain extraction failed: {e}")
+            tqdm.write(f"[{line}/{label}/{behavior}] fit failed: {e}")
             continue
+        result[behavior] = (model, ds)
 
-        cfg = dataset_configs[behavior]
-        sub = broad.raw_df
-        if cfg.get("stim") is not None:
-            sub = sub[sub["stim"] == cfg["stim"]]
-        elif cfg.get("epoch_name") is not None:
-            en = cfg["epoch_name"]
-            sub = sub[sub["epoch_name"].isin(en)] if isinstance(en, list) else sub[sub["epoch_name"] == en]
-        local_file_ids = np.sort(sub["file"].unique())
+    return result
 
-        gains = gains.copy()
-        gains["file"] = gains["fish_idx"].map(lambda i: local_file_ids[i] if i < len(local_file_ids) else None)
-        gains["behavior"] = behavior
-        records.append(gains[["file", "behavior", "estimated_gain"]])
-
-    if not records:
-        return pd.DataFrame(columns=["file", "behavior", "estimated_gain"])
-    return pd.concat(records, ignore_index=True)
-
-def plot_fish_gain_correlation(
-    gain_long_df: pd.DataFrame,
-    min_fish_shared: int = 5,
-    cmap: str = "coolwarm",
-    figsize: Tuple[float, float] = (7, 6),
-    ax: Optional[plt.Axes] = None,
-    title: str = "Fish-level frailty gain correlation across behaviors",
-) -> Tuple[plt.Figure, plt.Axes, pd.DataFrame]:
-    """
-    Same as before, now optionally drawing into a caller-supplied `ax`
-    (e.g. one panel of a side-by-side vehicle/drug figure) instead of
-    always creating its own standalone figure.
-    """
-    wide = gain_long_df.pivot_table(index="file", columns="behavior", values="estimated_gain")
-    corr = wide.corr(min_periods=min_fish_shared)
-
-    notna_int = wide.notna().astype(int)
-    n_pairs = notna_int.T.dot(notna_int)
-
-    if ax is None:
-        fig, ax = plt.subplots(figsize=figsize)
-    else:
-        fig = ax.figure
-
-    im = ax.imshow(corr, cmap=cmap, vmin=-1, vmax=1)
-    ax.set_xticks(range(len(corr.columns))); ax.set_xticklabels(corr.columns, rotation=45, ha="right", fontsize=8)
-    ax.set_yticks(range(len(corr.index))); ax.set_yticklabels(corr.index, fontsize=8)
-
-    for i in range(len(corr)):
-        for j in range(len(corr)):
-            val = corr.iloc[i, j]
-            n = n_pairs.iloc[i, j]
-            if pd.notna(val):
-                ax.text(j, i, f"{val:.2f}\n(n={n})", ha="center", va="center",
-                        color="white" if abs(val) > 0.5 else "black", fontsize=6)
-
-    ax.set_title(title, fontsize=10, fontweight="bold")
-    return fig, ax, corr
 
 def plot_fish_gain_correlation_vehicle_vs_drug(
     line: str,
@@ -807,25 +742,17 @@ def plot_fish_gain_correlation_vehicle_vs_drug(
     line_labels: Optional[Dict[str, Tuple[str, str]]] = None,
     min_behaviors: int = 2,
 ) -> Optional[plt.Figure]:
-    """
-    Side-by-side fish-level frailty gain correlation heatmaps (vehicle |
-    drug) for one line, sharing a colorbar. Returns None if either arm has
-    fewer than `min_behaviors` behaviors with usable gains (nothing
-    meaningful to correlate).
-    """
     line_labels = line_labels or {}
     veh_label, drug_label = line_labels.get(line, labels)
 
-    gain_veh = extract_fish_gains_across_behaviors(line, veh_label, loader, dataset_configs, base_process_factories)
-    gain_drug = extract_fish_gains_across_behaviors(line, drug_label, loader, dataset_configs, base_process_factories)
+    models_veh = build_models_and_datasets_for_line(line, veh_label, loader, dataset_configs, base_process_factories)
+    models_drug = build_models_and_datasets_for_line(line, drug_label, loader, dataset_configs, base_process_factories)
 
-    if gain_veh["behavior"].nunique() < min_behaviors or gain_drug["behavior"].nunique() < min_behaviors:
-        return None
+    return plot_fish_gain_correlation_dual(
+        collect_fish_gains(models_veh), collect_fish_gains(models_drug),
+        label_a="Vehicle", label_b="Drug",
+        suptitle=f"{line}: fish-level frailty gain correlation, vehicle vs drug",
+        min_behaviors=min_behaviors,
+    )
 
-    fig, axes = plt.subplots(1, 2, figsize=(13, 6))
-    plot_fish_gain_correlation(gain_veh, ax=axes[0], title="Vehicle")
-    plot_fish_gain_correlation(gain_drug, ax=axes[1], title="Drug")
 
-    fig.suptitle(f"{line}: fish-level frailty gain correlation, vehicle vs drug", fontsize=13, fontweight="bold")
-    fig.colorbar(axes[1].images[0], ax=axes, shrink=0.7, label="Correlation")
-    return fig
