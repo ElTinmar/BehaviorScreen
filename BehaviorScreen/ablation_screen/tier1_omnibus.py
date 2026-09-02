@@ -106,9 +106,33 @@ def tier1_permutation_test(
             "permutation_unreliable": False}
 
 
+def single_param_effect_size(m_veh: PointProcess, m_drug: PointProcess, free_param: str,
+                              eps: float = 1e-9) -> Dict:
+
+    v_veh = m_veh.param_dict_.get(free_param)
+    v_drug = m_drug.param_dict_.get(free_param)
+    if v_veh is None or v_drug is None:
+        raise ValueError(f"{free_param} not found in one of the fitted models' param_dict_")
+
+    return {
+        "metric_name": f"param_{free_param}",
+        "metric_vehicle": v_veh,
+        "metric_drug": v_drug,
+        "effect_size": float(np.log2(max(v_drug, eps) / max(v_veh, eps))),
+        "effect_size_type": "log2_fold_change",
+    }
+
 def tier1_effect_size(m_veh: PointProcess, ds_veh: PointProcessDataset,
                        m_drug: PointProcess, ds_drug: PointProcessDataset,
                        eps: float = 1e-9) -> Dict:
+
+    # Single-free-parameter architectures: use the parameter directly as
+    # the effect size (see conversation notes -- more informative here
+    # than the aggregate output_metric, since there's no other dimension
+    # for the effect to hide in, and no saturation risk).
+    if len(m_veh.param_names) == 1:
+        return single_param_effect_size(m_veh, m_drug, m_veh.param_names[0], eps=eps)
+    
     val_veh, name = output_metric(m_veh, ds_veh)
     val_drug, _ = output_metric(m_drug, ds_drug)
 
