@@ -10,6 +10,7 @@ from scipy.optimize import minimize
 from scipy.stats import norm, chi2
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from scipy.special import gammaln
 
 from .tqdm_joblib import tqdm_joblib
 from .dataset import PointProcessDataset
@@ -643,6 +644,71 @@ class PointProcess:
             "deviance_residuals": deviance_res,
         }
 
+    def _get_stream_exposures(self, dataset: PointProcessDataset) -> np.ndarray:
+        """
+        Returns S_f (per-fish exposure integral) for the active fish in
+        dataset, using THIS model's own parameters. Default: uses
+        mixed_effects_likelihood_terms with self.params_ directly -- correct
+        for PoissonProcess, RenewalProcess, HawkesProcess (concrete base
+        process classes that implement that method against their OWN full
+        parameter vector). GammaMixedEffectsProcess overrides this, since its
+        self.params_ includes r appended to the base params, and S_f must be
+        computed from base_process.mixed_effects_likelihood_terms using only
+        the base_params slice -- see override.
+        """
+        _, N_f, S_f = self.mixed_effects_likelihood_terms(dataset, self.params_)
+        active = dataset.fish_trial_mask.any(axis=1)
+        return S_f[active]
+
+    def _stream_count_pmf(
+        self, k_vals: np.ndarray, S_f: np.ndarray
+    ) -> np.ndarray:
+        """
+        Returns the model's implied probability mass at each count in k_vals,
+        for each fish's own exposure S_f -- shape (len(S_f), len(k_vals)).
+
+        This is the ONE piece that differs between model classes; everything
+        else about plotting/comparing against the observed count histogram
+        is shared, common logic (see plot_stream_count_distribution).
+
+        Default here: Poisson pmf per fish, using that fish's own exposure
+        S_f as the Poisson mean -- correct for PoissonProcess, HawkesProcess,
+        RenewalProcess (no frailty term, so r is effectively infinite and the
+        NB marginal collapses exactly to Poisson). GammaMixedEffectsProcess
+        overrides this with the NB pmf instead (see override).
+        """
+        S_f = np.maximum(S_f, 1e-12)
+        return np.exp(
+            k_vals[None, :] * np.log(S_f)[:, None]
+            - S_f[:, None]
+            - gammaln(k_vals + 1)[None, :]
+        )
+
+    def plot_stream_count_distribution(self, dataset, ax=None) -> plt.Axes:
+        if self.params_ is None:
+            raise ValueError("Model must be fitted first.")
+
+        S_f = self._get_stream_exposures(dataset)   # <-- no longer hardcodes which method/params to use
+
+        counts = dataset.stream_event_counts
+        max_k = int(counts.max())
+        k_vals = np.arange(0, max_k + 1)
+
+        pmf_matrix = self._stream_count_pmf(k_vals, S_f)
+        avg_pmf = pmf_matrix.mean(axis=0)
+
+        ax = ax or plt.gca()
+        bin_edges = np.arange(-0.5, max_k + 1.5, 1.0)
+        ax.hist(counts, bins=bin_edges, density=True, alpha=0.6, color='steelblue',
+                edgecolor='none', label='Observed')
+        ax.plot(k_vals, avg_pmf, 'r--', linewidth=2, label=f'model')
+        ax.set_xlabel("Event count per (fish, trial) stream", fontsize=11)
+        ax.set_ylabel("Density", fontsize=11)
+        ax.legend(loc='upper right', fontsize=9)
+        ax.grid(True, linestyle=':', alpha=0.4)
+        ax.set_title("I. Fitted vs. Observed Stream Count Distribution", fontsize=11, fontweight='bold')
+        return ax
+
     def residual_2d_autocorrelation(
         self,
         dataset: PointProcessDataset,
@@ -1073,7 +1139,7 @@ class PointProcess:
     def diagnose(
         self, 
         dataset: PointProcessDataset, 
-        figsize: Tuple[int, int] = (15, 18),
+        figsize: Tuple[int, int] = (15, 22),
         eps: float = 1e-5,
         max_trial_lag: int = 10,
         max_time_lag: int = 30,
@@ -1096,7 +1162,7 @@ class PointProcess:
         )
         tr_data = diag_data["time_rescaling"]
 
-        fig, axes = plt.subplots(4, 2, figsize=figsize)
+        fig, axes = plt.subplots(5, 2, figsize=figsize)
         plt.subplots_adjust(hspace=0.38, wspace=0.3)
         fig.suptitle(self.latex_formula, fontsize=15, fontweight='bold', y=0.99)
 
@@ -1118,6 +1184,9 @@ class PointProcess:
         self.plot_panel_fish_dn_distribution(dataset, diag_data, ax=axes[2, 1])
         self.plot_panel_parameter_correlation(dataset, diag_data, ax=axes[3, 0])
         self.plot_panel_summary_text(dataset, diag_data, ax=axes[3, 1])
+        self.plot_stream_count_distribution(dataset, ax=axes[4,0])
+
+        axes[4, 1].axis('off')
 
         return fig, diag_data
 

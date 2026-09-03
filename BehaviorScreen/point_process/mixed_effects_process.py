@@ -3,6 +3,7 @@ from typing import Optional, Dict, List, Tuple, Union
 import numpy as np
 import pandas as pd
 from scipy.special import gammaln
+import matplotlib.pyplot as plt
 
 from .point_process import PointProcess
 from .dataset import PointProcessDataset
@@ -246,3 +247,21 @@ class GammaMixedEffectsProcess(PointProcess):
     @property
     def is_survival(self) -> bool:
         return self.base_process.is_survival
+
+    def _get_stream_exposures(self, dataset: PointProcessDataset) -> np.ndarray:
+        """S_f must come from base_process's likelihood-terms using only the
+        BASE params slice (self.params_ includes r appended, which
+        mixed_effects_likelihood_terms's base-process implementations don't
+        expect)."""
+        base_params, _ = self._split_params(self.params_)
+        _, N_f, S_f = self.base_process.mixed_effects_likelihood_terms(dataset, base_params)
+        active = dataset.fish_trial_mask.any(axis=1)
+        return S_f[active]
+
+    def _stream_count_pmf(self, k_vals: np.ndarray, S_f: np.ndarray) -> np.ndarray:
+        _, r = self._split_params(self.params_)
+        return np.array([
+            np.exp(gammaln(k_vals + r) - gammaln(r) - gammaln(k_vals + 1)
+                + r * np.log(r / (r + s)) + k_vals * np.log(s / (r + s)))
+            for s in S_f
+        ])
