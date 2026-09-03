@@ -477,54 +477,51 @@ class RateKernelFactory:
         )
 
     @staticmethod
-    def after_looming(
-        f_dip_upper: float = 0.95,
-    ) -> RateKernel:
+    def after_looming(f_dip_upper: float = 0.95) -> RateKernel:
         """
-        Two-timescale post-looming recovery:
+        h(t,m) = B*exp(alpha_B*m) * (1 - depth(m)*exp(-t/tau_dip))
+        depth(m) = sigmoid_bounded(z0_dip + alpha_dip*m, f_dip_upper)
 
-            depth(m)    = sigmoid_bounded(z0_dip + alpha_dip*m, f_dip_upper)
-            w_fast(m)   = sigmoid_bounded(z0_wfast, 1.0)  [trial-independent mixing weight]
-            recovery(t) = w_fast*exp(-t/tau_fast) + (1-w_fast)*exp(-t/tau_slow)
-            lambda(t,m) = B*exp(alpha_B*m) * (1 - depth(m)*recovery(t))
+        Reparametrized from f_dip (box-bounded to [0, 0.49) purely so that
+        f_dip * bounded_trial_scale(m, alpha_dip) -- whose worst case over m
+        approaches 2*f_dip -- stayed under 1). That coupling made 0.49 an
+        artificial ceiling on f_dip itself, not a real belief about dip depth,
+        and bootstrap fits were pinning against it exactly (CI collapsed to a
+        point at 0.49). Bounding depth(m) directly via a logistic of an
+        unconstrained (z0_dip, alpha_dip) removes the coupling: depth(m) is
+        guaranteed in (0, f_dip_upper) for ANY z0_dip, alpha_dip, ANY trial m --
+        no worst-case analysis, no artificial margin below the true limit.
         """
-
         def _func(t, trial, params):
-            B, z0_dip, tau_fast, tau_slow, z0_wfast, alpha_B, alpha_dip = params
+            B, z0_dip, tau_dip, alpha_B, alpha_dip = params
 
             mod_B = B * np.exp(alpha_B * trial)
             depth = sigmoid_bounded(z0_dip + alpha_dip * trial, f_dip_upper)
-            w_fast = sigmoid_bounded(np.full_like(t, z0_wfast, dtype=float), 1.0)
-
-            recovery = w_fast * np.exp(-t / tau_fast) + (1.0 - w_fast) * np.exp(-t / tau_slow)
-            dip_factor = 1.0 - depth * recovery
+            dip_factor = 1.0 - depth * np.exp(-t / tau_dip)
 
             return mod_B * dip_factor
 
         z0_dip_init = float(logit_bounded(0.5, f_dip_upper))
-        z0_wfast_init = float(logit_bounded(0.5, 1.0))
 
         return RateKernel(
-            name="Looming recovery (two-timescale) λ(t, m)",
+            name="Looming recovery λ(t, m)",
             func=_func,
-            param_names=["B", "z0_dip", "tau_fast", "tau_slow", "z0_wfast", "alpha_B", "alpha_dip"],
-            initial_guesses=[0.4, z0_dip_init, 1.0, 8.0, z0_wfast_init, 0.0, 0.0],
+            param_names=["B", "z0_dip", "tau_dip", "alpha_B", "alpha_dip"],
+            initial_guesses=[0.4, z0_dip_init, 0.5, 0.0, 0.0],
             bounds=[
-                (0.01, 10.0),                  # B
-                (-15.0, 15.0),                  # z0_dip (logit scale, saturates well within +-15)
-                (0.01, 3),    # tau_fast: fast recovery component
-                (1, 30.0),            # tau_slow: slow recovery component
-                (-15.0, 15.0),                   # z0_wfast (logit scale, trial-independent mixing weight)
-                (-0.1, 0.1),                     # alpha_B
-                (-2.0, 2.0),                      # alpha_dip
+                (0.01, 10.0),
+                (-10, 10),   # z0_dip -- unconstrained on the logit scale
+                (0.05, 15.0),
+                (-0.1, 0.1),
+                (-2.0, 2.0),     # alpha_dip -- widened since it now acts on logit,
+                                # not probability, scale (logistic derivative <=0.25)
             ],
             latex_formula=(
-                r"$\lambda(t,m) = B e^{\alpha_B m}\left(1 - \frac{" + f"{f_dip_upper}"
-                r"}{1+e^{-(z_{0,\text{dip}}+\alpha_{\text{dip}} m)}}\,"
-                r"[w_{\text{fast}} e^{-t/\tau_{\text{fast}}} + (1-w_{\text{fast}}) e^{-t/\tau_{\text{slow}}}]\right)$"
+                r"$\lambda(t, m) = B e^{\alpha_B m}\left(1 - \frac{" + f"{f_dip_upper}"
+                r"}{1+e^{-(z_{0,\text{dip}}+\alpha_{\text{dip}} m)}}\, e^{-t/\tau_{\text{dip}}}\right)$"
             ),
         )
-            
+        
     @staticmethod
     def omr_forward(f_dip_upper: float = 0.995) -> RateKernel:
         """
