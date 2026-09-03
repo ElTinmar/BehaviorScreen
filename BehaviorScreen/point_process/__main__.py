@@ -457,7 +457,7 @@ model_config = {
     'after_looming': {
         'dataset': {
             'epoch_name': ["looming break after left", "looming break after right"],
-            'bout_name': bouts_category_name_short,
+            'bout_name': 'RT',
             'laterality': [Laterality.IPSILATERAL, Laterality.CONTRALATERAL],
             'binning_dt': 0.05,
             't_start': 0,
