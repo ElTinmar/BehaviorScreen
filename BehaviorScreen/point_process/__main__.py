@@ -4,6 +4,7 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from megabouts.utils import bouts_category_name_short
 
 from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.point_process.dataset import (
@@ -374,6 +375,110 @@ model_config = {
             GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.2, t_bounds=(0.01,1)))),
             GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=0.2, t_bounds=(0.01,1)))),
             GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
+        ]
+    },
+
+    'spont_dark': {
+        'dataset': {
+            'epoch_name': "spontaneous dark",
+            'bout_name': 'RT',
+            'laterality': Laterality.NONDIRECTIONAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
+        },
+        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'models': [
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            PoissonProcess(RateKernelFactory.spont()),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.spont())),
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential()
+            ),
+            HawkesProcess(
+                RateKernelFactory.spont(),
+                HistoryKernelFactory.exponential()
+            ),
+            GammaMixedEffectsProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                )
+            ),
+            GammaMixedEffectsProcess(
+                HawkesProcess(
+                    RateKernelFactory.spont(),
+                    HistoryKernelFactory.exponential()
+                )
+            ),
+        ]
+    },
+
+    'spont_bright': {
+        'dataset': {
+            'epoch_name': "spontaneous bright",
+            'bout_name': 'RT',
+            'laterality': Laterality.NONDIRECTIONAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
+        },
+        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'models': [
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            PoissonProcess(RateKernelFactory.spont()),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.spont())),
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential()
+            ),
+            HawkesProcess(
+                RateKernelFactory.spont(),
+                HistoryKernelFactory.exponential()
+            ),
+            GammaMixedEffectsProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                )
+            ),
+            GammaMixedEffectsProcess(
+                HawkesProcess(
+                    RateKernelFactory.spont(),
+                    HistoryKernelFactory.exponential()
+                )
+            ),
+        ]
+    },
+
+    'after_looming': {
+        'dataset': {
+            'epoch_name': ["looming break after left", "looming break after right"],
+            'bout_name': bouts_category_name_short,
+            'laterality': [Laterality.IPSILATERAL, Laterality.CONTRALATERAL],
+            'binning_dt': 0.05,
+            't_start': 0,
+            't_end': 49.0,
+        },
+        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'models': [
+            # PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            # PoissonProcess(RateKernelFactory.after_looming()),
+            # GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.after_looming())),
+            # HawkesProcess(
+            #     RateKernelFactory.after_looming(),
+            #     HistoryKernelFactory.exponential()
+            # ),
+            # GammaMixedEffectsProcess(
+            #     HawkesProcess(
+            #         RateKernelFactory.after_looming(),
+            #         HistoryKernelFactory.exponential()
+            #     )
+            # ),
         ]
     },
 }

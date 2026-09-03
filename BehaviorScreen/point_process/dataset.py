@@ -277,15 +277,23 @@ class BehavioralDataLoader:
 
     def prepare_dataset(
         self,
-        bout_name: str,
-        laterality: Union[Laterality, str],
+        bout_name: Union[str, List[str]],
+        laterality: Union[Laterality, str, List[Union[Laterality, str]]],
         stim: Optional[Union[Stim, str]] = None,
         epoch_name: Optional[Union[str, List[str]]] = None,
         binning_dt: float = 0.02,
         t_start: float = 0.0,
         t_end: float = 24.0,
     ) -> PointProcessDataset:
+        
+        bout_names = [bout_name] if isinstance(bout_name, str) else list(bout_name)
+        lateralities = (
+            [laterality] if isinstance(laterality, (str, Laterality)) else list(laterality)
+        )
+        bout_label = "+".join(bout_names)
+        laterality_label = "+".join(str(l) for l in lateralities)
 
+        
         # 1. Filter sub_df by stimulus or epoch_name
         sub_df = self.raw_df
         if stim is not None:
@@ -365,16 +373,16 @@ class BehavioralDataLoader:
         min_fish_per_trial = fish_trial_mask.sum(axis=0).min()
         min_trials_per_fish = fish_trial_mask.sum(axis=1).min()
         print(
-            f"[{bout_name}/{laterality}] fish_trial_mask occupancy: {occupancy:.1%} "
+            f"[{bout_label}/{laterality_label}] fish_trial_mask occupancy: {occupancy:.1%} "
             f"({n_fish} fish x {n_trials} trials); "
             f"min fish/trial = {min_fish_per_trial}, min trials/fish = {min_trials_per_fish}"
         )
 
         # 4. Filter target events
-        bout_idx = bouts_category_name_short.index(bout_name)
+        bout_idx = [bouts_category_name_short.index(b) for b in bout_names]
         is_target_event = (
-            (sub_df['category'] == bout_idx) & 
-            (sub_df['laterality'] == laterality)
+            sub_df['category'].isin(bout_idx) & 
+            sub_df['laterality'].isin(lateralities)
         )
         event_mask = (
             is_target_event & 
@@ -396,8 +404,8 @@ class BehavioralDataLoader:
             fish_ids=all_fish_ids,
             duration_s=t_end-t_start,
             binning_dt=binning_dt,
-            bout_name=bout_name,
-            laterality=str(laterality),
+            bout_name=bout_label,
+            laterality=laterality_label,
         )
 
 class DatasetPlotter:

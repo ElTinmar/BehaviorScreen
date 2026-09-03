@@ -452,7 +452,79 @@ class RateKernelFactory:
                 r"}{1+e^{-(z_{0,\text{dip}}+\alpha_{\text{dip}} m)}}\, e^{-t/\tau_{\text{dip}}}\right)$"
             ),
         )
-    
+
+    @staticmethod
+    def spont() -> RateKernel:
+        """
+        h(t,m) = B*exp(alpha_B*m)
+        """
+        def _func(t, trial, params):
+            B, alpha_B = params
+            return B * np.exp(alpha_B * trial)
+
+        return RateKernel(
+            name="Spontaneous λ(t, m)",
+            func=_func,
+            param_names=["B", "alpha_B",],
+            initial_guesses=[0.4, 0.0],
+            bounds=[
+                (0.01, 10.0),
+                (-0.5, 0.5),     
+            ],
+            latex_formula=(
+                r"$\lambda(t, m) = B e^{\alpha_B m}$"
+            ),
+        )
+
+    @staticmethod
+    def after_looming(
+        f_dip_upper: float = 0.95,
+    ) -> RateKernel:
+        """
+        Two-timescale post-looming recovery:
+
+            depth(m)    = sigmoid_bounded(z0_dip + alpha_dip*m, f_dip_upper)
+            w_fast(m)   = sigmoid_bounded(z0_wfast, 1.0)  [trial-independent mixing weight]
+            recovery(t) = w_fast*exp(-t/tau_fast) + (1-w_fast)*exp(-t/tau_slow)
+            lambda(t,m) = B*exp(alpha_B*m) * (1 - depth(m)*recovery(t))
+        """
+
+        def _func(t, trial, params):
+            B, z0_dip, tau_fast, tau_slow, z0_wfast, alpha_B, alpha_dip = params
+
+            mod_B = B * np.exp(alpha_B * trial)
+            depth = sigmoid_bounded(z0_dip + alpha_dip * trial, f_dip_upper)
+            w_fast = sigmoid_bounded(np.full_like(t, z0_wfast, dtype=float), 1.0)
+
+            recovery = w_fast * np.exp(-t / tau_fast) + (1.0 - w_fast) * np.exp(-t / tau_slow)
+            dip_factor = 1.0 - depth * recovery
+
+            return mod_B * dip_factor
+
+        z0_dip_init = float(logit_bounded(0.5, f_dip_upper))
+        z0_wfast_init = float(logit_bounded(0.5, 1.0))
+
+        return RateKernel(
+            name="Looming recovery (two-timescale) λ(t, m)",
+            func=_func,
+            param_names=["B", "z0_dip", "tau_fast", "tau_slow", "z0_wfast", "alpha_B", "alpha_dip"],
+            initial_guesses=[0.4, z0_dip_init, 1.0, 8.0, z0_wfast_init, 0.0, 0.0],
+            bounds=[
+                (0.01, 10.0),                  # B
+                (-15.0, 15.0),                  # z0_dip (logit scale, saturates well within +-15)
+                (0.01, 3),    # tau_fast: fast recovery component
+                (1, 30.0),            # tau_slow: slow recovery component
+                (-15.0, 15.0),                   # z0_wfast (logit scale, trial-independent mixing weight)
+                (-0.1, 0.1),                     # alpha_B
+                (-2.0, 2.0),                      # alpha_dip
+            ],
+            latex_formula=(
+                r"$\lambda(t,m) = B e^{\alpha_B m}\left(1 - \frac{" + f"{f_dip_upper}"
+                r"}{1+e^{-(z_{0,\text{dip}}+\alpha_{\text{dip}} m)}}\,"
+                r"[w_{\text{fast}} e^{-t/\tau_{\text{fast}}} + (1-w_{\text{fast}}) e^{-t/\tau_{\text{slow}}}]\right)$"
+            ),
+        )
+            
     @staticmethod
     def omr_forward(f_dip_upper: float = 0.995) -> RateKernel:
         """
