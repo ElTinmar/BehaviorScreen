@@ -335,6 +335,16 @@ class HawkesProcess(PointProcess):
 
         return base_ll, N_f, S_f
 
+    def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx: int) -> float:
+        """Only the BASE kernel's bound is needed here -- the history
+        contribution is handled separately, inline, in simulate_stream (see
+        that method's docstring: the current recursive state R already gives
+        an exact, tight bound for the history term, no grid search needed)."""
+        base_params, _ = self._split_params(self.params_)
+        grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
+        vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), base_params)
+        return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
+
     def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
         """
         Ogata thinning WITH self-excitation, generic across any HistoryKernel
