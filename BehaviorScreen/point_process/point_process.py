@@ -261,7 +261,25 @@ class PointProcess:
     def mixed_effects_likelihood_terms(self, dataset, params) -> Tuple[float, np.ndarray, np.ndarray]:
         """Used for mixed-effect model at the fish level"""
         raise NotImplementedError
-    
+
+    def simulate_stream(
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng
+    ) -> np.ndarray:
+        raise NotImplementedError
+
+    def _intensity_upper_bound(self, dataset, t_idx) -> float:
+        """
+        An upper bound on the base intensity over [0, duration_s], for
+        thinning's proposal step. Default: evaluate the kernel on a grid and
+        take the max -- correct for any PoissonProcess-family kernel.
+        HawkesProcess overrides this to also add a bound on the maximum
+        plausible history contribution.
+        """
+        grid = self._get_duration_grid(dataset.duration_s) if hasattr(self, "_get_duration_grid") \
+            else np.linspace(0, dataset.duration_s, 200)
+        vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), self.params_)
+        return float(np.max(vals)) * 1.1  # small safety margin
+
     def estimate_hessian(
         self, 
         dataset: PointProcessDataset, 
@@ -660,37 +678,15 @@ class PointProcess:
         """Base default: no frailty, gain always 1."""
         return np.ones((num_fish, n_sims))
 
-    def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
-        """
-        Returns the BASE (non-frailty-scaled) exposure integral for trial
-        t_idx, using this model's own fitted parameters -- the one piece of
-        information generate_model_predicted_counts() needs that is
-        genuinely specific to each concrete model class (which kernel object
-        to call, how to split self.params_ into the right sub-vector, etc.).
-        No sensible shared default exists here: PointProcess itself has no
-        notion of a "kernel" at all -- only concrete subclasses do, and each
-        one stores/splits its own parameters differently (PoissonProcess's
-        self.params_ IS just the kernel's params; HawkesProcess/RenewalProcess
-        must split off history/refractory params first;
-        GammaMixedEffectsProcess must split off r and delegate to
-        self.base_process). Every concrete PointProcess subclass MUST
-        implement this to be usable with generate_model_predicted_counts /
-        plot_predicted_vs_observed.
-        """
-        raise NotImplementedError(
-            f"{type(self).__name__} does not implement _base_exposure_for_stream, "
-            f"so generate_model_predicted_counts()/plot_predicted_vs_observed() "
-            f"cannot be used with it."
-        )
-
     def generate_model_predicted_counts(self, dataset, n_sims=1, rng=None):
         rng = rng or np.random.default_rng()
-        fish_gains = self._draw_fish_gains(dataset.num_fish, n_sims, rng)
+        fish_gains = self._draw_fish_gains(dataset.num_fish, n_sims, rng)  # shared per fish, per replicate
+
         predicted_counts = []
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            s = self._base_exposure_for_stream(dataset, t_idx)
-            draws = self._draw_given_gain(s, fish_gains[f_idx], rng)
-            predicted_counts.extend(draws)
+            for sim_i in range(n_sims):
+                events = self.simulate_stream(dataset, t_idx, fish_gains[f_idx, sim_i], rng)
+                predicted_counts.append(len(events))
         return np.array(predicted_counts)
 
     def plot_predicted_vs_observed(

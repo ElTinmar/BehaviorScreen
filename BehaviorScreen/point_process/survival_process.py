@@ -412,6 +412,33 @@ class SurvivalProcess(PointProcess):
         p_event = 1.0 - np.exp(-g * s)
         return (rng.uniform(size=len(g)) < p_event).astype(int)
 
-    def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
-        """self.params_ IS the kernel's own params directly -- no splitting needed."""
-        return self.kernel.integrate(dataset.duration_s, t_idx, self.params_, self.integration_dt)
+    def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
+        """
+        First-passage thinning simulation: proposes candidate event times the
+        same way the base PointProcess.simulate_stream does, but STOPS at the
+        first accepted event (or returns empty if none occurs by duration_s)
+        -- matching _first_event_or_censor's reduction of real data exactly,
+        so simulated streams are directly comparable to observed ones via
+        generate_model_predicted_counts / plot_predicted_vs_observed (which,
+        for SurvivalProcess, compares against the "any event" indicator, not
+        raw counts -- see plot_predicted_vs_observed override).
+
+        No self-history term (SurvivalProcess has none, by construction --
+        it terminates at the first event, so there is no "history" to
+        accumulate) -- this is simpler than HawkesProcess/RenewalProcess's
+        overrides, not more complex.
+        """
+        lambda_upper = gain * self._intensity_upper_bound(dataset, t_idx)
+        t = 0.0
+        while t < dataset.duration_s:
+            w = rng.exponential(1.0 / max(lambda_upper, 1e-12))
+            t_candidate = t + w
+            if t_candidate >= dataset.duration_s:
+                break
+            lam_candidate = gain * self.kernel.evaluate(
+                np.array([t_candidate]), np.array([t_idx]), self.params_
+            )[0]
+            if rng.uniform() <= lam_candidate / lambda_upper:
+                return np.array([t_candidate])   # <-- stop immediately, unlike the base version
+            t = t_candidate
+        return np.array([])   # censored: no event within duration_s

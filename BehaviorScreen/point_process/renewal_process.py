@@ -340,8 +340,67 @@ class RenewalProcess(PointProcess):
 
         return base_ll, N_f, S_f
 
-    def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
-        """Same splitting logic as HawkesProcess -- self.params_ is
-        [kernel_params, renewal_params] concatenated."""
-        base_params, _ = self._split_params(self.params_)
-        return self.kernel.integrate(dataset.duration_s, t_idx, base_params, self.integration_dt)
+    def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
+        """
+        Ogata thinning WITH renewal modulation: intensity at any proposed time
+        is gain * kernel(t, m) * renewal_kernel(t - t_last), where t_last is
+        the most recently ACCEPTED simulated event (or no modulation before
+        the first event) -- mirrors _stream_integral_and_ll's own
+        interpretation of the fitted model exactly, unlike the base class's
+        history-free default.
+
+        Simpler than HawkesProcess's override: only the SINGLE most recent
+        event matters (no recursive/cumulative history state to carry), per
+        RenewalProcess's own multiplicative, order-1-Markov intensity
+        (see class docstring).
+        """
+        params_base, params_renewal = self._split_params(self.params_)
+
+        # Upper bound must account for the renewal kernel's own possible
+        # amplification (e.g. ExponentialExcitation can push intensity ABOVE
+        # the bare kernel's max right after an event) -- NOT just the base
+        # kernel's peak, unlike a purely-suppressive renewal kernel where the
+        # base kernel's max alone would suffice.
+        base_upper = gain * self._intensity_upper_bound(dataset, t_idx)
+        renewal_upper = self._renewal_kernel_upper_bound(params_renewal)
+        lambda_upper = base_upper * renewal_upper
+
+        events = []
+        t = 0.0
+        t_last = None
+        while t < dataset.duration_s:
+            w = rng.exponential(1.0 / max(lambda_upper, 1e-12))
+            t_candidate = t + w
+            if t_candidate >= dataset.duration_s:
+                break
+
+            base_c = gain * self.kernel.evaluate(
+                np.array([t_candidate]), np.array([t_idx]), params_base
+            )[0]
+            if t_last is None:
+                rho = 1.0  # no prior event this stream -- no modulation yet
+            else:
+                rho = self.renewal_kernel.evaluate(
+                    np.array([t_candidate - t_last]), params_renewal
+                )[0]
+            lam_candidate = base_c * rho
+
+            if rng.uniform() <= lam_candidate / lambda_upper:
+                events.append(t_candidate)
+                t_last = t_candidate   # only the SINGLE most recent event matters
+            t = t_candidate
+
+        return np.array(events)
+
+    def _renewal_kernel_upper_bound(self, params_renewal) -> float:
+        """
+        Upper bound on renewal_kernel(lag) over lag >= 0, for thinning's
+        proposal step. Default: evaluate on a grid and take the max --
+        correct for any of the current RenewalKernelFactory shapes
+        (hard_dead_time/exponential_recovery cap at 1; exponential_excitation
+        caps at 1+A_exc, approached as lag->0 -- NOT unbounded, since A_exc is
+        itself bounded above (20.0) at the kernel level).
+        """
+        lag_grid = np.linspace(0.0, 10.0, 500)  # wide enough to capture any decay
+        vals = self.renewal_kernel.evaluate(lag_grid, params_renewal)
+        return float(np.max(vals)) * 1.1

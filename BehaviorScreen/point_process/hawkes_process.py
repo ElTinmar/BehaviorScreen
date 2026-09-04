@@ -324,11 +324,31 @@ class HawkesProcess(PointProcess):
 
         return base_ll, N_f, S_f
 
-    def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
-        """self.params_ is [kernel_params, history_params] concatenated --
-        only the base kernel's own integral is relevant here (this method
-        only ever needs the BASE rate exposure, consistent with how
-        generate_model_predicted_counts's approximation is documented:
-        it does not simulate genuine self-excitation dynamics)."""
-        base_params, _ = self._split_params(self.params_)
-        return self.kernel.integrate(dataset.duration_s, t_idx, base_params, self.integration_dt)
+    def simulate_stream(self, dataset, t_idx, gain, rng):
+        """
+        Ogata thinning INCLUDING self-excitation: each accepted event updates
+        the recursive history term, exactly mirroring HistoryKernelFactory.
+        exponential's event_history_func recursion -- so simulated streams
+        genuinely exhibit the fitted clustering dynamics, unlike the previous
+        base-exposure-only approximation.
+        """
+        events = []
+        t = 0.0
+        R = 0.0  # recursive history state, mirrors _event_history's R
+        alpha, beta = self._split_params(self.params_)[1]  # history params
+        while t < dataset.duration_s:
+            base = gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), self._split_params(self.params_)[0])[0]
+            lambda_upper = base + gain * alpha * (1.0 + R)  # current history contribution, decays going forward
+            w = rng.exponential(1.0 / max(lambda_upper, 1e-12))
+            t_candidate = t + w
+            if t_candidate >= dataset.duration_s:
+                break
+            dt = t_candidate - t
+            R_decayed = np.exp(-beta * dt) * (1.0 + R) if events else 0.0
+            base_c = gain * self.kernel.evaluate(np.array([t_candidate]), np.array([t_idx]), self._split_params(self.params_)[0])[0]
+            lam_candidate = base_c + gain * alpha * R_decayed
+            if rng.uniform() <= lam_candidate / lambda_upper:
+                events.append(t_candidate)
+                R = R_decayed
+            t = t_candidate
+        return np.array(events)

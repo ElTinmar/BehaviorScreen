@@ -725,6 +725,38 @@ class PoissonProcess(PointProcess):
 
         return base_ll, N_f, S_f
 
-    def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
-        """self.params_ IS the kernel's own params directly -- no splitting needed."""
-        return self.kernel.integrate(dataset.duration_s, t_idx, self.params_, self.integration_dt)
+    def simulate_stream(
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng
+    ) -> np.ndarray:
+        """
+        Simulates ONE synthetic (fish, trial) stream's event times, for a
+        fish with random-effect gain `gain` (1.0 if no frailty), in trial
+        t_idx, using Ogata's thinning algorithm. This is the one place that
+        needs to know how to correctly account for self-excitation
+        (HawkesProcess) or refractory/facilitation history (RenewalProcess)
+        during generation -- unlike _base_exposure_for_stream (a single
+        aggregate number, ignorant of history), this produces an actual
+        event sequence, so history-dependent intensity terms are correctly
+        included as simulated events accumulate.
+
+        Default (this implementation): no self-history dependence -- correct
+        for PoissonProcess. HawkesProcess/RenewalProcess override this with
+        a thinning loop that folds each newly-drawn event into the ongoing
+        intensity calculation. SurvivalProcess overrides this to stop after
+        the first event (or return empty if none occurs by duration_s).
+        """
+        lambda_upper = gain * self._intensity_upper_bound(dataset, t_idx)
+        events = []
+        t = 0.0
+        while t < dataset.duration_s:
+            w = rng.exponential(1.0 / max(lambda_upper, 1e-12))
+            t_candidate = t + w
+            if t_candidate >= dataset.duration_s:
+                break
+            lam_candidate = gain * self.kernel.evaluate(
+                np.array([t_candidate]), np.array([t_idx]), self.params_
+            )[0]
+            if rng.uniform() <= lam_candidate / lambda_upper:
+                events.append(t_candidate)
+            t = t_candidate
+        return np.array(events)

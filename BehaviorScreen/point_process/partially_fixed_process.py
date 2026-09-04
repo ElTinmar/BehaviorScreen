@@ -85,3 +85,6 @@ class PartiallyFixedProcess(PointProcess):
 
     def estimate_fish_gains(self, dataset):
         return self.base_process.estimate_fish_gains(dataset)
+
+    def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
+        return self.base_process.simulate_stream(dataset, t_idx, gain, rng)
