@@ -644,6 +644,21 @@ class PointProcess:
             "deviance_residuals": deviance_res,
         }
 
+    def _draw_given_gain(self, s: float, g: np.ndarray, rng) -> np.ndarray:
+        """
+        Draws one sample per element of g (a per-simulation gain multiplier),
+        given base exposure s. Default: Poisson(g*s) -- correct for
+        PoissonProcess, HawkesProcess, RenewalProcess. SurvivalProcess
+        overrides this with a Bernoulli/first-passage draw instead (see
+        override) -- this hook exists specifically so GammaMixedEffectsProcess
+        never needs to know or assume what "a draw" means for whatever base
+        process it wraps.
+        """
+        return rng.poisson(g * s)
+
+    def _simulate_stream_count(self, s: float, f_idx: int, n_sims: int, rng) -> np.ndarray:
+        return self._draw_given_gain(s, np.ones(n_sims), rng)  
+    
     def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
         """
         Returns the BASE (non-frailty-scaled) exposure integral for trial
@@ -667,47 +682,13 @@ class PointProcess:
             f"cannot be used with it."
         )
 
-    def generate_model_predicted_counts(
-        self,
-        dataset: PointProcessDataset,
-        n_sims: int = 1,
-        rng: Optional[np.random.Generator] = None,
-    ) -> np.ndarray:
-        """
-        Builds the model's predicted event-count distribution using the SAME
-        (fish, trial) stream structure as the real data -- one predicted
-        count per real stream, pooled identically to dataset.
-        stream_event_counts. This sidesteps any "mixing different means"
-        distortion by construction: every stream contributes exactly one
-        prediction, matching its own real exposure, exactly as the observed
-        histogram does.
-
-        Per-stream exposure is obtained via self._base_exposure_for_stream(),
-        a required per-subclass contract (see PointProcess.
-        _base_exposure_for_stream docstring) -- this method itself has NO
-        knowledge of kernels, params_ layout, or wrapper/base_process
-        structure; all of that is delegated polymorphically, so this method
-        works unchanged for every current and future PointProcess subclass.
-
-        Dispatches on self.dispersion_r (also a per-subclass-overridable base
-        property, defaulting to inf): finite r -> draw g ~ Gamma(r,r) then
-        Poisson(g*s) per stream (NB marginal); infinite r -> plain Poisson(s).
-        """
+    def generate_model_predicted_counts(self, dataset, n_sims=1, rng=None):
         rng = rng or np.random.default_rng()
-        r = self.dispersion_r
-
         predicted_counts = []
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             s = self._base_exposure_for_stream(dataset, t_idx)
-
-            if np.isfinite(r):
-                g = rng.gamma(shape=r, scale=1.0 / r, size=n_sims)
-                draws = rng.poisson(g * s)
-            else:
-                draws = rng.poisson(s, size=n_sims)
-
+            draws = self._simulate_stream_count(s, f_idx, n_sims, rng)  
             predicted_counts.extend(draws)
-
         return np.array(predicted_counts)
 
     def plot_predicted_vs_observed(

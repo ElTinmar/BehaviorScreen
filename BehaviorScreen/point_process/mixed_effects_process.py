@@ -248,6 +248,11 @@ class GammaMixedEffectsProcess(PointProcess):
     def is_survival(self) -> bool:
         return self.base_process.is_survival
 
+    def _simulate_stream_count(self, s, f_idx, n_sims, rng):
+        r = self.dispersion_r
+        g = rng.gamma(shape=r, scale=1.0 / r, size=n_sims)
+        return self.base_process._draw_given_gain(s, g, rng)   
+
     def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
         """self.params_ is [base_params..., r] -- split off r, then delegate
         entirely to base_process's OWN _base_exposure_for_stream (which
