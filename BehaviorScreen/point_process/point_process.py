@@ -655,10 +655,11 @@ class PointProcess:
         process it wraps.
         """
         return rng.poisson(g * s)
-
-    def _simulate_stream_count(self, s: float, f_idx: int, n_sims: int, rng) -> np.ndarray:
-        return self._draw_given_gain(s, np.ones(n_sims), rng)  
     
+    def _draw_fish_gains(self, num_fish, n_sims, rng):
+        """Base default: no frailty, gain always 1."""
+        return np.ones((num_fish, n_sims))
+
     def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
         """
         Returns the BASE (non-frailty-scaled) exposure integral for trial
@@ -684,10 +685,11 @@ class PointProcess:
 
     def generate_model_predicted_counts(self, dataset, n_sims=1, rng=None):
         rng = rng or np.random.default_rng()
+        fish_gains = self._draw_fish_gains(dataset.num_fish, n_sims, rng)
         predicted_counts = []
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             s = self._base_exposure_for_stream(dataset, t_idx)
-            draws = self._simulate_stream_count(s, f_idx, n_sims, rng)  
+            draws = self._draw_given_gain(s, fish_gains[f_idx], rng)
             predicted_counts.extend(draws)
         return np.array(predicted_counts)
 
