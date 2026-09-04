@@ -76,6 +76,17 @@ class HistoryKernel:
 
         return history
 
+    def decay_envelope(self, lag_grid: np.ndarray, params: List[float]) -> np.ndarray:
+        """
+        Running supremum of evaluate(lag, params) for lag' >= lag, evaluated
+        on an ascending lag_grid. A valid upper bound on the kernel's future
+        values regardless of shape (monotonic, delayed/bump-shaped, etc.) --
+        used by HawkesProcess.simulate_stream's thinning envelope so no
+        assumption about kernel monotonicity is required.
+        """
+        vals = self.evaluate(lag_grid, params)
+        return np.maximum.accumulate(vals[::-1])[::-1]
+
 class HistoryKernelFactory:
 
     @staticmethod
@@ -324,42 +335,63 @@ class HawkesProcess(PointProcess):
 
         return base_ll, N_f, S_f
 
-    def simulate_stream(self, dataset, t_idx, gain, rng):
+    def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
         """
-        Ogata thinning INCLUDING self-excitation. History state R is tracked
-        relative to the last ACCEPTED event only -- rejected proposals must
-        not perturb the decay clock.
-        """
-        events = []
-        base_params, (alpha, beta) = self._split_params(self.params_)
+        Ogata thinning WITH self-excitation, generic across any HistoryKernel
+        shape. At each proposal, the history contribution is bounded via
+        history_kernel.decay_envelope() (a valid upper bound for ANY kernel,
+        not just monotonically-decaying ones) rather than assuming "current
+        value = future bound" -- so this makes no assumption about the shape
+        of history_kernel beyond non-negativity.
 
-        def _base(t):
+        O(N) per proposal, O(N^2) per stream in the number of accepted events
+        -- fine for the sparse/moderate event counts in this codebase. If
+        profiling ever shows this dominating bootstrap()/generate_model_
+        predicted_counts() runtime, an O(1)-per-proposal recursive-state fast
+        path can be added for kernels that support it (e.g. exponential decay)
+        without changing this method's behavior for kernels that don't.
+        """
+        base_params, hist_params = self._split_params(self.params_)
+        hk = self.history_kernel
+
+        def _base(t_scalar: float) -> float:
             return gain * self.kernel.evaluate(
-                np.array([t]), np.array([t_idx]), base_params
+                np.array([t_scalar]), np.array([t_idx]), base_params
             )[0]
 
-        t = 0.0
-        t_last_accept = None   # time of last accepted event
-        R_last = 0.0           # R value AT t_last_accept (i.e. right after that event)
+        def _history_intensity(t_eval: float, events: List[float]) -> float:
+            if not events:
+                return 0.0
+            lags = t_eval - np.asarray(events)
+            return float(np.sum(hk.evaluate(lags, hist_params)))
 
+        base_upper = gain * self._intensity_upper_bound(dataset, t_idx)
+
+        # Precompute the kernel's decay envelope once per stream (not per
+        # proposal) at integration_dt resolution -- same resolution convention
+        # used elsewhere in this class (_intensity_upper_bound, integrate()).
+        lag_grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
+        envelope_grid = hk.decay_envelope(lag_grid, hist_params) * self._THINNING_SAFETY_MARGIN
+
+        def _envelope(lag: float) -> float:
+            idx = min(int(lag / self.integration_dt), len(envelope_grid) - 1)
+            return envelope_grid[max(idx, 0)]
+
+        events: List[float] = []
+        t = 0.0
         while t < dataset.duration_s:
-            R_now = R_last * np.exp(-beta * (t - t_last_accept)) if t_last_accept is not None else 0.0
-            lambda_upper = _base(t) + gain * alpha * (1.0 + R_now) if t_last_accept is not None else _base(t) + gain * alpha
-            # (upper bound uses current decayed R; since R only decays going forward, this is a valid envelope
-            #  as long as it's re-evaluated at the *proposal* start each iteration)
+            hist_upper = gain * sum(_envelope(t - e) for e in events)
+            lambda_upper = base_upper + hist_upper
 
             w = rng.exponential(1.0 / max(lambda_upper, 1e-12))
             t_candidate = t + w
             if t_candidate >= dataset.duration_s:
                 break
 
-            R_cand = R_last * np.exp(-beta * (t_candidate - t_last_accept)) if t_last_accept is not None else 0.0
-            lam_candidate = _base(t_candidate) + gain * alpha * R_cand
+            lam_candidate = _base(t_candidate) + gain * _history_intensity(t_candidate, events)
 
             if rng.uniform() <= lam_candidate / lambda_upper:
                 events.append(t_candidate)
-                R_last = 1.0 + R_cand
-                t_last_accept = t_candidate
 
             t = t_candidate
 
