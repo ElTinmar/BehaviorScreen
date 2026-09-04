@@ -644,70 +644,58 @@ class PointProcess:
             "deviance_residuals": deviance_res,
         }
 
-    def _get_stream_exposures(self, dataset: PointProcessDataset) -> np.ndarray:
+    def generate_model_predicted_counts(model, dataset, method="simulate", n_sims=1, rng=None):
         """
-        Returns S_f (per-fish exposure integral) for the active fish in
-        dataset, using THIS model's own parameters. Default: uses
-        mixed_effects_likelihood_terms with self.params_ directly -- correct
-        for PoissonProcess, RenewalProcess, HawkesProcess (concrete base
-        process classes that implement that method against their OWN full
-        parameter vector). GammaMixedEffectsProcess overrides this, since its
-        self.params_ includes r appended to the base params, and S_f must be
-        computed from base_process.mixed_effects_likelihood_terms using only
-        the base_params slice -- see override.
+        Builds the model's predicted event-count distribution using the SAME
+        (fish, trial) stream structure as the real data -- i.e. one predicted
+        count per real stream, pooled the identical way dataset.
+        stream_event_counts is pooled. This sidesteps any "mixing different
+        means" distortion by construction: every stream contributes exactly
+        one prediction, matching its own real exposure, exactly as the
+        observed histogram does.
+
+        method="simulate": draw a random count per stream from that stream's
+            own model-implied distribution (Poisson, or NB if frailty -- see
+            below). Requires n_sims draws per stream if you want a smooth
+            predicted histogram (more draws = smoother, same expected shape).
+        method="analytic_pmf": instead of simulating, average each stream's
+            own exact pmf (equivalent in expectation to simulate() with
+            infinite n_sims, but no sampling noise) -- this is mathematically
+            identical to Panel I's existing approach, just reframed per-
+            STREAM instead of per-fish (a fish with 3 trials contributes 3
+            separate stream-level pmfs here, not 1 fish-level pmf -- a subtly
+            more correct version if any per-trial covariate, e.g. alpha_B,
+            makes a fish's own trials have different expected counts).
         """
-        _, N_f, S_f = self.mixed_effects_likelihood_terms(dataset, self.params_)
-        active = dataset.fish_trial_mask.any(axis=1)
-        return S_f[active]
+        rng = rng or np.random.default_rng()
+        base_params = model.params_
+        r = np.inf
+        if hasattr(model, "_split_params") and hasattr(model, "dispersion_r"):
+            base_params, r = model._split_params(model.params_)
 
-    def _stream_count_pmf(
-        self, k_vals: np.ndarray, S_f: np.ndarray
-    ) -> np.ndarray:
-        """
-        Returns the model's implied probability mass at each count in k_vals,
-        for each fish's own exposure S_f -- shape (len(S_f), len(k_vals)).
+        predicted_counts = []
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            # per-STREAM expected count under the base rate, for this exact
+            # fish/trial combination (not aggregated across a fish's trials)
+            if hasattr(model, "base_process"):
+                s = model.base_process.kernel.integrate(
+                    dataset.duration_s, t_idx, base_params, model.base_process.integration_dt
+                )
+            else:
+                s = model.kernel.integrate(dataset.duration_s, t_idx, base_params, model.integration_dt)
 
-        This is the ONE piece that differs between model classes; everything
-        else about plotting/comparing against the observed count histogram
-        is shared, common logic (see plot_stream_count_distribution).
+            if method == "simulate":
+                if np.isfinite(r):
+                    # NB(r, mean=s): draw g ~ Gamma(r, r), then Poisson(g*s)
+                    g = rng.gamma(shape=r, scale=1.0 / r, size=n_sims)
+                    draws = rng.poisson(g * s)
+                else:
+                    draws = rng.poisson(s, size=n_sims)
+                predicted_counts.extend(draws)
+            else:
+                raise NotImplementedError("analytic_pmf mode: see averaging version below")
 
-        Default here: Poisson pmf per fish, using that fish's own exposure
-        S_f as the Poisson mean -- correct for PoissonProcess, HawkesProcess,
-        RenewalProcess (no frailty term, so r is effectively infinite and the
-        NB marginal collapses exactly to Poisson). GammaMixedEffectsProcess
-        overrides this with the NB pmf instead (see override).
-        """
-        S_f = np.maximum(S_f, 1e-12)
-        return np.exp(
-            k_vals[None, :] * np.log(S_f)[:, None]
-            - S_f[:, None]
-            - gammaln(k_vals + 1)[None, :]
-        )
-
-    def plot_stream_count_distribution(self, dataset, ax=None) -> plt.Axes:
-        if self.params_ is None:
-            raise ValueError("Model must be fitted first.")
-
-        S_f = self._get_stream_exposures(dataset)   # <-- no longer hardcodes which method/params to use
-
-        counts = dataset.stream_event_counts
-        max_k = int(counts.max())
-        k_vals = np.arange(0, max_k + 1)
-
-        pmf_matrix = self._stream_count_pmf(k_vals, S_f)
-        avg_pmf = pmf_matrix.mean(axis=0)
-
-        ax = ax or plt.gca()
-        bin_edges = np.arange(-0.5, max_k + 1.5, 1.0)
-        ax.hist(counts, bins=bin_edges, density=True, alpha=0.6, color='steelblue',
-                edgecolor='none', label='Observed')
-        ax.plot(k_vals, avg_pmf, 'r--', linewidth=2, label=f'model')
-        ax.set_xlabel("Event count per (fish, trial) stream", fontsize=11)
-        ax.set_ylabel("Density", fontsize=11)
-        ax.legend(loc='upper right', fontsize=9)
-        ax.grid(True, linestyle=':', alpha=0.4)
-        ax.set_title("I. Fitted vs. Observed Stream Count Distribution", fontsize=11, fontweight='bold')
-        return ax
+        return np.array(predicted_counts)
 
     def residual_2d_autocorrelation(
         self,
