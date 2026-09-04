@@ -362,7 +362,7 @@ class RenewalProcess(PointProcess):
         # kernel's peak, unlike a purely-suppressive renewal kernel where the
         # base kernel's max alone would suffice.
         base_upper = gain * self._intensity_upper_bound(dataset, t_idx)
-        renewal_upper = self._renewal_kernel_upper_bound(params_renewal)
+        renewal_upper = self._renewal_kernel_upper_bound(params_renewal, dataset)
         lambda_upper = base_upper * renewal_upper
 
         events = []
@@ -392,15 +392,29 @@ class RenewalProcess(PointProcess):
 
         return np.array(events)
 
-    def _renewal_kernel_upper_bound(self, params_renewal) -> float:
+    def _renewal_kernel_upper_bound(self, params_renewal, dataset: PointProcessDataset) -> float:
         """
-        Upper bound on renewal_kernel(lag) over lag >= 0, for thinning's
-        proposal step. Default: evaluate on a grid and take the max --
-        correct for any of the current RenewalKernelFactory shapes
-        (hard_dead_time/exponential_recovery cap at 1; exponential_excitation
-        caps at 1+A_exc, approached as lag->0 -- NOT unbounded, since A_exc is
-        itself bounded above (20.0) at the kernel level).
+        Upper bound on renewal_kernel(lag) for lag in [0, duration_s] -- NOT
+        an arbitrary fixed window. A lag between two events within one trial
+        can never exceed duration_s by construction, so duration_s is the
+        exact, principled ceiling to search over (not a guess) -- using a
+        fixed literal here was a real correctness risk: any fitted timescale
+        parameter approaching or exceeding that literal (e.g. after_looming's
+        tau_slow, bounded up to 30.0) would have silently produced an
+        UNDER-estimated bound, invalidating the thinning algorithm's
+        accept/reject step.
         """
-        lag_grid = np.linspace(0.0, 10.0, 500)  # wide enough to capture any decay
+        lag_grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
         vals = self.renewal_kernel.evaluate(lag_grid, params_renewal)
-        return float(np.max(vals)) * 1.1
+        return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
+
+    def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx: int) -> float:
+        """Base kernel's bound only -- renewal modulation's bound is computed
+        separately via _renewal_kernel_upper_bound and multiplied in
+        simulate_stream, since renewal_kernel is an arbitrary pluggable
+        object with no guaranteed monotonicity (see conversation notes on why
+        Hawkes can skip a grid search here but RenewalProcess cannot)."""
+        base_params, _ = self._split_params(self.params_)
+        grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
+        vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), base_params)
+        return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN

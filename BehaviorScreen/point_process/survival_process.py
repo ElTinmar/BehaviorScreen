@@ -412,6 +412,18 @@ class SurvivalProcess(PointProcess):
         p_event = 1.0 - np.exp(-g * s)
         return (rng.uniform(size=len(g)) < p_event).astype(int)
 
+    def _intensity_upper_bound(self, dataset, t_idx) -> float:
+        """
+        Upper bound on the base intensity over [0, duration_s], for thinning's
+        proposal step. Grid resolution matches self.integration_dt (the same
+        resolution the model was fit/integrated with) rather than an arbitrary
+        fixed point count -- consistent, and automatically finer for models
+        fit at higher precision.
+        """
+        grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
+        vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), self.params_)
+        return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
+
     def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
         """
         First-passage thinning simulation: proposes candidate event times the
@@ -442,3 +454,4 @@ class SurvivalProcess(PointProcess):
                 return np.array([t_candidate])   # <-- stop immediately, unlike the base version
             t = t_candidate
         return np.array([])   # censored: no event within duration_s
+

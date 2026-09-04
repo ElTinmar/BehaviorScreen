@@ -254,3 +254,6 @@ class GammaMixedEffectsProcess(PointProcess):
 
     def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
         return self.base_process.simulate_stream(dataset, t_idx, gain, rng)
+
+    def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx: int) -> float:
+        return self.base_process._intensity_upper_bound(dataset, t_idx)

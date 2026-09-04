@@ -1,4 +1,4 @@
-from typing import List, Tuple, Dict, Optional, Any, Union
+from typing import List, Tuple, Dict, Optional, Any, Union, ClassVar
 import copy
 import re
 
@@ -36,6 +36,18 @@ class PointProcess:
     _LOG_SCALE_PATTERN = re.compile(
         r"(tau|sigma|beta|r_dispersion|A_excitation|A_ripple)", re.IGNORECASE
     )
+
+    _THINNING_SAFETY_MARGIN: ClassVar[float] = 1.1
+    """
+    Multiplicative safety factor applied to a grid-estimated intensity
+    maximum, used as the proposal upper bound for Ogata thinning simulation.
+    Needed because the TRUE continuous maximum can exceed the max observed on
+    a finite grid (however fine) between grid points -- 1.1 (10% headroom) is
+    a conservative default, not a fitted or derived quantity. If thinning's
+    acceptance rate is ever suspiciously low (most proposals rejected) for a
+    sharply-peaked kernel, consider raising this rather than assuming a bug
+    elsewhere.
+    """
 
     def __init__(self, integration_dt: float = 0.02):
         self.name: str = ""
@@ -268,17 +280,7 @@ class PointProcess:
         raise NotImplementedError
 
     def _intensity_upper_bound(self, dataset, t_idx) -> float:
-        """
-        An upper bound on the base intensity over [0, duration_s], for
-        thinning's proposal step. Default: evaluate the kernel on a grid and
-        take the max -- correct for any PoissonProcess-family kernel.
-        HawkesProcess overrides this to also add a bound on the maximum
-        plausible history contribution.
-        """
-        grid = self._get_duration_grid(dataset.duration_s) if hasattr(self, "_get_duration_grid") \
-            else np.linspace(0, dataset.duration_s, 200)
-        vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), self.params_)
-        return float(np.max(vals)) * 1.1  # small safety margin
+        raise NotImplementedError
 
     def estimate_hessian(
         self, 
