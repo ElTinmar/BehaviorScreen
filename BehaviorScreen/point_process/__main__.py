@@ -4,7 +4,6 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from megabouts.utils import bouts_category_name_short
 
 from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.point_process.dataset import (
