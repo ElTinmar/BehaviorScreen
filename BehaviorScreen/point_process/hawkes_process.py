@@ -345,21 +345,38 @@ class HawkesProcess(PointProcess):
         vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), base_params)
         return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
 
+    def _estimate_decay_horizon(self, hist_params: List[float], tol: float = 1e-6, max_horizon: float = 1000.0) -> float:
+        """
+        Smallest lag beyond which history_kernel's value is < tol times its
+        peak (i.e. genuinely negligible, not just "small"). Used by
+        simulate_stream to build a thinning envelope that correctly
+        represents the kernel decaying to ~ZERO -- NOT a grid that stops at
+        an arbitrary point (e.g. dataset.duration_s) and silently floors
+        every lag beyond it at whatever nonzero value the grid happened to
+        end on.
+        """
+        probe = np.arange(0.0, max_horizon, self.integration_dt)
+        vals = self.history_kernel.evaluate(probe, hist_params)
+        peak = vals[0] if len(vals) else 0.0
+        if peak <= 0:
+            return self.integration_dt
+        below = np.where(vals < tol * peak)[0]
+        return float(probe[below[0]]) if len(below) else max_horizon
+
     def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
         """
         Ogata thinning WITH self-excitation, generic across any HistoryKernel
-        shape. At each proposal, the history contribution is bounded via
-        history_kernel.decay_envelope() (a valid upper bound for ANY kernel,
-        not just monotonically-decaying ones) rather than assuming "current
-        value = future bound" -- so this makes no assumption about the shape
-        of history_kernel beyond non-negativity.
+        shape, via history_kernel.decay_envelope() as the thinning bound.
 
-        O(N) per proposal, O(N^2) per stream in the number of accepted events
-        -- fine for the sparse/moderate event counts in this codebase. If
-        profiling ever shows this dominating bootstrap()/generate_model_
-        predicted_counts() runtime, an O(1)-per-proposal recursive-state fast
-        path can be added for kernels that support it (e.g. exponential decay)
-        without changing this method's behavior for kernels that don't.
+        CORRECTED: the envelope grid now spans [0, decay_horizon], NOT
+        [0, duration_s] -- decay_horizon is wherever the kernel has ACTUALLY
+        become negligible (see _estimate_decay_horizon), which may be smaller
+        OR LARGER than duration_s depending on the fitted history_kernel
+        params. Any lag beyond decay_horizon returns an explicit 0.0, so an
+        old event's contribution to the thinning bound genuinely vanishes
+        once it's old enough, instead of being floored at a small-but-
+        nonzero constant forever (the bug that previously caused hist_upper
+        to grow without bound as events accumulated over a stream).
         """
         base_params, hist_params = self._split_params(self.params_)
         hk = self.history_kernel
@@ -377,19 +394,26 @@ class HawkesProcess(PointProcess):
 
         base_upper = gain * self._intensity_upper_bound(dataset, t_idx)
 
-        # Precompute the kernel's decay envelope once per stream (not per
-        # proposal) at integration_dt resolution -- same resolution convention
-        # used elsewhere in this class (_intensity_upper_bound, integrate()).
-        lag_grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
+        # Envelope now spans [0, decay_horizon], not [0, duration_s] -- the
+        # fix. decay_horizon is a property of hist_params alone, independent
+        # of the trial length.
+        decay_horizon = self._estimate_decay_horizon(hist_params)
+        lag_grid = np.arange(0.0, decay_horizon + self.integration_dt, self.integration_dt)
         envelope_grid = hk.decay_envelope(lag_grid, hist_params) * self._THINNING_SAFETY_MARGIN
 
         def _envelope(lag: float) -> float:
+            if lag >= decay_horizon:
+                return 0.0   # explicit zero beyond the decay horizon -- NOT a floor
             idx = min(int(lag / self.integration_dt), len(envelope_grid) - 1)
             return envelope_grid[max(idx, 0)]
 
         events: List[float] = []
         t = 0.0
         while t < dataset.duration_s:
+            # Only events within decay_horizon of `t` can contribute nonzero
+            # envelope mass -- summing over the full events list is still
+            # correct (since _envelope returns exactly 0.0 for older ones),
+            # just no longer unbounded in effect.
             hist_upper = gain * sum(_envelope(t - e) for e in events)
             lambda_upper = base_upper + hist_upper
 
