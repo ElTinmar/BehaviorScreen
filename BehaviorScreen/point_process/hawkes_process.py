@@ -326,29 +326,41 @@ class HawkesProcess(PointProcess):
 
     def simulate_stream(self, dataset, t_idx, gain, rng):
         """
-        Ogata thinning INCLUDING self-excitation: each accepted event updates
-        the recursive history term, exactly mirroring HistoryKernelFactory.
-        exponential's event_history_func recursion -- so simulated streams
-        genuinely exhibit the fitted clustering dynamics, unlike the previous
-        base-exposure-only approximation.
+        Ogata thinning INCLUDING self-excitation. History state R is tracked
+        relative to the last ACCEPTED event only -- rejected proposals must
+        not perturb the decay clock.
         """
         events = []
+        base_params, (alpha, beta) = self._split_params(self.params_)
+
+        def _base(t):
+            return gain * self.kernel.evaluate(
+                np.array([t]), np.array([t_idx]), base_params
+            )[0]
+
         t = 0.0
-        R = 0.0  # recursive history state, mirrors _event_history's R
-        alpha, beta = self._split_params(self.params_)[1]  # history params
+        t_last_accept = None   # time of last accepted event
+        R_last = 0.0           # R value AT t_last_accept (i.e. right after that event)
+
         while t < dataset.duration_s:
-            base = gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), self._split_params(self.params_)[0])[0]
-            lambda_upper = base + gain * alpha * (1.0 + R)  # current history contribution, decays going forward
+            R_now = R_last * np.exp(-beta * (t - t_last_accept)) if t_last_accept is not None else 0.0
+            lambda_upper = _base(t) + gain * alpha * (1.0 + R_now) if t_last_accept is not None else _base(t) + gain * alpha
+            # (upper bound uses current decayed R; since R only decays going forward, this is a valid envelope
+            #  as long as it's re-evaluated at the *proposal* start each iteration)
+
             w = rng.exponential(1.0 / max(lambda_upper, 1e-12))
             t_candidate = t + w
             if t_candidate >= dataset.duration_s:
                 break
-            dt = t_candidate - t
-            R_decayed = np.exp(-beta * dt) * (1.0 + R) if events else 0.0
-            base_c = gain * self.kernel.evaluate(np.array([t_candidate]), np.array([t_idx]), self._split_params(self.params_)[0])[0]
-            lam_candidate = base_c + gain * alpha * R_decayed
+
+            R_cand = R_last * np.exp(-beta * (t_candidate - t_last_accept)) if t_last_accept is not None else 0.0
+            lam_candidate = _base(t_candidate) + gain * alpha * R_cand
+
             if rng.uniform() <= lam_candidate / lambda_upper:
                 events.append(t_candidate)
-                R = R_decayed
+                R_last = 1.0 + R_cand
+                t_last_accept = t_candidate
+
             t = t_candidate
+
         return np.array(events)

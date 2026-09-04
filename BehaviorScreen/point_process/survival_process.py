@@ -404,14 +404,6 @@ class SurvivalProcess(PointProcess):
     def is_survival(self) -> bool:
         return True
 
-    def _draw_given_gain(self, s: float, g: np.ndarray, rng) -> np.ndarray:
-        """Bernoulli first-passage draw: P(event by duration_s | gain g) =
-        1 - exp(-g*s). Returns 0 (censored) or 1 (event observed) per draw --
-        matches _first_event_or_censor's own reduction of real data, so
-        simulated and observed data are genuinely comparable."""
-        p_event = 1.0 - np.exp(-g * s)
-        return (rng.uniform(size=len(g)) < p_event).astype(int)
-
     def _intensity_upper_bound(self, dataset, t_idx) -> float:
         """
         Upper bound on the base intensity over [0, duration_s], for thinning's

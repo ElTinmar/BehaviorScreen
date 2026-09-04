@@ -663,18 +663,6 @@ class PointProcess:
             "pearson_residuals": pearson_res,
             "deviance_residuals": deviance_res,
         }
-
-    def _draw_given_gain(self, s: float, g: np.ndarray, rng) -> np.ndarray:
-        """
-        Draws one sample per element of g (a per-simulation gain multiplier),
-        given base exposure s. Default: Poisson(g*s) -- correct for
-        PoissonProcess, HawkesProcess, RenewalProcess. SurvivalProcess
-        overrides this with a Bernoulli/first-passage draw instead (see
-        override) -- this hook exists specifically so GammaMixedEffectsProcess
-        never needs to know or assume what "a draw" means for whatever base
-        process it wraps.
-        """
-        return rng.poisson(g * s)
     
     def _draw_fish_gains(self, num_fish, n_sims, rng):
         """Base default: no frailty, gain always 1."""
