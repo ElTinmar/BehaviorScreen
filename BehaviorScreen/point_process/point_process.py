@@ -644,58 +644,129 @@ class PointProcess:
             "deviance_residuals": deviance_res,
         }
 
-    def generate_model_predicted_counts(model, dataset, method="simulate", n_sims=1, rng=None):
+    def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
+        """
+        Returns the BASE (non-frailty-scaled) exposure integral for trial
+        t_idx, using this model's own fitted parameters -- the one piece of
+        information generate_model_predicted_counts() needs that is
+        genuinely specific to each concrete model class (which kernel object
+        to call, how to split self.params_ into the right sub-vector, etc.).
+        No sensible shared default exists here: PointProcess itself has no
+        notion of a "kernel" at all -- only concrete subclasses do, and each
+        one stores/splits its own parameters differently (PoissonProcess's
+        self.params_ IS just the kernel's params; HawkesProcess/RenewalProcess
+        must split off history/refractory params first;
+        GammaMixedEffectsProcess must split off r and delegate to
+        self.base_process). Every concrete PointProcess subclass MUST
+        implement this to be usable with generate_model_predicted_counts /
+        plot_predicted_vs_observed.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement _base_exposure_for_stream, "
+            f"so generate_model_predicted_counts()/plot_predicted_vs_observed() "
+            f"cannot be used with it."
+        )
+
+    def generate_model_predicted_counts(
+        self,
+        dataset: PointProcessDataset,
+        n_sims: int = 1,
+        rng: Optional[np.random.Generator] = None,
+    ) -> np.ndarray:
         """
         Builds the model's predicted event-count distribution using the SAME
-        (fish, trial) stream structure as the real data -- i.e. one predicted
-        count per real stream, pooled the identical way dataset.
-        stream_event_counts is pooled. This sidesteps any "mixing different
-        means" distortion by construction: every stream contributes exactly
-        one prediction, matching its own real exposure, exactly as the
-        observed histogram does.
+        (fish, trial) stream structure as the real data -- one predicted
+        count per real stream, pooled identically to dataset.
+        stream_event_counts. This sidesteps any "mixing different means"
+        distortion by construction: every stream contributes exactly one
+        prediction, matching its own real exposure, exactly as the observed
+        histogram does.
 
-        method="simulate": draw a random count per stream from that stream's
-            own model-implied distribution (Poisson, or NB if frailty -- see
-            below). Requires n_sims draws per stream if you want a smooth
-            predicted histogram (more draws = smoother, same expected shape).
-        method="analytic_pmf": instead of simulating, average each stream's
-            own exact pmf (equivalent in expectation to simulate() with
-            infinite n_sims, but no sampling noise) -- this is mathematically
-            identical to Panel I's existing approach, just reframed per-
-            STREAM instead of per-fish (a fish with 3 trials contributes 3
-            separate stream-level pmfs here, not 1 fish-level pmf -- a subtly
-            more correct version if any per-trial covariate, e.g. alpha_B,
-            makes a fish's own trials have different expected counts).
+        Per-stream exposure is obtained via self._base_exposure_for_stream(),
+        a required per-subclass contract (see PointProcess.
+        _base_exposure_for_stream docstring) -- this method itself has NO
+        knowledge of kernels, params_ layout, or wrapper/base_process
+        structure; all of that is delegated polymorphically, so this method
+        works unchanged for every current and future PointProcess subclass.
+
+        Dispatches on self.dispersion_r (also a per-subclass-overridable base
+        property, defaulting to inf): finite r -> draw g ~ Gamma(r,r) then
+        Poisson(g*s) per stream (NB marginal); infinite r -> plain Poisson(s).
         """
         rng = rng or np.random.default_rng()
-        base_params = model.params_
-        r = np.inf
-        if hasattr(model, "_split_params") and hasattr(model, "dispersion_r"):
-            base_params, r = model._split_params(model.params_)
+        r = self.dispersion_r
 
         predicted_counts = []
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            # per-STREAM expected count under the base rate, for this exact
-            # fish/trial combination (not aggregated across a fish's trials)
-            if hasattr(model, "base_process"):
-                s = model.base_process.kernel.integrate(
-                    dataset.duration_s, t_idx, base_params, model.base_process.integration_dt
-                )
-            else:
-                s = model.kernel.integrate(dataset.duration_s, t_idx, base_params, model.integration_dt)
+            s = self._base_exposure_for_stream(dataset, t_idx)
 
-            if method == "simulate":
-                if np.isfinite(r):
-                    # NB(r, mean=s): draw g ~ Gamma(r, r), then Poisson(g*s)
-                    g = rng.gamma(shape=r, scale=1.0 / r, size=n_sims)
-                    draws = rng.poisson(g * s)
-                else:
-                    draws = rng.poisson(s, size=n_sims)
-                predicted_counts.extend(draws)
+            if np.isfinite(r):
+                g = rng.gamma(shape=r, scale=1.0 / r, size=n_sims)
+                draws = rng.poisson(g * s)
             else:
-                raise NotImplementedError("analytic_pmf mode: see averaging version below")
+                draws = rng.poisson(s, size=n_sims)
+
+            predicted_counts.extend(draws)
 
         return np.array(predicted_counts)
+
+    def plot_predicted_vs_observed(
+        self,
+        dataset: PointProcessDataset,
+        n_sims: int = 20,
+        rng: Optional[np.random.Generator] = None,
+        ax: Optional[plt.Axes] = None,
+    ) -> plt.Axes:
+        """
+        Overlays this model's parametric-bootstrap-simulated count
+        distribution (see generate_model_predicted_counts) against the
+        REAL observed per-(fish,trial) count histogram. Answers: "does data
+        GENERATED BY this fitted model look like the data I actually
+        collected?" -- the most direct, assumption-free goodness-of-fit
+        check available for the model's marginal count structure, valid
+        identically across every model class (Poisson, Hawkes, Renewal,
+        GammaMixedEffects, ...) with no per-class overrides required.
+
+        NOTE: uses a fixed default rng (see below) so that repeated calls on
+        the same fitted model produce a visually stable panel rather than
+        fresh sampling noise every time diagnose() is re-run.
+
+        Does NOT, by itself, establish that any fitted heterogeneity
+        parameter (e.g. GammaMixedEffectsProcess.dispersion_r) is uniquely
+        identified or that its assumed distributional family (Gamma) is
+        correct -- a good match here is consistent with, but not proof of,
+        either. See GammaMixedEffectsProcess.plot_gain_distribution (Panel J)
+        for a more targeted test of the frailty family assumption specifically.
+        """
+        if self.params_ is None:
+            raise ValueError("Model must be fitted first.")
+
+        rng = rng or np.random.default_rng(0)  # fixed default seed: stable across repeated diagnose() calls
+
+        observed = dataset.stream_event_counts
+        simulated = self.generate_model_predicted_counts(dataset, n_sims=n_sims, rng=rng)
+
+        ax = ax or plt.gca()
+        max_k = int(max(observed.max(), simulated.max())) if len(observed) and len(simulated) else 1
+        bin_edges = np.arange(-0.5, max_k + 1.5, 1.0)
+
+        ax.hist(observed, bins=bin_edges, density=True, alpha=0.6,
+                color='steelblue', edgecolor='none', label='Observed')
+        ax.hist(simulated, bins=bin_edges, density=True, alpha=0.8,
+                color='green', histtype='step', linewidth=2,
+                label=f'Model-simulated (n_sims={n_sims})')
+
+        obs_di = observed.var() / observed.mean() if observed.mean() > 0 else np.nan
+        sim_di = simulated.var() / simulated.mean() if simulated.mean() > 0 else np.nan
+        ax.set_title(
+            f"Observed DI={obs_di:.2f}  |  Simulated DI={sim_di:.2f}",
+            fontsize=10,
+        )
+        ax.set_xlabel("Event count per (fish, trial) stream", fontsize=11)
+        ax.set_ylabel("Density", fontsize=11)
+        ax.legend(loc='upper right', fontsize=9)
+        ax.grid(True, linestyle=':', alpha=0.4)
+        return ax
 
     def residual_2d_autocorrelation(
         self,
@@ -1172,7 +1243,7 @@ class PointProcess:
         self.plot_panel_fish_dn_distribution(dataset, diag_data, ax=axes[2, 1])
         self.plot_panel_parameter_correlation(dataset, diag_data, ax=axes[3, 0])
         self.plot_panel_summary_text(dataset, diag_data, ax=axes[3, 1])
-        self.plot_stream_count_distribution(dataset, ax=axes[4,0])
+        self.plot_predicted_vs_observed(dataset, ax=axes[4,0])
 
         axes[4, 1].axis('off')
 

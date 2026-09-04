@@ -339,3 +339,9 @@ class RenewalProcess(PointProcess):
             S_f[f_idx] += total_integral
 
         return base_ll, N_f, S_f
+
+    def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
+        """Same splitting logic as HawkesProcess -- self.params_ is
+        [kernel_params, renewal_params] concatenated."""
+        base_params, _ = self._split_params(self.params_)
+        return self.kernel.integrate(dataset.duration_s, t_idx, base_params, self.integration_dt)

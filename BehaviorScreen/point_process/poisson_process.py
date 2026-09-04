@@ -725,3 +725,6 @@ class PoissonProcess(PointProcess):
 
         return base_ll, N_f, S_f
 
+    def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
+        """self.params_ IS the kernel's own params directly -- no splitting needed."""
+        return self.kernel.integrate(dataset.duration_s, t_idx, self.params_, self.integration_dt)

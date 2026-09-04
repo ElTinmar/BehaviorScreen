@@ -248,3 +248,19 @@ class GammaMixedEffectsProcess(PointProcess):
     def is_survival(self) -> bool:
         return self.base_process.is_survival
 
+    def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
+        """self.params_ is [base_params..., r] -- split off r, then delegate
+        entirely to base_process's OWN _base_exposure_for_stream (which
+        already knows how to correctly handle ITS OWN params, whatever
+        concrete class base_process happens to be -- Poisson, Hawkes, or
+        Renewal). This is exactly why _base_exposure_for_stream needed to be
+        a per-class contract rather than a single base-class default: this
+        override composes correctly regardless of which base_process is
+        wrapped, without GammaMixedEffectsProcess needing to know that
+        class's internal parameter-splitting details itself."""
+        base_params, _ = self._split_params(self.params_)
+        # Temporarily needed: base_process._base_exposure_for_stream expects
+        # to read from its OWN self.params_. Since fit() already syncs
+        # base_process.params_ after a successful fit (see class docstring
+        # "OWNERSHIP" note), this is already correct without any extra work:
+        return self.base_process._base_exposure_for_stream(dataset, t_idx)
