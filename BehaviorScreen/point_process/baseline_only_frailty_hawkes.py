@@ -71,6 +71,11 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         self.base_process.param_dict_ = dict(zip(self.base_process.param_names, base_params))
         return self
 
+    def set_params(self, params: np.ndarray) -> None:
+        super().set_params(params)
+        base_params, _ = self._split_params(list(self.params_))
+        self.base_process.set_params(base_params)
+        
     # -- Likelihood -----------------------------------------------------
 
     def _per_fish_terms(
