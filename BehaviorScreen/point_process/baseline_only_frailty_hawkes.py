@@ -307,22 +307,20 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         H_a = np.asarray(hk.integrate(lag_a, hist_params, integration_dt=self.integration_dt))
         return float(np.sum(H_b - H_a))
 
-    def _stream_tau_values(self, dataset: PointProcessDataset) -> Dict[Tuple[int, int], np.ndarray]:
+    def _stream_tau_values(self, dataset: PointProcessDataset) -> Dict[Tuple[int, int], List[Tuple[float, bool]]]:
         """
-        Sequential, predictable compensator: tau_k = g_hat_k * d_base + d_hist,
-        where g_hat_k = E[g_f | fish's baseline events/exposure STRICTLY
-        BEFORE this point] (quadrature posterior mean -- see
-        _posterior_mean_gain), and d_hist is the self-excitation contribution,
-        NEVER gain-scaled (matches this model's own _nll/simulate_stream).
+        Custom override (NOT the generic stream_compensator_profile-based
+        default): this model's compensator requires the QUADRATURE-based
+        posterior mean gain (_posterior_mean_gain), sequentially updated
+        across a fish's own trial history -- a single call to
+        stream_compensator_profile per stream cannot express this, since
+        g_hat must evolve BETWEEN events using state that persists across
+        trial boundaries (see class docstring / _posterior_mean_gain).
 
-        Tracks TWO separately-scoped histories:
-        fish_events_so_far / S_base_so_far : this fish's ENTIRE session so
-            far (across ALL trials), used for the frailty posterior. Never
-            resets -- g_f is a persistent, whole-session property of the fish.
-        trial_event_times : ONLY the current trial's own prior events, used
-            for the self-excitation compensator. Resets at every trial
-            boundary, matching HawkesProcess's own convention (history does
-            not carry across trials).
+        Output contract matches the base class exactly: Dict[(f_idx,t_idx),
+        List[(tau, is_censored)]]. HawkesProcess-based streams are never
+        censored (every event is an exact, uncensored observation) --
+        is_censored is always False here, unlike SurvivalProcess.
         """
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
@@ -331,10 +329,10 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         kernel = self.base_process.kernel
         idt = self.base_process.integration_dt
 
-        result: Dict[Tuple[int, int], np.ndarray] = {}
+        result: Dict[Tuple[int, int], List[Tuple[float, bool]]] = {}
 
         for f_idx in range(dataset.num_fish):
-            fish_events_so_far: List[Tuple[float, float]] = []  # (base_rate_i, history_rate_i), whole-session
+            fish_events_so_far: List[Tuple[float, float]] = []
             S_base_so_far = 0.0
 
             for t_idx in range(dataset.num_trials):
@@ -344,24 +342,21 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
                 mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
                 t_ev = np.sort(dataset.event_times[mask])
 
-                trial_event_times: List[float] = []  # resets every trial
+                trial_event_times: List[float] = []
                 prev_t = 0.0
 
                 if len(t_ev) > 0:
-                    tau_vals = np.empty(len(t_ev))
+                    pairs: List[Tuple[float, bool]] = []
                     for i, t_e in enumerate(t_ev):
-                        # Predictability: g_hat uses ONLY history strictly
-                        # before t_e -- fish_events_so_far/S_base_so_far have
-                        # not yet been updated with this event.
                         g_hat = self._posterior_mean_gain(fish_events_so_far, S_base_so_far, r)
 
                         d_base = (kernel.integrate(t_e, t_idx, kernel_params, integration_dt=idt)
                                 - kernel.integrate(prev_t, t_idx, kernel_params, integration_dt=idt))
                         d_hist = self._history_compensator_segment(trial_event_times, prev_t, t_e, hist_params)
 
-                        tau_vals[i] = g_hat * d_base + d_hist
+                        tau = g_hat * d_base + d_hist
+                        pairs.append((float(tau), False))   # <-- tuple format, matches base contract
 
-                        # Update running state AFTER computing tau.
                         base_rate_i = kernel.evaluate(np.array([t_e]), np.array([t_idx]), kernel_params)[0]
                         if trial_event_times:
                             lags = t_e - np.array(trial_event_times)
@@ -374,14 +369,8 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
                         trial_event_times.append(t_e)
                         prev_t = t_e
 
-                    result[(f_idx, t_idx)] = tau_vals
+                    result[(f_idx, t_idx)] = pairs
 
-                # Trial boundary: baseline exposure accrues for the REMAINDER
-                # of the trial (prev_t -> duration_s), whether or not any
-                # events occurred there -- same fix as GammaMixedEffectsProcess.
-                # _stream_tau_values's S_offset/S_prev correction from earlier
-                # in this conversation. trial_event_times resets automatically
-                # (new empty list at the top of the next trial's iteration).
                 S_base_so_far += (kernel.integrate(dataset.duration_s, t_idx, kernel_params, integration_dt=idt)
                                 - kernel.integrate(prev_t, t_idx, kernel_params, integration_dt=idt))
 
