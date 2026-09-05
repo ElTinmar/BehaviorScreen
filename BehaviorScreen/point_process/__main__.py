@@ -128,12 +128,6 @@ model_config = {
                     HistoryKernelFactory.exponential()
                 ),
             ),
-            GammaMixedEffectsProcess(
-                HawkesProcess(
-                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-                    HistoryKernelFactory.exponential()
-                )
-            ),
         ]
     },
 
@@ -153,6 +147,12 @@ model_config = {
             HawkesProcess(
                 RateKernelFactory.homogeneous_poisson(),
                 HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                ),
             )
         ]
     },
@@ -174,6 +174,16 @@ model_config = {
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_ipsi())),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
+            HawkesProcess(
+                RateKernelFactory.phototaxis_dip_exgaussian_peak(),
+                HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.phototaxis_dip_exgaussian_peak(),
+                    HistoryKernelFactory.exponential()
+                ),
+            )
         ]
     },
 
@@ -198,6 +208,12 @@ model_config = {
                 RateKernelFactory.phototaxis_contra(),
                 HistoryKernelFactory.exponential()
             ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.phototaxis_contra(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_contra()))
         ]
@@ -220,7 +236,7 @@ model_config = {
                 HistoryKernelFactory.exponential()
             ),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(
+            BaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     RateKernelFactory.homogeneous_poisson(),
                     HistoryKernelFactory.exponential()
@@ -244,6 +260,16 @@ model_config = {
             PoissonProcess(RateKernelFactory.omr_lateral_contra()),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_lateral_contra())),
+            HawkesProcess(
+                RateKernelFactory.omr_lateral_contra(),
+                HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.omr_lateral_contra(),
+                    HistoryKernelFactory.exponential()
+                ),
+            )
         ]
     },
 
@@ -265,6 +291,12 @@ model_config = {
             HawkesProcess(
                 RateKernelFactory.omr_forward(),
                 HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.omr_forward(),
+                    HistoryKernelFactory.exponential()
+                ),
             )
         ]
     },
@@ -281,7 +313,17 @@ model_config = {
         'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
         'models': [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson()))
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                ),
+            )
         ]
     },
 
@@ -305,10 +347,6 @@ model_config = {
             #     RateKernelFactory.homogeneous_poisson(), 
             #     RenewalKernelFactory.exponential_excitation()
             # ),
-            HawkesProcess(
-                RateKernelFactory.homogeneous_poisson(),
-                HistoryKernelFactory.exponential()
-            ),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
             # GammaMixedEffectsProcess(
             #     RenewalProcess(
@@ -316,7 +354,11 @@ model_config = {
             #         RenewalKernelFactory.exponential_excitation()
             #     )
             # ),
-            GammaMixedEffectsProcess(
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     RateKernelFactory.homogeneous_poisson(),
                     HistoryKernelFactory.exponential()
@@ -407,13 +449,7 @@ model_config = {
                 RateKernelFactory.spont(),
                 HistoryKernelFactory.exponential()
             ),
-            GammaMixedEffectsProcess(
-                HawkesProcess(
-                    RateKernelFactory.homogeneous_poisson(),
-                    HistoryKernelFactory.exponential()
-                )
-            ),
-            GammaMixedEffectsProcess(
+            BaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     RateKernelFactory.spont(),
                     HistoryKernelFactory.exponential()
@@ -445,13 +481,13 @@ model_config = {
                 RateKernelFactory.spont(),
                 HistoryKernelFactory.exponential()
             ),
-            GammaMixedEffectsProcess(
+            BaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     RateKernelFactory.homogeneous_poisson(),
                     HistoryKernelFactory.exponential()
                 )
             ),
-            GammaMixedEffectsProcess(
+            BaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     RateKernelFactory.spont(),
                     HistoryKernelFactory.exponential()
@@ -475,16 +511,16 @@ model_config = {
             # PoissonProcess(RateKernelFactory.after_looming()),
             # GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.after_looming())),
-            # HawkesProcess(
-            #     RateKernelFactory.after_looming(),
-            #     HistoryKernelFactory.exponential()
-            # ),
-            # GammaMixedEffectsProcess(
-            #     HawkesProcess(
-            #         RateKernelFactory.after_looming(),
-            #         HistoryKernelFactory.exponential()
-            #     )
-            # ),
+            HawkesProcess(
+                RateKernelFactory.after_looming(),
+                HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.after_looming(),
+                    HistoryKernelFactory.exponential()
+                )
+            ),
         ]
     },
 }
