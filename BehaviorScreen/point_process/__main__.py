@@ -15,6 +15,7 @@ from BehaviorScreen.point_process.hawkes_process import HistoryKernelFactory, Ha
 from BehaviorScreen.point_process.renewal_process import RenewalKernelFactory, RenewalProcess
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
+from BehaviorScreen.point_process.baseline_only_frailty_hawkes import BaselineOnlyFrailtyHawkesProcess
 from BehaviorScreen.point_process.io import save_fig, save_csv
 from BehaviorScreen.point_process.frailty_analysis import collect_fish_gains, plot_fish_gain_correlation
 
@@ -121,12 +122,18 @@ model_config = {
                 PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
                 HistoryKernelFactory.exponential()
             ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
             GammaMixedEffectsProcess(
                 HawkesProcess(
                     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
                     HistoryKernelFactory.exponential()
                 )
-            )
+            ),
         ]
     },
 
