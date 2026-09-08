@@ -112,229 +112,7 @@ model_config = {
                     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
                     HistoryKernelFactory.exponential()
                 ),
-            )
-            # RenewalProcess(
-            #     RateKernelFactory.homogeneous_poisson(), 
-            #     RenewalKernelFactory.exponential_excitation()
-            # ),
-            # GammaMixedEffectsProcess(
-            #     RenewalProcess(
-            #         RateKernelFactory.homogeneous_poisson(), 
-            #         RenewalKernelFactory.exponential_excitation()
-            #     )
-            # ),
-            # RenewalProcess(
-            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
-            #     RenewalKernelFactory.exponential_excitation()
-            # ),
-            # GammaMixedEffectsProcess(
-            #     RenewalProcess(
-            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
-            #         RenewalKernelFactory.exponential_excitation()
-            #     )
-            # ),
-            # HawkesProcess(
-            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-            #     HistoryKernelFactory.exponential()
-            # ),
-            # BaselineOnlyFrailtyHawkesProcess(
-            #     HawkesProcess(
-            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-            #         HistoryKernelFactory.exponential()
-            #     ),
-            # ),
-        ]
-    },
-
-    'prey_capture_contra': {
-        'dataset': {
-            'stim': Stim.PREY_CAPTURE,
-            'bout_name': 'JT',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 24.0,
-        },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            HawkesProcess(
-                RateKernelFactory.homogeneous_poisson(),
-                HistoryKernelFactory.exponential()
             ),
-            BaselineOnlyFrailtyHawkesProcess(
-                HawkesProcess(
-                    RateKernelFactory.homogeneous_poisson(),
-                    HistoryKernelFactory.exponential()
-                ),
-            )
-        ]
-    },
-
-    'phototaxis_ipsi': {
-        'dataset': {
-            'stim': Stim.PHOTOTAXIS,
-            'bout_name': 'RT',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 24.0,
-        },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            PoissonProcess(RateKernelFactory.phototaxis_ipsi()),
-            PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_ipsi())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
-            HawkesProcess(
-                RateKernelFactory.phototaxis_dip_exgaussian_peak(),
-                HistoryKernelFactory.exponential()
-            ),
-            BaselineOnlyFrailtyHawkesProcess(
-                HawkesProcess(
-                    RateKernelFactory.phototaxis_dip_exgaussian_peak(),
-                    HistoryKernelFactory.exponential()
-                ),
-            )
-        ]
-    },
-
-    'phototaxis_contra': {
-        'dataset': {
-            'stim': Stim.PHOTOTAXIS,
-            'bout_name': 'RT',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 24.0,
-        },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            PoissonProcess(RateKernelFactory.phototaxis_contra()),
-            # RenewalProcess(
-            #     RateKernelFactory.phototaxis_contra(),
-            #     RenewalKernelFactory.exponential_excitation()
-            # ),
-            HawkesProcess(
-                RateKernelFactory.phototaxis_contra(),
-                HistoryKernelFactory.exponential()
-            ),
-            BaselineOnlyFrailtyHawkesProcess(
-                HawkesProcess(
-                    RateKernelFactory.phototaxis_contra(),
-                    HistoryKernelFactory.exponential()
-                ),
-            ),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_contra()))
-        ]
-    },
-
-    'omr_lateral_ipsi': {
-        'dataset': {
-            'epoch_name': ["grating right", "grating left"],
-            'bout_name': 'RT',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 9.0,
-        },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            HawkesProcess(
-                RateKernelFactory.homogeneous_poisson(),
-                HistoryKernelFactory.exponential()
-            ),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            BaselineOnlyFrailtyHawkesProcess(
-                HawkesProcess(
-                    RateKernelFactory.homogeneous_poisson(),
-                    HistoryKernelFactory.exponential()
-                )
-            ),
-        ]
-    },
-
-    'omr_lateral_contra': {
-        'dataset': {
-            'epoch_name': ["grating right", "grating left"],
-            'bout_name': 'RT',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 9.0,
-        },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            PoissonProcess(RateKernelFactory.omr_lateral_contra()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_lateral_contra())),
-            HawkesProcess(
-                RateKernelFactory.omr_lateral_contra(),
-                HistoryKernelFactory.exponential()
-            ),
-            BaselineOnlyFrailtyHawkesProcess(
-                HawkesProcess(
-                    RateKernelFactory.omr_lateral_contra(),
-                    HistoryKernelFactory.exponential()
-                ),
-            )
-        ]
-    },
-
-    'omr_forward': {
-        'dataset': {
-            'epoch_name': "grating forward",
-            'bout_name': 'BS',
-            'laterality': Laterality.NONDIRECTIONAL,
-
-model_config = {
-
-    'prey_capture_ipsi': {
-        'dataset': {
-            'stim': Stim.PREY_CAPTURE,
-            'bout_name': 'JT',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 24.0,
-        },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            PoissonProcess(PreyCapture.time_only(stim_freq=prey_stim_freq)),
-            PoissonProcess(PreyCapture.peak(stim_freq=prey_stim_freq)),
-            PoissonProcess(PreyCapture.baseline(stim_freq=prey_stim_freq)),
-            PoissonProcess(PreyCapture.peak_baseline(stim_freq=prey_stim_freq)),
-            PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)),
-            PoissonProcess(PreyCapture.peak_baseline_shared(stim_freq=prey_stim_freq)),
-            PoissonProcess(PreyCapture.peak_baseline_shared_ripple(stim_freq=prey_stim_freq)),
-            PoissonProcess(PreyCapture.peak_baseline_ripple_shared(stim_freq=prey_stim_freq)),
-            GammaMixedEffectsProcess(
-                PoissonProcess(RateKernelFactory.homogeneous_poisson())
-            ),
-            GammaMixedEffectsProcess(
-                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
-            ),
-            ZeroInflatedGammaMixedEffectsProcess(
-                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
-            ),
-            ZeroInflatedGammaMixedEffectsProcess(
-                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)),
-                fit_c=True
-            ),
-            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-                HawkesProcess(
-                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-                    HistoryKernelFactory.exponential()
-                ),
-            )
             # RenewalProcess(
             #     RateKernelFactory.homogeneous_poisson(), 
             #     RenewalKernelFactory.exponential_excitation()
@@ -367,6 +145,199 @@ model_config = {
             ),
         ]
     },
+
+    'prey_capture_contra': {
+        'dataset': {
+            'stim': Stim.PREY_CAPTURE,
+            'bout_name': 'JT',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
+        },
+        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'models': [
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+        ]
+    },
+
+    'phototaxis_ipsi': {
+        'dataset': {
+            'stim': Stim.PHOTOTAXIS,
+            'bout_name': 'RT',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
+        },
+        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'models': [
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            PoissonProcess(RateKernelFactory.phototaxis_ipsi()),
+            PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak()),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_ipsi())),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
+            HawkesProcess(
+                RateKernelFactory.phototaxis_dip_exgaussian_peak(),
+                HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.phototaxis_dip_exgaussian_peak(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.phototaxis_dip_exgaussian_peak(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+        ]
+    },
+
+    'phototaxis_contra': {
+        'dataset': {
+            'stim': Stim.PHOTOTAXIS,
+            'bout_name': 'RT',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
+        },
+        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'models': [
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            PoissonProcess(RateKernelFactory.phototaxis_contra()),
+            # RenewalProcess(
+            #     RateKernelFactory.phototaxis_contra(),
+            #     RenewalKernelFactory.exponential_excitation()
+            # ),
+            HawkesProcess(
+                RateKernelFactory.phototaxis_contra(),
+                HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.phototaxis_contra(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_contra())),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.phototaxis_contra())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.phototaxis_contra(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+        ]
+    },
+
+    'omr_lateral_ipsi': {
+        'dataset': {
+            'epoch_name': ["grating right", "grating left"],
+            'bout_name': 'RT',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 9.0,
+        },
+        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'models': [
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential()
+            ),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                )
+            ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+        ]
+    },
+
+    'omr_lateral_contra': {
+        'dataset': {
+            'epoch_name': ["grating right", "grating left"],
+            'bout_name': 'RT',
+            'laterality': Laterality.CONTRALATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 9.0,
+        },
+        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'models': [
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            PoissonProcess(RateKernelFactory.omr_lateral_contra()),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_lateral_contra())),
+            HawkesProcess(
+                RateKernelFactory.omr_lateral_contra(),
+                HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.omr_lateral_contra(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.omr_lateral_contra())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.omr_lateral_contra(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+        ]
+    },
+
+    'omr_forward': {
+        'dataset': {
+            'epoch_name': "grating forward",
+            'bout_name': 'BS',
+            'laterality': Laterality.NONDIRECTIONAL,
             'binning_dt': 0.05,
             't_start': 0.0,
             't_end': 9.0,
@@ -395,7 +366,7 @@ model_config = {
                     RateKernelFactory.omr_forward(),
                     HistoryKernelFactory.exponential()
                 ),
-            )
+            ),
         ]
     },
 
@@ -430,7 +401,7 @@ model_config = {
                     RateKernelFactory.homogeneous_poisson(),
                     HistoryKernelFactory.exponential()
                 ),
-            )
+            ),
         ]
     },
 
@@ -479,7 +450,7 @@ model_config = {
                     RateKernelFactory.homogeneous_poisson(),
                     HistoryKernelFactory.exponential()
                 ),
-            )
+            ),
         ]
     },
 
@@ -571,7 +542,15 @@ model_config = {
                     HistoryKernelFactory.exponential()
                 )
             ),
-            
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.spont())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.spont(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
         ]
     },
 
@@ -618,7 +597,7 @@ model_config = {
                     RateKernelFactory.spont(),
                     HistoryKernelFactory.exponential()
                 ),
-            )
+            ),
         ]
     },
 
@@ -655,7 +634,7 @@ model_config = {
                     RateKernelFactory.after_looming(),
                     HistoryKernelFactory.exponential()
                 ),
-            )
+            ),
         ]
     },
 }
