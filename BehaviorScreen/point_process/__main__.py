@@ -16,6 +16,8 @@ from BehaviorScreen.point_process.renewal_process import RenewalKernelFactory, R
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
 from BehaviorScreen.point_process.baseline_only_frailty_hawkes import BaselineOnlyFrailtyHawkesProcess
+from BehaviorScreen.point_process.zero_inflated_mixed_effects_process import ZeroInflatedGammaMixedEffectsProcess
+from BehaviorScreen.point_process.zero_inflated_baseline_only_frailty_hawkes import ZeroInflatedBaselineOnlyFrailtyHawkesProcess
 from BehaviorScreen.point_process.io import save_fig, save_csv
 from BehaviorScreen.point_process.frailty_analysis import collect_fish_gains, plot_fish_gain_correlation
 
@@ -98,6 +100,19 @@ model_config = {
             GammaMixedEffectsProcess(
                 PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
             ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
+            ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)),
+                fit_c=True
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                    HistoryKernelFactory.exponential()
+                ),
+            )
             # RenewalProcess(
             #     RateKernelFactory.homogeneous_poisson(), 
             #     RenewalKernelFactory.exponential_excitation()
@@ -118,16 +133,16 @@ model_config = {
             #         RenewalKernelFactory.exponential_excitation()
             #     )
             # ),
-            HawkesProcess(
-                PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-                HistoryKernelFactory.exponential()
-            ),
-            BaselineOnlyFrailtyHawkesProcess(
-                HawkesProcess(
-                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-                    HistoryKernelFactory.exponential()
-                ),
-            ),
+            # HawkesProcess(
+            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+            #     HistoryKernelFactory.exponential()
+            # ),
+            # BaselineOnlyFrailtyHawkesProcess(
+            #     HawkesProcess(
+            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+            #         HistoryKernelFactory.exponential()
+            #     ),
+            # ),
         ]
     },
 
@@ -278,6 +293,80 @@ model_config = {
             'epoch_name': "grating forward",
             'bout_name': 'BS',
             'laterality': Laterality.NONDIRECTIONAL,
+
+model_config = {
+
+    'prey_capture_ipsi': {
+        'dataset': {
+            'stim': Stim.PREY_CAPTURE,
+            'bout_name': 'JT',
+            'laterality': Laterality.IPSILATERAL,
+            'binning_dt': 0.05,
+            't_start': 0.0,
+            't_end': 24.0,
+        },
+        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        'models': [
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            PoissonProcess(PreyCapture.time_only(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.baseline(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_shared(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_shared_ripple(stim_freq=prey_stim_freq)),
+            PoissonProcess(PreyCapture.peak_baseline_ripple_shared(stim_freq=prey_stim_freq)),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
+            GammaMixedEffectsProcess(
+                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
+            ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
+            ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)),
+                fit_c=True
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                    HistoryKernelFactory.exponential()
+                ),
+            )
+            # RenewalProcess(
+            #     RateKernelFactory.homogeneous_poisson(), 
+            #     RenewalKernelFactory.exponential_excitation()
+            # ),
+            # GammaMixedEffectsProcess(
+            #     RenewalProcess(
+            #         RateKernelFactory.homogeneous_poisson(), 
+            #         RenewalKernelFactory.exponential_excitation()
+            #     )
+            # ),
+            # RenewalProcess(
+            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+            #     RenewalKernelFactory.exponential_excitation()
+            # ),
+            # GammaMixedEffectsProcess(
+            #     RenewalProcess(
+            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+            #         RenewalKernelFactory.exponential_excitation()
+            #     )
+            # ),
+            # HawkesProcess(
+            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+            #     HistoryKernelFactory.exponential()
+            # ),
+            # BaselineOnlyFrailtyHawkesProcess(
+            #     HawkesProcess(
+            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+            #         HistoryKernelFactory.exponential()
+            #     ),
+            # ),
+        ]
+    },
             'binning_dt': 0.05,
             't_start': 0.0,
             't_end': 9.0,
