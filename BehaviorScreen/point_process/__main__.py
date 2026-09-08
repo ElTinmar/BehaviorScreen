@@ -355,16 +355,16 @@ model_config = {
             #         RenewalKernelFactory.exponential_excitation()
             #     )
             # ),
-            # HawkesProcess(
-            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-            #     HistoryKernelFactory.exponential()
-            # ),
-            # BaselineOnlyFrailtyHawkesProcess(
-            #     HawkesProcess(
-            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-            #         HistoryKernelFactory.exponential()
-            #     ),
-            # ),
+            HawkesProcess(
+                PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                HistoryKernelFactory.exponential()
+            ),
+            BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
         ]
     },
             'binning_dt': 0.05,
@@ -382,6 +382,15 @@ model_config = {
                 HistoryKernelFactory.exponential()
             ),
             BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.omr_forward(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.omr_forward())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     RateKernelFactory.omr_forward(),
                     HistoryKernelFactory.exponential()
@@ -408,6 +417,15 @@ model_config = {
                 HistoryKernelFactory.exponential()
             ),
             BaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                ),
+            ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     RateKernelFactory.homogeneous_poisson(),
                     HistoryKernelFactory.exponential()
@@ -453,6 +471,15 @@ model_config = {
                     HistoryKernelFactory.exponential()
                 )
             ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    HistoryKernelFactory.exponential()
+                ),
+            )
         ]
     },
 
@@ -544,6 +571,7 @@ model_config = {
                     HistoryKernelFactory.exponential()
                 )
             ),
+            
         ]
     },
 
@@ -582,6 +610,15 @@ model_config = {
                     HistoryKernelFactory.exponential()
                 )
             ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.spont())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.spont(),
+                    HistoryKernelFactory.exponential()
+                ),
+            )
         ]
     },
 
@@ -610,6 +647,15 @@ model_config = {
                     HistoryKernelFactory.exponential()
                 )
             ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.after_looming())
+            ),
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                HawkesProcess(
+                    RateKernelFactory.after_looming(),
+                    HistoryKernelFactory.exponential()
+                ),
+            )
         ]
     },
 }
