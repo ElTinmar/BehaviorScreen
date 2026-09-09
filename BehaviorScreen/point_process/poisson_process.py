@@ -728,7 +728,7 @@ class PoissonProcess(PointProcess):
 
         return base_ll, N_f, S_f
 
-    def _intensity_upper_bound(self, dataset, t_idx) -> float:
+    def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx) -> float:
         """
         Upper bound on the base intensity over [0, duration_s], for thinning's
         proposal step. Grid resolution matches self.integration_dt (the same
@@ -738,7 +738,7 @@ class PoissonProcess(PointProcess):
         """
         t_grid = np.arange(0.0, dataset.duration_s, self.integration_dt)
         t_grid = np.append(t_grid, dataset.duration_s)
-        vals = self.kernel.evaluate(grid, np.full_like(t_grid, t_idx), self.params_)
+        vals = self.kernel.evaluate(t_grid, np.full_like(t_grid, t_idx), self.params_)
         return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
 
     def simulate_stream(
