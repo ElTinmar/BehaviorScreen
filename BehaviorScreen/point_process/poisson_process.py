@@ -40,7 +40,7 @@ class RateKernel:
             trials_2d = np.atleast_1d(trial)[:, None]  # Shape: (N_trials, 1)
 
             rate_surface = self.evaluate(t_2d, trials_2d, params)
-            integrals = trapezoid(rate_surface, dx=integration_dt, axis=1)
+            integrals = trapezoid(rate_surface, x=t_grid, axis=1)
 
             # Preserve scalar input shape if a scalar trial was passed
             return integrals if np.iterable(trial) else integrals[0]
