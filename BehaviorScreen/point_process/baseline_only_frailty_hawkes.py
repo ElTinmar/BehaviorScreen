@@ -376,6 +376,14 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
 
         return result
 
+    def _draw_fish_gains(self, num_fish, n_sims, rng):
+        r = self.dispersion_r
+        return rng.gamma(
+            shape=r,
+            scale=1.0 / r,
+            size=(num_fish, n_sims),
+        )
+
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         """Whole-session posterior mean gain per fish (uses ALL of that fish's
         events/exposure, unlike _stream_tau_values's (t-)-only version) --
