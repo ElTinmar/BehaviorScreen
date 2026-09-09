@@ -753,10 +753,10 @@ for exp_name, config in model_config.items():
     print(summary_table.to_string(index=False))
 
     fig, _ = ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
-    save_fig(fig, model_dir, "model_fits_overlay")
+    save_fig(fig, model_dir, f"model_fits_overlay")
 
     fig, _ = ModelPlotter.plot_histogram(dataset=dataset, model=best_model)
-    save_fig(fig, model_dir, "histogram_surface")
+    save_fig(fig, model_dir, f"histogram_surface_{best_model.name}")
 
     fig, _ = ModelPlotter.plot_trial_traces(dataset=dataset, model=best_model)
     save_fig(fig, model_dir, f"trial_traces_{best_model.name}")
