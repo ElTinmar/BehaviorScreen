@@ -34,7 +34,8 @@ class RateKernel:
             if self.integral_func is not None:
                 return self.integral_func(0, duration_s, trial, params)
 
-            t_grid = np.arange(0, duration_s + integration_dt, integration_dt)
+            t_grid = np.arange(0, duration_s, integration_dt)
+            t_grid = np.append(t_grid, duration_s)
             t_2d = t_grid[None, :]                     # Shape: (1, N_time)
             trials_2d = np.atleast_1d(trial)[:, None]  # Shape: (N_trials, 1)
 
@@ -62,7 +63,9 @@ class RateKernel:
         if t_max <= 0:
             return np.zeros_like(t_events, dtype=float)
 
-        t_grid = np.arange(0, t_max + integration_dt, integration_dt)
+        t_grid = np.arange(0, t_max, integration_dt)
+        t_grid = np.append(t_grid, t_max)
+
         trials_2d = np.atleast_1d(trial)[:, None]
         rate_surface = self.evaluate(t_grid[None, :], trials_2d, params)
         cum_integral = cumulative_trapezoid(rate_surface, t_grid, initial=0.0, axis=1).squeeze()
@@ -733,8 +736,9 @@ class PoissonProcess(PointProcess):
         fixed point count -- consistent, and automatically finer for models
         fit at higher precision.
         """
-        grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
-        vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), self.params_)
+        t_grid = np.arange(0.0, dataset.duration_s, self.integration_dt)
+        t_grid = np.append(t_grid, dataset.duration_s)
+        vals = self.kernel.evaluate(grid, np.full_like(t_grid, t_idx), self.params_)
         return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
 
     def simulate_stream(
