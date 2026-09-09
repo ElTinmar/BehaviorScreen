@@ -38,7 +38,9 @@ class PointProcessDataset:
 
     @property
     def t_grid(self) -> np.ndarray:
-        return np.arange(0, self.duration_s + self.binning_dt, self.binning_dt)
+        grid = np.arange(0, self.duration_s, self.binning_dt)
+        grid = np.append(grid, self.duration_s)
+        return grid
 
     @property
     def t_centers(self) -> np.ndarray:
