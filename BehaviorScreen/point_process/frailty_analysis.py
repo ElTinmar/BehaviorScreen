@@ -47,7 +47,8 @@ def collect_fish_gains(
 
 
 def fish_gain_correlation(
-    gain_long_df: pd.DataFrame, min_fish_shared: int = 5,
+    gain_long_df: pd.DataFrame,
+    min_fish_shared: int = 5,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Pivots to fish x behavior, returns (correlation matrix, pairwise
@@ -59,7 +60,9 @@ def fish_gain_correlation(
     multiplication (any-of-AND), silently returning True/False instead of
     the intended pairwise count.
     """
-    wide = gain_long_df.pivot_table(index="fish_id", columns="behavior", values="estimated_gain")
+    wide = gain_long_df.pivot_table(
+        index="fish_id", columns="behavior", values="estimated_gain"
+    )
     corr = wide.corr(min_periods=min_fish_shared)
     notna_int = wide.notna().astype(int)
     n_pairs = notna_int.T.dot(notna_int)
@@ -83,16 +86,25 @@ def plot_fish_gain_correlation(
         fig = ax.figure
 
     im = ax.imshow(corr, cmap=cmap, vmin=-1, vmax=1)
-    ax.set_xticks(range(len(corr.columns))); ax.set_xticklabels(corr.columns, rotation=45, ha="right", fontsize=8)
-    ax.set_yticks(range(len(corr.index))); ax.set_yticklabels(corr.index, fontsize=8)
+    ax.set_xticks(range(len(corr.columns)))
+    ax.set_xticklabels(corr.columns, rotation=45, ha="right", fontsize=8)
+    ax.set_yticks(range(len(corr.index)))
+    ax.set_yticklabels(corr.index, fontsize=8)
 
     for i in range(len(corr)):
         for j in range(len(corr)):
             val = corr.iloc[i, j]
             n = n_pairs.iloc[i, j]
             if pd.notna(val):
-                ax.text(j, i, f"{val:.2f}\n(n={n})", ha="center", va="center",
-                        color="white" if abs(val) > 0.5 else "black", fontsize=6)
+                ax.text(
+                    j,
+                    i,
+                    f"{val:.2f}\n(n={n})",
+                    ha="center",
+                    va="center",
+                    color="white" if abs(val) > 0.5 else "black",
+                    fontsize=6,
+                )
 
     ax.set_title(title, fontsize=10, fontweight="bold")
     return fig, ax, corr
@@ -112,12 +124,19 @@ def plot_fish_gain_correlation_dual(
     vehicle vs drug, or any two conditions), sharing a colorbar. Generic
     over what "group A"/"group B" mean.
     """
-    if gain_long_df_a["behavior"].nunique() < min_behaviors or gain_long_df_b["behavior"].nunique() < min_behaviors:
+    if (
+        gain_long_df_a["behavior"].nunique() < min_behaviors
+        or gain_long_df_b["behavior"].nunique() < min_behaviors
+    ):
         return None
 
     fig, axes = plt.subplots(1, 2, figsize=(13, 6))
-    plot_fish_gain_correlation(gain_long_df_a, ax=axes[0], title=label_a, min_fish_shared=min_fish_shared)
-    plot_fish_gain_correlation(gain_long_df_b, ax=axes[1], title=label_b, min_fish_shared=min_fish_shared)
+    plot_fish_gain_correlation(
+        gain_long_df_a, ax=axes[0], title=label_a, min_fish_shared=min_fish_shared
+    )
+    plot_fish_gain_correlation(
+        gain_long_df_b, ax=axes[1], title=label_b, min_fish_shared=min_fish_shared
+    )
 
     if suptitle:
         fig.suptitle(suptitle, fontsize=13, fontweight="bold")

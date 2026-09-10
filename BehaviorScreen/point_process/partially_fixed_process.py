@@ -22,13 +22,17 @@ class PartiallyFixedProcess(PointProcess):
 
         unknown = set(fixed_values) - set(base_process.param_names)
         if unknown:
-            raise ValueError(f"fixed_values contains unknown parameter names: {unknown}")
+            raise ValueError(
+                f"fixed_values contains unknown parameter names: {unknown}"
+            )
 
         free_mask = [p not in fixed_values for p in base_process.param_names]
         self._free_idx = [i for i, f in enumerate(free_mask) if f]
         self._fixed_idx = [i for i, f in enumerate(free_mask) if not f]
         if not self._free_idx:
-            raise ValueError("PartiallyFixedProcess: at least one parameter must remain free.")
+            raise ValueError(
+                "PartiallyFixedProcess: at least one parameter must remain free."
+            )
 
         self.name = f"PartiallyFixed[{base_process.name}] (fixed: {list(fixed_values)})"
         self.latex_formula = base_process.latex_formula
@@ -70,7 +74,9 @@ class PartiallyFixedProcess(PointProcess):
         return self.base_process.cumulative_integrated_intensity(t_events, trial)
 
     def mixed_effects_likelihood_terms(self, dataset, params):
-        return self.base_process.mixed_effects_likelihood_terms(dataset, self._expand(params))
+        return self.base_process.mixed_effects_likelihood_terms(
+            dataset, self._expand(params)
+        )
 
     @property
     def dispersion_r(self) -> float:
@@ -90,17 +96,13 @@ class PartiallyFixedProcess(PointProcess):
         return self.base_process.simulate_stream(dataset, t_idx, gain, rng)
 
     def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx: int) -> float:
-            return self.base_process._intensity_upper_bound(dataset, t_idx)
+        return self.base_process._intensity_upper_bound(dataset, t_idx)
 
     def _draw_fish_gains(self, num_fish, n_sims, rng):
-        return self.base_process._draw_fish_gains(
-            num_fish, n_sims, rng
-        )
+        return self.base_process._draw_fish_gains(num_fish, n_sims, rng)
 
     def _stream_tau_values(self, dataset):
         return self.base_process._stream_tau_values(dataset)
 
     def stream_compensator_profile(self, t_ev, trial, duration_s):
-        return self.base_process.stream_compensator_profile(
-            t_ev, trial, duration_s
-        )
+        return self.base_process.stream_compensator_profile(t_ev, trial, duration_s)

@@ -43,7 +43,6 @@ from tqdm import tqdm
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.tqdm_joblib import tqdm_joblib
 
-
 # =============================================================================
 # Residual metadata
 # =============================================================================
@@ -190,9 +189,7 @@ def residual_interval_frame(
         gains = model.estimate_fish_gains(dataset)
         required_columns = {"fish_idx", "estimated_gain"}
 
-        if isinstance(gains, pd.DataFrame) and required_columns.issubset(
-            gains.columns
-        ):
+        if isinstance(gains, pd.DataFrame) and required_columns.issubset(gains.columns):
             gain_map = gains.set_index("fish_idx")["estimated_gain"]
             frame["estimated_gain"] = frame["fish_idx"].map(gain_map)
 
@@ -203,9 +200,7 @@ def residual_interval_frame(
             )
 
             enough_fish = len(fish_gain) >= n_gain_quantiles
-            enough_unique = (
-                fish_gain["estimated_gain"].nunique() >= n_gain_quantiles
-            )
+            enough_unique = fish_gain["estimated_gain"].nunique() >= n_gain_quantiles
 
             if enough_fish and enough_unique:
                 labels = [f"Q{i + 1}" for i in range(n_gain_quantiles)]
@@ -239,8 +234,7 @@ def residual_interval_frame(
 def _make_time_labels(time_edges: np.ndarray) -> List[str]:
     """Create stable labels for interval-start-time bins."""
     return [
-        f"{left:g}–{right:g}s"
-        for left, right in zip(time_edges[:-1], time_edges[1:])
+        f"{left:g}–{right:g}s" for left, right in zip(time_edges[:-1], time_edges[1:])
     ]
 
 
@@ -344,11 +338,7 @@ def cox_snell_curve(
     )
 
     knot_indices = np.arange(len(knots))
-    supported = (
-        (knot_indices > 0)
-        & (n_at_risk >= min_km_at_risk)
-        & (survival > 0.0)
-    )
+    supported = (knot_indices > 0) & (n_at_risk >= min_km_at_risk) & (survival > 0.0)
 
     if not np.any(supported):
         return np.full_like(r_grid, np.nan, dtype=float)
@@ -506,8 +496,7 @@ def localization_summary(
     )
 
     count_proportions = {
-        group: float(np.mean(stream_categories == group))
-        for group in count_groups
+        group: float(np.mean(stream_categories == group)) for group in count_groups
     }
 
     result = {
@@ -722,12 +711,8 @@ def bootstrap_localization(
                 for seed_seq in seeds
             )
 
-    replicates = [
-        result["summary"] for result in worker_results if result["success"]
-    ]
-    errors = [
-        result["error"] for result in worker_results if not result["success"]
-    ]
+    replicates = [result["summary"] for result in worker_results if result["success"]]
+    errors = [result["error"] for result in worker_results if not result["success"]]
 
     print(
         f"Residual localization bootstrap: {len(replicates)}/{n_boot} "

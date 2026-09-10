@@ -7,19 +7,20 @@ import numpy as np
 import pandas as pd
 from BehaviorScreen.core import Stim, Laterality
 from megabouts.utils import bouts_category_name_short
-from scipy.special import gammaln   
+from scipy.special import gammaln
 from scipy.stats import norm
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 
 @dataclass(frozen=True)
 class PointProcessDataset:
 
     _LOW_POWER_MEAN_COUNT_THRESHOLD: ClassVar[float] = 1.0
 
-    event_times: np.ndarray             
-    event_trials_idx: np.ndarray            
-    event_fish_idx: np.ndarray          
+    event_times: np.ndarray
+    event_trials_idx: np.ndarray
+    event_fish_idx: np.ndarray
     fish_trial_mask: np.ndarray
 
     fish_ids: np.ndarray
@@ -64,7 +65,9 @@ class PointProcessDataset:
         every (fish, trial) pair. Computed once, reused for the life of this
         (immutable) dataset.
         """
-        order = np.lexsort((self.event_times, self.event_trials_idx, self.event_fish_idx))
+        order = np.lexsort(
+            (self.event_times, self.event_trials_idx, self.event_fish_idx)
+        )
         keys = list(zip(self.event_fish_idx[order], self.event_trials_idx[order]))
         times = self.event_times[order]
 
@@ -72,7 +75,9 @@ class PointProcessDataset:
         start = 0
         for key, group in groupby(keys):
             n = len(list(group))
-            result[key] = times[start : start + n]  # already sorted by time, within group
+            result[key] = times[
+                start : start + n
+            ]  # already sorted by time, within group
             start += n
         return result
 
@@ -106,7 +111,7 @@ class PointProcessDataset:
         counts, _, _ = np.histogram2d(
             self.event_trials_idx,
             self.event_times,
-            bins=[self.trial_edges, self.t_grid]
+            bins=[self.trial_edges, self.t_grid],
         )
         return counts
 
@@ -116,7 +121,6 @@ class PointProcessDataset:
         n_fish = self.n_fish_per_trial[:, None]
         safe_denom = np.where(n_fish > 0, n_fish * self.binning_dt, 1.0)
         return np.where(n_fish > 0, counts / safe_denom, 0.0)
-
 
     @property
     def stream_event_counts(self) -> np.ndarray:
@@ -159,7 +163,11 @@ class PointProcessDataset:
         """
         stream_ff = self.stream_fano_factor
         fish_ff = self.fish_fano_factor
-        return fish_ff / stream_ff if (not np.isnan(stream_ff) and stream_ff > 0) else np.nan
+        return (
+            fish_ff / stream_ff
+            if (not np.isnan(stream_ff) and stream_ff > 0)
+            else np.nan
+        )
 
     @property
     def frac_streams_with_multiple_events(self) -> float:
@@ -177,7 +185,11 @@ class PointProcessDataset:
         """
         counts = self.stream_event_counts
         mean = np.mean(counts) if len(counts) else np.nan
-        return bool(mean < self._LOW_POWER_MEAN_COUNT_THRESHOLD) if not np.isnan(mean) else True
+        return (
+            bool(mean < self._LOW_POWER_MEAN_COUNT_THRESHOLD)
+            if not np.isnan(mean)
+            else True
+        )
 
     @property
     def stream_isi_cv(self) -> np.ndarray:
@@ -242,7 +254,7 @@ class PointProcessDataset:
 
         return (cov_sum / (pair_count * pooled_var)) if pair_count > 0 else np.nan
 
-    def resample(self, rng: np.random.Generator) -> 'PointProcessDataset':
+    def resample(self, rng: np.random.Generator) -> "PointProcessDataset":
         n_fish = self.fish_trial_mask.shape[0]
         boot_fish_idx = rng.choice(n_fish, size=n_fish, replace=True)
 
@@ -251,16 +263,22 @@ class PointProcessDataset:
         boot_fish = []
 
         for new_id, orig_id in enumerate(boot_fish_idx):
-            mask = (self.event_fish_idx == orig_id)
+            mask = self.event_fish_idx == orig_id
             if np.any(mask):
                 boot_times.append(self.event_times[mask])
                 boot_trials.append(self.event_trials_idx[mask])
                 boot_fish.append(np.full(np.sum(mask), new_id, dtype=int))
 
         return PointProcessDataset(
-            event_times=np.concatenate(boot_times) if boot_times else np.array([], dtype=float),
-            event_trials_idx=np.concatenate(boot_trials) if boot_trials else np.array([], dtype=int),
-            event_fish_idx=np.concatenate(boot_fish) if boot_fish else np.array([], dtype=int),
+            event_times=(
+                np.concatenate(boot_times) if boot_times else np.array([], dtype=float)
+            ),
+            event_trials_idx=(
+                np.concatenate(boot_trials) if boot_trials else np.array([], dtype=int)
+            ),
+            event_fish_idx=(
+                np.concatenate(boot_fish) if boot_fish else np.array([], dtype=int)
+            ),
             fish_trial_mask=self.fish_trial_mask[boot_fish_idx, :],
             fish_ids=self.fish_ids[boot_fish_idx],
             duration_s=self.duration_s,
@@ -287,28 +305,31 @@ class BehavioralDataLoader:
         t_start: float = 0.0,
         t_end: float = 24.0,
     ) -> PointProcessDataset:
-        
+
         bout_names = [bout_name] if isinstance(bout_name, str) else list(bout_name)
         lateralities = (
-            [laterality] if isinstance(laterality, (str, Laterality)) else list(laterality)
+            [laterality]
+            if isinstance(laterality, (str, Laterality))
+            else list(laterality)
         )
         bout_label = "+".join(bout_names)
         laterality_label = "+".join(str(l) for l in lateralities)
 
-        
         # 1. Filter sub_df by stimulus or epoch_name
         sub_df = self.raw_df
         if stim is not None:
-            sub_df = sub_df[sub_df['stim'] == stim]
-            if stim == Stim.PHOTOTAXIS or stim == 'phototaxis':
-                sub_df = sub_df[sub_df['foreground_color'] == '[0.1, 0.1, 0.0, 1.0]']
+            sub_df = sub_df[sub_df["stim"] == stim]
+            if stim == Stim.PHOTOTAXIS or stim == "phototaxis":
+                sub_df = sub_df[sub_df["foreground_color"] == "[0.1, 0.1, 0.0, 1.0]"]
         elif epoch_name is not None:
             if isinstance(epoch_name, list):
-                sub_df = sub_df[sub_df['epoch_name'].isin(epoch_name)]
+                sub_df = sub_df[sub_df["epoch_name"].isin(epoch_name)]
             else:
-                sub_df = sub_df[sub_df['epoch_name'] == epoch_name]
+                sub_df = sub_df[sub_df["epoch_name"] == epoch_name]
         else:
-            raise ValueError("Either 'stim' or 'epoch_name' must be provided to filter dataset.")
+            raise ValueError(
+                "Either 'stim' or 'epoch_name' must be provided to filter dataset."
+            )
 
         if sub_df.empty:
             raise ValueError(
@@ -318,8 +339,8 @@ class BehavioralDataLoader:
             )
 
         # 2. Extract metadata & build integer index mappings
-        all_fish_ids = np.sort(sub_df['file'].unique())
-        unique_trials = np.sort(sub_df['trial_num'].unique()) 
+        all_fish_ids = np.sort(sub_df["file"].unique())
+        unique_trials = np.sort(sub_df["trial_num"].unique())
 
         n_trials = len(unique_trials)
         expected = np.arange(n_trials)
@@ -339,9 +360,9 @@ class BehavioralDataLoader:
         n_fish = len(all_fish_ids)
         fish_trial_mask = np.zeros((n_fish, n_trials), dtype=bool)
 
-        active_pairs = sub_df[['file', 'trial_num']].drop_duplicates()
-        f_indices = active_pairs['file'].map(fish_map).values
-        t_indices = active_pairs['trial_num'].values
+        active_pairs = sub_df[["file", "trial_num"]].drop_duplicates()
+        f_indices = active_pairs["file"].map(fish_map).values
+        t_indices = active_pairs["trial_num"].values
         fish_trial_mask[f_indices, t_indices] = True
 
         # KNOWN LIMITATION (not fixed -- believed marginal, revisit if dispersion/
@@ -369,7 +390,7 @@ class BehavioralDataLoader:
         # (e.g. looming, where trials are shorter) than for long, high-rate ones.
         #
         # Correct fix (not applied): build presence from an independent
-        # tracking/participation record, not from bout rows. 
+        # tracking/participation record, not from bout rows.
 
         occupancy = fish_trial_mask.mean()
         min_fish_per_trial = fish_trial_mask.sum(axis=0).min()
@@ -382,21 +403,20 @@ class BehavioralDataLoader:
 
         # 4. Filter target events
         bout_idx = [bouts_category_name_short.index(b) for b in bout_names]
-        is_target_event = (
-            sub_df['category'].isin(bout_idx) & 
-            sub_df['laterality'].isin(lateralities)
+        is_target_event = sub_df["category"].isin(bout_idx) & sub_df["laterality"].isin(
+            lateralities
         )
         event_mask = (
-            is_target_event & 
-            (sub_df['trial_time'] >= t_start) & 
-            (sub_df['trial_time'] < t_end)
+            is_target_event
+            & (sub_df["trial_time"] >= t_start)
+            & (sub_df["trial_time"] < t_end)
         )
         events = sub_df[event_mask]
 
         # 5. Extract event arrays as integer indices & floats
-        event_times = (events['trial_time'] - t_start).values.astype(float)
-        event_trials_idx = events['trial_num'].values.astype(int)
-        event_fish_idx = events['file'].map(fish_map).values.astype(int)
+        event_times = (events["trial_time"] - t_start).values.astype(float)
+        event_trials_idx = events["trial_num"].values.astype(int)
+        event_fish_idx = events["file"].map(fish_map).values.astype(int)
 
         return PointProcessDataset(
             event_times=event_times,
@@ -404,11 +424,12 @@ class BehavioralDataLoader:
             event_fish_idx=event_fish_idx,
             fish_trial_mask=fish_trial_mask,
             fish_ids=all_fish_ids,
-            duration_s=t_end-t_start,
+            duration_s=t_end - t_start,
             binning_dt=binning_dt,
             bout_name=bout_label,
             laterality=laterality_label,
         )
+
 
 class DatasetPlotter:
     """
@@ -427,9 +448,7 @@ class DatasetPlotter:
     def _pooled_isis(dataset: PointProcessDataset) -> np.ndarray:
         """Pooled inter-event intervals across every observed (fish, trial) stream."""
         all_isis = [
-            np.diff(t_ev)
-            for _, _, t_ev in dataset.iter_streams()
-            if len(t_ev) > 1
+            np.diff(t_ev) for _, _, t_ev in dataset.iter_streams() if len(t_ev) > 1
         ]
         return np.concatenate(all_isis) if all_isis else np.array([], dtype=float)
 
@@ -469,7 +488,7 @@ class DatasetPlotter:
         model's own fitted r_dispersion.
         """
         if len(counts) == 0:
-            ax.text(0.5, 0.5, "No data available", ha='center', va='center')
+            ax.text(0.5, 0.5, "No data available", ha="center", va="center")
             return
 
         mean_count = np.mean(counts)
@@ -478,8 +497,15 @@ class DatasetPlotter:
 
         max_count = int(counts.max())
         bin_edges = np.arange(-0.5, max_count + 1.5, 1.0)
-        ax.hist(counts, bins=bin_edges, density=True, alpha=0.65,
-            color='steelblue', edgecolor='none', label='Observed')
+        ax.hist(
+            counts,
+            bins=bin_edges,
+            density=True,
+            alpha=0.65,
+            color="steelblue",
+            edgecolor="none",
+            label="Observed",
+        )
 
         k_vals = np.arange(0, max_count + 1)
 
@@ -487,8 +513,13 @@ class DatasetPlotter:
             poisson_pmf = np.exp(
                 k_vals * np.log(mean_count) - mean_count - gammaln(k_vals + 1)
             )
-            ax.plot(k_vals, poisson_pmf, 'r--', linewidth=2,
-                label=f'Poisson(mean={mean_count:.2f})')
+            ax.plot(
+                k_vals,
+                poisson_pmf,
+                "r--",
+                linewidth=2,
+                label=f"Poisson(mean={mean_count:.2f})",
+            )
 
         # NB only well-defined when var > mean (overdispersed relative to
         # Poisson). If var <= mean, moment-matching would require r <= 0
@@ -498,22 +529,30 @@ class DatasetPlotter:
             r_mom = mean_count**2 / (var_count - mean_count)
             p_mom = r_mom / (r_mom + mean_count)
             log_nb_pmf = (
-                gammaln(k_vals + r_mom) - gammaln(r_mom) - gammaln(k_vals + 1)
-                + r_mom * np.log(p_mom) + k_vals * np.log(1 - p_mom)
+                gammaln(k_vals + r_mom)
+                - gammaln(r_mom)
+                - gammaln(k_vals + 1)
+                + r_mom * np.log(p_mom)
+                + k_vals * np.log(1 - p_mom)
             )
-            ax.plot(k_vals, np.exp(log_nb_pmf), 'g-.', linewidth=2,
-                label=f'NegBinom(mean={mean_count:.2f}, r={r_mom:.2f})')
+            ax.plot(
+                k_vals,
+                np.exp(log_nb_pmf),
+                "g-.",
+                linewidth=2,
+                label=f"NegBinom(mean={mean_count:.2f}, r={r_mom:.2f})",
+            )
 
         ax.set_xlabel(xlabel, fontsize=11)
         ax.set_ylabel("Density", fontsize=11)
         ax.set_title(
             f"{title_prefix}  |  Mean={mean_count:.2f}, "
             f"Var={var_count:.2f}, Dispersion Index={dispersion_index:.2f}",
-            fontsize=11, fontweight='bold'
+            fontsize=11,
+            fontweight="bold",
         )
-        ax.legend(loc='upper right', fontsize=9)
-        ax.grid(True, linestyle=':', alpha=0.4)
-
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(True, linestyle=":", alpha=0.4)
 
     @staticmethod
     def plot_isi_histogram(
@@ -537,32 +576,44 @@ class DatasetPlotter:
         fig, ax = plt.subplots(figsize=figsize)
 
         if len(isis) == 0:
-            ax.text(0.5, 0.5, "No inter-event intervals available\n(need >= 2 events per stream)",
-                    ha='center', va='center')
-            ax.set_title("Pooled ISI Distribution", fontsize=12, fontweight='bold')
+            ax.text(
+                0.5,
+                0.5,
+                "No inter-event intervals available\n(need >= 2 events per stream)",
+                ha="center",
+                va="center",
+            )
+            ax.set_title("Pooled ISI Distribution", fontsize=12, fontweight="bold")
             return fig, ax
 
         plot_isis = isis[isis <= max_isi] if max_isi is not None else isis
 
-        ax.hist(plot_isis, bins=bins, color='steelblue', edgecolor='none', alpha=0.85)
+        ax.hist(plot_isis, bins=bins, color="steelblue", edgecolor="none", alpha=0.85)
 
         median_isi = np.median(isis)
-        ax.axvline(median_isi, color='crimson', linestyle='--', linewidth=1.5,
-                   label=f'Median ISI = {median_isi:.3f}s')
+        ax.axvline(
+            median_isi,
+            color="crimson",
+            linestyle="--",
+            linewidth=1.5,
+            label=f"Median ISI = {median_isi:.3f}s",
+        )
 
         if log_y:
-            ax.set_yscale('log')
+            ax.set_yscale("log")
 
         ax.set_xlabel("Inter-event interval (s)", fontsize=11)
         ax.set_ylabel("Count", fontsize=11)
-        ax.set_title(f"Pooled ISI Distribution (N = {len(isis)} intervals)",
-                    fontsize=12, fontweight='bold')
-        ax.legend(loc='upper right', fontsize=9)
-        ax.grid(True, linestyle=':', alpha=0.4)
+        ax.set_title(
+            f"Pooled ISI Distribution (N = {len(isis)} intervals)",
+            fontsize=12,
+            fontweight="bold",
+        )
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(True, linestyle=":", alpha=0.4)
 
         plt.tight_layout()
         return fig, ax
-
 
     @staticmethod
     def plot_isi_by_trial(
@@ -580,7 +631,9 @@ class DatasetPlotter:
         habituating with repeated stimulus exposure -- which a trial-only
         rate-modulation term (alpha_B, alpha_dip, etc.) cannot capture.
         """
-        per_trial_isis: Dict[int, List[np.ndarray]] = {t_idx: [] for t_idx in range(dataset.num_trials)}
+        per_trial_isis: Dict[int, List[np.ndarray]] = {
+            t_idx: [] for t_idx in range(dataset.num_trials)
+        }
         for _, t_idx, t_ev in dataset.iter_streams():
             if len(t_ev) > 1:
                 per_trial_isis[t_idx].append(np.diff(t_ev))
@@ -589,7 +642,9 @@ class DatasetPlotter:
         fig, ax = plt.subplots(figsize=figsize)
 
         if len(pooled) == 0:
-            ax.text(0.5, 0.5, "No inter-event intervals available", ha='center', va='center')
+            ax.text(
+                0.5, 0.5, "No inter-event intervals available", ha="center", va="center"
+            )
             return fig, ax
 
         upper = max_isi if max_isi is not None else np.percentile(pooled, 99)
@@ -604,12 +659,15 @@ class DatasetPlotter:
             density_matrix[t_idx, :] = counts
 
         mesh = ax.pcolormesh(
-            bin_edges, np.arange(dataset.num_trials + 1) - 0.5, density_matrix,
-            shading='flat', cmap=cmap,
+            bin_edges,
+            np.arange(dataset.num_trials + 1) - 0.5,
+            density_matrix,
+            shading="flat",
+            cmap=cmap,
         )
         ax.set_xlabel("Inter-event interval (s)", fontsize=11)
         ax.set_ylabel("Trial Number", fontsize=11)
-        ax.set_title("ISI Density by Trial", fontsize=12, fontweight='bold')
+        ax.set_title("ISI Density by Trial", fontsize=12, fontweight="bold")
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="3%", pad=0.1)
@@ -617,7 +675,6 @@ class DatasetPlotter:
 
         plt.tight_layout()
         return fig, ax
-
 
     @staticmethod
     def plot_raw_raster(
@@ -666,8 +723,14 @@ class DatasetPlotter:
 
             if len(t_ev) > 0:
                 color = base_cmap(norm(t_idx))
-                ax.scatter(t_ev, np.full_like(t_ev, row, dtype=float),
-                          marker='|', s=marker_size * 20, color=color, linewidths=1.0)
+                ax.scatter(
+                    t_ev,
+                    np.full_like(t_ev, row, dtype=float),
+                    marker="|",
+                    s=marker_size * 20,
+                    color=color,
+                    linewidths=1.0,
+                )
             row += 1
 
         if current_fish is not None:
@@ -677,8 +740,11 @@ class DatasetPlotter:
         ax.set_yticks(y_ticks)
         ax.set_yticklabels(y_labels, fontsize=9)
         ax.set_xlabel("Time in Trial (s)", fontsize=11)
-        ax.set_title(f"Raw Event Raster ({len(fish_subset_set)} fish, colored by trial)",
-                    fontsize=12, fontweight='bold')
+        ax.set_title(
+            f"Raw Event Raster ({len(fish_subset_set)} fish, colored by trial)",
+            fontsize=12,
+            fontweight="bold",
+        )
         ax.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
         ax.invert_yaxis()
 
@@ -690,7 +756,6 @@ class DatasetPlotter:
 
         plt.tight_layout()
         return fig, ax
-
 
     @staticmethod
     def plot_event_count_distribution(
@@ -713,13 +778,13 @@ class DatasetPlotter:
 
         fig, ax = plt.subplots(figsize=figsize)
         DatasetPlotter._plot_count_distribution(
-            counts, ax,
+            counts,
+            ax,
             xlabel="Event count per (fish, trial) stream",
             title_prefix="Event Count Distribution (per stream)",
         )
         plt.tight_layout()
         return fig, ax
-
 
     @staticmethod
     def plot_fish_total_count_distribution(
@@ -755,7 +820,8 @@ class DatasetPlotter:
 
         fig, ax = plt.subplots(figsize=figsize)
         DatasetPlotter._plot_count_distribution(
-            fish_totals, ax,
+            fish_totals,
+            ax,
             xlabel="Total event count per fish (summed over trials)",
             title_prefix=f"Total Event Count Distribution (N = {len(fish_totals)} fish)",
         )
@@ -808,8 +874,10 @@ class DatasetPlotter:
             totals = np.nansum(counts_matrix, axis=1)
             n_active_trials = dataset.fish_trial_mask.sum(axis=1)
             if sort_by == "rate":
-                with np.errstate(invalid='ignore', divide='ignore'):
-                    score = np.where(n_active_trials > 0, totals / n_active_trials, -np.inf)
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    score = np.where(
+                        n_active_trials > 0, totals / n_active_trials, -np.inf
+                    )
             else:  # "total_count"
                 score = np.where(active_fish_mask, totals, -np.inf)
             # active fish sorted descending by score, inactive fish trail at bottom
@@ -820,20 +888,32 @@ class DatasetPlotter:
 
         counts_matrix = counts_matrix[fish_order]
 
-        fig_height = min(figsize_height_cap, max(4.0, dataset.num_fish * min_row_height_in))
+        fig_height = min(
+            figsize_height_cap, max(4.0, dataset.num_fish * min_row_height_in)
+        )
         fig, ax = plt.subplots(figsize=(figsize_width, fig_height))
         cmap_obj = plt.get_cmap(cmap).copy()
-        cmap_obj.set_bad(color='lightgray')
+        cmap_obj.set_bad(color="lightgray")
 
         masked = np.ma.masked_invalid(counts_matrix)
-        im = ax.imshow(masked, aspect='auto', cmap=cmap_obj, origin='lower',
-                        interpolation='nearest')
+        im = ax.imshow(
+            masked,
+            aspect="auto",
+            cmap=cmap_obj,
+            origin="lower",
+            interpolation="nearest",
+        )
 
         ax.set_xlabel("Trial Index", fontsize=11)
-        ylabel = "Fish (sorted by activity, desc.)" if sort_by is not None else "Fish Index"
+        ylabel = (
+            "Fish (sorted by activity, desc.)" if sort_by is not None else "Fish Index"
+        )
         ax.set_ylabel(ylabel, fontsize=11)
-        ax.set_title("Event Count per Fish x Trial (gray = not observed)",
-                    fontsize=12, fontweight='bold')
+        ax.set_title(
+            "Event Count per Fish x Trial (gray = not observed)",
+            fontsize=12,
+            fontweight="bold",
+        )
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="3%", pad=0.1)
@@ -878,8 +958,15 @@ class DatasetPlotter:
         ranks = np.arange(1, len(ranked_fish_idx) + 1)
 
         fig, ax = plt.subplots(figsize=figsize)
-        ax.step(ranks, totals[order], where='mid', color='black', linewidth=1.5,
-                label='Total count per fish', zorder=3)
+        ax.step(
+            ranks,
+            totals[order],
+            where="mid",
+            color="black",
+            linewidth=1.5,
+            label="Total count per fish",
+            zorder=3,
+        )
 
         norm = plt.Normalize(vmin=0, vmax=max(dataset.num_trials - 1, 1))
         base_cmap = plt.get_cmap(cmap)
@@ -887,15 +974,24 @@ class DatasetPlotter:
             trial_counts = per_trial_counts[f_idx]
             observed = ~np.isnan(trial_counts)
             t_idxs = np.where(observed)[0]
-            ax.scatter(np.full(t_idxs.shape, rank), trial_counts[t_idxs],
-                    c=[base_cmap(norm(t)) for t in t_idxs], s=8, alpha=0.6, zorder=2)
+            ax.scatter(
+                np.full(t_idxs.shape, rank),
+                trial_counts[t_idxs],
+                c=[base_cmap(norm(t)) for t in t_idxs],
+                s=8,
+                alpha=0.6,
+                zorder=2,
+            )
 
         ax.set_xlabel("Fish rank (by total activity, descending)", fontsize=11)
         ax.set_ylabel("Event count", fontsize=11)
-        ax.set_title(f"Fish Activity by Rank (N = {len(ranked_fish_idx)} active fish)",
-                    fontsize=12, fontweight='bold')
-        ax.legend(loc='upper right', fontsize=9)
-        ax.grid(True, linestyle=':', alpha=0.4)
+        ax.set_title(
+            f"Fish Activity by Rank (N = {len(ranked_fish_idx)} active fish)",
+            fontsize=12,
+            fontweight="bold",
+        )
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(True, linestyle=":", alpha=0.4)
 
         sm = plt.cm.ScalarMappable(cmap=base_cmap, norm=norm)
         sm.set_array([])
@@ -936,14 +1032,22 @@ class DatasetPlotter:
         if n_coarse == 0:
             raise ValueError("bin_width_s too large relative to duration_s/binning_dt")
         trimmed = counts[:, : n_coarse * factor]
-        coarse_counts = trimmed.reshape(dataset.num_trials, n_coarse, factor).sum(axis=2)
-        coarse_centers = dataset.t_centers[: n_coarse * factor].reshape(n_coarse, factor).mean(axis=1)
+        coarse_counts = trimmed.reshape(dataset.num_trials, n_coarse, factor).sum(
+            axis=2
+        )
+        coarse_centers = (
+            dataset.t_centers[: n_coarse * factor]
+            .reshape(n_coarse, factor)
+            .mean(axis=1)
+        )
         coarse_dt = factor * dataset.binning_dt
 
         n_fish_per_trial = dataset.n_fish_per_trial
         active = n_fish_per_trial > 0
         rate_per_trial = np.full_like(coarse_counts, np.nan, dtype=float)
-        rate_per_trial[active] = coarse_counts[active] / (n_fish_per_trial[active, None] * coarse_dt)
+        rate_per_trial[active] = coarse_counts[active] / (
+            n_fish_per_trial[active, None] * coarse_dt
+        )
 
         mean_rate = np.nanmean(rate_per_trial, axis=0)
         n_active_trials = int(np.sum(active))
@@ -952,15 +1056,28 @@ class DatasetPlotter:
             spread = spread / np.sqrt(max(n_active_trials, 1))
 
         fig, ax = plt.subplots(figsize=figsize)
-        ax.plot(coarse_centers, mean_rate, color='steelblue', linewidth=2, label='Mean rate across trials')
-        ax.fill_between(coarse_centers, mean_rate - spread, mean_rate + spread,
-                        color='steelblue', alpha=0.3,
-                        label=f'±1 {band.upper()} (across {n_active_trials} trials)')
+        ax.plot(
+            coarse_centers,
+            mean_rate,
+            color="steelblue",
+            linewidth=2,
+            label="Mean rate across trials",
+        )
+        ax.fill_between(
+            coarse_centers,
+            mean_rate - spread,
+            mean_rate + spread,
+            color="steelblue",
+            alpha=0.3,
+            label=f"±1 {band.upper()} (across {n_active_trials} trials)",
+        )
         ax.set_xlabel("Time in trial (s)", fontsize=11)
         ax.set_ylabel("Rate (events/s per fish)", fontsize=11)
-        ax.set_title(f"Population PSTH (bin={bin_width_s}s)", fontsize=12, fontweight='bold')
-        ax.legend(loc='upper right', fontsize=9)
-        ax.grid(True, linestyle=':', alpha=0.4)
+        ax.set_title(
+            f"Population PSTH (bin={bin_width_s}s)", fontsize=12, fontweight="bold"
+        )
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(True, linestyle=":", alpha=0.4)
         plt.tight_layout()
         return fig, ax
 
@@ -989,25 +1106,34 @@ class DatasetPlotter:
         if n_coarse == 0:
             raise ValueError("bin_width_s too large relative to duration_s/binning_dt")
         trimmed = counts[:, : n_coarse * factor]
-        coarse_counts = trimmed.reshape(dataset.num_trials, n_coarse, factor).sum(axis=2)
+        coarse_counts = trimmed.reshape(dataset.num_trials, n_coarse, factor).sum(
+            axis=2
+        )
         coarse_edges = dataset.t_grid[: n_coarse * factor + 1 : factor]
         coarse_dt = factor * dataset.binning_dt
 
         n_fish_per_trial = dataset.n_fish_per_trial
         active = n_fish_per_trial > 0
         rate_matrix = np.full_like(coarse_counts, np.nan, dtype=float)
-        rate_matrix[active] = coarse_counts[active] / (n_fish_per_trial[active, None] * coarse_dt)
+        rate_matrix[active] = coarse_counts[active] / (
+            n_fish_per_trial[active, None] * coarse_dt
+        )
 
         fig, ax = plt.subplots(figsize=figsize)
         cmap_obj = plt.get_cmap(cmap).copy()
-        cmap_obj.set_bad(color='lightgray')
+        cmap_obj.set_bad(color="lightgray")
         masked = np.ma.masked_invalid(rate_matrix)
 
-        mesh = ax.pcolormesh(coarse_edges, dataset.trial_edges, masked, shading='flat', cmap=cmap_obj)
+        mesh = ax.pcolormesh(
+            coarse_edges, dataset.trial_edges, masked, shading="flat", cmap=cmap_obj
+        )
         ax.set_xlabel("Time in trial (s)", fontsize=11)
         ax.set_ylabel("Trial Index", fontsize=11)
-        ax.set_title(f"Rate (Hz) by Time x Trial (bin={bin_width_s}s, gray = no fish observed)",
-                    fontsize=12, fontweight='bold')
+        ax.set_title(
+            f"Rate (Hz) by Time x Trial (bin={bin_width_s}s, gray = no fish observed)",
+            fontsize=12,
+            fontweight="bold",
+        )
 
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="3%", pad=0.1)
@@ -1031,14 +1157,19 @@ class DatasetPlotter:
         """
         n_fish_per_trial = dataset.n_fish_per_trial
         fig, ax = plt.subplots(figsize=figsize)
-        ax.bar(np.arange(dataset.num_trials), n_fish_per_trial, color='slategray')
-        ax.axhline(dataset.num_fish, color='crimson', linestyle='--', linewidth=1,
-                label=f'Total fish = {dataset.num_fish}')
+        ax.bar(np.arange(dataset.num_trials), n_fish_per_trial, color="slategray")
+        ax.axhline(
+            dataset.num_fish,
+            color="crimson",
+            linestyle="--",
+            linewidth=1,
+            label=f"Total fish = {dataset.num_fish}",
+        )
         ax.set_xlabel("Trial Index", fontsize=11)
         ax.set_ylabel("# fish observed", fontsize=11)
-        ax.set_title("Fish Occupancy per Trial", fontsize=12, fontweight='bold')
-        ax.legend(loc='lower left', fontsize=9)
-        ax.grid(True, axis='y', linestyle=':', alpha=0.4)
+        ax.set_title("Fish Occupancy per Trial", fontsize=12, fontweight="bold")
+        ax.legend(loc="lower left", fontsize=9)
+        ax.grid(True, axis="y", linestyle=":", alpha=0.4)
         plt.tight_layout()
         return fig, ax
 
@@ -1063,22 +1194,34 @@ class DatasetPlotter:
         edges = np.arange(0, dataset.duration_s + bin_width_s, bin_width_s)
         centers = 0.5 * (edges[:-1] + edges[1:])
 
-        rows = [np.histogram(t_ev, bins=edges)[0] for _, _, t_ev in dataset.iter_streams()]
+        rows = [
+            np.histogram(t_ev, bins=edges)[0] for _, _, t_ev in dataset.iter_streams()
+        ]
         stream_counts = np.array(rows) if rows else np.zeros((0, len(centers)))
 
-        mean_per_bin = stream_counts.mean(axis=0) if len(stream_counts) else np.array([])
+        mean_per_bin = (
+            stream_counts.mean(axis=0) if len(stream_counts) else np.array([])
+        )
         var_per_bin = stream_counts.var(axis=0) if len(stream_counts) else np.array([])
-        fano_per_bin = np.divide(var_per_bin, mean_per_bin,
-                                out=np.full(len(centers), np.nan), where=mean_per_bin > 0)
+        fano_per_bin = np.divide(
+            var_per_bin,
+            mean_per_bin,
+            out=np.full(len(centers), np.nan),
+            where=mean_per_bin > 0,
+        )
 
         fig, ax = plt.subplots(figsize=figsize)
-        ax.plot(centers, fano_per_bin, marker='o', color='darkorange')
-        ax.axhline(1.0, color='k', linestyle='--', linewidth=1, label='Poisson (=1)')
+        ax.plot(centers, fano_per_bin, marker="o", color="darkorange")
+        ax.axhline(1.0, color="k", linestyle="--", linewidth=1, label="Poisson (=1)")
         ax.set_xlabel("Time (s)", fontsize=11)
         ax.set_ylabel("Fano factor (var/mean of stream counts)", fontsize=11)
-        ax.set_title(f"Time-resolved Dispersion (bin={bin_width_s}s)", fontsize=12, fontweight='bold')
+        ax.set_title(
+            f"Time-resolved Dispersion (bin={bin_width_s}s)",
+            fontsize=12,
+            fontweight="bold",
+        )
         ax.legend(fontsize=9)
-        ax.grid(True, linestyle=':', alpha=0.4)
+        ax.grid(True, linestyle=":", alpha=0.4)
         plt.tight_layout()
         return fig, ax
 
@@ -1108,9 +1251,11 @@ class DatasetPlotter:
         times, censored = [], []
         for _, _, t_ev in dataset.iter_streams():
             if len(t_ev) == 0:
-                times.append(dataset.duration_s); censored.append(True)
+                times.append(dataset.duration_s)
+                censored.append(True)
             else:
-                times.append(float(np.min(t_ev))); censored.append(False)
+                times.append(float(np.min(t_ev)))
+                censored.append(False)
         times, censored = np.array(times), np.array(censored)
 
         order = np.argsort(times)
@@ -1130,10 +1275,12 @@ class DatasetPlotter:
                 j += 1
             n_at_risk = n - i
             if n_at_risk > 0 and d > 0:
-                S *= (1.0 - d / n_at_risk)
+                S *= 1.0 - d / n_at_risk
                 if n_at_risk > d:
                     V += d / (n_at_risk * (n_at_risk - d))
-                grid.append(float(t)); surv.append(S); var_sum.append(V)
+                grid.append(float(t))
+                surv.append(S)
+                var_sum.append(V)
             i = j
 
         grid, surv, var_sum = np.array(grid), np.array(surv), np.array(var_sum)
@@ -1143,16 +1290,40 @@ class DatasetPlotter:
         upper = np.clip(surv + z * se, 0.0, 1.0)
 
         fig, ax = plt.subplots(figsize=figsize)
-        ax.step(grid, surv, where='post', color='black', linewidth=2, label='Kaplan-Meier $\\hat{S}(t)$')
-        ax.fill_between(grid, lower, upper, step='post', color='steelblue', alpha=0.25,
-                        label=f'{ci:.0f}% CI (Greenwood)')
-        ax.axhline(surv[-1], color='crimson', linestyle='--', linewidth=1,
-                label=f'Plateau = {surv[-1]:.2f} (frac. never responding)')
-        ax.set_xlabel("Time in trial (s)"); ax.set_ylabel("P(no response by t)")
+        ax.step(
+            grid,
+            surv,
+            where="post",
+            color="black",
+            linewidth=2,
+            label="Kaplan-Meier $\\hat{S}(t)$",
+        )
+        ax.fill_between(
+            grid,
+            lower,
+            upper,
+            step="post",
+            color="steelblue",
+            alpha=0.25,
+            label=f"{ci:.0f}% CI (Greenwood)",
+        )
+        ax.axhline(
+            surv[-1],
+            color="crimson",
+            linestyle="--",
+            linewidth=1,
+            label=f"Plateau = {surv[-1]:.2f} (frac. never responding)",
+        )
+        ax.set_xlabel("Time in trial (s)")
+        ax.set_ylabel("P(no response by t)")
         ax.set_ylim(0, 1.02)
-        ax.set_title(f"Empirical Survival Curve (N={n} streams, {int(np.sum(~censored))} responders)",
-                    fontsize=12, fontweight='bold')
-        ax.legend(loc='upper right', fontsize=9); ax.grid(True, linestyle=':', alpha=0.4)
+        ax.set_title(
+            f"Empirical Survival Curve (N={n} streams, {int(np.sum(~censored))} responders)",
+            fontsize=12,
+            fontweight="bold",
+        )
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(True, linestyle=":", alpha=0.4)
         plt.tight_layout()
         return fig, ax
 
@@ -1172,20 +1343,33 @@ class DatasetPlotter:
         flat/uniform over the remaining trial window is more consistent with
         unrelated background activity that's fine to discard.
         """
-        gaps = [np.diff(np.sort(t_ev))[0] for _, _, t_ev in dataset.iter_streams() if len(t_ev) >= 2]
+        gaps = [
+            np.diff(np.sort(t_ev))[0]
+            for _, _, t_ev in dataset.iter_streams()
+            if len(t_ev) >= 2
+        ]
         n_multi = len(gaps)
         n_total = len(dataset.stream_event_counts)
 
         fig, ax = plt.subplots(figsize=figsize)
         if n_multi == 0:
-            ax.text(0.5, 0.5, f"No streams with >=2 events\n(0 / {n_total})",
-                    ha='center', va='center')
+            ax.text(
+                0.5,
+                0.5,
+                f"No streams with >=2 events\n(0 / {n_total})",
+                ha="center",
+                va="center",
+            )
         else:
-            ax.hist(gaps, bins=bins, color='indianred', alpha=0.75, edgecolor='none')
+            ax.hist(gaps, bins=bins, color="indianred", alpha=0.75, edgecolor="none")
             ax.set_xlabel("Gap: 1st -> 2nd event (s)")
             ax.set_ylabel("Count")
-        ax.set_title(f"1st-to-2nd Event Gap ({n_multi}/{n_total} = "
-                    f"{n_multi/n_total:.1%} of streams affected)", fontsize=12, fontweight='bold')
+        ax.set_title(
+            f"1st-to-2nd Event Gap ({n_multi}/{n_total} = "
+            f"{n_multi/n_total:.1%} of streams affected)",
+            fontsize=12,
+            fontweight="bold",
+        )
         plt.tight_layout()
         return fig, ax
 
@@ -1216,22 +1400,30 @@ class DatasetPlotter:
                 n_resp[t_idx] += 1
                 latencies[t_idx].append(float(np.min(t_ev)))
 
-        with np.errstate(invalid='ignore', divide='ignore'):
+        with np.errstate(invalid="ignore", divide="ignore"):
             p_hat = np.where(n_obs > 0, n_resp / n_obs, np.nan)
             se = np.where(n_obs > 0, np.sqrt(p_hat * (1 - p_hat) / n_obs), np.nan)
 
         fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=figsize, sharex=True)
         trials = np.arange(dataset.num_trials)
-        ax_top.errorbar(trials, p_hat, yerr=1.96 * se, fmt='o-', color='darkorange', capsize=3)
-        ax_top.set_ylabel("P(respond)"); ax_top.set_ylim(0, 1.02)
-        ax_top.set_title("Response Probability & Latency by Trial", fontsize=12, fontweight='bold')
-        ax_top.grid(True, linestyle=':', alpha=0.4)
+        ax_top.errorbar(
+            trials, p_hat, yerr=1.96 * se, fmt="o-", color="darkorange", capsize=3
+        )
+        ax_top.set_ylabel("P(respond)")
+        ax_top.set_ylim(0, 1.02)
+        ax_top.set_title(
+            "Response Probability & Latency by Trial", fontsize=12, fontweight="bold"
+        )
+        ax_top.grid(True, linestyle=":", alpha=0.4)
 
         for t_idx, lats in latencies.items():
             if lats:
-                ax_bot.scatter(np.full(len(lats), t_idx), lats, color='steelblue', alpha=0.5, s=12)
-        ax_bot.set_xlabel("Trial Index"); ax_bot.set_ylabel("Latency (s)")
-        ax_bot.grid(True, linestyle=':', alpha=0.4)
+                ax_bot.scatter(
+                    np.full(len(lats), t_idx), lats, color="steelblue", alpha=0.5, s=12
+                )
+        ax_bot.set_xlabel("Trial Index")
+        ax_bot.set_ylabel("Latency (s)")
+        ax_bot.grid(True, linestyle=":", alpha=0.4)
         plt.tight_layout()
         return fig, (ax_top, ax_bot)
 
@@ -1255,7 +1447,8 @@ class DatasetPlotter:
             if len(trial_idxs) == 0:
                 continue
             n_resp = sum(
-                1 for t_idx in trial_idxs
+                1
+                for t_idx in trial_idxs
                 if len(dataset._stream_index.get((f_idx, t_idx), np.array([]))) > 0
             )
             resp_frac.append(n_resp / len(trial_idxs))
@@ -1265,17 +1458,33 @@ class DatasetPlotter:
         p_pop = np.mean(resp_frac) if len(resp_frac) else np.nan
 
         fig, ax = plt.subplots(figsize=figsize)
-        ax.hist(resp_frac, bins=np.linspace(0, 1, 21), density=True, alpha=0.65,
-                color='mediumseagreen', edgecolor='none', label='Observed per-fish response rate')
+        ax.hist(
+            resp_frac,
+            bins=np.linspace(0, 1, 21),
+            density=True,
+            alpha=0.65,
+            color="mediumseagreen",
+            edgecolor="none",
+            label="Observed per-fish response rate",
+        )
         if np.isfinite(p_pop):
             mean_n = np.mean(n_trials_obs)
             se_null = np.sqrt(p_pop * (1 - p_pop) / mean_n)
             x = np.linspace(0, 1, 200)
-            ax.plot(x, norm.pdf(x, p_pop, se_null), 'r--', linewidth=2,
-                    label=f'Binomial null (p={p_pop:.2f}, mean n={mean_n:.1f})')
-        ax.set_xlabel("Fraction of trials responded"); ax.set_ylabel("Density")
-        ax.set_title(f"Per-Fish Response Rate Heterogeneity (N={len(resp_frac)} fish)",
-                    fontsize=12, fontweight='bold')
-        ax.legend(loc='upper right', fontsize=9)
+            ax.plot(
+                x,
+                norm.pdf(x, p_pop, se_null),
+                "r--",
+                linewidth=2,
+                label=f"Binomial null (p={p_pop:.2f}, mean n={mean_n:.1f})",
+            )
+        ax.set_xlabel("Fraction of trials responded")
+        ax.set_ylabel("Density")
+        ax.set_title(
+            f"Per-Fish Response Rate Heterogeneity (N={len(resp_frac)} fish)",
+            fontsize=12,
+            fontweight="bold",
+        )
+        ax.legend(loc="upper right", fontsize=9)
         plt.tight_layout()
         return fig, ax

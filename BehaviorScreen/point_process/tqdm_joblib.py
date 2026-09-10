@@ -6,6 +6,7 @@ import joblib.parallel
 
 _ORIGINAL_BATCH_COMPLETION_CALLBACK = joblib.parallel.BatchCompletionCallBack
 
+
 class _TqdmLike(Protocol):
     def update(self, n: int = ...) -> None: ...
     def close(self) -> None: ...

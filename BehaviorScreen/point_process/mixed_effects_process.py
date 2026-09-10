@@ -51,7 +51,7 @@ class GammaMixedEffectsProcess(PointProcess):
     def _split_params(self, params: List[float]) -> Tuple[List[float], float]:
         return params[:-1], params[-1]
 
-    def fit(self, dataset: PointProcessDataset, method: str = 'L-BFGS-B', **kwargs):
+    def fit(self, dataset: PointProcessDataset, method: str = "L-BFGS-B", **kwargs):
         """
         Same as PointProcess.fit(), but additionally writes the fitted
         base-process parameter slice onto self.base_process.params_/
@@ -62,7 +62,9 @@ class GammaMixedEffectsProcess(PointProcess):
         super().fit(dataset, method=method, **kwargs)
         base_params, _ = self._split_params(self.params_)
         self.base_process.params_ = np.asarray(base_params, dtype=float)
-        self.base_process.param_dict_ = dict(zip(self.base_process.param_names, base_params))
+        self.base_process.param_dict_ = dict(
+            zip(self.base_process.param_names, base_params)
+        )
         return self
 
     def set_params(self, params: np.ndarray) -> None:
@@ -73,7 +75,7 @@ class GammaMixedEffectsProcess(PointProcess):
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         base_params, r = self._split_params(params)
         r = max(r, 1e-8)  # guard against the optimizer probing r <= 0 during
-                           # a line search despite the (1e-3, None) bound
+        # a line search despite the (1e-3, None) bound
 
         base_ll, N_f, S_f = self.base_process.mixed_effects_likelihood_terms(
             dataset, base_params
@@ -98,10 +100,14 @@ class GammaMixedEffectsProcess(PointProcess):
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
         base_params, r = self._split_params(self.params_)
-        _, N_f, S_f = self.base_process.mixed_effects_likelihood_terms(dataset, base_params)
+        _, N_f, S_f = self.base_process.mixed_effects_likelihood_terms(
+            dataset, base_params
+        )
         return (r + N_f) / (r + S_f)
 
-    def predict(self, t: np.ndarray, trial: Union[float, np.ndarray], **kwargs) -> np.ndarray:
+    def predict(
+        self, t: np.ndarray, trial: Union[float, np.ndarray], **kwargs
+    ) -> np.ndarray:
         """
         Population-average rate (E[g_f] = 1); does not reflect any single
         fish's gain. **kwargs forwarded to base_process.predict() (e.g.
@@ -123,11 +129,15 @@ class GammaMixedEffectsProcess(PointProcess):
             raise ValueError("Model is not fitted yet. Call .fit() first.")
         return self.base_process.compute_expected_rate(dataset)
 
-    def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
+    def cumulative_integrated_intensity(
+        self, t_events: np.ndarray, trial: float
+    ) -> np.ndarray:
         """Population-average cumulative intensity; see class docstring limitation."""
         if self.params_ is None:
             raise ValueError("Model is not fitted yet. Call .fit() first.")
-        return self.base_process.cumulative_integrated_intensity(t_events=t_events, trial=trial)
+        return self.base_process.cumulative_integrated_intensity(
+            t_events=t_events, trial=trial
+        )
 
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         """Posterior mean gain per fish, from Gamma-Poisson conjugacy. See _fish_scale_factors."""
@@ -135,16 +145,20 @@ class GammaMixedEffectsProcess(PointProcess):
             raise ValueError("Model must be fitted before estimating fish gains.")
 
         base_params, r = self._split_params(self.params_)
-        _, N_f, S_f = self.base_process.mixed_effects_likelihood_terms(dataset, base_params)
+        _, N_f, S_f = self.base_process.mixed_effects_likelihood_terms(
+            dataset, base_params
+        )
         g_hat = self._fish_scale_factors(dataset)
         active = dataset.fish_trial_mask.any(axis=1)
 
-        return pd.DataFrame({
-            "fish_idx": np.arange(dataset.num_fish)[active],
-            "n_events": N_f[active],
-            "expected_events_base": S_f[active],
-            "estimated_gain": g_hat[active],
-        })
+        return pd.DataFrame(
+            {
+                "fish_idx": np.arange(dataset.num_fish)[active],
+                "n_events": N_f[active],
+                "expected_events_base": S_f[active],
+                "estimated_gain": g_hat[active],
+            }
+        )
 
     def _stream_tau_values(
         self, dataset: PointProcessDataset
@@ -177,9 +191,13 @@ class GammaMixedEffectsProcess(PointProcess):
                 if not dataset.fish_trial_mask[f_idx, t_idx]:
                     continue
 
-                t_ev = dataset._stream_index.get((f_idx, t_idx), np.array([], dtype=float))
-                probes, cum, last_censored, full_exposure = self.base_process.stream_compensator_profile(
-                    t_ev, t_idx, dataset.duration_s
+                t_ev = dataset._stream_index.get(
+                    (f_idx, t_idx), np.array([], dtype=float)
+                )
+                probes, cum, last_censored, full_exposure = (
+                    self.base_process.stream_compensator_profile(
+                        t_ev, t_idx, dataset.duration_s
+                    )
                 )
 
                 pairs: List[Tuple[float, bool]] = []
@@ -201,7 +219,9 @@ class GammaMixedEffectsProcess(PointProcess):
         return result
 
     def population_survival_curve(
-        self, dataset: PointProcessDataset, trial: Optional[int] = None,
+        self,
+        dataset: PointProcessDataset,
+        trial: Optional[int] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Gamma-frailty marginal survival curve S_pop(t) = (r/(r+Lambda(t)))^r
@@ -221,7 +241,9 @@ class GammaMixedEffectsProcess(PointProcess):
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
         base_params, r = self._split_params(self.params_)
-        self.base_process.params_ = np.asarray(base_params, dtype=float)  # already synced by fit()
+        self.base_process.params_ = np.asarray(
+            base_params, dtype=float
+        )  # already synced by fit()
         t_grid = dataset.t_centers
 
         def _s(tr: int) -> np.ndarray:

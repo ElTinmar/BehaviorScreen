@@ -41,7 +41,9 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
     on r, so they're recomputed every _nll call.
     """
 
-    def __init__(self, base_process: HawkesProcess, r_init: float = 5.0, n_quad_nodes: int = 30):
+    def __init__(
+        self, base_process: HawkesProcess, r_init: float = 5.0, n_quad_nodes: int = 30
+    ):
         super().__init__(base_process.integration_dt)
         if not hasattr(base_process, "history_kernel"):
             raise TypeError(
@@ -53,7 +55,9 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
 
         self.name = f"BaselineOnlyFrailty[{base_process.name}]"
         base_formula = base_process.latex_formula.strip("$")
-        self.latex_formula = rf"${base_formula}$ (baseline $\times\, g_f$), $g_f\sim\Gamma(r,r)$"
+        self.latex_formula = (
+            rf"${base_formula}$ (baseline $\times\, g_f$), $g_f\sim\Gamma(r,r)$"
+        )
 
         self.initial_guesses = base_process.initial_guesses + [r_init]
         # r floored at 1e-2, not 1e-3: alpha=r-1 approaching -1 makes
@@ -64,18 +68,20 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
     def _split_params(self, params: List[float]) -> Tuple[List[float], float]:
         return params[:-1], params[-1]
 
-    def fit(self, dataset: PointProcessDataset, method: str = 'L-BFGS-B', **kwargs):
+    def fit(self, dataset: PointProcessDataset, method: str = "L-BFGS-B", **kwargs):
         super().fit(dataset, method=method, **kwargs)
         base_params, _ = self._split_params(self.params_)
         self.base_process.params_ = np.asarray(base_params, dtype=float)
-        self.base_process.param_dict_ = dict(zip(self.base_process.param_names, base_params))
+        self.base_process.param_dict_ = dict(
+            zip(self.base_process.param_names, base_params)
+        )
         return self
 
     def set_params(self, params: np.ndarray) -> None:
         super().set_params(params)
         base_params, _ = self._split_params(list(self.params_))
         self.base_process.set_params(base_params)
-        
+
     # -- Likelihood -----------------------------------------------------
 
     def _per_fish_terms(
@@ -100,7 +106,9 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         S_hist = np.zeros(dataset.num_fish, dtype=float)
 
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            S_base[f_idx] += kernel.integrate(dataset.duration_s, t_idx, kernel_params, integration_dt=idt)
+            S_base[f_idx] += kernel.integrate(
+                dataset.duration_s, t_idx, kernel_params, integration_dt=idt
+            )
 
             if len(t_ev) > 0:
                 trials_arr = np.full(t_ev.shape, t_idx, dtype=float)
@@ -109,12 +117,16 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
                 event_pairs[f_idx].extend(zip(base_rates.tolist(), hist_rates.tolist()))
 
                 remaining_time = dataset.duration_s - t_ev
-                hist_integrals = history_kernel.integrate(remaining_time, hist_params, integration_dt=idt)
+                hist_integrals = history_kernel.integrate(
+                    remaining_time, hist_params, integration_dt=idt
+                )
                 S_hist[f_idx] += float(np.sum(hist_integrals))
 
         return event_pairs, S_base, S_hist
 
-    def _fish_log_likelihood(self, events, S_base_f: float, S_hist_f: float, r: float) -> float:
+    def _fish_log_likelihood(
+        self, events, S_base_f: float, S_hist_f: float, r: float
+    ) -> float:
         alpha = max(r - 1.0, -0.999)
         nodes, weights = roots_genlaguerre(self.n_quad_nodes, alpha)
 
@@ -144,7 +156,9 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         total_ll = 0.0
         active = dataset.fish_trial_mask.any(axis=1)
         for f_idx in np.where(active)[0]:
-            total_ll += self._fish_log_likelihood(event_pairs.get(f_idx, []), S_base[f_idx], S_hist[f_idx], r)
+            total_ll += self._fish_log_likelihood(
+                event_pairs.get(f_idx, []), S_base[f_idx], S_hist[f_idx], r
+            )
 
         return -total_ll
 
@@ -172,7 +186,9 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
             raise ValueError("Model must be fitted first.")
         return float(self.params_[-1])
 
-    def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
+    def _base_exposure_for_stream(
+        self, dataset: PointProcessDataset, t_idx: int
+    ) -> float:
         """Baseline-only exposure (gain applied by the caller, e.g. simulate_stream) --
         delegates to base_process's own kernel, ignoring its history term entirely
         (history is never gain-scaled in this model)."""
@@ -186,7 +202,9 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         implements for itself; delegate directly."""
         return self.base_process._intensity_upper_bound(dataset, t_idx)
 
-    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, gain: float, rng) -> np.ndarray:
+    def simulate_stream(
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng
+    ) -> np.ndarray:
         """
         Ogata thinning with gain applied ONLY to the baseline term -- history
         (self-excitation) uses the SHARED, population-level alpha_hawkes/
@@ -200,7 +218,12 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         hk = self.base_process.history_kernel
 
         def _base(t_scalar: float) -> float:
-            return gain * kernel.evaluate(np.array([t_scalar]), np.array([t_idx]), kernel_params)[0]
+            return (
+                gain
+                * kernel.evaluate(
+                    np.array([t_scalar]), np.array([t_idx]), kernel_params
+                )[0]
+            )
 
         def _history_intensity(t_eval: float, events: List[float]) -> float:
             if not events:
@@ -210,8 +233,12 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
 
         base_upper = gain * self.base_process._intensity_upper_bound(dataset, t_idx)
         decay_horizon = self.base_process._estimate_decay_horizon(hist_params)
-        lag_grid = np.arange(0.0, decay_horizon + self.integration_dt, self.integration_dt)
-        envelope_grid = hk.decay_envelope(lag_grid, hist_params) * self._THINNING_SAFETY_MARGIN
+        lag_grid = np.arange(
+            0.0, decay_horizon + self.integration_dt, self.integration_dt
+        )
+        envelope_grid = (
+            hk.decay_envelope(lag_grid, hist_params) * self._THINNING_SAFETY_MARGIN
+        )
 
         def _envelope(lag: float) -> float:
             if lag >= decay_horizon:
@@ -251,7 +278,9 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
             "directly rather than composing it further."
         )
 
-    def _posterior_mean_gain(self, events_so_far: List[Tuple[float, float]], S_base_so_far: float, r: float) -> float:
+    def _posterior_mean_gain(
+        self, events_so_far: List[Tuple[float, float]], S_base_so_far: float, r: float
+    ) -> float:
         """
         E[g_f | events strictly before current point], via generalized
         Gauss-Laguerre quadrature -- the quadrature analog of
@@ -278,7 +307,11 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         return float(np.sum(post_weights * g_vals))
 
     def _history_compensator_segment(
-        self, event_times_this_trial: List[float], a: float, b: float, hist_params: List[float],
+        self,
+        event_times_this_trial: List[float],
+        a: float,
+        b: float,
+        hist_params: List[float],
     ) -> float:
         """
         Integral of history(t) = sum_j history_kernel.evaluate(t - e_j) over
@@ -303,8 +336,12 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         lag_b = np.maximum(b - events_arr, 0.0)
         lag_a = np.maximum(a - events_arr, 0.0)
         hk = self.base_process.history_kernel
-        H_b = np.asarray(hk.integrate(lag_b, hist_params, integration_dt=self.integration_dt))
-        H_a = np.asarray(hk.integrate(lag_a, hist_params, integration_dt=self.integration_dt))
+        H_b = np.asarray(
+            hk.integrate(lag_b, hist_params, integration_dt=self.integration_dt)
+        )
+        H_a = np.asarray(
+            hk.integrate(lag_a, hist_params, integration_dt=self.integration_dt)
+        )
         return float(np.sum(H_b - H_a))
 
     def _stream_tau_values(
@@ -335,12 +372,8 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
 
-        base_params, r = self._split_params(
-            list(self.params_)
-        )
-        kernel_params, hist_params = (
-            self.base_process._split_params(base_params)
-        )
+        base_params, r = self._split_params(list(self.params_))
+        kernel_params, hist_params = self.base_process._split_params(base_params)
 
         kernel = self.base_process.kernel
         history_kernel = self.base_process.history_kernel
@@ -355,9 +388,7 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
             # Information about the persistent fish-level gain. Event-history
             # rates here are the rates at the times of earlier events; they do
             # not imply that Hawkes history crosses trial boundaries.
-            fish_events_so_far: List[
-                Tuple[float, float]
-            ] = []
+            fish_events_so_far: List[Tuple[float, float]] = []
             S_base_so_far = 0.0
 
             for t_idx in range(dataset.num_trials):
@@ -368,9 +399,7 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
                     (f_idx, t_idx),
                     np.array([], dtype=float),
                 )
-                t_ev = np.sort(
-                    np.asarray(t_ev, dtype=float)
-                )
+                t_ev = np.sort(np.asarray(t_ev, dtype=float))
 
                 trial_events: List[float] = []
                 previous_time = 0.0
@@ -395,42 +424,27 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
                         kernel_params,
                         integration_dt=integration_dt,
                     )
-                    d_base = float(
-                        base_integral_end
-                        - base_integral_start
+                    d_base = float(base_integral_end - base_integral_start)
+
+                    d_history = self._history_compensator_segment(
+                        event_times_this_trial=trial_events,
+                        a=previous_time,
+                        b=event_time,
+                        hist_params=hist_params,
                     )
 
-                    d_history = (
-                        self._history_compensator_segment(
-                            event_times_this_trial=trial_events,
-                            a=previous_time,
-                            b=event_time,
-                            hist_params=hist_params,
-                        )
+                    log_evidence_before = self._log_gain_evidence(
+                        events_so_far=fish_events_so_far,
+                        S_base_so_far=S_base_so_far,
+                        r=r,
+                    )
+                    log_evidence_after_no_event = self._log_gain_evidence(
+                        events_so_far=fish_events_so_far,
+                        S_base_so_far=(S_base_so_far + d_base),
+                        r=r,
                     )
 
-                    log_evidence_before = (
-                        self._log_gain_evidence(
-                            events_so_far=fish_events_so_far,
-                            S_base_so_far=S_base_so_far,
-                            r=r,
-                        )
-                    )
-                    log_evidence_after_no_event = (
-                        self._log_gain_evidence(
-                            events_so_far=fish_events_so_far,
-                            S_base_so_far=(
-                                S_base_so_far + d_base
-                            ),
-                            r=r,
-                        )
-                    )
-
-                    tau = (
-                        d_history
-                        + log_evidence_before
-                        - log_evidence_after_no_event
-                    )
+                    tau = d_history + log_evidence_before - log_evidence_after_no_event
 
                     if tau < -1e-9:
                         raise RuntimeError(
@@ -439,9 +453,7 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
                             f"event_time={event_time}, tau={tau}."
                         )
 
-                    pairs.append(
-                        (float(max(tau, 0.0)), False)
-                    )
+                    pairs.append((float(max(tau, 0.0)), False))
 
                     # Update baseline exposure before adding the current event.
                     S_base_so_far += d_base
@@ -455,12 +467,9 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
                     )
 
                     if trial_events:
-                        lags = (
-                            event_time
-                            - np.asarray(
-                                trial_events,
-                                dtype=float,
-                            )
+                        lags = event_time - np.asarray(
+                            trial_events,
+                            dtype=float,
                         )
                         history_rate = float(
                             np.sum(
@@ -473,9 +482,7 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
                     else:
                         history_rate = 0.0
 
-                    fish_events_so_far.append(
-                        (base_rate, history_rate)
-                    )
+                    fish_events_so_far.append((base_rate, history_rate))
                     trial_events.append(event_time)
                     previous_time = event_time
 
@@ -495,36 +502,24 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
                     kernel_params,
                     integration_dt=integration_dt,
                 )
-                d_base_terminal = float(
-                    terminal_base_integral
-                    - previous_base_integral
+                d_base_terminal = float(terminal_base_integral - previous_base_integral)
+
+                d_history_terminal = self._history_compensator_segment(
+                    event_times_this_trial=trial_events,
+                    a=previous_time,
+                    b=dataset.duration_s,
+                    hist_params=hist_params,
                 )
 
-                d_history_terminal = (
-                    self._history_compensator_segment(
-                        event_times_this_trial=trial_events,
-                        a=previous_time,
-                        b=dataset.duration_s,
-                        hist_params=hist_params,
-                    )
+                log_evidence_before = self._log_gain_evidence(
+                    events_so_far=fish_events_so_far,
+                    S_base_so_far=S_base_so_far,
+                    r=r,
                 )
-
-                log_evidence_before = (
-                    self._log_gain_evidence(
-                        events_so_far=fish_events_so_far,
-                        S_base_so_far=S_base_so_far,
-                        r=r,
-                    )
-                )
-                log_evidence_after_no_event = (
-                    self._log_gain_evidence(
-                        events_so_far=fish_events_so_far,
-                        S_base_so_far=(
-                            S_base_so_far
-                            + d_base_terminal
-                        ),
-                        r=r,
-                    )
+                log_evidence_after_no_event = self._log_gain_evidence(
+                    events_so_far=fish_events_so_far,
+                    S_base_so_far=(S_base_so_far + d_base_terminal),
+                    r=r,
                 )
 
                 terminal_tau = (
@@ -540,9 +535,7 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
                         f"tau={terminal_tau}."
                     )
 
-                pairs.append(
-                    (float(max(terminal_tau, 0.0)), True)
-                )
+                pairs.append((float(max(terminal_tau, 0.0)), True))
 
                 # No event occurred during the terminal interval, but its
                 # baseline exposure updates the frailty posterior carried into
@@ -573,16 +566,19 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         event_pairs, S_base, S_hist = self._per_fish_terms(dataset, base_params)
         active = dataset.fish_trial_mask.any(axis=1)
 
-        gains = np.array([
-            self._posterior_mean_gain(event_pairs.get(f, []), S_base[f], r)
-            for f in np.where(active)[0]
-        ])
-        return pd.DataFrame({
-            "fish_idx": np.where(active)[0],
-            "n_events": [len(event_pairs.get(f, [])) for f in np.where(active)[0]],
-            "estimated_gain": gains,
-        })
-
+        gains = np.array(
+            [
+                self._posterior_mean_gain(event_pairs.get(f, []), S_base[f], r)
+                for f in np.where(active)[0]
+            ]
+        )
+        return pd.DataFrame(
+            {
+                "fish_idx": np.where(active)[0],
+                "n_events": [len(event_pairs.get(f, [])) for f in np.where(active)[0]],
+                "estimated_gain": gains,
+            }
+        )
 
     def _log_gain_evidence(
         self,
@@ -640,25 +636,15 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
             )
 
             for q, gain in enumerate(gains):
-                intensities = (
-                    gain * base_rates + history_rates
-                )
+                intensities = gain * base_rates + history_rates
 
                 if np.any(intensities <= 0.0):
                     log_event_terms[q] = -np.inf
                 else:
-                    log_event_terms[q] = float(
-                        np.sum(np.log(intensities))
-                    )
+                    log_event_terms[q] = float(np.sum(np.log(intensities)))
 
         log_quadrature = logsumexp(
-            np.log(np.maximum(weights, 1e-300))
-            + log_event_terms
+            np.log(np.maximum(weights, 1e-300)) + log_event_terms
         )
 
-        return float(
-            r * np.log(r)
-            - gammaln(r)
-            - r * np.log(denom)
-            + log_quadrature
-        )
+        return float(r * np.log(r) - gammaln(r) - r * np.log(denom) + log_quadrature)

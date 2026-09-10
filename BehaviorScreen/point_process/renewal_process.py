@@ -8,6 +8,7 @@ from .dataset import PointProcessDataset
 from .point_process import PointProcess
 from .poisson_process import RateKernel
 
+
 @dataclass(frozen=True)
 class RenewalKernel:
     """
@@ -17,6 +18,7 @@ class RenewalKernel:
     Used by RenewalProcess as a multiplicative modulator of a RateKernel's
     base intensity.
     """
+
     name: str
     func: Callable[[np.ndarray, List[float]], np.ndarray]
     param_names: List[str]
@@ -53,7 +55,7 @@ class RenewalKernel:
                 result[i] = 0.0
                 continue
 
-            t_grid = np.arange(0.0,T + integration_dt,integration_dt)
+            t_grid = np.arange(0.0, T + integration_dt, integration_dt)
             if t_grid[-1] > T:
                 t_grid[-1] = T
             elif t_grid[-1] < T:
@@ -64,17 +66,23 @@ class RenewalKernel:
 
         return result[0] if scalar_input else result
 
+
 class RenewalKernelFactory:
 
     @staticmethod
     def exponential_recovery() -> RenewalKernel:
         """rho(0)=0, approaches 1 with time constant tau_r. Smooth refractory recovery."""
+
         def _func(lag, params):
             (tau_r,) = params
             return 1.0 - np.exp(-lag / tau_r)
+
         return RenewalKernel(
-            name="ExponentialRecovery", func=_func,
-            param_names=["tau_refractory"], initial_guesses=[0.15], bounds=[(0.001, 30.0)],
+            name="ExponentialRecovery",
+            func=_func,
+            param_names=["tau_refractory"],
+            initial_guesses=[0.15],
+            bounds=[(0.001, 30.0)],
             latex_formula=r"$\rho(\Delta t) = 1 - e^{-\Delta t/\tau_r}$",
         )
 
@@ -92,6 +100,7 @@ class RenewalKernelFactory:
         rather than a general-purpose shape that could come out suppressive
         and duplicate hard_dead_time()/exponential_recovery()'s role.
         """
+
         def _func(lag, params):
             A_exc, tau_exc = params
             return 1.0 + A_exc * np.exp(-lag / tau_exc)
@@ -100,7 +109,8 @@ class RenewalKernelFactory:
             # which needs np.clip because its recovery term can go negative).
 
         return RenewalKernel(
-            name="ExponentialExcitation", func=_func,
+            name="ExponentialExcitation",
+            func=_func,
             param_names=["A_excitation", "tau_excitation"],
             initial_guesses=[0.5, 0.2],
             bounds=[(0.0, 20.0), (0.02, 5.0)],
@@ -129,12 +139,18 @@ class RenewalKernelFactory:
         assumption holds, rather than assuming it via SurvivalProcess's data
         reduction.
         """
+
         def _func(lag, params):
             return np.zeros_like(lag)
+
         return RenewalKernel(
-            name="HardAbsorption", func=_func,
-            param_names=[], initial_guesses=[], bounds=[],
-            integral_func=lambda duration, params: 0.0 * np.asarray(duration, dtype=float),
+            name="HardAbsorption",
+            func=_func,
+            param_names=[],
+            initial_guesses=[],
+            bounds=[],
+            integral_func=lambda duration, params: 0.0
+            * np.asarray(duration, dtype=float),
             latex_formula=r"$\rho(\Delta t) = 0,\ \Delta t > 0$",
         )
 
@@ -179,9 +195,7 @@ class RenewalKernelFactory:
             recovery = 1.0 - np.exp(-lag / tau_refractory)
 
             ratio = lag / pulse_peak_lag
-            pulse = np.power(ratio, shape_k) * np.exp(
-                shape_k * (1.0 - ratio)
-            )
+            pulse = np.power(ratio, shape_k) * np.exp(shape_k * (1.0 - ratio))
 
             return recovery + A_excitation * pulse
 
@@ -229,7 +243,12 @@ class RenewalProcess(PointProcess):
     HawkesProcess's positive-autocorrelation / clustering regime.
     """
 
-    def __init__(self, kernel: RateKernel, renewal_kernel: RenewalKernel, integration_dt: float = 0.02):
+    def __init__(
+        self,
+        kernel: RateKernel,
+        renewal_kernel: RenewalKernel,
+        integration_dt: float = 0.02,
+    ):
         super().__init__(integration_dt)
         self.name = f"Renewal rate: {kernel.name}, history: {renewal_kernel.name}"
         kernel_formula = kernel.latex_formula.strip("$")
@@ -246,8 +265,13 @@ class RenewalProcess(PointProcess):
         return params[:n], params[n:]
 
     def _segment_integral(
-        self, t0: float, t1: float, trial: float,
-        params_base: List[float], t_ref: Optional[float], params_refractory: List[float],
+        self,
+        t0: float,
+        t1: float,
+        trial: float,
+        params_base: List[float],
+        t_ref: Optional[float],
+        params_refractory: List[float],
     ) -> float:
         """Integral of kernel(s, trial) * renewal_kernel(s - t_ref) over [t0, t1]. t_ref=None -> no suppression."""
         if t1 <= t0:
@@ -261,7 +285,7 @@ class RenewalProcess(PointProcess):
             lam = lam * rho
 
         return trapezoid(lam, grid)
-    
+
     def _stream_integral_and_ll(
         self,
         t_events: np.ndarray,
@@ -302,9 +326,7 @@ class RenewalProcess(PointProcess):
         # After every event, integrate with that event as the most recent event.
         for event_idx, event_time in enumerate(t_events):
             segment_end = (
-                t_events[event_idx + 1]
-                if event_idx + 1 < n_events
-                else duration_s
+                t_events[event_idx + 1] if event_idx + 1 < n_events else duration_s
             )
 
             total_integral += self._segment_integral(
@@ -344,21 +366,29 @@ class RenewalProcess(PointProcess):
 
         return float(sum_log_intensity), float(total_integral)
 
-    def _renewal_nll(self, t_events, trial, duration_s, params_base, params_refractory) -> float:
+    def _renewal_nll(
+        self, t_events, trial, duration_s, params_base, params_refractory
+    ) -> float:
         sum_log_intensity, total_integral = self._stream_integral_and_ll(
             t_events, trial, duration_s, params_base, params_refractory
         )
         return -(sum_log_intensity - total_integral)
-    
+
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         params_base, params_renewal = self._split_params(params)
         total_nll = 0.0
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            total_nll += self._renewal_nll(t_ev, t_idx, dataset.duration_s, params_base, params_renewal)
+            total_nll += self._renewal_nll(
+                t_ev, t_idx, dataset.duration_s, params_base, params_renewal
+            )
         return total_nll
 
-    def predict(self, t: np.ndarray, trial: Union[float, np.ndarray],
-                history_events: Optional[np.ndarray] = None) -> np.ndarray:
+    def predict(
+        self,
+        t: np.ndarray,
+        trial: Union[float, np.ndarray],
+        history_events: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         if self.params_ is None:
             raise ValueError("Model is not fitted yet. Call .fit() first.")
         params_base, params_renewal = self._split_params(self.params_)
@@ -370,13 +400,15 @@ class RenewalProcess(PointProcess):
         t_arr = np.asarray(t, dtype=float)
         events_sorted = np.sort(np.asarray(history_events, dtype=float))
         # nearest preceding event for each evaluation point t
-        idx = np.searchsorted(events_sorted, t_arr, side='right') - 1
+        idx = np.searchsorted(events_sorted, t_arr, side="right") - 1
         has_prior = idx >= 0
         t_last = np.where(has_prior, events_sorted[np.clip(idx, 0, None)], np.nan)
 
         rho = np.ones_like(t_arr, dtype=float)
         valid = has_prior & (t_arr > t_last)
-        rho[valid] = self.renewal_kernel.evaluate(t_arr[valid] - t_last[valid], params_renewal)
+        rho[valid] = self.renewal_kernel.evaluate(
+            t_arr[valid] - t_last[valid], params_renewal
+        )
 
         return np.maximum(base_rate * rho, 1e-9)
 
@@ -386,14 +418,22 @@ class RenewalProcess(PointProcess):
         active_count = np.zeros(n_trials, dtype=int)
 
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            stream_rate = self.predict(t=dataset.t_centers, trial=t_idx, history_events=t_ev)
+            stream_rate = self.predict(
+                t=dataset.t_centers, trial=t_idx, history_events=t_ev
+            )
             rate_sum[t_idx, :] += stream_rate
             active_count[t_idx] += 1
 
-        with np.errstate(invalid='ignore', divide='ignore'):
-            return np.where(active_count[:, None] > 0, rate_sum / np.maximum(active_count, 1)[:, None], 0.0)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            return np.where(
+                active_count[:, None] > 0,
+                rate_sum / np.maximum(active_count, 1)[:, None],
+                0.0,
+            )
 
-    def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
+    def cumulative_integrated_intensity(
+        self, t_events: np.ndarray, trial: float
+    ) -> np.ndarray:
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
         params_base, params_renewal = self._split_params(self.params_)
@@ -402,10 +442,19 @@ class RenewalProcess(PointProcess):
             return np.array([], dtype=float)
 
         Lambda = np.zeros_like(t_events, dtype=float)
-        Lambda[0] = self._segment_integral(0.0, t_events[0], trial, params_base, None, None) if len(t_events) else 0.0
+        Lambda[0] = (
+            self._segment_integral(0.0, t_events[0], trial, params_base, None, None)
+            if len(t_events)
+            else 0.0
+        )
         for i in range(1, len(t_events)):
             Lambda[i] = Lambda[i - 1] + self._segment_integral(
-                t_events[i - 1], t_events[i], trial, params_base, t_events[i - 1], params_renewal
+                t_events[i - 1],
+                t_events[i],
+                trial,
+                params_base,
+                t_events[i - 1],
+                params_renewal,
             )
         return Lambda
 
@@ -492,9 +541,12 @@ class RenewalProcess(PointProcess):
             if t_candidate >= dataset.duration_s:
                 break
 
-            base_c = gain * self.kernel.evaluate(
-                np.array([t_candidate]), np.array([t_idx]), params_base
-            )[0]
+            base_c = (
+                gain
+                * self.kernel.evaluate(
+                    np.array([t_candidate]), np.array([t_idx]), params_base
+                )[0]
+            )
             if t_last is None:
                 rho = 1.0  # no prior event this stream -- no modulation yet
             else:
@@ -505,12 +557,14 @@ class RenewalProcess(PointProcess):
 
             if rng.uniform() <= lam_candidate / lambda_upper:
                 events.append(t_candidate)
-                t_last = t_candidate   # only the SINGLE most recent event matters
+                t_last = t_candidate  # only the SINGLE most recent event matters
             t = t_candidate
 
         return np.array(events)
 
-    def _renewal_kernel_upper_bound(self, params_renewal, dataset: PointProcessDataset) -> float:
+    def _renewal_kernel_upper_bound(
+        self, params_renewal, dataset: PointProcessDataset
+    ) -> float:
         """
         Upper bound on renewal_kernel(lag) for lag in [0, duration_s] -- NOT
         an arbitrary fixed window. A lag between two events within one trial
@@ -522,7 +576,9 @@ class RenewalProcess(PointProcess):
         UNDER-estimated bound, invalidating the thinning algorithm's
         accept/reject step.
         """
-        lag_grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
+        lag_grid = np.arange(
+            0.0, dataset.duration_s + self.integration_dt, self.integration_dt
+        )
         vals = self.renewal_kernel.evaluate(lag_grid, params_renewal)
         return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
 
@@ -533,6 +589,8 @@ class RenewalProcess(PointProcess):
         object with no guaranteed monotonicity (see conversation notes on why
         Hawkes can skip a grid search here but RenewalProcess cannot)."""
         base_params, _ = self._split_params(self.params_)
-        grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
+        grid = np.arange(
+            0.0, dataset.duration_s + self.integration_dt, self.integration_dt
+        )
         vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), base_params)
         return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN

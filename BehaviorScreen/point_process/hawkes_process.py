@@ -8,6 +8,7 @@ from .dataset import PointProcessDataset
 from .point_process import PointProcess
 from .poisson_process import RateKernel
 
+
 @dataclass(frozen=True)
 class HistoryKernel:
     name: str
@@ -48,7 +49,7 @@ class HistoryKernel:
                 result[i] = 0.0
                 continue
 
-            t_grid = np.arange(0.0,T + integration_dt,integration_dt)
+            t_grid = np.arange(0.0, T + integration_dt, integration_dt)
             if t_grid[-1] > T:
                 t_grid[-1] = T
             elif t_grid[-1] < T:
@@ -87,6 +88,7 @@ class HistoryKernel:
         vals = self.evaluate(lag_grid, params)
         return np.maximum.accumulate(vals[::-1])[::-1]
 
+
 class HistoryKernelFactory:
 
     @staticmethod
@@ -103,7 +105,7 @@ class HistoryKernelFactory:
 
         def _integral(duration, params):
             alpha, beta = params
-            return alpha / beta*(1.0 - np.exp(-beta * duration))
+            return alpha / beta * (1.0 - np.exp(-beta * duration))
 
         def _event_history(t_events, params):
             """Fast O(N) recursive implementation"""
@@ -125,12 +127,12 @@ class HistoryKernelFactory:
         return HistoryKernel(
             name="Exponential",
             func=_func,
-            param_names=["alpha_hawkes","beta_hawkes"],
-            initial_guesses=[alpha_initial,beta_initial],
-            bounds=[alpha_bounds,beta_bounds],
+            param_names=["alpha_hawkes", "beta_hawkes"],
+            initial_guesses=[alpha_initial, beta_initial],
+            bounds=[alpha_bounds, beta_bounds],
             integral_func=_integral,
             event_history_func=_event_history,
-            latex_formula=r"$h(\Delta t) = \alpha_{\mathrm{H}} e^{-\beta_{\mathrm{H}}\Delta t}$"
+            latex_formula=r"$h(\Delta t) = \alpha_{\mathrm{H}} e^{-\beta_{\mathrm{H}}\Delta t}$",
         )
 
 
@@ -154,12 +156,12 @@ class HawkesProcess(PointProcess):
         self.bounds = kernel.bounds + history_kernel.bounds
         self.param_names = kernel.param_names + history_kernel.param_names
 
-    def _split_params(self,params: List[float]) -> Tuple[List[float], List[float]]:
+    def _split_params(self, params: List[float]) -> Tuple[List[float], List[float]]:
         n = len(self.kernel.param_names)
         params_base = params[:n]
         params_history = params[n:]
         return params_base, params_history
-    
+
     def _hawkes_nll(
         self,
         t_events: np.ndarray,
@@ -183,8 +185,8 @@ class HawkesProcess(PointProcess):
         sum_log_intensity = np.sum(np.log(intensity))
 
         base_integral = self.kernel.integrate(
-            duration_s, 
-            trial, 
+            duration_s,
+            trial,
             params_base,
             integration_dt=self.integration_dt,
         )
@@ -259,7 +261,7 @@ class HawkesProcess(PointProcess):
         t_arr = np.asarray(t, dtype=float)
         trial_arr = np.asarray(trial)
         t_bcast, trial_bcast = np.broadcast_arrays(t_arr, trial_arr)
-        
+
         base_rate = self.kernel.evaluate(t_bcast, trial_bcast, params_base)
 
         if history_events is None or len(history_events) == 0:
@@ -291,11 +293,13 @@ class HawkesProcess(PointProcess):
         active_count = np.zeros(n_trials, dtype=int)
 
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            stream_rate = self.predict(t=dataset.t_centers, trial=t_idx, history_events=t_ev)
+            stream_rate = self.predict(
+                t=dataset.t_centers, trial=t_idx, history_events=t_ev
+            )
             rate_sum[t_idx, :] += stream_rate
             active_count[t_idx] += 1
 
-        with np.errstate(invalid='ignore', divide='ignore'):
+        with np.errstate(invalid="ignore", divide="ignore"):
             expected_rate = np.where(
                 active_count[:, None] > 0,
                 rate_sum / np.maximum(active_count, 1)[:, None],
@@ -325,11 +329,16 @@ class HawkesProcess(PointProcess):
                 base_ll += float(np.sum(np.log(intensity)))
 
             base_integral = self.kernel.integrate(
-                dataset.duration_s, t_idx, params_base, integration_dt=self.integration_dt,
+                dataset.duration_s,
+                t_idx,
+                params_base,
+                integration_dt=self.integration_dt,
             )
             remaining_time = dataset.duration_s - t_ev
             history_integrals = self.history_kernel.integrate(
-                remaining_time, params_history, integration_dt=self.integration_dt,
+                remaining_time,
+                params_history,
+                integration_dt=self.integration_dt,
             )
             S_f[f_idx] += base_integral + float(np.sum(history_integrals))
 
@@ -341,11 +350,15 @@ class HawkesProcess(PointProcess):
         that method's docstring: the current recursive state R already gives
         an exact, tight bound for the history term, no grid search needed)."""
         base_params, _ = self._split_params(self.params_)
-        grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
+        grid = np.arange(
+            0.0, dataset.duration_s + self.integration_dt, self.integration_dt
+        )
         vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), base_params)
         return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
 
-    def _estimate_decay_horizon(self, hist_params: List[float], tol: float = 1e-6, max_horizon: float = 1000.0) -> float:
+    def _estimate_decay_horizon(
+        self, hist_params: List[float], tol: float = 1e-6, max_horizon: float = 1000.0
+    ) -> float:
         """
         Smallest lag beyond which history_kernel's value is < tol times its
         peak (i.e. genuinely negligible, not just "small"). Used by
@@ -382,9 +395,12 @@ class HawkesProcess(PointProcess):
         hk = self.history_kernel
 
         def _base(t_scalar: float) -> float:
-            return gain * self.kernel.evaluate(
-                np.array([t_scalar]), np.array([t_idx]), base_params
-            )[0]
+            return (
+                gain
+                * self.kernel.evaluate(
+                    np.array([t_scalar]), np.array([t_idx]), base_params
+                )[0]
+            )
 
         def _history_intensity(t_eval: float, events: List[float]) -> float:
             if not events:
@@ -398,12 +414,16 @@ class HawkesProcess(PointProcess):
         # fix. decay_horizon is a property of hist_params alone, independent
         # of the trial length.
         decay_horizon = self._estimate_decay_horizon(hist_params)
-        lag_grid = np.arange(0.0, decay_horizon + self.integration_dt, self.integration_dt)
-        envelope_grid = hk.decay_envelope(lag_grid, hist_params) * self._THINNING_SAFETY_MARGIN
+        lag_grid = np.arange(
+            0.0, decay_horizon + self.integration_dt, self.integration_dt
+        )
+        envelope_grid = (
+            hk.decay_envelope(lag_grid, hist_params) * self._THINNING_SAFETY_MARGIN
+        )
 
         def _envelope(lag: float) -> float:
             if lag >= decay_horizon:
-                return 0.0   # explicit zero beyond the decay horizon -- NOT a floor
+                return 0.0  # explicit zero beyond the decay horizon -- NOT a floor
             idx = min(int(lag / self.integration_dt), len(envelope_grid) - 1)
             return envelope_grid[max(idx, 0)]
 
@@ -422,7 +442,9 @@ class HawkesProcess(PointProcess):
             if t_candidate >= dataset.duration_s:
                 break
 
-            lam_candidate = _base(t_candidate) + gain * _history_intensity(t_candidate, events)
+            lam_candidate = _base(t_candidate) + gain * _history_intensity(
+                t_candidate, events
+            )
 
             if rng.uniform() <= lam_candidate / lambda_upper:
                 events.append(t_candidate)

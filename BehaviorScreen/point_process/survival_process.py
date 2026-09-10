@@ -8,6 +8,7 @@ from .point_process import PointProcess
 from .poisson_process import RateKernel
 from .kernel_shapes import bounded_trial_scale, exgaussian_shape
 
+
 class SurvivalKernelFactory:
 
     @staticmethod
@@ -16,9 +17,11 @@ class SurvivalKernelFactory:
         homogeneous_poisson. Use as the null_model for SurvivalProcess
         comparisons: fits ONLY overall response propensity, no latency
         structure at all."""
+
         def _func(t, trial, params):
             (B,) = params
             return B * np.ones_like(t + 0.0 * trial)
+
         return RateKernel(
             name="SurvivalConstantHazard",
             func=_func,
@@ -30,16 +33,17 @@ class SurvivalKernelFactory:
 
     @staticmethod
     def gaussian_bump_baseline(
-            t_init: float = 1,
-            t_bounds: Tuple[float, float] = (0.001,2)
-        ) -> RateKernel:
+        t_init: float = 1, t_bounds: Tuple[float, float] = (0.001, 2)
+    ) -> RateKernel:
         """h(t) = H*exp(-(t-mu)^2/2sigma^2) + B. Add ONLY if LR test against
         the no-baseline bump is significant -- KM plateau not being flat
         (slow decline continuing well past the burst) is the empirical
         trigger for trying this."""
+
         def _func(t, trial, params):
             H, mu, sigma, B = params
             return H * np.exp(-0.5 * ((t - mu) / sigma) ** 2) + B
+
         return RateKernel(
             name="SurvivalGaussianBump(Baseline)",
             func=_func,
@@ -51,9 +55,8 @@ class SurvivalKernelFactory:
 
     @staticmethod
     def gaussian_bump_baseline_habituating(
-            t_init: float = 1,
-            t_bounds: Tuple[float, float] = (0.001,2)
-        ) -> RateKernel:
+        t_init: float = 1, t_bounds: Tuple[float, float] = (0.001, 2)
+    ) -> RateKernel:
         """
         h(t,m) = H * exp(alpha*m) * exp(-(t-mu)^2/2sigma^2) + B
 
@@ -72,10 +75,12 @@ class SurvivalKernelFactory:
         baseline+habituation added (shape mismatch and missing habituation
         are separate problems -- fixing one does not fix the other).
         """
+
         def _func(t, trial, params):
             H, mu, sigma, B, alpha = params
             height = H * np.exp(alpha * trial)
             return height * np.exp(-0.5 * ((t - mu) / sigma) ** 2) + B
+
         return RateKernel(
             name="SurvivalGaussianBump(Baseline_Habituating)",
             func=_func,
@@ -89,9 +94,9 @@ class SurvivalKernelFactory:
 
     @staticmethod
     def gaussian_bump_baseline_habituating_variable_width(
-            t_init: float = 1,
-            t_bounds: Tuple[float, float] = (0.001, 2),
-        ) -> RateKernel:
+        t_init: float = 1,
+        t_bounds: Tuple[float, float] = (0.001, 2),
+    ) -> RateKernel:
         """
         h(t,m) = H*exp(alpha*m) * exp(-(t-mu)^2 / (2*sigma(m)^2)) + B
         sigma(m) = sigma0 * bounded_trial_scale(m, beta_sigma)
@@ -107,6 +112,7 @@ class SurvivalKernelFactory:
         height- and width-habituation both reshape the same bump and can
         trade off, especially with sparse per-trial event counts.
         """
+
         def _func(t, trial, params):
             H, mu, sigma0, B, alpha, beta_sigma = params
             height = H * np.exp(alpha * trial)
@@ -118,8 +124,14 @@ class SurvivalKernelFactory:
             func=_func,
             param_names=["H", "mu", "sigma0", "B", "alpha", "beta_sigma"],
             initial_guesses=[1.0, t_init, 0.1, 0.02, 0.0, 0.0],
-            bounds=[(0.001, 30.0), t_bounds, (0.005, 3.0), (1e-4, 1.0),
-                    (-2.0, 2.0), (-1.0, 1.0)],
+            bounds=[
+                (0.001, 30.0),
+                t_bounds,
+                (0.005, 3.0),
+                (1e-4, 1.0),
+                (-2.0, 2.0),
+                (-1.0, 1.0),
+            ],
             latex_formula=(
                 r"$h(t,m) = H e^{\alpha m} \exp\left(-\frac{(t-\mu)^2}"
                 r"{2(\sigma_0 \cdot 2/(1+e^{-\beta_\sigma m}))^2}\right) + B$"
@@ -128,9 +140,9 @@ class SurvivalKernelFactory:
 
     @staticmethod
     def gamma_pulse_baseline_habituating(
-            tau_init: float = 0.3,
-            tau_bounds: Tuple[float, float] = (0.01, 3.0),
-        ) -> RateKernel:
+        tau_init: float = 0.3,
+        tau_bounds: Tuple[float, float] = (0.01, 3.0),
+    ) -> RateKernel:
         """
         h(t,m) = H*exp(alpha*m) * (t/tau)*exp(-t/tau) + B
 
@@ -152,11 +164,13 @@ class SurvivalKernelFactory:
         Non-nested vs the Gaussian-bump family -- compare via AIC/BIC, not
         an LR test.
         """
+
         def _func(t, trial, params):
             H, tau, B, alpha = params
             height = H * np.exp(alpha * trial)
             pulse = (t / tau) * np.exp(-t / tau)
             return height * pulse + B
+
         return RateKernel(
             name="SurvivalGammaPulse(Baseline_Habituating)",
             func=_func,
@@ -168,10 +182,13 @@ class SurvivalKernelFactory:
 
     @staticmethod
     def exgaussian_bump_baseline_habituating(
-            mu_init: float = 1.0, mu_bounds=(0.001, 2.0),
-            sigma_init: float = 0.1, sigma_bounds=(0.005, 1.0),
-            tau_init: float = 0.3, tau_bounds=(0.01, 3.0),
-        ) -> RateKernel:
+        mu_init: float = 1.0,
+        mu_bounds=(0.001, 2.0),
+        sigma_init: float = 0.1,
+        sigma_bounds=(0.005, 1.0),
+        tau_init: float = 0.3,
+        tau_bounds=(0.01, 3.0),
+    ) -> RateKernel:
         """
         h(t,m) = H*exp(alpha*m) * exGaussian(t; mu, sigma, tau) + B
 
@@ -189,23 +206,31 @@ class SurvivalKernelFactory:
         residual -- with ~700 exact events, prefer the gamma-pulse version
         unless this one is clearly better.
         """
+
         def _func(t, trial, params):
             H, mu, sigma, tau, B, alpha = params
             height = H * np.exp(alpha * trial)
             peak_shape = exgaussian_shape(t, mu, sigma, tau)
             return B + height * peak_shape
-        
+
         return RateKernel(
             name="SurvivalExGaussianBump(Baseline_Habituating)",
             func=_func,
             param_names=["H", "mu", "sigma", "tau", "B", "alpha"],
             initial_guesses=[1.0, mu_init, sigma_init, tau_init, 0.02, 0.0],
-            bounds=[(0.001, 30.0), mu_bounds, sigma_bounds, tau_bounds,
-                    (1e-4, 1.0), (-2.0, 2.0)],
+            bounds=[
+                (0.001, 30.0),
+                mu_bounds,
+                sigma_bounds,
+                tau_bounds,
+                (1e-4, 1.0),
+                (-2.0, 2.0),
+            ],
             latex_formula=(
                 r"$h(t,m) = H e^{\alpha m}\cdot\mathrm{exGauss}(t;\mu,\sigma,\tau) + B$"
             ),
         )
+
 
 class SurvivalProcess(PointProcess):
     """
@@ -256,7 +281,9 @@ class SurvivalProcess(PointProcess):
     # -- Core reduction: stream -> (t_obs, censored) ------------------------
 
     @staticmethod
-    def _first_event_or_censor(t_ev: np.ndarray, duration_s: float) -> Tuple[float, bool]:
+    def _first_event_or_censor(
+        t_ev: np.ndarray, duration_s: float
+    ) -> Tuple[float, bool]:
         """
         Reduce a (fish, trial) stream to a single first-passage observation.
         Any events after the first are discarded -- check
@@ -270,7 +297,10 @@ class SurvivalProcess(PointProcess):
     # -- The one thing this class teaches the base class ---------------------
 
     def stream_compensator_profile(
-        self, t_ev: np.ndarray, trial: float, duration_s: float,
+        self,
+        t_ev: np.ndarray,
+        trial: float,
+        duration_s: float,
     ) -> Tuple[np.ndarray, np.ndarray, bool, float]:
         """
         Overrides PointProcess's recurrent default: this process
@@ -283,10 +313,14 @@ class SurvivalProcess(PointProcess):
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
         t_obs, censored = self._first_event_or_censor(t_ev, duration_s)
-        H = float(self.kernel.integrate(
-            duration_s=t_obs, trial=trial, params=self.params_,
-            integration_dt=self.integration_dt,
-        ))
+        H = float(
+            self.kernel.integrate(
+                duration_s=t_obs,
+                trial=trial,
+                params=self.params_,
+                integration_dt=self.integration_dt,
+            )
+        )
         return np.array([t_obs]), np.array([H]), censored, H
 
     # -- Likelihood -----------------------------------------------------------
@@ -296,10 +330,14 @@ class SurvivalProcess(PointProcess):
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             t_obs, censored = self._first_event_or_censor(t_ev, dataset.duration_s)
 
-            H = float(self.kernel.integrate(
-                duration_s=t_obs, trial=t_idx, params=params,
-                integration_dt=self.integration_dt,
-            ))
+            H = float(
+                self.kernel.integrate(
+                    duration_s=t_obs,
+                    trial=t_idx,
+                    params=params,
+                    integration_dt=self.integration_dt,
+                )
+            )
 
             if censored:
                 total += H
@@ -326,10 +364,14 @@ class SurvivalProcess(PointProcess):
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             t_obs, censored = self._first_event_or_censor(t_ev, dataset.duration_s)
 
-            H = float(self.kernel.integrate(
-                duration_s=t_obs, trial=t_idx, params=params,
-                integration_dt=self.integration_dt,
-            ))
+            H = float(
+                self.kernel.integrate(
+                    duration_s=t_obs,
+                    trial=t_idx,
+                    params=params,
+                    integration_dt=self.integration_dt,
+                )
+            )
             S_f[f_idx] += H
 
             if not censored:
@@ -360,16 +402,22 @@ class SurvivalProcess(PointProcess):
         trials_2d = np.arange(dataset.num_trials)[:, None]
         return self.predict(t_2d, trials_2d)
 
-    def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
+    def cumulative_integrated_intensity(
+        self, t_events: np.ndarray, trial: float
+    ) -> np.ndarray:
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
         return self.kernel.cumulative_integrate(
-            t_events=t_events, trial=trial, params=self.params_,
+            t_events=t_events,
+            trial=trial,
+            params=self.params_,
             integration_dt=self.integration_dt,
         )
 
     def population_survival_curve(
-        self, dataset: PointProcessDataset, trial: Optional[int] = None,
+        self,
+        dataset: PointProcessDataset,
+        trial: Optional[int] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Model-implied survival curve S(t) = exp(-Lambda(t)) on
@@ -412,7 +460,9 @@ class SurvivalProcess(PointProcess):
         fixed point count -- consistent, and automatically finer for models
         fit at higher precision.
         """
-        grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
+        grid = np.arange(
+            0.0, dataset.duration_s + self.integration_dt, self.integration_dt
+        )
         vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), self.params_)
         return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
 
@@ -439,11 +489,15 @@ class SurvivalProcess(PointProcess):
             t_candidate = t + w
             if t_candidate >= dataset.duration_s:
                 break
-            lam_candidate = gain * self.kernel.evaluate(
-                np.array([t_candidate]), np.array([t_idx]), self.params_
-            )[0]
+            lam_candidate = (
+                gain
+                * self.kernel.evaluate(
+                    np.array([t_candidate]), np.array([t_idx]), self.params_
+                )[0]
+            )
             if rng.uniform() <= lam_candidate / lambda_upper:
-                return np.array([t_candidate])   # <-- stop immediately, unlike the base version
+                return np.array(
+                    [t_candidate]
+                )  # <-- stop immediately, unlike the base version
             t = t_candidate
-        return np.array([])   # censored: no event within duration_s
-
+        return np.array([])  # censored: no event within duration_s

@@ -76,7 +76,10 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
         z_pi_init = float(logit_bounded(pi_init, 1.0))
         extra_names = ["z_pi_nonresponder", "r_dispersion"]
         extra_guesses = [z_pi_init, r_init]
-        extra_bounds: List[Tuple[Optional[float], Optional[float]]] = [(-15.0, 15.0), (1e-3, None)]
+        extra_bounds: List[Tuple[Optional[float], Optional[float]]] = [
+            (-15.0, 15.0),
+            (1e-3, None),
+        ]
 
         if fit_c:
             z_c_init = float(logit_bounded(max(c_init, 1e-4), c_upper))
@@ -90,7 +93,9 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
 
     # -- Parameter bookkeeping -------------------------------------------
 
-    def _split_params(self, params: List[float]) -> Tuple[List[float], float, float, float]:
+    def _split_params(
+        self, params: List[float]
+    ) -> Tuple[List[float], float, float, float]:
         n_base = len(self.base_process.param_names)
         base_params = params[:n_base]
         z_pi, r = params[n_base], params[n_base + 1]
@@ -110,7 +115,9 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
         super().fit(dataset, method=method, **kwargs)
         base_params, *_ = self._split_params(self.params_)
         self.base_process.params_ = np.asarray(base_params, dtype=float)
-        self.base_process.param_dict_ = dict(zip(self.base_process.param_names, base_params))
+        self.base_process.param_dict_ = dict(
+            zip(self.base_process.param_names, base_params)
+        )
         return self
 
     def set_params(self, params: np.ndarray) -> None:
@@ -122,7 +129,11 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
 
     @staticmethod
     def _log_branch_likelihoods(
-        N: Union[float, np.ndarray], S: Union[float, np.ndarray], r: float, c: float, beta: float
+        N: Union[float, np.ndarray],
+        S: Union[float, np.ndarray],
+        r: float,
+        c: float,
+        beta: float,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Unnormalized log-likelihood of sufficient stats (N events, S
@@ -146,12 +157,16 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
         else:
             log_L_NR = N * np.log(c) - c * S
 
-        log_L_R = r * np.log(beta) - gammaln(r) + gammaln(N + r) - (N + r) * np.log(S + beta)
+        log_L_R = (
+            r * np.log(beta) - gammaln(r) + gammaln(N + r) - (N + r) * np.log(S + beta)
+        )
         return log_L_NR, log_L_R
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         base_params, pi, r, c = self._split_params(params)
-        base_ll, N_f, S_f = self.base_process.mixed_effects_likelihood_terms(dataset, base_params)
+        base_ll, N_f, S_f = self.base_process.mixed_effects_likelihood_terms(
+            dataset, base_params
+        )
 
         mu_R = self._mu_responder(pi, c)
         beta = r / mu_R
@@ -167,7 +182,14 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
     # -- Predictable compensator for time-rescaling ------------------------
 
     def _predictable_tau(
-        self, N_count: float, S_prev: float, S_abs: float, pi: float, r: float, c: float, beta: float
+        self,
+        N_count: float,
+        S_prev: float,
+        S_abs: float,
+        pi: float,
+        r: float,
+        c: float,
+        beta: float,
     ) -> float:
         """
         Exact compensator increment tau = -log S(t | history), where
@@ -232,16 +254,22 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
                 if not dataset.fish_trial_mask[f_idx, t_idx]:
                     continue
 
-                t_ev = dataset._stream_index.get((f_idx, t_idx), np.array([], dtype=float))
-                probes, cum, last_censored, full_exposure = self.base_process.stream_compensator_profile(
-                    t_ev, t_idx, dataset.duration_s
+                t_ev = dataset._stream_index.get(
+                    (f_idx, t_idx), np.array([], dtype=float)
+                )
+                probes, cum, last_censored, full_exposure = (
+                    self.base_process.stream_compensator_profile(
+                        t_ev, t_idx, dataset.duration_s
+                    )
                 )
 
                 pairs: List[Tuple[float, bool]] = []
                 for k, cum_val in enumerate(cum):
                     S_abs = S_offset + cum_val
                     censored_here = (k == len(cum) - 1) and last_censored
-                    tau_val = self._predictable_tau(N_count, S_prev, S_abs, pi, r, c, beta)
+                    tau_val = self._predictable_tau(
+                        N_count, S_prev, S_abs, pi, r, c, beta
+                    )
                     pairs.append((tau_val, bool(censored_here)))
                     if not censored_here:
                         N_count += 1
@@ -267,13 +295,19 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
             raise ValueError("Model is not fitted yet. Call .fit() first.")
         return self.base_process.compute_expected_rate(dataset)
 
-    def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
+    def cumulative_integrated_intensity(
+        self, t_events: np.ndarray, trial: float
+    ) -> np.ndarray:
         if self.params_ is None:
             raise ValueError("Model is not fitted yet. Call .fit() first.")
-        return self.base_process.cumulative_integrated_intensity(t_events=t_events, trial=trial)
+        return self.base_process.cumulative_integrated_intensity(
+            t_events=t_events, trial=trial
+        )
 
     def population_survival_curve(
-        self, dataset: PointProcessDataset, trial: Optional[int] = None,
+        self,
+        dataset: PointProcessDataset,
+        trial: Optional[int] = None,
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Marginal survival curve for the two-population mixture:
@@ -287,7 +321,9 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
         base_params, pi, r, c = self._split_params(self.params_)
-        self.base_process.params_ = np.asarray(base_params, dtype=float)  # already synced by fit()
+        self.base_process.params_ = np.asarray(
+            base_params, dtype=float
+        )  # already synced by fit()
         mu_R = self._mu_responder(pi, c)
         beta = r / mu_R
         t_grid = dataset.t_centers
@@ -320,7 +356,9 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
             raise ValueError("Model must be fitted before estimating fish gains.")
 
         base_params, pi, r, c = self._split_params(self.params_)
-        _, N_f, S_f = self.base_process.mixed_effects_likelihood_terms(dataset, base_params)
+        _, N_f, S_f = self.base_process.mixed_effects_likelihood_terms(
+            dataset, base_params
+        )
         mu_R = self._mu_responder(pi, c)
         beta = r / mu_R
 
@@ -337,13 +375,15 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
         g_hat = (1.0 - p_responder) * c + p_responder * g_hat_responder
 
         active = dataset.fish_trial_mask.any(axis=1)
-        return pd.DataFrame({
-            "fish_idx": np.arange(dataset.num_fish)[active],
-            "n_events": N_f[active],
-            "expected_events_base": S_f[active],
-            "p_responder": p_responder[active],
-            "estimated_gain": g_hat[active],
-        })
+        return pd.DataFrame(
+            {
+                "fish_idx": np.arange(dataset.num_fish)[active],
+                "n_events": N_f[active],
+                "expected_events_base": S_f[active],
+                "p_responder": p_responder[active],
+                "estimated_gain": g_hat[active],
+            }
+        )
 
     def mixed_effects_likelihood_terms(self, dataset, params):
         raise NotImplementedError(
