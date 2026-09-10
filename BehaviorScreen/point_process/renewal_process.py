@@ -213,7 +213,7 @@ class RenewalKernelFactory:
                 pulse_peak_lag_init,
             ],
             bounds=[
-                (0.005, 1.0),
+                (0.02, 1.0),
                 (0.0, 20.0),
                 (0.01, 2.0),
             ],
