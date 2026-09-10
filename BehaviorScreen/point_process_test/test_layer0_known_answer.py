@@ -17,7 +17,12 @@ from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory
 from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
-
+from BehaviorScreen.point_process.mixed_effects_process import (
+    GammaMixedEffectsProcess,
+)
+from BehaviorScreen.point_process.zero_inflated_mixed_effects_process import (
+    ZeroInflatedGammaMixedEffectsProcess,
+)
 
 class TestHomogeneousPoissonKnownAnswer:
 
@@ -185,3 +190,75 @@ class TestSurvivalKnownAnswer:
         )
         model = SurvivalProcess(SurvivalKernelFactory.constant_hazard())
         assert model._nll([B], dataset_one) == pytest.approx(model._nll([B], dataset_two), rel=1e-12)
+
+
+class TestGammaFrailtyCompensatorKnownAnswer:
+
+    def test_predictive_increment_matches_gamma_laplace_transform(self):
+        r = 3.0
+        n_previous = 4
+        s_previous = 2.5
+        delta_s = 0.7
+
+        posterior_shape = r + n_previous
+        posterior_rate = r + s_previous
+
+        no_event_probability = (
+            posterior_rate /
+            (posterior_rate + delta_s)
+        ) ** posterior_shape
+
+        expected = -np.log(no_event_probability)
+
+        implemented_formula = (
+            r + n_previous
+        ) * np.log(
+            (r + s_previous + delta_s) /
+            (r + s_previous)
+        )
+
+        assert implemented_formula == pytest.approx(
+            expected,
+            rel=1e-12,
+        )
+
+class TestZeroInflatedFrailtyCompensatorKnownAnswer:
+
+    def test_pi_zero_reduces_to_gamma_frailty(self):
+        base = PoissonProcess(
+            RateKernelFactory.homogeneous_poisson()
+        )
+        model = ZeroInflatedGammaMixedEffectsProcess(
+            base,
+            fit_c=False,
+        )
+
+        pi = 0.0
+        r = 3.0
+        c = 0.0
+        beta = r
+
+        n_previous = 4
+        s_previous = 2.5
+        s_new = 3.2
+
+        computed = model._predictable_tau(
+            N_count=n_previous,
+            S_prev=s_previous,
+            S_abs=s_new,
+            pi=pi,
+            r=r,
+            c=c,
+            beta=beta,
+        )
+
+        expected = (
+            r + n_previous
+        ) * np.log(
+            (r + s_new) / (r + s_previous)
+        )
+
+        assert computed == pytest.approx(
+            expected,
+            rel=1e-10,
+        )

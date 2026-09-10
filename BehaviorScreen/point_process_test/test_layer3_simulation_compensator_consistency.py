@@ -27,29 +27,93 @@ from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKer
 from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
 from BehaviorScreen.point_process.renewal_process import RenewalProcess, RenewalKernelFactory
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
+from BehaviorScreen.point_process.mixed_effects_process import (
+    GammaMixedEffectsProcess,
+)
+from BehaviorScreen.point_process.zero_inflated_mixed_effects_process import (
+    ZeroInflatedGammaMixedEffectsProcess,
+)
+from BehaviorScreen.point_process.baseline_only_frailty_hawkes import (
+    BaselineOnlyFrailtyHawkesProcess,
+)
+from BehaviorScreen.point_process.zero_inflated_baseline_only_frailty_hawkes import (
+    ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
+)
+from BehaviorScreen.point_process.kernel_shapes import logit_bounded
 
-
-def _assert_residuals_uniform(model, dataset: PointProcessDataset, min_p_value: float = 0.01):
+def _km_exp1_sup_distance(
+    model,
+    residuals: np.ndarray,
+    censored: np.ndarray,
+    min_at_risk: int = 20,
+) -> float:
     """
-    Shared assertion: model.params_ must ALREADY be set to the TRUE
-    generating parameters (no fit() call). fit_result is stubbed since
-    time_rescaling doesn't need it, but some shared helper paths check for
-    its existence.
+    Supremum distance between the censoring-aware KM residual CDF and the
+    Exp(1) target CDF, evaluated at supported exact-event knots.
     """
-    model.fit_result = DummyFitResult()
-    tr = model.time_rescaling(dataset)
-    exact_residuals = tr["residuals"][~tr["censored"]]
-    assert len(exact_residuals) > 100, "need enough residuals for the KS test to have power"
-
-    u = 1.0 - np.exp(-exact_residuals)
-    stat, p_value = kstest(u, "uniform")
-    assert p_value > min_p_value, (
-        f"time-rescaled residuals at TRUE parameters are not Uniform(0,1) "
-        f"(KS stat={stat:.4f}, p={p_value:.4f}) -- simulate_stream and "
-        f"cumulative_integrated_intensity/compensator machinery disagree "
-        f"about the intensity they each implement for {model.name}."
+    residual_grid, survival, n_at_risk = model._survival_estimate(
+        residuals,
+        censored,
+        return_risk=True,
     )
 
+    # Exclude artificial origin; retain stable exact-event knots.
+    valid = (
+        (np.arange(len(residual_grid)) > 0)
+        & (n_at_risk >= min_at_risk)
+        & (survival > 0.0)
+    )
+
+    assert np.any(valid), (
+        "No supported exact-event knots for KM calibration. "
+        "Increase the simulated sample size or reduce min_at_risk."
+    )
+
+    empirical_cdf = 1.0 - survival[valid]
+    target_cdf = 1.0 - np.exp(-residual_grid[valid])
+
+    return float(np.max(np.abs(empirical_cdf - target_cdf)))
+
+
+def _assert_residuals_exp1_calibrated(
+    model,
+    dataset: PointProcessDataset,
+    max_sup_distance: float = 0.06,
+    min_at_risk: int = 20,
+    min_exact: int = 100,
+):
+    """
+    Censoring-aware known-parameter simulator/compensator consistency check.
+
+    Unlike an ordinary KS test on exact residuals, this includes terminally
+    censored and zero-event streams through the KM estimator.
+    """
+    model.fit_result = DummyFitResult()
+
+    tr = model.time_rescaling(dataset)
+
+    residuals = np.asarray(tr["residuals"], dtype=float)
+    censored = np.asarray(tr["censored"], dtype=bool)
+
+    assert len(residuals) > 0
+    assert np.sum(~censored) >= min_exact
+    assert np.sum(censored) > 0, (
+        "Expected terminal/administrative censoring to be represented in "
+        "the residual output."
+    )
+
+    distance = _km_exp1_sup_distance(
+        model,
+        residuals,
+        censored,
+        min_at_risk=min_at_risk,
+    )
+
+    assert distance <= max_sup_distance, (
+        f"Known-parameter residual KM curve is not close to Exp(1): "
+        f"D={distance:.4f} > {max_sup_distance:.4f}. "
+        f"The simulator and compensator may disagree for {model.name}."
+    )
 
 class TestPoissonSimulationCompensatorConsistency:
 
@@ -61,7 +125,7 @@ class TestPoissonSimulationCompensatorConsistency:
         scaffold = make_scaffold_dataset(num_fish=100, num_trials=6, duration_s=15.0)
         dataset = simulate_dataset_from_model(model, scaffold, rng)
 
-        _assert_residuals_uniform(model, dataset)
+        _assert_residuals_exp1_calibrated(model, dataset)
 
     def test_shaped_kernel_omr_forward(self, rng_factory):
         """Checks a kernel with NO closed-form integral_func (falls back to
@@ -78,7 +142,7 @@ class TestPoissonSimulationCompensatorConsistency:
         scaffold = make_scaffold_dataset(num_fish=150, num_trials=10, duration_s=3.0)
         dataset = simulate_dataset_from_model(model, scaffold, rng)
 
-        _assert_residuals_uniform(model, dataset)
+        _assert_residuals_exp1_calibrated(model, dataset)
 
 
 @pytest.mark.slow
@@ -103,7 +167,7 @@ class TestHawkesSimulationCompensatorConsistency:
         dataset = simulate_dataset_from_model(model, scaffold, rng)
         assert len(dataset.event_times) > 2000
 
-        _assert_residuals_uniform(model, dataset)
+        _assert_residuals_exp1_calibrated(model, dataset)
 
 
 @pytest.mark.slow
@@ -120,7 +184,7 @@ class TestRenewalSimulationCompensatorConsistency:
         dataset = simulate_dataset_from_model(model, scaffold, rng)
         assert len(dataset.event_times) > 2000
 
-        _assert_residuals_uniform(model, dataset)
+        _assert_residuals_exp1_calibrated(model, dataset)
 
 
 class TestSurvivalSimulationCompensatorConsistency:
@@ -143,4 +207,214 @@ class TestSurvivalSimulationCompensatorConsistency:
         n_exact = sum(1 for _, _, t_ev in dataset.iter_streams() if len(t_ev) > 0)
         assert n_exact > 300
 
-        _assert_residuals_uniform(model, dataset)
+        _assert_residuals_exp1_calibrated(model, dataset)
+
+
+@pytest.mark.slow
+class TestGammaFrailtySimulationCompensatorConsistency:
+
+    def test_homogeneous_poisson_base(self, rng_factory):
+        rng = rng_factory(205)
+
+        true_B = 0.5
+        true_r = 3.0
+
+        model = GammaMixedEffectsProcess(
+            PoissonProcess(
+                RateKernelFactory.homogeneous_poisson()
+            ),
+            r_init=5.0,
+        )
+        model.set_params(np.array([true_B, true_r]))
+
+        scaffold = make_scaffold_dataset(
+            num_fish=250,
+            num_trials=6,
+            duration_s=8.0,
+        )
+
+        gains = model._draw_fish_gains(
+            scaffold.num_fish,
+            1,
+            rng,
+        )[:, 0]
+
+        dataset = simulate_dataset_from_model(
+            model,
+            scaffold,
+            rng,
+            fish_gains=gains,
+        )
+
+        _assert_residuals_exp1_calibrated(
+            model,
+            dataset,
+            max_sup_distance=0.07,
+            min_at_risk=20,
+        )
+
+@pytest.mark.slow
+class TestZeroInflatedGammaFrailtySimulationCompensatorConsistency:
+
+    def test_homogeneous_poisson_hard_nonresponders(self, rng_factory):
+        rng = rng_factory(206)
+
+        true_B = 0.5
+        true_pi = 0.25
+        true_r = 4.0
+
+        model = ZeroInflatedGammaMixedEffectsProcess(
+            PoissonProcess(
+                RateKernelFactory.homogeneous_poisson()
+            ),
+            pi_init=true_pi,
+            r_init=true_r,
+            fit_c=False,
+        )
+
+        z_pi = float(logit_bounded(true_pi, 1.0))
+        model.set_params(
+            np.array([true_B, z_pi, true_r])
+        )
+
+        scaffold = make_scaffold_dataset(
+            num_fish=300,
+            num_trials=6,
+            duration_s=8.0,
+        )
+
+        gains = model._draw_fish_gains(
+            scaffold.num_fish,
+            1,
+            rng,
+        )[:, 0]
+
+        dataset = simulate_dataset_from_model(
+            model,
+            scaffold,
+            rng,
+            fish_gains=gains,
+        )
+
+        assert np.sum(gains == 0.0) > 30
+
+        _assert_residuals_exp1_calibrated(
+            model,
+            dataset,
+            max_sup_distance=0.08,
+            min_at_risk=20,
+        )
+
+@pytest.mark.slow
+class TestBaselineOnlyFrailtyHawkesCompensatorConsistency:
+
+    def test_homogeneous_baseline_exponential_history(self, rng_factory):
+        rng = rng_factory(207)
+
+        true_B = 0.4
+        true_alpha = 0.3
+        true_beta = 2.0
+        true_r = 4.0
+
+        model = BaselineOnlyFrailtyHawkesProcess(
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential(),
+            ),
+            r_init=true_r,
+            n_quad_nodes=30,
+        )
+        model.set_params(
+            np.array([
+                true_B,
+                true_alpha,
+                true_beta,
+                true_r,
+            ])
+        )
+
+        scaffold = make_scaffold_dataset(
+            num_fish=150,
+            num_trials=6,
+            duration_s=10.0,
+        )
+
+        gains = model._draw_fish_gains(
+            scaffold.num_fish,
+            1,
+            rng,
+        )[:, 0]
+
+        dataset = simulate_dataset_from_model(
+            model,
+            scaffold,
+            rng,
+            fish_gains=gains,
+        )
+
+        _assert_residuals_exp1_calibrated(
+            model,
+            dataset,
+            max_sup_distance=0.08,
+            min_at_risk=20,
+        )
+
+@pytest.mark.slow
+class TestZeroInflatedBaselineOnlyFrailtyHawkesCompensatorConsistency:
+
+    def test_hard_nonresponders(self, rng_factory):
+        rng = rng_factory(208)
+
+        true_B = 0.4
+        true_alpha = 0.3
+        true_beta = 2.0
+        true_pi = 0.25
+        true_r = 4.0
+
+        model = ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential(),
+            ),
+            pi_init=true_pi,
+            r_init=true_r,
+            fit_c=False,
+            n_quad_nodes=30,
+        )
+
+        z_pi = float(logit_bounded(true_pi, 1.0))
+        model.set_params(
+            np.array([
+                true_B,
+                true_alpha,
+                true_beta,
+                z_pi,
+                true_r,
+            ])
+        )
+
+        scaffold = make_scaffold_dataset(
+            num_fish=200,
+            num_trials=6,
+            duration_s=10.0,
+        )
+
+        gains = model._draw_fish_gains(
+            scaffold.num_fish,
+            1,
+            rng,
+        )[:, 0]
+
+        dataset = simulate_dataset_from_model(
+            model,
+            scaffold,
+            rng,
+            fish_gains=gains,
+        )
+
+        _assert_residuals_exp1_calibrated(
+            model,
+            dataset,
+            max_sup_distance=0.09,
+            min_at_risk=20,
+        )
