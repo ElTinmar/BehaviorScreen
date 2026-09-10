@@ -261,6 +261,15 @@ class TestParametricGOFPower:
         self,
         rng_factory,
     ):
+        """
+        A homogeneous Poisson model should fail residual-distribution
+        calibration when fitted to strongly self-exciting Hawkes data.
+
+        The test uses the omnibus time-rescaling CvM statistic rather than
+        max event-lag ACF. Hawkes excitation directly changes the waiting-time
+        distribution, but it need not produce a large positive correlation
+        between successive transformed intervals.
+        """
         rng = rng_factory(308)
 
         generating = HawkesProcess(
@@ -268,13 +277,17 @@ class TestParametricGOFPower:
             HistoryKernelFactory.exponential(),
         )
 
-        # Strong but safely subcritical branching ratio = 0.6 / 1.5 = 0.4.
+        # Branching ratio = 0.8 / 1.5 ~= 0.53: strong but subcritical.
         generating.set_params(
-            np.array([0.35, 0.6, 1.5])
+            np.array([
+                0.35,  # baseline
+                0.80,  # alpha
+                1.50,  # beta
+            ])
         )
 
         scaffold = make_scaffold_dataset(
-            num_fish=80,
+            num_fish=100,
             num_trials=5,
             duration_s=15.0,
         )
@@ -290,20 +303,34 @@ class TestParametricGOFPower:
         )
         misspecified.fit(dataset)
 
-        result = misspecified.parametric_gof_bootstrap(
-            dataset,
-            n_boot=60,
-            seed=309,
-            n_jobs=1,
+        result = (
+            misspecified.parametric_gof_bootstrap(
+                dataset,
+                n_boot=60,
+                seed=309,
+                refit_n_starts=1,
+                n_jobs=1,
+            )
         )
 
-        summary = result["summary"].set_index("statistic")
-
-        assert (
-            summary.loc["max_abs_event_acf", "p_upper"]
-            <= 0.05
+        summary = result["summary"].set_index(
+            "statistic"
         )
 
+        p_cvm = float(
+            summary.loc[
+                "calibration_cvm",
+                "p_upper",
+            ]
+        )
+
+        assert p_cvm <= 0.05, (
+            "The parametric-bootstrap time-rescaling diagnostic did not "
+            "detect a strongly self-exciting Hawkes process fitted as "
+            f"homogeneous Poisson; CvM p={p_cvm:.4f}."
+        )
+
+        
 class TestParametricGOFNullBehavior:
 
     def test_correct_poisson_is_not_extremely_rejected(

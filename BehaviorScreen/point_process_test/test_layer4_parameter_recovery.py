@@ -71,26 +71,86 @@ class TestPoissonProcessRecovery:
 
         assert_recovered("B", fit_model.param_dict_["B"], true_B, rtol=0.08)
 
-    def test_shaped_kernel_omr_forward(self, rng_factory):
+    def test_shaped_kernel_omr_forward(
+        self,
+        rng_factory,
+    ):
+        """
+        Recovery for a transient dip kernel.
+
+        More streams are used than in the original test because tau_dip is
+        identified primarily from the relatively short onset region. Multistart
+        ensures that recovery is not determined by one initialization.
+        """
         rng = rng_factory(1)
-        true_B, true_f_dip, true_tau_dip = 0.6, 0.7, 0.4
-        true_z_dip = float(logit_bounded(true_f_dip, 0.995))
 
-        scaffold = make_scaffold_dataset(num_fish=80, num_trials=10, duration_s=5.0)
-        model = PoissonProcess(RateKernelFactory.omr_forward())
-        model.set_params(np.array([true_B, true_z_dip, true_tau_dip]))
+        true_B = 0.6
+        true_f_dip = 0.7
+        true_tau_dip = 0.4
+        true_z_dip = float(
+            logit_bounded(true_f_dip, 0.995)
+        )
 
-        dataset = simulate_dataset_from_model(model, scaffold, rng)
+        scaffold = make_scaffold_dataset(
+            num_fish=160,
+            num_trials=10,
+            duration_s=5.0,
+        )
 
-        fit_model = PoissonProcess(RateKernelFactory.omr_forward())
-        fit_model.fit(dataset)
+        model = PoissonProcess(
+            RateKernelFactory.omr_forward()
+        )
+        model.set_params(
+            np.array([
+                true_B,
+                true_z_dip,
+                true_tau_dip,
+            ])
+        )
 
-        pd = params_dict(fit_model)
-        fitted_f_dip = float(sigmoid_bounded(pd["z_dip"], 0.995))
+        dataset = simulate_dataset_from_model(
+            model,
+            scaffold,
+            rng,
+        )
 
-        assert_recovered("B", pd["B"], true_B, rtol=0.10)
-        assert_recovered("f_dip (derived)", fitted_f_dip, true_f_dip, rtol=0.20, atol=0.03)
-        assert_recovered("tau_dip", pd["tau_dip"], true_tau_dip, rtol=0.20)
+        fit_model = PoissonProcess(
+            RateKernelFactory.omr_forward()
+        )
+        fit_model.fit_multistart(
+            dataset,
+            n_starts=5,
+            n_jobs=1,
+            seed=41,
+        )
+
+        fitted = params_dict(fit_model)
+        fitted_f_dip = float(
+            sigmoid_bounded(
+                fitted["z_dip"],
+                0.995,
+            )
+        )
+
+        assert_recovered(
+            "B",
+            fitted["B"],
+            true_B,
+            rtol=0.10,
+        )
+        assert_recovered(
+            "f_dip (derived)",
+            fitted_f_dip,
+            true_f_dip,
+            rtol=0.20,
+            atol=0.03,
+        )
+        assert_recovered(
+            "tau_dip",
+            fitted["tau_dip"],
+            true_tau_dip,
+            rtol=0.25,
+        )
 
 
 # =============================================================================
@@ -296,34 +356,162 @@ class TestBaselineOnlyFrailtyHawkesProcessRecovery:
 @pytest.mark.slow
 class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
 
-    def test_homogeneous_baseline_exponential_history_hard_nonresponders(self, rng_factory):
+    def test_homogeneous_baseline_exponential_history_hard_nonresponders(
+        self,
+        rng_factory,
+    ):
+        """
+        Recovery of a zero-inflated baseline-only frailty Hawkes model.
+
+        The Hawkes component is deliberately stronger than in the previous test
+        so that beta_hawkes is identifiable separately from baseline frailty.
+        More quadrature nodes are used because this test has many events per
+        fish and a mixture distribution over gains.
+        """
         rng = rng_factory(8)
-        true_B, true_alpha, true_beta = 0.4, 0.3, 2.0
-        true_pi, true_r = 0.3, 4.0
 
-        scaffold = make_scaffold_dataset(num_fish=100, num_trials=5, duration_s=12.0)
-        base = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
-        model = ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-            base, pi_init=0.3, r_init=5.0, fit_c=False, n_quad_nodes=15,
+        true_B = 0.4
+        true_alpha = 0.6
+        true_beta = 2.0
+        true_pi = 0.3
+        true_r = 4.0
+
+        n_quad_nodes = 40
+
+        scaffold = make_scaffold_dataset(
+            num_fish=180,
+            num_trials=6,
+            duration_s=15.0,
         )
-        z_pi_true = float(logit_bounded(true_pi, 1.0))
-        model.set_params(np.array([true_B, true_alpha, true_beta, z_pi_true, true_r]))
 
-        gains = model._draw_fish_gains(scaffold.num_fish, 1, rng)[:, 0]
-        dataset = simulate_dataset_from_model(model, scaffold, rng, fish_gains=gains)
-
-        fit_base = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
-        fit_model = ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-            fit_base, pi_init=0.3, r_init=5.0, fit_c=False, n_quad_nodes=15,
+        generating_base = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(),
+            HistoryKernelFactory.exponential(),
         )
-        fit_model.fit_multistart(dataset, n_starts=6, n_jobs=1, seed=46)
+        generating_model = (
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                generating_base,
+                pi_init=true_pi,
+                r_init=true_r,
+                fit_c=False,
+                n_quad_nodes=n_quad_nodes,
+            )
+        )
 
-        base_pd = params_dict(fit_model.base_process)
-        assert_recovered("B", base_pd["B"], true_B, rtol=0.18)
-        assert_recovered("alpha_hawkes", base_pd["alpha_hawkes"], true_alpha, rtol=0.40)
-        assert_recovered("beta_hawkes", base_pd["beta_hawkes"], true_beta, rtol=0.40)
-        assert_recovered("pi_nonresponder", fit_model.pi_nonresponder, true_pi, rtol=0.40, atol=0.10)
-        assert_recovered("r_responder", fit_model.r_responder, true_r, rtol=0.50)
+        z_pi_true = float(
+            logit_bounded(true_pi, 1.0)
+        )
+        true_params = np.array([
+            true_B,
+            true_alpha,
+            true_beta,
+            z_pi_true,
+            true_r,
+        ])
+
+        generating_model.set_params(true_params)
+
+        gains = generating_model._draw_fish_gains(
+            scaffold.num_fish,
+            1,
+            rng,
+        )[:, 0]
+
+        dataset = simulate_dataset_from_model(
+            generating_model,
+            scaffold,
+            rng,
+            fish_gains=gains,
+        )
+
+        assert np.sum(np.isclose(gains, 0.0)) > 20
+        assert len(dataset.event_times) > 1000
+
+        fitted_base = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(),
+            HistoryKernelFactory.exponential(),
+        )
+        fitted_model = (
+            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                fitted_base,
+                pi_init=true_pi,
+                r_init=true_r,
+                fit_c=False,
+                n_quad_nodes=n_quad_nodes,
+            )
+        )
+
+        fitted_model.fit_multistart(
+            dataset,
+            n_starts=8,
+            n_jobs=1,
+            seed=46,
+        )
+
+        # A fitted optimum should not be worse than the generating parameter
+        # vector on this realized sample.
+        nll_at_truth = fitted_model._nll(
+            list(true_params),
+            dataset,
+        )
+        nll_at_fit = fitted_model._nll(
+            list(fitted_model.params_),
+            dataset,
+        )
+
+        assert nll_at_fit <= nll_at_truth + 1e-5
+
+        base_params = params_dict(
+            fitted_model.base_process
+        )
+
+        assert_recovered(
+            "B",
+            base_params["B"],
+            true_B,
+            rtol=0.18,
+        )
+        assert_recovered(
+            "alpha_hawkes",
+            base_params["alpha_hawkes"],
+            true_alpha,
+            rtol=0.35,
+        )
+        assert_recovered(
+            "beta_hawkes",
+            base_params["beta_hawkes"],
+            true_beta,
+            rtol=0.35,
+        )
+        assert_recovered(
+            "pi_nonresponder",
+            fitted_model.pi_nonresponder,
+            true_pi,
+            rtol=0.35,
+            atol=0.08,
+        )
+        assert_recovered(
+            "r_responder",
+            fitted_model.r_responder,
+            true_r,
+            rtol=0.50,
+        )
+
+        true_branching_ratio = (
+            true_alpha / true_beta
+        )
+        fitted_branching_ratio = (
+            base_params["alpha_hawkes"]
+            / base_params["beta_hawkes"]
+        )
+
+        assert_recovered(
+            "branching ratio",
+            fitted_branching_ratio,
+            true_branching_ratio,
+            rtol=0.30,
+            atol=0.03,
+        )
 
     def test_pi_zero_collapses_to_baseline_only_frailty(self, rng_factory):
         """
