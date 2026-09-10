@@ -32,29 +32,31 @@ def _fit_single_parametric_gof(
     fitted_model: "PointProcess",
     u_grid: np.ndarray,
     acf_lags: int,
+    min_km_at_risk: int,
     refit_n_starts: int,
 ):
     """
     One parametric-bootstrap GOF replicate:
 
-        simulate -> refit -> recompute GOF
-
-    Returns None if simulation, fitting, or diagnostics fail.
+        simulate complete dataset
+            -> refit model
+            -> recompute identical GOF statistics
     """
     rng = np.random.default_rng(seed_seq)
 
     try:
-        # Deep copy prevents state changes in one worker from affecting others.
         model_b = copy.deepcopy(fitted_model)
 
-        # 1. Simulate under the observed fitted model.
-        dataset_b = model_b.simulate_dataset(dataset, rng=rng)
+        # Generate using the observed-data fitted parameters.
+        dataset_b = model_b.simulate_dataset(
+            template=dataset,
+            rng=rng,
+        )
 
-        # 2. Refit to the simulated dataset.
-        #
-        # Warm-start at the observed-data MLE. This is usually appropriate
-        # because bootstrap datasets were generated near that parameter value.
-        model_b.initial_guesses = list(np.asarray(fitted_model.params_, dtype=float))
+        # Refit to the generated dataset.
+        model_b.initial_guesses = list(
+            np.asarray(fitted_model.params_, dtype=float)
+        )
 
         if refit_n_starts <= 1:
             model_b.fit(dataset_b)
@@ -63,21 +65,17 @@ def _fit_single_parametric_gof(
                 dataset_b,
                 n_starts=refit_n_starts,
                 seed=int(rng.integers(0, 2**31 - 1)),
-                n_jobs=1,  # avoid nested parallelism inside joblib workers
+                n_jobs=1,  # avoid nested parallelism
             )
 
-        # 3. Recompute exactly the same diagnostics.
-        stats_b = model_b.gof_statistics(
+        return model_b.gof_statistics(
             dataset_b,
             u_grid=u_grid,
             acf_lags=acf_lags,
+            min_km_at_risk=min_km_at_risk,
         )
 
-        return stats_b
-
     except Exception as exc:
-        # Returning the error string is useful for debugging systematic
-        # simulation/refitting failures.
         return {
             "_failed": True,
             "_error": repr(exc),
@@ -418,97 +416,182 @@ class PointProcess:
         x: np.ndarray,
         step_x: np.ndarray,
         step_y: np.ndarray,
+        max_x: float = np.inf,
     ) -> np.ndarray:
         """
-        Evaluate a right-continuous step function defined by values step_y at
-        locations step_x.
+        Evaluate a right-continuous step function.
 
-        Assumes step_x is sorted and normally begins at zero.
+        Values larger than ``max_x`` are returned as NaN. This prevents a
+        censored KM curve from being extrapolated into an unsupported tail.
+
+        For an uncensored empirical distribution, use max_x=np.inf so the final
+        step is continued to the right.
         """
         x = np.asarray(x, dtype=float)
         step_x = np.asarray(step_x, dtype=float)
         step_y = np.asarray(step_y, dtype=float)
 
+        if step_x.ndim != 1 or step_y.ndim != 1:
+            raise ValueError("step_x and step_y must be one-dimensional.")
+        if len(step_x) != len(step_y):
+            raise ValueError("step_x and step_y must have equal length.")
+        if len(step_x) == 0:
+            return np.full_like(x, np.nan, dtype=float)
+        if np.any(np.diff(step_x) < 0):
+            raise ValueError("step_x must be sorted.")
+
+        result = np.full_like(x, np.nan, dtype=float)
+
         idx = np.searchsorted(step_x, x, side="right") - 1
-        idx = np.clip(idx, 0, len(step_y) - 1)
-        return step_y[idx]
+        valid = (idx >= 0) & (x <= max_x)
+
+        clipped_idx = np.clip(idx[valid], 0, len(step_y) - 1)
+        result[valid] = step_y[clipped_idx]
+
+        return result
 
     def gof_statistics(
         self,
         dataset: PointProcessDataset,
         u_grid: Optional[np.ndarray] = None,
         acf_lags: int = 20,
+        min_km_at_risk: int = 10,
     ) -> Dict[str, Any]:
         """
-        Compute scalar GOF statistics and a common-grid time-rescaling curve.
+        Compute scalar GOF statistics and time-rescaling calibration curves.
 
-        Statistics whose large values indicate lack of fit:
-        - calibration_ks
-        - calibration_cvm
-        - max_abs_event_acf
+        For uncensored recurrent-process residuals, the empirical residual CDF
+        is evaluated over the complete Uniform-scale grid.
 
-        Additional raw summaries are returned for posterior-predictive-style
-        comparison with their parametric-bootstrap distributions.
+        For censored residuals, a Kaplan-Meier estimate is used. Calibration is
+        evaluated only through the last exact-event knot satisfying:
+
+            n_at_risk >= min_km_at_risk
+
+        and having positive post-jump survival. This prevents an unsupported or
+        numerically infinite KM tail from affecting the diagnostic.
+
+        The same rule is applied to the observed dataset and every parametric-
+        bootstrap replicate.
         """
         if self.params_ is None:
-            raise ValueError("Model must be fitted before computing GOF statistics.")
+            raise ValueError(
+                "Model must be fitted before computing GOF statistics."
+            )
+        if min_km_at_risk < 1:
+            raise ValueError("min_km_at_risk must be at least 1.")
 
         if u_grid is None:
-            # Avoid exactly u=1 because r=-log(1-u) would be infinite.
+            # Avoid u=1 because r=-log(1-u) diverges.
             u_grid = np.linspace(0.0, 0.995, 300)
+        else:
+            u_grid = np.asarray(u_grid, dtype=float)
+
+        if u_grid.ndim != 1:
+            raise ValueError("u_grid must be one-dimensional.")
+        if np.any(~np.isfinite(u_grid)):
+            raise ValueError("u_grid must be finite.")
+        if np.any((u_grid < 0.0) | (u_grid >= 1.0)):
+            raise ValueError("u_grid values must lie in [0, 1).")
+        if np.any(np.diff(u_grid) <= 0):
+            raise ValueError("u_grid must be strictly increasing.")
 
         tr = self.time_rescaling(
             dataset,
             acf_lags=acf_lags,
         )
 
-        residual_grid = tr["residual_grid"]
-        survival = tr["survival_estimate"]
+        residuals = np.asarray(tr["residuals"], dtype=float)
+        censored = np.asarray(tr["censored"], dtype=bool)
+        has_censoring = bool(np.any(censored))
 
-        # Transform a fixed Uniform-scale grid to the Exp(1) residual scale.
+        residual_grid, km_survival, km_n_at_risk = self._survival_estimate(
+            residuals,
+            censored,
+            return_risk=True,
+        )
+
+        # Exact KM knots, retained for the Cox-Snell plot.
+        km_u = 1.0 - np.exp(-residual_grid)
+        km_cdf = 1.0 - km_survival
+
+        if has_censoring:
+            knot_index = np.arange(len(residual_grid))
+
+            valid_failure_knots = (
+                (knot_index > 0)
+                & (km_n_at_risk >= min_km_at_risk)
+                & (km_survival > 0.0)
+            )
+
+            if np.any(valid_failure_knots):
+                last_valid_idx = np.where(valid_failure_knots)[0][-1]
+                r_limit = float(residual_grid[last_valid_idx])
+                u_limit = float(km_u[last_valid_idx])
+            else:
+                r_limit = 0.0
+                u_limit = 0.0
+        else:
+            # An uncensored empirical CDF is valid after its largest observation:
+            # it simply remains equal to one. Do not truncate it at the final
+            # event.
+            r_limit = np.inf
+            u_limit = float(u_grid[-1])
+
         r_eval = -np.log1p(-u_grid)
 
-        survival_eval = self._evaluate_step_function(
-            r_eval,
-            residual_grid,
-            survival,
+        survival_on_grid = self._evaluate_step_function(
+            x=r_eval,
+            step_x=residual_grid,
+            step_y=km_survival,
+            max_x=r_limit,
         )
-        empirical_cdf = 1.0 - survival_eval
+        calibration_cdf = 1.0 - survival_on_grid
 
-        differences = empirical_cdf - u_grid
+        valid_grid = np.isfinite(calibration_cdf)
 
-        calibration_ks = float(np.max(np.abs(differences)))
-        calibration_cvm = float(
-            np.trapezoid(differences**2, x=u_grid)
-        )
+        if np.any(valid_grid):
+            discrepancy = calibration_cdf[valid_grid] - u_grid[valid_grid]
+            calibration_ks = float(np.max(np.abs(discrepancy)))
+
+            if np.sum(valid_grid) >= 2:
+                calibration_cvm = float(
+                    np.trapezoid(
+                        discrepancy**2,
+                        x=u_grid[valid_grid],
+                    )
+                )
+            else:
+                calibration_cvm = np.nan
+        else:
+            calibration_ks = np.nan
+            calibration_cvm = np.nan
 
         acf = np.asarray(tr["acf"], dtype=float)
+        finite_acf = acf[np.isfinite(acf)]
         max_abs_event_acf = (
-            float(np.max(np.abs(acf)))
-            if len(acf) > 0 else np.nan
+            float(np.max(np.abs(finite_acf)))
+            if len(finite_acf) > 0 else np.nan
         )
 
         stream_counts = dataset.stream_event_counts.astype(float)
         fish_totals = dataset.fish_total_counts.astype(float)
 
-        zero_fraction = (
-            float(np.mean(stream_counts == 0))
-            if len(stream_counts) else np.nan
-        )
-        multiple_fraction = (
-            float(np.mean(stream_counts >= 2))
-            if len(stream_counts) else np.nan
-        )
-
         return {
-            # Formal discrepancy statistics: larger means worse.
+            # Calibration discrepancies: larger means worse.
             "calibration_ks": calibration_ks,
             "calibration_cvm": calibration_cvm,
             "max_abs_event_acf": max_abs_event_acf,
 
-            # Raw predictive summaries.
-            "zero_stream_fraction": zero_fraction,
-            "multiple_event_stream_fraction": multiple_fraction,
+            # Predictive summaries.
+            "zero_stream_fraction": (
+                float(np.mean(stream_counts == 0))
+                if len(stream_counts) else np.nan
+            ),
+            "multiple_event_stream_fraction": (
+                float(np.mean(stream_counts >= 2))
+                if len(stream_counts) else np.nan
+            ),
             "mean_stream_count": (
                 float(np.mean(stream_counts))
                 if len(stream_counts) else np.nan
@@ -530,15 +613,27 @@ class PointProcess:
                 if len(fish_totals) else np.nan
             ),
 
-            # Metadata.
-            "n_rescaled": tr["n_rescaled"],
-            "n_exact": tr["n_exact"],
+            # Residual metadata.
+            "n_rescaled": int(tr["n_rescaled"]),
+            "n_exact": int(tr["n_exact"]),
+            "n_censored": int(np.sum(censored)),
+            "has_censoring": has_censoring,
+            "min_km_at_risk": int(min_km_at_risk),
 
-            # Common-grid calibration curve.
+            # Common-grid representation for bootstrap envelopes.
             "u_grid": u_grid,
-            "calibration_cdf": empirical_cdf,
-        }
+            "r_eval_grid": r_eval,
+            "calibration_cdf": calibration_cdf,
+            "r_limit": r_limit,
+            "u_limit": u_limit,
 
+            # Exact observed KM knots for Cox-Snell plotting.
+            "km_residual_grid": residual_grid,
+            "km_survival": km_survival,
+            "km_n_at_risk": km_n_at_risk,
+            "km_u": km_u,
+            "km_cdf": km_cdf,
+        }
 
     def parametric_gof_bootstrap(
         self,
@@ -547,6 +642,8 @@ class PointProcess:
         seed: int = 42,
         ci: float = 95.0,
         acf_lags: int = 20,
+        min_km_at_risk: int = 10,
+        min_envelope_fraction: float = 0.80,
         refit_n_starts: int = 1,
         n_jobs: int = -1,
         u_grid: Optional[np.ndarray] = None,
@@ -554,19 +651,28 @@ class PointProcess:
         """
         Parametric-bootstrap goodness-of-fit assessment.
 
-        Procedure:
-        1. Compute GOF statistics on the observed fitted model.
-        2. Simulate complete fish x trial datasets from that model.
-        3. Refit the model to every simulated dataset.
-        4. Recompute identical GOF statistics.
-        5. Compare observed statistics/curves with bootstrap distributions.
+        Each replicate performs:
 
-        This tests the currently fitted model family. It does not repeat model
-        selection among competing model families.
+            simulate -> refit -> recompute GOF
+
+        For censored residuals, each replicate's KM curve is truncated using the
+        same minimum-risk-set rule. Pointwise bands are reported only where at
+        least ``min_envelope_fraction`` of successful replicates contribute.
+
+        The simultaneous envelope is constructed over the common range supported
+        by the observed KM curve and sufficiently many bootstrap curves.
         """
         if self.params_ is None:
             raise ValueError(
                 "Model must be fitted before running parametric GOF bootstrap."
+            )
+        if n_boot < 1:
+            raise ValueError("n_boot must be at least 1.")
+        if not 0.0 < ci < 100.0:
+            raise ValueError("ci must lie strictly between 0 and 100.")
+        if not 0.0 < min_envelope_fraction <= 1.0:
+            raise ValueError(
+                "min_envelope_fraction must lie in (0, 1]."
             )
 
         if u_grid is None:
@@ -578,11 +684,14 @@ class PointProcess:
             dataset,
             u_grid=u_grid,
             acf_lags=acf_lags,
+            min_km_at_risk=min_km_at_risk,
         )
 
         seeds = np.random.SeedSequence(seed).spawn(n_boot)
 
-        with tqdm_joblib(tqdm(total=n_boot, desc="Parametric GOF bootstrap")):
+        with tqdm_joblib(
+            tqdm(total=n_boot, desc="Parametric GOF bootstrap")
+        ):
             results = joblib.Parallel(n_jobs=n_jobs)(
                 joblib.delayed(_fit_single_parametric_gof)(
                     seed_seq=s,
@@ -590,39 +699,43 @@ class PointProcess:
                     fitted_model=self,
                     u_grid=u_grid,
                     acf_lags=acf_lags,
+                    min_km_at_risk=min_km_at_risk,
                     refit_n_starts=refit_n_starts,
                 )
                 for s in seeds
             )
 
         failures = [
-            r for r in results
-            if r is None or r.get("_failed", False)
+            result
+            for result in results
+            if result is None or result.get("_failed", False)
         ]
         valid = [
-            r for r in results
-            if r is not None and not r.get("_failed", False)
+            result
+            for result in results
+            if result is not None and not result.get("_failed", False)
         ]
 
         print(
-            f"Parametric GOF bootstrap: "
-            f"{len(valid)}/{n_boot} successful fits "
+            f"Parametric GOF bootstrap: {len(valid)}/{n_boot} successful "
             f"({len(failures)} failures)."
         )
 
-        if len(valid) == 0:
-            failure_examples = [
-                r.get("_error", "Unknown error")
-                for r in failures[:5]
-                if isinstance(r, dict)
+        if not valid:
+            example_errors = [
+                result.get("_error", "Unknown error")
+                for result in failures[:5]
+                if isinstance(result, dict)
             ]
             raise RuntimeError(
                 "All parametric GOF bootstrap replicates failed. "
-                f"Example errors: {failure_examples}"
+                f"Example errors: {example_errors}"
             )
 
+        alpha = (100.0 - ci) / 2.0
+
         # ------------------------------------------------------------------
-        # Scalar bootstrap table
+        # Scalar statistic summaries
         # ------------------------------------------------------------------
 
         scalar_names = [
@@ -638,31 +751,32 @@ class PointProcess:
             "max_fish_total",
             "n_rescaled",
             "n_exact",
+            "n_censored",
         ]
 
-        records = []
-        alpha = (100.0 - ci) / 2.0
-
-        # Only these have an intrinsic "larger = worse" interpretation.
         upper_tail_discrepancies = {
             "calibration_ks",
             "calibration_cvm",
             "max_abs_event_acf",
         }
 
+        summary_records = []
+
         for name in scalar_names:
-            boot_values = np.array(
-                [r[name] for r in valid],
+            observed_value = float(observed[name])
+
+            bootstrap_values = np.asarray(
+                [result[name] for result in valid],
                 dtype=float,
             )
-            boot_values = boot_values[np.isfinite(boot_values)]
+            bootstrap_values = bootstrap_values[
+                np.isfinite(bootstrap_values)
+            ]
 
-            obs_value = float(observed[name])
-
-            if len(boot_values) == 0:
-                records.append({
+            if len(bootstrap_values) == 0:
+                summary_records.append({
                     "statistic": name,
-                    "observed": obs_value,
+                    "observed": observed_value,
                     "bootstrap_mean": np.nan,
                     "bootstrap_median": np.nan,
                     "ci_lower": np.nan,
@@ -670,113 +784,256 @@ class PointProcess:
                     "bootstrap_percentile": np.nan,
                     "p_upper": np.nan,
                     "p_two_sided": np.nan,
+                    "n_boot_finite": 0,
                 })
                 continue
 
-            percentile = (
-                100.0 * np.mean(boot_values <= obs_value)
+            bootstrap_percentile = (
+                100.0 * np.mean(bootstrap_values <= observed_value)
             )
 
-            # Appropriate for discrepancies where larger explicitly means worse.
-            if name in upper_tail_discrepancies:
+            if (
+                name in upper_tail_discrepancies
+                and np.isfinite(observed_value)
+            ):
                 p_upper = (
-                    1.0 + np.sum(boot_values >= obs_value)
-                ) / (len(boot_values) + 1.0)
+                    1.0
+                    + np.sum(bootstrap_values >= observed_value)
+                ) / (len(bootstrap_values) + 1.0)
             else:
                 p_upper = np.nan
 
-            # Descriptive two-sided tail location for raw summaries.
-            lower_tail = (
-                1.0 + np.sum(boot_values <= obs_value)
-            ) / (len(boot_values) + 1.0)
-            upper_tail = (
-                1.0 + np.sum(boot_values >= obs_value)
-            ) / (len(boot_values) + 1.0)
-            p_two_sided = min(1.0, 2.0 * min(lower_tail, upper_tail))
+            if np.isfinite(observed_value):
+                lower_tail = (
+                    1.0
+                    + np.sum(bootstrap_values <= observed_value)
+                ) / (len(bootstrap_values) + 1.0)
 
-            records.append({
+                upper_tail = (
+                    1.0
+                    + np.sum(bootstrap_values >= observed_value)
+                ) / (len(bootstrap_values) + 1.0)
+
+                p_two_sided = min(
+                    1.0,
+                    2.0 * min(lower_tail, upper_tail),
+                )
+            else:
+                p_two_sided = np.nan
+
+            summary_records.append({
                 "statistic": name,
-                "observed": obs_value,
-                "bootstrap_mean": float(np.mean(boot_values)),
-                "bootstrap_median": float(np.median(boot_values)),
-                "ci_lower": float(np.percentile(boot_values, alpha)),
-                "ci_upper": float(np.percentile(
-                    boot_values, 100.0 - alpha
-                )),
-                "bootstrap_percentile": percentile,
+                "observed": observed_value,
+                "bootstrap_mean": float(np.mean(bootstrap_values)),
+                "bootstrap_median": float(np.median(bootstrap_values)),
+                "ci_lower": float(
+                    np.percentile(bootstrap_values, alpha)
+                ),
+                "ci_upper": float(
+                    np.percentile(
+                        bootstrap_values,
+                        100.0 - alpha,
+                    )
+                ),
+                "bootstrap_percentile": bootstrap_percentile,
                 "p_upper": p_upper,
                 "p_two_sided": p_two_sided,
+                "n_boot_finite": len(bootstrap_values),
             })
 
-        summary = pd.DataFrame(records)
+        summary = pd.DataFrame(summary_records)
 
         # ------------------------------------------------------------------
-        # Simultaneous pointwise calibration envelope
+        # Bootstrap residual curves
         # ------------------------------------------------------------------
 
-        bootstrap_cdfs = np.array(
-            [r["calibration_cdf"] for r in valid],
+        bootstrap_cdfs = np.asarray(
+            [result["calibration_cdf"] for result in valid],
             dtype=float,
         )
 
-        cdf_lower = np.nanpercentile(
-            bootstrap_cdfs, alpha, axis=0
+        bootstrap_r_limits = np.asarray(
+            [result["r_limit"] for result in valid],
+            dtype=float,
         )
-        cdf_upper = np.nanpercentile(
-            bootstrap_cdfs, 100.0 - alpha, axis=0
-        )
-        cdf_median = np.nanmedian(bootstrap_cdfs, axis=0)
-
-        # A simultaneous envelope based on the bootstrap maximum vertical
-        # deviation from the ideal Uniform diagonal.
-        sup_deviations = np.nanmax(
-            np.abs(bootstrap_cdfs - u_grid[None, :]),
-            axis=1,
-        )
-        simultaneous_critical_value = float(
-            np.nanpercentile(sup_deviations, ci)
+        bootstrap_u_limits = np.asarray(
+            [result["u_limit"] for result in valid],
+            dtype=float,
         )
 
-        simultaneous_lower = np.clip(
-            u_grid - simultaneous_critical_value,
-            0.0,
-            1.0,
-        )
-        simultaneous_upper = np.clip(
-            u_grid + simultaneous_critical_value,
-            0.0,
-            1.0,
+        n_contributors = np.sum(
+            np.isfinite(bootstrap_cdfs),
+            axis=0,
         )
 
-        bootstrap_scalar_df = pd.DataFrame([
-            {
-                key: value
-                for key, value in result.items()
-                if np.isscalar(value) and not key.startswith("_")
-            }
-            for result in valid
-        ])
+        min_contributors = max(
+            1,
+            int(np.ceil(min_envelope_fraction * len(valid))),
+        )
+
+        reliable_grid = n_contributors >= min_contributors
+
+        cdf_lower = np.full(len(u_grid), np.nan, dtype=float)
+        cdf_upper = np.full(len(u_grid), np.nan, dtype=float)
+        cdf_median = np.full(len(u_grid), np.nan, dtype=float)
+
+        if np.any(reliable_grid):
+            cdf_lower[reliable_grid] = np.nanpercentile(
+                bootstrap_cdfs[:, reliable_grid],
+                alpha,
+                axis=0,
+            )
+            cdf_upper[reliable_grid] = np.nanpercentile(
+                bootstrap_cdfs[:, reliable_grid],
+                100.0 - alpha,
+                axis=0,
+            )
+            cdf_median[reliable_grid] = np.nanmedian(
+                bootstrap_cdfs[:, reliable_grid],
+                axis=0,
+            )
+
+        # ------------------------------------------------------------------
+        # Simultaneous envelope
+        # ------------------------------------------------------------------
+
+        observed_curve = np.asarray(
+            observed["calibration_cdf"],
+            dtype=float,
+        )
+
+        # Common display range:
+        #   - supported by the observed curve;
+        #   - supported by the required fraction of bootstrap curves.
+        common_grid = (
+            reliable_grid
+            & np.isfinite(observed_curve)
+        )
+
+        simultaneous_lower = np.full(
+            len(u_grid),
+            np.nan,
+            dtype=float,
+        )
+        simultaneous_upper = np.full(
+            len(u_grid),
+            np.nan,
+            dtype=float,
+        )
+        simultaneous_critical_value = np.nan
+        n_simultaneous_curves = 0
+
+        common_indices = np.where(common_grid)[0]
+
+        if len(common_indices) > 0:
+            # Require a contiguous range starting at u=0. This avoids retaining
+            # isolated tail points after missing values.
+            first_bad = np.where(~common_grid[:common_indices[-1] + 1])[0]
+
+            if len(first_bad) > 0:
+                common_last_idx = first_bad[0] - 1
+            else:
+                common_last_idx = common_indices[-1]
+
+            if common_last_idx >= 0:
+                common_mask = (
+                    np.arange(len(u_grid)) <= common_last_idx
+                )
+
+                complete_rows = np.all(
+                    np.isfinite(bootstrap_cdfs[:, common_mask]),
+                    axis=1,
+                )
+
+                n_simultaneous_curves = int(np.sum(complete_rows))
+
+                if n_simultaneous_curves > 0:
+                    deviations = np.abs(
+                        bootstrap_cdfs[complete_rows][:, common_mask]
+                        - u_grid[None, common_mask]
+                    )
+                    sup_deviations = np.max(
+                        deviations,
+                        axis=1,
+                    )
+
+                    simultaneous_critical_value = float(
+                        np.percentile(sup_deviations, ci)
+                    )
+
+                    simultaneous_lower[common_mask] = np.clip(
+                        u_grid[common_mask]
+                        - simultaneous_critical_value,
+                        0.0,
+                        1.0,
+                    )
+                    simultaneous_upper[common_mask] = np.clip(
+                        u_grid[common_mask]
+                        + simultaneous_critical_value,
+                        0.0,
+                        1.0,
+                    )
+
+        # ------------------------------------------------------------------
+        # Replicate-level scalar table
+        # ------------------------------------------------------------------
+
+        bootstrap_scalar_records = []
+
+        for replicate_index, result in enumerate(valid):
+            row = {"replicate": replicate_index}
+
+            for name in scalar_names:
+                row[name] = result[name]
+
+            row["r_limit"] = result["r_limit"]
+            row["u_limit"] = result["u_limit"]
+            bootstrap_scalar_records.append(row)
+
+        bootstrap_statistics = pd.DataFrame(
+            bootstrap_scalar_records
+        )
+
+        failure_messages = [
+            result.get("_error", "Unknown error")
+            for result in failures
+            if isinstance(result, dict)
+        ]
 
         return {
             "observed": observed,
             "summary": summary,
-            "bootstrap_statistics": bootstrap_scalar_df,
-            "n_requested": n_boot,
-            "n_successful": len(valid),
-            "n_failed": len(failures),
-            "failure_messages": [
-                r.get("_error", "Unknown error")
-                for r in failures
-                if isinstance(r, dict)
-            ],
+            "bootstrap_statistics": bootstrap_statistics,
+
+            "n_requested": int(n_boot),
+            "n_successful": int(len(valid)),
+            "n_failed": int(len(failures)),
+            "failure_messages": failure_messages,
+
+            "ci": float(ci),
+            "min_km_at_risk": int(min_km_at_risk),
+            "min_envelope_fraction": float(min_envelope_fraction),
+
             "u_grid": u_grid,
-            "observed_calibration_cdf": observed["calibration_cdf"],
+            "r_grid": -np.log1p(-u_grid),
+
+            "observed_calibration_cdf": observed_curve,
+
             "bootstrap_cdf_median": cdf_median,
             "bootstrap_cdf_lower": cdf_lower,
             "bootstrap_cdf_upper": cdf_upper,
+
+            "bootstrap_r_limits": bootstrap_r_limits,
+            "bootstrap_u_limits": bootstrap_u_limits,
+            "bootstrap_cdf_contributors": n_contributors,
+            "bootstrap_cdf_reliable_grid": reliable_grid,
+
             "simultaneous_cdf_lower": simultaneous_lower,
             "simultaneous_cdf_upper": simultaneous_upper,
-            "simultaneous_critical_value": simultaneous_critical_value,
+            "simultaneous_critical_value": (
+                simultaneous_critical_value
+            ),
+            "n_simultaneous_curves": n_simultaneous_curves,
         }
 
     def plot_parametric_gof_calibration(
@@ -1129,40 +1386,98 @@ class PointProcess:
         }
 
     @staticmethod
-    def _survival_estimate(times: np.ndarray, censored: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def _survival_estimate(
+        times: np.ndarray,
+        censored: np.ndarray,
+        return_risk: bool = False,
+    ):
         """
-        Generic Kaplan-Meier estimator over (possibly right-censored)
-        non-negative values. Reduces exactly to 1-ECDF when nothing is
-        censored, so this is a strict generalization of the plain empirical
-        CDF used everywhere in this module previously -- not a different
-        statistic for the already-correct recurrent-process diagnostics.
-        Ties are treated as censoring occurring after events at that value.
+        Kaplan-Meier estimate for non-negative, possibly right-censored values.
+
+        Parameters
+        ----------
+        times
+            Exact or right-censored residual times.
+
+        censored
+            Boolean array, with True indicating right censoring.
+
+        return_risk
+            If True, additionally return the number at risk immediately before
+            each exact-event knot.
+
+        Returns
+        -------
+        grid, survival
+            KM failure-time knots and corresponding post-jump survival values.
+            The arrays begin with the artificial point (0, 1).
+
+        grid, survival, n_at_risk
+            Returned when ``return_risk=True``. ``n_at_risk[j]`` is the number
+            at risk immediately before the exact events at ``grid[j]``.
         """
+        times = np.asarray(times, dtype=float)
+        censored = np.asarray(censored, dtype=bool)
+
+        if times.ndim != 1 or censored.ndim != 1:
+            raise ValueError("times and censored must be one-dimensional.")
+        if len(times) != len(censored):
+            raise ValueError("times and censored must have equal length.")
+        if np.any(~np.isfinite(times)):
+            raise ValueError("Survival times must be finite.")
+        if np.any(times < 0):
+            raise ValueError("Survival times must be non-negative.")
+
         if len(times) == 0:
-            return np.array([0.0]), np.array([1.0])
+            grid = np.array([0.0], dtype=float)
+            survival = np.array([1.0], dtype=float)
+            risk = np.array([0], dtype=int)
+            return (grid, survival, risk) if return_risk else (grid, survival)
 
-        order = np.argsort(times)
-        t_sorted, c_sorted = times[order], censored[order]
+        # Stable sorting gives deterministic tie handling. At a tied time,
+        # exact events are treated as occurring before censoring because all
+        # observations at that time remain in n_at_risk.
+        order = np.argsort(times, kind="stable")
+        t_sorted = times[order]
+        c_sorted = censored[order]
+
         n = len(t_sorted)
+        grid = [0.0]
+        survival = [1.0]
+        risk = [n]
 
-        grid, surv = [0.0], [1.0]
-        S, i = 1.0, 0
+        S = 1.0
+        i = 0
+
         while i < n:
             t = t_sorted[i]
             j = i
-            d = 0
+
+            n_events = 0
             while j < n and t_sorted[j] == t:
                 if not c_sorted[j]:
-                    d += 1
+                    n_events += 1
                 j += 1
+
             n_at_risk = n - i
-            if n_at_risk > 0 and d > 0:
-                S *= (1.0 - d / n_at_risk)
+
+            if n_events > 0:
+                S *= 1.0 - n_events / n_at_risk
                 grid.append(float(t))
-                surv.append(S)
+                survival.append(float(S))
+                risk.append(int(n_at_risk))
+
+            # Both failures and censorings at this time leave the risk set after
+            # the update.
             i = j
 
-        return np.array(grid), np.array(surv)
+        grid = np.asarray(grid, dtype=float)
+        survival = np.asarray(survival, dtype=float)
+        risk = np.asarray(risk, dtype=int)
+
+        if return_risk:
+            return grid, survival, risk
+        return grid, survival
 
     @staticmethod
     def bootstrap_pooled_survival_band(
@@ -1379,22 +1694,70 @@ class PointProcess:
         max_trial_lag: int = 10,
         max_time_lag: int = 30,
         eps: float = 1e-5,
+        run_parametric_gof: bool = True,
+        gof_n_boot: int = 300,
+        gof_seed: int = 42,
+        gof_ci: float = 95.0,
+        gof_acf_lags: int = 20,
+        gof_min_km_at_risk: int = 10,
+        gof_min_envelope_fraction: float = 0.80,
+        gof_refit_n_starts: int = 1,
+        gof_n_jobs: int = -1,
+        gof_u_grid: Optional[np.ndarray] = None,
     ) -> Dict[str, Any]:
         """
-        Runs every diagnostic sub-analysis ONCE. Each plot_panel_* method below
-        accepts the result of this call via `diag_data` (computing it itself
-        if not supplied), so diagnose() can compute it a single time and share
-        it across all 8 panels rather than each panel silently repeating
-        expensive work (Hessian estimation, 2D residual autocorrelation, etc).
+        Compute all dashboard diagnostics once.
+
+        When ``run_parametric_gof=True``, this includes a full
+        simulate-refit-recompute parametric bootstrap.
         """
+        if self.params_ is None:
+            raise ValueError(
+                "Model must be fitted before computing diagnostics."
+            )
+
+        residuals = self.compute_residuals(dataset)
+
+        time_rescaling = self.time_rescaling(
+            dataset,
+            acf_lags=gof_acf_lags,
+        )
+
+        parameter_correlation = self.estimate_parameter_correlation(
+            dataset,
+            eps=eps,
+        )
+
+        acf2d = self.residual_2d_autocorrelation(
+            dataset,
+            max_trial_lag=max_trial_lag,
+            max_time_lag=max_time_lag,
+        )
+
+        if run_parametric_gof:
+            parametric_gof = self.parametric_gof_bootstrap(
+                dataset=dataset,
+                n_boot=gof_n_boot,
+                seed=gof_seed,
+                ci=gof_ci,
+                acf_lags=gof_acf_lags,
+                min_km_at_risk=gof_min_km_at_risk,
+                min_envelope_fraction=gof_min_envelope_fraction,
+                refit_n_starts=gof_refit_n_starts,
+                n_jobs=gof_n_jobs,
+                u_grid=gof_u_grid,
+            )
+        else:
+            parametric_gof = None
+
         return {
-            "residuals": self.compute_residuals(dataset),
-            "time_rescaling": self.time_rescaling(dataset),
-            "parameter_correlation": self.estimate_parameter_correlation(dataset, eps=eps),
-            "acf2d": self.residual_2d_autocorrelation(
-                dataset, max_trial_lag=max_trial_lag, max_time_lag=max_time_lag
-            ),
+            "residuals": residuals,
+            "time_rescaling": time_rescaling,
+            "parameter_correlation": parameter_correlation,
+            "acf2d": acf2d,
+            "parametric_gof": parametric_gof,
         }
+
 
     def plot_panel_residual_surface(
         self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
@@ -1402,7 +1765,7 @@ class PointProcess:
     ) -> plt.Axes:
         """Panel A: 2D deviance residual surface over (trial, time)."""
         if diag_data is None:
-            diag_data = self.compute_diagnostics_data(dataset)
+            diag_data = self.compute_diagnostics_data(dataset,run_parametric_gof=False)
         if ax is None:
             _, ax = plt.subplots()
 
@@ -1427,7 +1790,7 @@ class PointProcess:
     ) -> plt.Axes:
 
         if diag_data is None:
-            diag_data = self.compute_diagnostics_data(dataset)
+            diag_data = self.compute_diagnostics_data(dataset,run_parametric_gof=False)
         if ax is None:
             _, ax = plt.subplots()
 
@@ -1470,7 +1833,7 @@ class PointProcess:
     ) -> plt.Axes:
         """Panel C: deviance residual distribution vs N(0,1)."""
         if diag_data is None:
-            diag_data = self.compute_diagnostics_data(dataset)
+            diag_data = self.compute_diagnostics_data(dataset,run_parametric_gof=False)
         if ax is None:
             _, ax = plt.subplots()
 
@@ -1497,7 +1860,7 @@ class PointProcess:
         only feeds exact-residual sequences into the ACF pool.
         """
         if diag_data is None:
-            diag_data = self.compute_diagnostics_data(dataset)
+            diag_data = self.compute_diagnostics_data(dataset,run_parametric_gof=False)
         if ax is None:
             _, ax = plt.subplots()
 
@@ -1514,6 +1877,283 @@ class PointProcess:
         ax.legend(loc="upper right", fontsize=8)
         return ax
 
+    def plot_parametric_gof_cox_snell(
+        self,
+        gof_result: Dict[str, Any],
+        ax: Optional[plt.Axes] = None,
+        show_pointwise_band: bool = False,
+    ) -> plt.Axes:
+        """
+        Parametric-bootstrap Cox-Snell residual calibration plot.
+
+        The observed curve is:
+
+            -log(S_hat_KM(r)) versus r,
+
+        where r is the Cox-Snell residual. Under correct calibration, the curve
+        follows the identity line.
+
+        The bootstrap curves were constructed on the equivalent Uniform-CDF
+        scale and are transformed back here. Unsupported tails remain NaN and
+        are therefore not drawn.
+        """
+        if ax is None:
+            _, ax = plt.subplots(figsize=(7, 6))
+
+        observed = gof_result["observed"]
+
+        if not observed["has_censoring"]:
+            raise ValueError(
+                "plot_parametric_gof_cox_snell is intended for "
+                "censored residuals."
+            )
+
+        r_grid = np.asarray(
+            gof_result["r_grid"],
+            dtype=float,
+        )
+
+        def cdf_to_cox_snell(cdf: np.ndarray) -> np.ndarray:
+            cdf = np.asarray(cdf, dtype=float)
+            survival = 1.0 - cdf
+
+            result = np.full_like(
+                survival,
+                np.nan,
+                dtype=float,
+            )
+
+            # Survival equal to zero implies an infinite ordinate and should not
+            # be drawn as a finite point.
+            valid = (
+                np.isfinite(survival)
+                & (survival > 0.0)
+                & (survival <= 1.0)
+            )
+
+            result[valid] = -np.log(survival[valid])
+            return result
+
+        # ------------------------------------------------------------------
+        # Bootstrap envelopes
+        # ------------------------------------------------------------------
+
+        if show_pointwise_band:
+            pointwise_lower = cdf_to_cox_snell(
+                gof_result["bootstrap_cdf_lower"]
+            )
+            pointwise_upper = cdf_to_cox_snell(
+                gof_result["bootstrap_cdf_upper"]
+            )
+
+            valid_pointwise = (
+                np.isfinite(r_grid)
+                & np.isfinite(pointwise_lower)
+                & np.isfinite(pointwise_upper)
+            )
+
+            ax.fill_between(
+                r_grid[valid_pointwise],
+                pointwise_lower[valid_pointwise],
+                pointwise_upper[valid_pointwise],
+                color="steelblue",
+                alpha=0.16,
+                label="Pointwise parametric-bootstrap band",
+                zorder=1,
+            )
+
+        simultaneous_lower = cdf_to_cox_snell(
+            gof_result["simultaneous_cdf_lower"]
+        )
+        simultaneous_upper = cdf_to_cox_snell(
+            gof_result["simultaneous_cdf_upper"]
+        )
+
+        valid_simultaneous = (
+            np.isfinite(r_grid)
+            & np.isfinite(simultaneous_lower)
+            & np.isfinite(simultaneous_upper)
+        )
+
+        if np.any(valid_simultaneous):
+            ax.fill_between(
+                r_grid[valid_simultaneous],
+                simultaneous_lower[valid_simultaneous],
+                simultaneous_upper[valid_simultaneous],
+                color="gray",
+                alpha=0.25,
+                label="Simultaneous parametric-bootstrap envelope",
+                zorder=2,
+            )
+
+        bootstrap_median = cdf_to_cox_snell(
+            gof_result["bootstrap_cdf_median"]
+        )
+
+        valid_median = (
+            np.isfinite(r_grid)
+            & np.isfinite(bootstrap_median)
+        )
+
+        if np.any(valid_median):
+            ax.plot(
+                r_grid[valid_median],
+                bootstrap_median[valid_median],
+                color="steelblue",
+                linestyle=":",
+                linewidth=1.5,
+                label="Bootstrap median fitted-residual curve",
+                zorder=3,
+            )
+
+        # ------------------------------------------------------------------
+        # Exact observed KM curve
+        # ------------------------------------------------------------------
+
+        observed_r = np.asarray(
+            observed["km_residual_grid"],
+            dtype=float,
+        )
+        observed_survival = np.asarray(
+            observed["km_survival"],
+            dtype=float,
+        )
+        observed_risk = np.asarray(
+            observed["km_n_at_risk"],
+            dtype=int,
+        )
+
+        observed_r_limit = float(observed["r_limit"])
+        min_km_at_risk = int(observed["min_km_at_risk"])
+
+        valid_observed = (
+            np.isfinite(observed_r)
+            & np.isfinite(observed_survival)
+            & (observed_survival > 0.0)
+            & (observed_r <= observed_r_limit)
+        )
+
+        # The origin should always be retained.
+        if len(valid_observed) > 0:
+            valid_observed[0] = True
+
+        # This is redundant with r_limit but makes the plotting rule explicit.
+        if len(valid_observed) > 1:
+            valid_observed[1:] &= (
+                observed_risk[1:] >= min_km_at_risk
+            )
+
+        observed_neg_log_survival = -np.log(
+            observed_survival[valid_observed]
+        )
+
+        ax.step(
+            observed_r[valid_observed],
+            observed_neg_log_survival,
+            where="post",
+            color="crimson",
+            linewidth=2.0,
+            label=r"Observed $-\log\widehat S_{\mathrm{KM}}(r)$",
+            zorder=4,
+        )
+
+        # ------------------------------------------------------------------
+        # Ideal line and limits
+        # ------------------------------------------------------------------
+
+        finite_bootstrap_r = r_grid[
+            valid_simultaneous | valid_median
+        ]
+
+        candidate_xmax = [observed_r_limit]
+
+        if len(finite_bootstrap_r) > 0:
+            candidate_xmax.append(
+                float(np.max(finite_bootstrap_r))
+            )
+
+        x_max = max(
+            max(candidate_xmax),
+            1e-6,
+        )
+
+        finite_y = []
+
+        if len(observed_neg_log_survival) > 0:
+            finite_y.append(
+                float(np.max(observed_neg_log_survival))
+            )
+        if np.any(valid_median):
+            finite_y.append(
+                float(np.max(bootstrap_median[valid_median]))
+            )
+        if np.any(valid_simultaneous):
+            finite_y.append(
+                float(
+                    np.max(
+                        simultaneous_upper[valid_simultaneous]
+                    )
+                )
+            )
+
+        y_max = max(
+            finite_y + [x_max, 1e-6]
+        )
+
+        diagonal_max = max(x_max, y_max)
+
+        ax.plot(
+            [0.0, diagonal_max],
+            [0.0, diagonal_max],
+            "k--",
+            linewidth=1.5,
+            label="Exp(1) ideal",
+            zorder=3,
+        )
+
+        # ------------------------------------------------------------------
+        # Title
+        # ------------------------------------------------------------------
+
+        summary = gof_result["summary"]
+        ks_rows = summary.loc[
+            summary["statistic"] == "calibration_ks"
+        ]
+
+        if len(ks_rows) > 0:
+            ks_row = ks_rows.iloc[0]
+            ks_value = ks_row["observed"]
+            p_value = ks_row["p_upper"]
+
+            if np.isfinite(ks_value) and np.isfinite(p_value):
+                statistic_text = (
+                    f"KS={ks_value:.3f}, bootstrap p={p_value:.3f}"
+                )
+            elif np.isfinite(ks_value):
+                statistic_text = f"KS={ks_value:.3f}"
+            else:
+                statistic_text = "calibration statistic unavailable"
+        else:
+            statistic_text = "calibration statistic unavailable"
+
+        ax.set_title(
+            "B. Parametric-bootstrap Cox–Snell calibration\n"
+            f"exact={observed['n_exact']}, "
+            f"censored={observed['n_censored']}; "
+            f"{statistic_text}",
+            fontsize=11,
+            fontweight="bold",
+        )
+
+        ax.set_xlabel("Cox–Snell residual $r$")
+        ax.set_ylabel(r"$-\log\widehat S_{\mathrm{KM}}(r)$")
+        ax.set_xlim(0.0, x_max)
+        ax.set_ylim(0.0, y_max * 1.05)
+        ax.grid(True, linestyle=":", alpha=0.3)
+        ax.legend(loc="upper left", fontsize=8)
+
+        return ax
+
     def plot_panel_calibration_cox_snell(
         self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
         ax: Optional[plt.Axes] = None,
@@ -1527,7 +2167,7 @@ class PointProcess:
         on whether any residual is censored.
         """
         if diag_data is None:
-            diag_data = self.compute_diagnostics_data(dataset)
+            diag_data = self.compute_diagnostics_data(dataset,run_parametric_gof=False)
         if ax is None:
             _, ax = plt.subplots()
 
@@ -1614,7 +2254,7 @@ class PointProcess:
     ) -> plt.Axes:
         """Panel E: 2D residual autocorrelation surface R(delta_m, delta_t)."""
         if diag_data is None:
-            diag_data = self.compute_diagnostics_data(dataset)
+            diag_data = self.compute_diagnostics_data(dataset,run_parametric_gof=False)
         if ax is None:
             _, ax = plt.subplots()
 
@@ -1659,7 +2299,7 @@ class PointProcess:
     ) -> plt.Axes:
         """Panel F: per-fish calibration effect-size (KM/product-limit sup-distance to Exp(1))."""
         if diag_data is None:
-            diag_data = self.compute_diagnostics_data(dataset)
+            diag_data = self.compute_diagnostics_data(dataset,run_parametric_gof=False)
         if ax is None:
             _, ax = plt.subplots()
 
@@ -1688,7 +2328,7 @@ class PointProcess:
     ) -> plt.Axes:
         """Panel G: parameter correlation matrix."""
         if diag_data is None:
-            diag_data = self.compute_diagnostics_data(dataset)
+            diag_data = self.compute_diagnostics_data(dataset,run_parametric_gof=False)
         if ax is None:
             _, ax = plt.subplots()
 
@@ -1715,7 +2355,7 @@ class PointProcess:
     ) -> plt.Axes:
         """Panel H: global diagnostic summary metrics."""
         if diag_data is None:
-            diag_data = self.compute_diagnostics_data(dataset)
+            diag_data = self.compute_diagnostics_data(dataset,run_parametric_gof=False)
         if ax is None:
             _, ax = plt.subplots()
 
@@ -1745,56 +2385,156 @@ class PointProcess:
         return ax
 
     def diagnose(
-        self, 
-        dataset: PointProcessDataset, 
+        self,
+        dataset: PointProcessDataset,
         figsize: Tuple[int, int] = (15, 22),
         eps: float = 1e-5,
         max_trial_lag: int = 10,
         max_time_lag: int = 30,
+        run_parametric_gof: bool = True,
+        gof_n_boot: int = 300,
+        gof_seed: int = 42,
+        gof_ci: float = 95.0,
+        gof_acf_lags: int = 20,
+        gof_min_km_at_risk: int = 10,
+        gof_min_envelope_fraction: float = 0.80,
+        gof_refit_n_starts: int = 1,
+        gof_n_jobs: int = -1,
+        gof_u_grid: Optional[np.ndarray] = None,
     ) -> Tuple[plt.Figure, Dict[str, Any]]:
         """
-        Assembles the 8-panel dashboard. Two panels are chosen dynamically,
-        based on properties of the residuals actually produced by this model
-        on this dataset -- not on the model's class:
+        Assemble the diagnostic dashboard.
 
-        - Panel B: Cox-Snell (survival-native) if any residual is censored,
-        else the classic Ogata KS/CDF plot.
-        - Panel D: event-lag ACF if at least one stream contributed >=2 exact
-        residuals (the minimum needed to say anything about lag-1
-        autocorrelation), else the first-event survival curve overlay
-        (structurally the only sensible panel for a process capped at <=1
-        event per stream).
+        Panel B uses:
+        - bootstrap-calibrated Cox-Snell KM diagnostics for censored residuals;
+        - bootstrap-calibrated Uniform-CDF diagnostics for uncensored residuals;
+        - the corresponding descriptive fallback when the parametric bootstrap
+            is disabled.
         """
         diag_data = self.compute_diagnostics_data(
-            dataset, max_trial_lag=max_trial_lag, max_time_lag=max_time_lag, eps=eps
+            dataset=dataset,
+            max_trial_lag=max_trial_lag,
+            max_time_lag=max_time_lag,
+            eps=eps,
+            run_parametric_gof=run_parametric_gof,
+            gof_n_boot=gof_n_boot,
+            gof_seed=gof_seed,
+            gof_ci=gof_ci,
+            gof_acf_lags=gof_acf_lags,
+            gof_min_km_at_risk=gof_min_km_at_risk,
+            gof_min_envelope_fraction=gof_min_envelope_fraction,
+            gof_refit_n_starts=gof_refit_n_starts,
+            gof_n_jobs=gof_n_jobs,
+            gof_u_grid=gof_u_grid,
         )
+
         tr_data = diag_data["time_rescaling"]
+        parametric_gof = diag_data["parametric_gof"]
 
-        fig, axes = plt.subplots(5, 2, figsize=figsize)
-        plt.subplots_adjust(hspace=0.38, wspace=0.3)
-        fig.suptitle(self.latex_formula, fontsize=15, fontweight='bold', y=0.99)
+        fig, axes = plt.subplots(
+            5,
+            2,
+            figsize=figsize,
+        )
+        plt.subplots_adjust(
+            hspace=0.38,
+            wspace=0.3,
+        )
 
-        self.plot_panel_residual_surface(dataset, diag_data, ax=axes[0, 0])
+        fig.suptitle(
+            self.latex_formula,
+            fontsize=15,
+            fontweight="bold",
+            y=0.99,
+        )
 
-        if np.any(tr_data["censored"]):
-            self.plot_panel_calibration_cox_snell(dataset, diag_data, ax=axes[0, 1])
+        # A
+        self.plot_panel_residual_surface(
+            dataset,
+            diag_data,
+            ax=axes[0, 0],
+        )
+
+        # B
+        if parametric_gof is not None:
+            if parametric_gof["observed"]["has_censoring"]:
+                self.plot_parametric_gof_cox_snell(
+                    gof_result=parametric_gof,
+                    ax=axes[0, 1],
+                )
+            else:
+                self.plot_parametric_gof_calibration(
+                    gof_result=parametric_gof,
+                    ax=axes[0, 1],
+                )
+        elif np.any(tr_data["censored"]):
+            self.plot_panel_calibration_cox_snell(
+                dataset,
+                diag_data,
+                ax=axes[0, 1],
+            )
         else:
-            self.plot_panel_calibration_ks(dataset, diag_data, ax=axes[0, 1])
+            self.plot_panel_calibration_ks(
+                dataset,
+                diag_data,
+                ax=axes[0, 1],
+            )
 
-        self.plot_panel_residual_histogram(dataset, diag_data, ax=axes[1, 0])
+        # C
+        self.plot_panel_residual_histogram(
+            dataset,
+            diag_data,
+            ax=axes[1, 0],
+        )
 
+        # D
         if tr_data["n_multi_residual_streams"] > 0:
-            self.plot_panel_event_lag_acf(dataset, diag_data, ax=axes[1, 1])
+            self.plot_panel_event_lag_acf(
+                dataset,
+                diag_data,
+                ax=axes[1, 1],
+            )
         else:
-            self.plot_panel_survival_curve(dataset, diag_data, ax=axes[1, 1])
+            self.plot_panel_survival_curve(
+                dataset,
+                diag_data,
+                ax=axes[1, 1],
+            )
 
-        self.plot_panel_residual_acf2d(dataset, diag_data, ax=axes[2, 0])
-        self.plot_panel_fish_dn_distribution(dataset, diag_data, ax=axes[2, 1])
-        self.plot_panel_parameter_correlation(dataset, diag_data, ax=axes[3, 0])
-        self.plot_panel_summary_text(dataset, diag_data, ax=axes[3, 1])
-        self.plot_predicted_vs_observed(dataset, ax=axes[4,0])
+        # E
+        self.plot_panel_residual_acf2d(
+            dataset,
+            diag_data,
+            ax=axes[2, 0],
+        )
 
-        axes[4, 1].axis('off')
+        # F
+        self.plot_panel_fish_dn_distribution(
+            dataset,
+            diag_data,
+            ax=axes[2, 1],
+        )
+
+        # G
+        self.plot_panel_parameter_correlation(
+            dataset,
+            diag_data,
+            ax=axes[3, 0],
+        )
+
+        # H
+        self.plot_panel_summary_text(
+            dataset,
+            diag_data,
+            ax=axes[3, 1],
+        )
+
+        self.plot_predicted_vs_observed(
+            dataset,
+            ax=axes[4, 0],
+        )
+
+        axes[4, 1].axis("off")
 
         return fig, diag_data
 

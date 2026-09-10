@@ -753,29 +753,6 @@ for exp_name, config in model_config.items():
     print("\n--- MODEL COMPARISON TABLE ---")
     print(summary_table.to_string(index=False))
 
-    # GOF parametric bootstrap ---------------------------
-    gof_boot = best_model.parametric_gof_bootstrap(
-        dataset,
-        n_boot=300,
-        seed=123,
-        refit_n_starts=1,
-        n_jobs=-1,
-    )
-
-    print(gof_boot["summary"].to_string(index=False))
-
-    save_csv(
-        gof_boot["summary"],
-        model_dir,
-        f"parametric_gof_summary_{best_model.name}",
-    )
-
-    save_csv(
-        gof_boot["bootstrap_statistics"],
-        model_dir,
-        f"parametric_gof_replicates_{best_model.name}",
-    )
-
     # plots -------------------------------------------------------
 
     fig, _ = ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
@@ -789,6 +766,19 @@ for exp_name, config in model_config.items():
 
     fig_diag, diag_results = best_model.diagnose(dataset)
     save_fig(fig_diag, model_dir, f"diagnose_{best_model.name}")
+
+    gof_result = diag_results["parametric_gof"]
+    print(gof_result["summary"].to_string(index=False))
+    save_csv(
+        gof_result["summary"],
+        model_dir,
+        f"parametric_gof_summary_{best_model.name}",
+    )
+    save_csv(
+        gof_result["bootstrap_statistics"],
+        model_dir,
+        f"parametric_gof_replicates_{best_model.name}",
+    )
 
     # NOTE: this might take a while
     boot_df = best_model.bootstrap(dataset, n_boot=200)
