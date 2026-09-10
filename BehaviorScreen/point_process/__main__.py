@@ -7,21 +7,52 @@ import matplotlib.pyplot as plt
 
 from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.point_process.dataset import (
-    BehavioralDataLoader, PointProcessDataset, DatasetPlotter,
+    BehavioralDataLoader,
+    PointProcessDataset,
+    DatasetPlotter,
 )
 from BehaviorScreen.point_process.point_process import ModelComparator, ModelPlotter
-from BehaviorScreen.point_process.poisson_process import RateKernelFactory, PoissonProcess, PreyCapture
-from BehaviorScreen.point_process.hawkes_process import HistoryKernelFactory, HawkesProcess
-from BehaviorScreen.point_process.renewal_process import RenewalKernelFactory, RenewalProcess
+from BehaviorScreen.point_process.poisson_process import (
+    RateKernelFactory,
+    PoissonProcess,
+    PreyCapture,
+)
+from BehaviorScreen.point_process.hawkes_process import (
+    HistoryKernelFactory,
+    HawkesProcess,
+)
+from BehaviorScreen.point_process.renewal_process import (
+    RenewalKernelFactory,
+    RenewalProcess,
+)
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
-from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
-from BehaviorScreen.point_process.baseline_only_frailty_hawkes import BaselineOnlyFrailtyHawkesProcess
-from BehaviorScreen.point_process.zero_inflated_mixed_effects_process import ZeroInflatedGammaMixedEffectsProcess
-from BehaviorScreen.point_process.zero_inflated_baseline_only_frailty_hawkes import ZeroInflatedBaselineOnlyFrailtyHawkesProcess
+from BehaviorScreen.point_process.survival_process import (
+    SurvivalProcess,
+    SurvivalKernelFactory,
+)
+from BehaviorScreen.point_process.baseline_only_frailty_hawkes import (
+    BaselineOnlyFrailtyHawkesProcess,
+)
+from BehaviorScreen.point_process.zero_inflated_mixed_effects_process import (
+    ZeroInflatedGammaMixedEffectsProcess,
+)
+from BehaviorScreen.point_process.zero_inflated_baseline_only_frailty_hawkes import (
+    ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
+)
 from BehaviorScreen.point_process.io import save_fig, save_csv
-from BehaviorScreen.point_process.frailty_analysis import collect_fish_gains, plot_fish_gain_correlation
+from BehaviorScreen.point_process.frailty_analysis import (
+    collect_fish_gains,
+    plot_fish_gain_correlation,
+)
+from BehaviorScreen.point_process.residual_localization import (
+    bootstrap_localization,
+    plot_residual_localization,
+)
 
-def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDataset]) -> pd.DataFrame:
+
+def summarize_dispersion_across_conditions(
+    datasets: Dict[str, PointProcessDataset],
+) -> pd.DataFrame:
     """
     Builds a cross-condition comparison table of dispersion diagnostics
     (see PointProcessDataset.dispersion_* properties) for every dataset
@@ -29,19 +60,21 @@ def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDatas
     """
     records = []
     for exp_name, dataset in datasets.items():
-        records.append({
-            "Condition": exp_name,
-            "N Fish": len(dataset.fish_total_counts),
-            "N Streams": len(dataset.stream_event_counts),
-            "Mean Count/Stream": np.mean(dataset.stream_event_counts),
-            "Stream Fano (DI)": dataset.stream_fano_factor,
-            "Fish Fano (DI)": dataset.fish_fano_factor,
-            "Fano Ratio (fish/stream)": dataset.dispersion_fano_ratio,
-            "Frac Streams w/ >=2 events": dataset.frac_streams_with_multiple_events,
-            "Low Power Flag": dataset.is_low_power_for_dispersion,
-            "Mean ISI CV": dataset.mean_isi_cv,
-            "ISI Lag-1 Autocorr": dataset.stream_isi_lag1_autocorr,
-        })
+        records.append(
+            {
+                "Condition": exp_name,
+                "N Fish": len(dataset.fish_total_counts),
+                "N Streams": len(dataset.stream_event_counts),
+                "Mean Count/Stream": np.mean(dataset.stream_event_counts),
+                "Stream Fano (DI)": dataset.stream_fano_factor,
+                "Fish Fano (DI)": dataset.fish_fano_factor,
+                "Fano Ratio (fish/stream)": dataset.dispersion_fano_ratio,
+                "Frac Streams w/ >=2 events": dataset.frac_streams_with_multiple_events,
+                "Low Power Flag": dataset.is_low_power_for_dispersion,
+                "Mean ISI CV": dataset.mean_isi_cv,
+                "ISI Lag-1 Autocorr": dataset.stream_isi_lag1_autocorr,
+            }
+        )
 
     df = pd.DataFrame(records)
     return df.sort_values(
@@ -54,9 +87,11 @@ def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDatas
 # =============================================================================
 
 possible_roots = [
-    Path('/home/martin/Desktop/DATA'),
-    Path('/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen'),
-    Path('/media/martin/DATA_18TB/Screen'),
+    Path("/home/martin/Desktop/DATA"),
+    Path(
+        "/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen"
+    ),
+    Path("/media/martin/DATA_18TB/Screen"),
 ]
 # possible_roots = [Path('/media/martin/DATA_18TB/Screen/WT/danieau')]
 
@@ -68,23 +103,22 @@ prey_stim_speed_deg_per_s = 90
 prey_stim_range_deg = 2 * 70
 prey_stim_freq = prey_stim_speed_deg_per_s / prey_stim_range_deg
 
-loader = BehavioralDataLoader(ROOT / 'bouts_control.csv')
-#loader = BehavioralDataLoader(ROOT / 'bouts.csv')
+loader = BehavioralDataLoader(ROOT / "bouts_control.csv")
+# loader = BehavioralDataLoader(ROOT / 'bouts.csv')
 
 
 model_config = {
-
-    'prey_capture_ipsi': {
-        'dataset': {
-            'stim': Stim.PREY_CAPTURE,
-            'bout_name': 'JT',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 24.0,
+    "prey_capture_ipsi": {
+        "dataset": {
+            "stim": Stim.PREY_CAPTURE,
+            "bout_name": "JT",
+            "laterality": Laterality.IPSILATERAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 24.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(PreyCapture.time_only(stim_freq=prey_stim_freq)),
             PoissonProcess(PreyCapture.peak(stim_freq=prey_stim_freq)),
@@ -92,81 +126,92 @@ model_config = {
             PoissonProcess(PreyCapture.peak_baseline(stim_freq=prey_stim_freq)),
             PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)),
             PoissonProcess(PreyCapture.peak_baseline_shared(stim_freq=prey_stim_freq)),
-            PoissonProcess(PreyCapture.peak_baseline_shared_ripple(stim_freq=prey_stim_freq)),
-            PoissonProcess(PreyCapture.peak_baseline_ripple_shared(stim_freq=prey_stim_freq)),
+            PoissonProcess(
+                PreyCapture.peak_baseline_shared_ripple(stim_freq=prey_stim_freq)
+            ),
+            PoissonProcess(
+                PreyCapture.peak_baseline_ripple_shared(stim_freq=prey_stim_freq)
+            ),
             GammaMixedEffectsProcess(
                 PoissonProcess(RateKernelFactory.homogeneous_poisson())
             ),
             GammaMixedEffectsProcess(
-                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
+                PoissonProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)
+                )
             ),
             ZeroInflatedGammaMixedEffectsProcess(
-                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq))
+                PoissonProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)
+                )
             ),
             ZeroInflatedGammaMixedEffectsProcess(
-                PoissonProcess(PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)),
-                fit_c=True
+                PoissonProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq)
+                ),
+                fit_c=True,
             ),
             ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-                    HistoryKernelFactory.exponential()
+                    HistoryKernelFactory.exponential(),
                 ),
             ),
             # RenewalProcess(
-            #     RateKernelFactory.homogeneous_poisson(), 
+            #     RateKernelFactory.homogeneous_poisson(),
             #     RenewalKernelFactory.exponential_excitation()
             # ),
             # GammaMixedEffectsProcess(
             #     RenewalProcess(
-            #         RateKernelFactory.homogeneous_poisson(), 
+            #         RateKernelFactory.homogeneous_poisson(),
             #         RenewalKernelFactory.exponential_excitation()
             #     )
             # ),
             # RenewalProcess(
-            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+            #     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
             #     RenewalKernelFactory.exponential_excitation()
             # ),
             # GammaMixedEffectsProcess(
             #     RenewalProcess(
-            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq), 
+            #         PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
             #         RenewalKernelFactory.exponential_excitation()
             #     )
             # ),
             HawkesProcess(
                 PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-                HistoryKernelFactory.exponential()
+                HistoryKernelFactory.exponential(),
             ),
             BaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-                    HistoryKernelFactory.exponential()
+                    HistoryKernelFactory.exponential(),
                 ),
             ),
-        ]
+        ],
     },
-
-    'prey_capture_contra': {
-        'dataset': {
-            'stim': Stim.PREY_CAPTURE,
-            'bout_name': 'JT',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 24.0,
+    "prey_capture_contra": {
+        "dataset": {
+            "stim": Stim.PREY_CAPTURE,
+            "bout_name": "JT",
+            "laterality": Laterality.CONTRALATERAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 24.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
             HawkesProcess(
                 RateKernelFactory.homogeneous_poisson(),
-                HistoryKernelFactory.exponential()
+                HistoryKernelFactory.exponential(),
             ),
             BaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     RateKernelFactory.homogeneous_poisson(),
-                    HistoryKernelFactory.exponential()
+                    HistoryKernelFactory.exponential(),
                 ),
             ),
             ZeroInflatedGammaMixedEffectsProcess(
@@ -175,29 +220,34 @@ model_config = {
             ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
                 HawkesProcess(
                     RateKernelFactory.homogeneous_poisson(),
-                    HistoryKernelFactory.exponential()
+                    HistoryKernelFactory.exponential(),
                 ),
             ),
-        ]
+        ],
     },
-
-    'phototaxis_ipsi': {
-        'dataset': {
-            'stim': Stim.PHOTOTAXIS,
-            'bout_name': 'RT',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 24.0,
+    "phototaxis_ipsi": {
+        "dataset": {
+            "stim": Stim.PHOTOTAXIS,
+            "bout_name": "RT",
+            "laterality": Laterality.IPSILATERAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 24.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(RateKernelFactory.phototaxis_ipsi()),
             PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_ipsi())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.phototaxis_ipsi())
+            ),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())
+            ),
             # HawkesProcess(
             #     RateKernelFactory.phototaxis_dip_exgaussian_peak(),
             #     HistoryKernelFactory.exponential()
@@ -217,20 +267,19 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-        ]
+        ],
     },
-
-    'phototaxis_contra': {
-        'dataset': {
-            'stim': Stim.PHOTOTAXIS,
-            'bout_name': 'RT',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 24.0,
+    "phototaxis_contra": {
+        "dataset": {
+            "stim": Stim.PHOTOTAXIS,
+            "bout_name": "RT",
+            "laterality": Laterality.CONTRALATERAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 24.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(RateKernelFactory.phototaxis_contra()),
             # RenewalProcess(
@@ -247,8 +296,12 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_contra())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.phototaxis_contra())
+            ),
             ZeroInflatedGammaMixedEffectsProcess(
                 PoissonProcess(RateKernelFactory.phototaxis_contra())
             ),
@@ -258,26 +311,27 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-        ]
+        ],
     },
-
-    'omr_lateral_ipsi': {
-        'dataset': {
-            'epoch_name': ["grating right", "grating left"],
-            'bout_name': 'RT',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 9.0,
+    "omr_lateral_ipsi": {
+        "dataset": {
+            "epoch_name": ["grating right", "grating left"],
+            "bout_name": "RT",
+            "laterality": Laterality.IPSILATERAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 9.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             # HawkesProcess(
             #     RateKernelFactory.homogeneous_poisson(),
             #     HistoryKernelFactory.exponential()
             # ),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
             # BaselineOnlyFrailtyHawkesProcess(
             #     HawkesProcess(
             #         RateKernelFactory.homogeneous_poisson(),
@@ -293,24 +347,27 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-        ]
+        ],
     },
-
-    'omr_lateral_contra': {
-        'dataset': {
-            'epoch_name': ["grating right", "grating left"],
-            'bout_name': 'RT',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 9.0,
+    "omr_lateral_contra": {
+        "dataset": {
+            "epoch_name": ["grating right", "grating left"],
+            "bout_name": "RT",
+            "laterality": Laterality.CONTRALATERAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 9.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(RateKernelFactory.omr_lateral_contra()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_lateral_contra())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.omr_lateral_contra())
+            ),
             # HawkesProcess(
             #     RateKernelFactory.omr_lateral_contra(),
             #     HistoryKernelFactory.exponential()
@@ -330,23 +387,24 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-        ]
+        ],
     },
-
-    'omr_forward': {
-        'dataset': {
-            'epoch_name': "grating forward",
-            'bout_name': 'BS',
-            'laterality': Laterality.NONDIRECTIONAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 9.0,
+    "omr_forward": {
+        "dataset": {
+            "epoch_name": "grating forward",
+            "bout_name": "BS",
+            "laterality": Laterality.NONDIRECTIONAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 9.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(RateKernelFactory.omr_forward()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_forward())),
             # HawkesProcess(
             #     RateKernelFactory.omr_forward(),
@@ -367,22 +425,23 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-        ]
+        ],
     },
-
-    'okr_ipsi': {
-        'dataset': {
-            'stim': Stim.OKR,
-            'bout_name': 'S1',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 9.0,
+    "okr_ipsi": {
+        "dataset": {
+            "stim": Stim.OKR,
+            "bout_name": "S1",
+            "laterality": Laterality.IPSILATERAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 9.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
             # HawkesProcess(
             #     RateKernelFactory.homogeneous_poisson(),
             #     HistoryKernelFactory.exponential()
@@ -402,30 +461,31 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-        ]
+        ],
     },
-
-    'okr_contra': {
-        'dataset': {
-            'stim': Stim.OKR,
-            'bout_name': 'S1',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 9.0,
+    "okr_contra": {
+        "dataset": {
+            "stim": Stim.OKR,
+            "bout_name": "S1",
+            "laterality": Laterality.CONTRALATERAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 9.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             # RenewalProcess(
-            #     RateKernelFactory.homogeneous_poisson(), 
+            #     RateKernelFactory.homogeneous_poisson(),
             #     RenewalKernelFactory.exponential_recovery()
             # ),
             # RenewalProcess(
-            #     RateKernelFactory.homogeneous_poisson(), 
+            #     RateKernelFactory.homogeneous_poisson(),
             #     RenewalKernelFactory.exponential_excitation()
             # ),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
             # GammaMixedEffectsProcess(
             #     RenewalProcess(
             #         RateKernelFactory.homogeneous_poisson(),
@@ -451,82 +511,142 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-        ]
+        ],
     },
-
-    'looming_ipsi': {
-        'dataset': {
-            'stim': Stim.LOOMING,
-            'bout_name': 'SLC',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 9.0,
+    "looming_ipsi": {
+        "dataset": {
+            "stim": Stim.LOOMING,
+            "bout_name": "SLC",
+            "laterality": Laterality.IPSILATERAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 9.0,
         },
-        'null_model': SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-        'models': [
+        "null_model": SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
+        "models": [
             SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4,6))),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6))),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4,6)))),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6)))),
-        ]
+            SurvivalProcess(
+                SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4, 6))
+            ),
+            SurvivalProcess(
+                SurvivalKernelFactory.gaussian_bump_baseline_habituating(
+                    t_init=5, t_bounds=(4, 6)
+                )
+            ),
+            GammaMixedEffectsProcess(
+                SurvivalProcess(
+                    SurvivalKernelFactory.gaussian_bump_baseline(
+                        t_init=5, t_bounds=(4, 6)
+                    )
+                )
+            ),
+            GammaMixedEffectsProcess(
+                SurvivalProcess(
+                    SurvivalKernelFactory.gaussian_bump_baseline_habituating(
+                        t_init=5, t_bounds=(4, 6)
+                    )
+                )
+            ),
+        ],
     },
-
-    'looming_contra': {
-        'dataset': {
-            'stim': Stim.LOOMING,
-            'bout_name': 'SLC',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 9.0,
+    "looming_contra": {
+        "dataset": {
+            "stim": Stim.LOOMING,
+            "bout_name": "SLC",
+            "laterality": Laterality.CONTRALATERAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 9.0,
         },
-        'null_model': SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-        'models': [
+        "null_model": SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
+        "models": [
             SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4,6))),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6))),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4,6)))),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4,6)))),
-        ]
+            SurvivalProcess(
+                SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4, 6))
+            ),
+            SurvivalProcess(
+                SurvivalKernelFactory.gaussian_bump_baseline_habituating(
+                    t_init=5, t_bounds=(4, 6)
+                )
+            ),
+            GammaMixedEffectsProcess(
+                SurvivalProcess(
+                    SurvivalKernelFactory.gaussian_bump_baseline(
+                        t_init=5, t_bounds=(4, 6)
+                    )
+                )
+            ),
+            GammaMixedEffectsProcess(
+                SurvivalProcess(
+                    SurvivalKernelFactory.gaussian_bump_baseline_habituating(
+                        t_init=5, t_bounds=(4, 6)
+                    )
+                )
+            ),
+        ],
     },
-
-    'dark_flash': {
-        'dataset': {
-            'epoch_name': "flash dark",
-            'bout_name': 'O',
-            'laterality': Laterality.NONDIRECTIONAL,
-            'binning_dt': 0.025,
-            't_start': 0.0,
-            't_end': 5.0,
+    "dark_flash": {
+        "dataset": {
+            "epoch_name": "flash dark",
+            "bout_name": "O",
+            "laterality": Laterality.NONDIRECTIONAL,
+            "binning_dt": 0.025,
+            "t_start": 0.0,
+            "t_end": 5.0,
         },
-        'null_model': SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-        'models': [
+        "null_model": SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
+        "models": [
             SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.2, t_bounds=(0.01,1))),
-            SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=0.2, t_bounds=(0.01,1))),
-            SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating()),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.2, t_bounds=(0.01,1)))),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=0.2, t_bounds=(0.01,1)))),
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
-        ]
+            SurvivalProcess(
+                SurvivalKernelFactory.gaussian_bump_baseline(
+                    t_init=0.2, t_bounds=(0.01, 1)
+                )
+            ),
+            SurvivalProcess(
+                SurvivalKernelFactory.gaussian_bump_baseline_habituating(
+                    t_init=0.2, t_bounds=(0.01, 1)
+                )
+            ),
+            SurvivalProcess(
+                SurvivalKernelFactory.exgaussian_bump_baseline_habituating()
+            ),
+            GammaMixedEffectsProcess(
+                SurvivalProcess(
+                    SurvivalKernelFactory.gaussian_bump_baseline(
+                        t_init=0.2, t_bounds=(0.01, 1)
+                    )
+                )
+            ),
+            GammaMixedEffectsProcess(
+                SurvivalProcess(
+                    SurvivalKernelFactory.gaussian_bump_baseline_habituating(
+                        t_init=0.2, t_bounds=(0.01, 1)
+                    )
+                )
+            ),
+            GammaMixedEffectsProcess(
+                SurvivalProcess(
+                    SurvivalKernelFactory.exgaussian_bump_baseline_habituating()
+                )
+            ),
+        ],
     },
-
-    'spont_dark': {
-        'dataset': {
-            'epoch_name': "spontaneous dark",
-            'bout_name': 'RT',
-            'laterality': Laterality.NONDIRECTIONAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 24.0,
+    "spont_dark": {
+        "dataset": {
+            "epoch_name": "spontaneous dark",
+            "bout_name": "RT",
+            "laterality": Laterality.NONDIRECTIONAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 24.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(RateKernelFactory.spont()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.spont())),
             # HawkesProcess(
             #     RateKernelFactory.homogeneous_poisson(),
@@ -551,23 +671,24 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-        ]
+        ],
     },
-
-    'spont_bright': {
-        'dataset': {
-            'epoch_name': "spontaneous bright",
-            'bout_name': 'RT',
-            'laterality': Laterality.NONDIRECTIONAL,
-            'binning_dt': 0.05,
-            't_start': 0.0,
-            't_end': 24.0,
+    "spont_bright": {
+        "dataset": {
+            "epoch_name": "spontaneous bright",
+            "bout_name": "RT",
+            "laterality": Laterality.NONDIRECTIONAL,
+            "binning_dt": 0.05,
+            "t_start": 0.0,
+            "t_end": 24.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             PoissonProcess(RateKernelFactory.spont()),
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
+            GammaMixedEffectsProcess(
+                PoissonProcess(RateKernelFactory.homogeneous_poisson())
+            ),
             GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.spont())),
             # HawkesProcess(
             #     RateKernelFactory.homogeneous_poisson(),
@@ -598,20 +719,19 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-        ]
+        ],
     },
-
-    'after_looming': {
-        'dataset': {
-            'epoch_name': ["looming break after left", "looming break after right"],
-            'bout_name': 'RT',
-            'laterality': [Laterality.IPSILATERAL, Laterality.CONTRALATERAL],
-            'binning_dt': 0.05,
-            't_start': 0,
-            't_end': 49.0,
+    "after_looming": {
+        "dataset": {
+            "epoch_name": ["looming break after left", "looming break after right"],
+            "bout_name": "RT",
+            "laterality": [Laterality.IPSILATERAL, Laterality.CONTRALATERAL],
+            "binning_dt": 0.05,
+            "t_start": 0,
+            "t_end": 49.0,
         },
-        'null_model': PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-        'models': [
+        "null_model": PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+        "models": [
             # PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             # PoissonProcess(RateKernelFactory.after_looming()),
             # GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
@@ -635,7 +755,7 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
-        ]
+        ],
     },
 }
 
@@ -646,7 +766,7 @@ model_config = {
 
 print("Loading datasets for all conditions...")
 datasets: Dict[str, PointProcessDataset] = {
-    exp_name: loader.prepare_dataset(**config['dataset'])
+    exp_name: loader.prepare_dataset(**config["dataset"])
     for exp_name, config in model_config.items()
 }
 
@@ -738,10 +858,10 @@ for exp_name, config in model_config.items():
 
     # AIC-based model selection ----------------------------
     summary_table, fitted_models = ModelComparator.compare(
-        models=config['models'],
+        models=config["models"],
         dataset=dataset,
-        null_model=config['null_model'],
-        n_starts = 40
+        null_model=config["null_model"],
+        n_starts=40,
     )
     save_csv(summary_table, model_dir, "model_comparison_table")
     best_model = fitted_models[0]
@@ -786,7 +906,27 @@ for exp_name, config in model_config.items():
     print(boot_df.to_string(index=False))
     save_csv(boot_df, model_dir, f"bootstrap_{best_model.name}")
 
-    plt.close('all')
+    ####
+    localization = bootstrap_localization(
+        best_model,
+        dataset,
+        n_boot=100,
+        seed=123,
+        refit=True,
+        refit_n_starts=1,
+        min_km_at_risk=1,
+        r_grid=np.linspace(0, 5, 151),
+        time_edges=np.linspace(0, dataset.duration_s, 7),
+        gap_edges=np.linspace(
+            0,
+            min(dataset.duration_s, 5.0),
+            41,
+        ),
+    )
+    fig, axes = plot_residual_localization(localization)
+    save_fig(fig, model_dir, f"residual_localization_{best_model.name}")
+
+    plt.close("all")
 
 master_summary_df = pd.concat(all_summaries, ignore_index=True)
 print("\n================ MASTER MODEL COMPARISON TABLE ================")
@@ -802,6 +942,7 @@ models_and_datasets = {
 }
 gain_df = collect_fish_gains(models_and_datasets)
 fig, ax, corr = plot_fish_gain_correlation(
-    gain_df, title="Pooled control population: cross-behavior frailty gain correlation",
+    gain_df,
+    title="Pooled control population: cross-behavior frailty gain correlation",
 )
 save_fig(fig, OUTPUT_ROOT, "fish_gain_correlation_pooled_population")
