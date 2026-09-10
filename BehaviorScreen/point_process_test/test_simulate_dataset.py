@@ -39,9 +39,7 @@ class GainRecordingPoisson(PoissonProcess):
     """
 
     def __init__(self):
-        super().__init__(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        super().__init__(RateKernelFactory.homogeneous_poisson())
         self.recorded_calls = []
         self.draw_call_arguments = []
 
@@ -51,9 +49,7 @@ class GainRecordingPoisson(PoissonProcess):
         n_sims: int,
         rng,
     ) -> np.ndarray:
-        self.draw_call_arguments.append(
-            (int(num_fish), int(n_sims))
-        )
+        self.draw_call_arguments.append((int(num_fish), int(n_sims)))
 
         gains = np.arange(
             1,
@@ -102,9 +98,7 @@ class TestSimulateDataset:
             binning_dt=0.05,
         )
 
-        fish_trial_mask = (
-            scaffold_original.fish_trial_mask.copy()
-        )
+        fish_trial_mask = scaffold_original.fish_trial_mask.copy()
 
         # Introduce several inactive design cells.
         fish_trial_mask[0, 1] = False
@@ -124,9 +118,7 @@ class TestSimulateDataset:
             binning_dt=scaffold_original.binning_dt,
         )
 
-        model = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        model = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         model.set_params(np.array([2.0]))
 
         simulated = model.simulate_dataset(
@@ -153,20 +145,13 @@ class TestSimulateDataset:
         assert simulated.event_fish_idx.dtype.kind in "iu"
 
         assert np.all(simulated.event_times >= 0.0)
-        assert np.all(
-            simulated.event_times < scaffold.duration_s
-        )
+        assert np.all(simulated.event_times < scaffold.duration_s)
 
         assert np.all(simulated.event_fish_idx >= 0)
-        assert np.all(
-            simulated.event_fish_idx < scaffold.num_fish
-        )
+        assert np.all(simulated.event_fish_idx < scaffold.num_fish)
 
         assert np.all(simulated.event_trials_idx >= 0)
-        assert np.all(
-            simulated.event_trials_idx
-            < scaffold.num_trials
-        )
+        assert np.all(simulated.event_trials_idx < scaffold.num_trials)
 
         # No generated event may belong to an inactive cell.
         for f_idx, t_idx in zip(
@@ -204,9 +189,7 @@ class TestSimulateDataset:
             event_trials_idx=np.array([], dtype=int),
             event_fish_idx=np.array([], dtype=int),
             fish_trial_mask=mask,
-            fish_ids=np.array(
-                [f"fish_{i}" for i in range(num_fish)]
-            ),
+            fish_ids=np.array([f"fish_{i}" for i in range(num_fish)]),
             duration_s=2.0,
             binning_dt=0.05,
         )
@@ -263,20 +246,13 @@ class TestSimulateDataset:
 
         # simulate_dataset() should request exactly one draw per fish:
         # shape (num_fish, 1).
-        assert model.draw_call_arguments == [
-            (num_fish, 1)
-        ]
+        assert model.draw_call_arguments == [(num_fish, 1)]
 
-        assert len(model.recorded_calls) == (
-            num_fish * num_trials
-        )
+        assert len(model.recorded_calls) == (num_fish * num_trials)
 
         # Calls are ordered by fish and then trial.
         gains_by_fish_trial = np.array(
-            [
-                call["gain"]
-                for call in model.recorded_calls
-            ],
+            [call["gain"] for call in model.recorded_calls],
             dtype=float,
         ).reshape(num_fish, num_trials)
 
@@ -305,9 +281,7 @@ class TestSimulateDataset:
             duration_s=4.0,
         )
 
-        model = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        model = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         model.set_params(np.array([0.8]))
 
         simulated_a = model.simulate_dataset(
@@ -377,10 +351,5 @@ class TestSimulateDataset:
         # over the active experimental design.
         streams = list(simulated.iter_streams())
 
-        assert len(streams) == (
-            scaffold.num_fish * scaffold.num_trials
-        )
-        assert all(
-            len(t_ev) == 0
-            for _, _, t_ev in streams
-        )
+        assert len(streams) == (scaffold.num_fish * scaffold.num_trials)
+        assert all(len(t_ev) == 0 for _, _, t_ev in streams)

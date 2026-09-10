@@ -16,22 +16,37 @@ HistoryKernel variant) -- the point is validating the family's likelihood
 machinery in a way that doesn't depend on which specific kernel shape you
 plug in.
 """
+
 import numpy as np
 import pytest
 
 from .conftest import dataset_from_streams, assert_recovered, params_dict
 
-from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory
-from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
-from BehaviorScreen.point_process.renewal_process import RenewalProcess, RenewalKernelFactory
-from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
-
+from BehaviorScreen.point_process.poisson_process import (
+    PoissonProcess,
+    RateKernelFactory,
+)
+from BehaviorScreen.point_process.hawkes_process import (
+    HawkesProcess,
+    HistoryKernelFactory,
+)
+from BehaviorScreen.point_process.renewal_process import (
+    RenewalProcess,
+    RenewalKernelFactory,
+)
+from BehaviorScreen.point_process.survival_process import (
+    SurvivalProcess,
+    SurvivalKernelFactory,
+)
 
 # =============================================================================
 # Reference simulators -- independent of the codebase's own machinery
 # =============================================================================
 
-def reference_simulate_homogeneous_poisson(B: float, duration_s: float, rng) -> np.ndarray:
+
+def reference_simulate_homogeneous_poisson(
+    B: float, duration_s: float, rng
+) -> np.ndarray:
     """Textbook exact simulation via exponential inter-arrival times."""
     events = []
     t = 0.0
@@ -43,7 +58,9 @@ def reference_simulate_homogeneous_poisson(B: float, duration_s: float, rng) -> 
     return np.array(events)
 
 
-def reference_simulate_exponential_hawkes(B, alpha, beta, duration_s, rng) -> np.ndarray:
+def reference_simulate_exponential_hawkes(
+    B, alpha, beta, duration_s, rng
+) -> np.ndarray:
     """
     From-scratch Ogata thinning for an exponential-kernel Hawkes process.
     Deliberately uses np.exp(-beta*dt) written inline -- not
@@ -74,7 +91,9 @@ def reference_simulate_exponential_hawkes(B, alpha, beta, duration_s, rng) -> np
     return np.array(events)
 
 
-def reference_simulate_exponential_renewal_excitation(B, A_exc, tau_exc, duration_s, rng) -> np.ndarray:
+def reference_simulate_exponential_renewal_excitation(
+    B, A_exc, tau_exc, duration_s, rng
+) -> np.ndarray:
     """
     From-scratch thinning for RenewalProcess(homogeneous, exponential_excitation):
     rate(t) = B * (1 + A_exc*exp(-(t-t_last)/tau_exc)), t_last = most recent
@@ -114,6 +133,7 @@ def reference_simulate_survival_constant_hazard(B: float, duration_s: float, rng
 # Tests
 # =============================================================================
 
+
 class TestPoissonIndependentSimulatorRecovery:
 
     def test_homogeneous_rate(self, rng_factory):
@@ -121,7 +141,10 @@ class TestPoissonIndependentSimulatorRecovery:
         true_B, T, n_fish, n_trials = 0.5, 15.0, 60, 4
 
         streams = [
-            [reference_simulate_homogeneous_poisson(true_B, T, rng) for _ in range(n_trials)]
+            [
+                reference_simulate_homogeneous_poisson(true_B, T, rng)
+                for _ in range(n_trials)
+            ]
             for _ in range(n_fish)
         ]
         dataset = dataset_from_streams(streams, T, n_trials)
@@ -140,13 +163,20 @@ class TestHawkesIndependentSimulatorRecovery:
         T, n_fish, n_trials = 20.0, 60, 5
 
         streams = [
-            [reference_simulate_exponential_hawkes(true_B, true_alpha, true_beta, T, rng) for _ in range(n_trials)]
+            [
+                reference_simulate_exponential_hawkes(
+                    true_B, true_alpha, true_beta, T, rng
+                )
+                for _ in range(n_trials)
+            ]
             for _ in range(n_fish)
         ]
         dataset = dataset_from_streams(streams, T, n_trials)
         assert len(dataset.event_times) > 2000
 
-        model = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
+        model = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()
+        )
         model.fit_multistart(dataset, n_starts=8, n_jobs=1, seed=102)
 
         pd = params_dict(model)
@@ -164,22 +194,29 @@ class TestRenewalIndependentSimulatorRecovery:
         T, n_fish, n_trials = 20.0, 60, 5
 
         streams = [
-            [reference_simulate_exponential_renewal_excitation(true_B, true_A_exc, true_tau_exc, T, rng)
-             for _ in range(n_trials)]
+            [
+                reference_simulate_exponential_renewal_excitation(
+                    true_B, true_A_exc, true_tau_exc, T, rng
+                )
+                for _ in range(n_trials)
+            ]
             for _ in range(n_fish)
         ]
         dataset = dataset_from_streams(streams, T, n_trials)
         assert len(dataset.event_times) > 2000
 
         model = RenewalProcess(
-            RateKernelFactory.homogeneous_poisson(), RenewalKernelFactory.exponential_excitation()
+            RateKernelFactory.homogeneous_poisson(),
+            RenewalKernelFactory.exponential_excitation(),
         )
         model.fit_multistart(dataset, n_starts=8, n_jobs=1, seed=104)
 
         pd = params_dict(model)
         assert_recovered("B", pd["B"], true_B, rtol=0.15)
         assert_recovered("A_excitation", pd["A_excitation"], true_A_exc, rtol=0.35)
-        assert_recovered("tau_excitation", pd["tau_excitation"], true_tau_exc, rtol=0.35)
+        assert_recovered(
+            "tau_excitation", pd["tau_excitation"], true_tau_exc, rtol=0.35
+        )
 
 
 class TestSurvivalIndependentSimulatorRecovery:
@@ -189,7 +226,10 @@ class TestSurvivalIndependentSimulatorRecovery:
         true_B, T, n_fish, n_trials = 0.4, 5.0, 200, 6
 
         streams = [
-            [reference_simulate_survival_constant_hazard(true_B, T, rng) for _ in range(n_trials)]
+            [
+                reference_simulate_survival_constant_hazard(true_B, T, rng)
+                for _ in range(n_trials)
+            ]
             for _ in range(n_fish)
         ]
         dataset = dataset_from_streams(streams, T, n_trials)

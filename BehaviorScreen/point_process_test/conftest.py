@@ -32,6 +32,7 @@ Only Layers 0 and 1 should generally use near-machine-precision assertions.
 Stochastic layers use fixed seeds as regression tests, not as formal
 hypothesis tests.
 """
+
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -39,10 +40,10 @@ import pytest
 
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 
-
 # =============================================================================
 # Dataset construction helpers
 # =============================================================================
+
 
 def make_scaffold_dataset(
     num_fish: int, num_trials: int, duration_s: float, binning_dt: float = 0.05
@@ -144,7 +145,10 @@ def dataset_from_streams(
 # Assertion / introspection helpers
 # =============================================================================
 
-def assert_recovered(name: str, fitted: float, true: float, rtol: float = 0.15, atol: float = 0.02):
+
+def assert_recovered(
+    name: str, fitted: float, true: float, rtol: float = 0.15, atol: float = 0.02
+):
     """
     Generic |fitted - true| <= atol + rtol*|true| check with a readable
     failure message. NOTE: this combines relative and absolute tolerance
@@ -173,6 +177,7 @@ class DummyFitResult:
     it obvious if a test accidentally relies on a real log-likelihood value
     from this dummy rather than computing one properly.
     """
+
     fun = float("nan")
 
 
@@ -180,12 +185,15 @@ class DummyFitResult:
 # Common fixtures
 # =============================================================================
 
+
 @pytest.fixture
 def rng_factory():
     """Returns a function that builds a fresh, seeded np.random.Generator --
     use rng_factory(seed) rather than a single shared fixture so each test
     can pick its own seed inline and stay independently reproducible/
     greppable without fixture indirection hiding the seed value."""
+
     def _make(seed: int) -> np.random.Generator:
         return np.random.default_rng(seed)
+
     return _make

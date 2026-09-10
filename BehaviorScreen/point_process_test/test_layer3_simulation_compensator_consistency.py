@@ -16,6 +16,7 @@ a working optimizer (Layer 4) at all. This is the cheapest layer to extend
 to a new model family: no reference formulas to derive by hand, just
 "simulate at true params, time_rescale, check uniformity."
 """
+
 import numpy as np
 import pytest
 from scipy.stats import kstest
@@ -23,10 +24,22 @@ from scipy.stats import kstest
 from .conftest import make_scaffold_dataset, simulate_dataset_from_model, DummyFitResult
 
 from BehaviorScreen.point_process.dataset import PointProcessDataset
-from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory
-from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
-from BehaviorScreen.point_process.renewal_process import RenewalProcess, RenewalKernelFactory
-from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
+from BehaviorScreen.point_process.poisson_process import (
+    PoissonProcess,
+    RateKernelFactory,
+)
+from BehaviorScreen.point_process.hawkes_process import (
+    HawkesProcess,
+    HistoryKernelFactory,
+)
+from BehaviorScreen.point_process.renewal_process import (
+    RenewalProcess,
+    RenewalKernelFactory,
+)
+from BehaviorScreen.point_process.survival_process import (
+    SurvivalProcess,
+    SurvivalKernelFactory,
+)
 from BehaviorScreen.point_process.mixed_effects_process import (
     GammaMixedEffectsProcess,
 )
@@ -40,6 +53,7 @@ from BehaviorScreen.point_process.zero_inflated_baseline_only_frailty_hawkes imp
     ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
 )
 from BehaviorScreen.point_process.kernel_shapes import logit_bounded
+
 
 def _km_exp1_sup_distance(
     model,
@@ -115,6 +129,7 @@ def _assert_residuals_exp1_calibrated(
         f"The simulator and compensator may disagree for {model.name}."
     )
 
+
 class TestPoissonSimulationCompensatorConsistency:
 
     def test_homogeneous(self, rng_factory):
@@ -135,6 +150,7 @@ class TestPoissonSimulationCompensatorConsistency:
         integrate-vs-quad convergence for this same kernel."""
         rng = rng_factory(201)
         from BehaviorScreen.point_process.kernel_shapes import logit_bounded
+
         model = PoissonProcess(RateKernelFactory.omr_forward())
         z_dip = float(logit_bounded(0.6, 0.995))
         model.set_params(np.array([0.5, z_dip, 0.3]))
@@ -160,7 +176,9 @@ class TestHawkesSimulationCompensatorConsistency:
         with what `_func` is ACTUALLY used for during simulation.
         """
         rng = rng_factory(202)
-        model = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
+        model = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()
+        )
         model.set_params(np.array([0.4, 0.3, 2.0]))
 
         scaffold = make_scaffold_dataset(num_fish=80, num_trials=6, duration_s=20.0)
@@ -176,7 +194,8 @@ class TestRenewalSimulationCompensatorConsistency:
     def test_homogeneous_baseline_exponential_excitation(self, rng_factory):
         rng = rng_factory(203)
         model = RenewalProcess(
-            RateKernelFactory.homogeneous_poisson(), RenewalKernelFactory.exponential_excitation()
+            RateKernelFactory.homogeneous_poisson(),
+            RenewalKernelFactory.exponential_excitation(),
         )
         model.set_params(np.array([0.5, 1.0, 0.3]))
 
@@ -198,7 +217,11 @@ class TestSurvivalSimulationCompensatorConsistency:
         processes above (see stream_compensator_profile's docstring).
         """
         rng = rng_factory(204)
-        model = SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.3, t_bounds=(0.05, 0.6)))
+        model = SurvivalProcess(
+            SurvivalKernelFactory.gaussian_bump_baseline(
+                t_init=0.3, t_bounds=(0.05, 0.6)
+            )
+        )
         model.set_params(np.array([3.0, 0.3, 0.08, 0.05]))
 
         scaffold = make_scaffold_dataset(num_fish=300, num_trials=10, duration_s=1.0)
@@ -220,9 +243,7 @@ class TestGammaFrailtySimulationCompensatorConsistency:
         true_r = 3.0
 
         model = GammaMixedEffectsProcess(
-            PoissonProcess(
-                RateKernelFactory.homogeneous_poisson()
-            ),
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             r_init=5.0,
         )
         model.set_params(np.array([true_B, true_r]))
@@ -253,6 +274,7 @@ class TestGammaFrailtySimulationCompensatorConsistency:
             min_at_risk=20,
         )
 
+
 @pytest.mark.slow
 class TestZeroInflatedGammaFrailtySimulationCompensatorConsistency:
 
@@ -264,18 +286,14 @@ class TestZeroInflatedGammaFrailtySimulationCompensatorConsistency:
         true_r = 4.0
 
         model = ZeroInflatedGammaMixedEffectsProcess(
-            PoissonProcess(
-                RateKernelFactory.homogeneous_poisson()
-            ),
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
             pi_init=true_pi,
             r_init=true_r,
             fit_c=False,
         )
 
         z_pi = float(logit_bounded(true_pi, 1.0))
-        model.set_params(
-            np.array([true_B, z_pi, true_r])
-        )
+        model.set_params(np.array([true_B, z_pi, true_r]))
 
         scaffold = make_scaffold_dataset(
             num_fish=300,
@@ -305,6 +323,7 @@ class TestZeroInflatedGammaFrailtySimulationCompensatorConsistency:
             min_at_risk=20,
         )
 
+
 @pytest.mark.slow
 class TestBaselineOnlyFrailtyHawkesCompensatorConsistency:
 
@@ -325,12 +344,14 @@ class TestBaselineOnlyFrailtyHawkesCompensatorConsistency:
             n_quad_nodes=30,
         )
         model.set_params(
-            np.array([
-                true_B,
-                true_alpha,
-                true_beta,
-                true_r,
-            ])
+            np.array(
+                [
+                    true_B,
+                    true_alpha,
+                    true_beta,
+                    true_r,
+                ]
+            )
         )
 
         scaffold = make_scaffold_dataset(
@@ -359,6 +380,7 @@ class TestBaselineOnlyFrailtyHawkesCompensatorConsistency:
             min_at_risk=20,
         )
 
+
 @pytest.mark.slow
 class TestZeroInflatedBaselineOnlyFrailtyHawkesCompensatorConsistency:
 
@@ -384,13 +406,15 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesCompensatorConsistency:
 
         z_pi = float(logit_bounded(true_pi, 1.0))
         model.set_params(
-            np.array([
-                true_B,
-                true_alpha,
-                true_beta,
-                z_pi,
-                true_r,
-            ])
+            np.array(
+                [
+                    true_B,
+                    true_alpha,
+                    true_beta,
+                    z_pi,
+                    true_r,
+                ]
+            )
         )
 
         scaffold = make_scaffold_dataset(

@@ -19,6 +19,7 @@ from BehaviorScreen.point_process.survival_process import (
     SurvivalKernelFactory,
 )
 
+
 class TestParametricGOFIntegrity:
 
     def test_homogeneous_poisson_bootstrap_outputs_are_consistent(
@@ -27,9 +28,7 @@ class TestParametricGOFIntegrity:
     ):
         rng = rng_factory(300)
 
-        true_model = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        true_model = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         true_model.set_params(np.array([0.5]))
 
         scaffold = make_scaffold_dataset(
@@ -44,9 +43,7 @@ class TestParametricGOFIntegrity:
             rng,
         )
 
-        fitted = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        fitted = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         fitted.fit(dataset)
 
         result = fitted.parametric_gof_bootstrap(
@@ -84,9 +81,7 @@ class TestParametricGOFIntegrity:
     def test_bootstrap_envelope_ordering(self, rng_factory):
         rng = rng_factory(302)
 
-        generating = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        generating = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         generating.set_params(np.array([0.6]))
 
         scaffold = make_scaffold_dataset(
@@ -101,9 +96,7 @@ class TestParametricGOFIntegrity:
             rng,
         )
 
-        fitted = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        fitted = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         fitted.fit(dataset)
 
         result = fitted.parametric_gof_bootstrap(
@@ -117,11 +110,7 @@ class TestParametricGOFIntegrity:
         median = result["bootstrap_cdf_median"]
         upper = result["bootstrap_cdf_upper"]
 
-        valid = (
-            np.isfinite(lower)
-            & np.isfinite(median)
-            & np.isfinite(upper)
-        )
+        valid = np.isfinite(lower) & np.isfinite(median) & np.isfinite(upper)
 
         assert np.all(lower[valid] <= median[valid])
         assert np.all(median[valid] <= upper[valid])
@@ -132,9 +121,7 @@ class TestParametricGOFIntegrity:
     ):
         rng = rng_factory(304)
 
-        generating = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        generating = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         generating.set_params(np.array([0.5]))
 
         scaffold = make_scaffold_dataset(
@@ -149,9 +136,7 @@ class TestParametricGOFIntegrity:
             rng,
         )
 
-        fitted = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        fitted = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         fitted.fit(dataset)
 
         result = fitted.parametric_gof_bootstrap(
@@ -181,6 +166,7 @@ class TestParametricGOFIntegrity:
             np.clip(u[valid] + critical, 0.0, 1.0),
         )
 
+
 class TestParametricGOFSurvival:
 
     def test_censored_bootstrap_uses_km_support(
@@ -189,9 +175,7 @@ class TestParametricGOFSurvival:
     ):
         rng = rng_factory(306)
 
-        generating = SurvivalProcess(
-            SurvivalKernelFactory.constant_hazard()
-        )
+        generating = SurvivalProcess(SurvivalKernelFactory.constant_hazard())
         generating.set_params(np.array([0.2]))
 
         scaffold = make_scaffold_dataset(
@@ -206,9 +190,7 @@ class TestParametricGOFSurvival:
             rng,
         )
 
-        fitted = SurvivalProcess(
-            SurvivalKernelFactory.constant_hazard()
-        )
+        fitted = SurvivalProcess(SurvivalKernelFactory.constant_hazard())
         fitted.fit(dataset)
 
         result = fitted.parametric_gof_bootstrap(
@@ -225,22 +207,14 @@ class TestParametricGOFSurvival:
         assert observed["n_censored"] > 0
         assert observed["n_exact"] > 0
 
-        assert len(observed["km_residual_grid"]) == len(
-            observed["km_survival"]
-        )
-        assert len(observed["km_survival"]) == len(
-            observed["km_n_at_risk"]
-        )
+        assert len(observed["km_residual_grid"]) == len(observed["km_survival"])
+        assert len(observed["km_survival"]) == len(observed["km_n_at_risk"])
 
         # KM survival must be non-increasing.
-        assert np.all(
-            np.diff(observed["km_survival"]) <= 1e-12
-        )
+        assert np.all(np.diff(observed["km_survival"]) <= 1e-12)
 
         # Risk set must also be non-increasing at failure knots.
-        assert np.all(
-            np.diff(observed["km_n_at_risk"]) <= 0
-        )
+        assert np.all(np.diff(observed["km_n_at_risk"]) <= 0)
 
         # Unsupported bootstrap tails must be NaN, not silently continued.
         contributors = result["bootstrap_cdf_contributors"]
@@ -248,11 +222,9 @@ class TestParametricGOFSurvival:
 
         assert np.all(
             contributors[reliable]
-            >= np.ceil(
-                result["min_envelope_fraction"]
-                * result["n_successful"]
-            )
+            >= np.ceil(result["min_envelope_fraction"] * result["n_successful"])
         )
+
 
 @pytest.mark.slow
 class TestParametricGOFPower:
@@ -279,11 +251,13 @@ class TestParametricGOFPower:
 
         # Branching ratio = 0.8 / 1.5 ~= 0.53: strong but subcritical.
         generating.set_params(
-            np.array([
-                0.35,  # baseline
-                0.80,  # alpha
-                1.50,  # beta
-            ])
+            np.array(
+                [
+                    0.35,  # baseline
+                    0.80,  # alpha
+                    1.50,  # beta
+                ]
+            )
         )
 
         scaffold = make_scaffold_dataset(
@@ -298,24 +272,18 @@ class TestParametricGOFPower:
             rng,
         )
 
-        misspecified = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        misspecified = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         misspecified.fit(dataset)
 
-        result = (
-            misspecified.parametric_gof_bootstrap(
-                dataset,
-                n_boot=60,
-                seed=309,
-                refit_n_starts=1,
-                n_jobs=1,
-            )
+        result = misspecified.parametric_gof_bootstrap(
+            dataset,
+            n_boot=60,
+            seed=309,
+            refit_n_starts=1,
+            n_jobs=1,
         )
 
-        summary = result["summary"].set_index(
-            "statistic"
-        )
+        summary = result["summary"].set_index("statistic")
 
         p_cvm = float(
             summary.loc[
@@ -330,7 +298,7 @@ class TestParametricGOFPower:
             f"homogeneous Poisson; CvM p={p_cvm:.4f}."
         )
 
-        
+
 class TestParametricGOFNullBehavior:
 
     def test_correct_poisson_is_not_extremely_rejected(
@@ -339,9 +307,7 @@ class TestParametricGOFNullBehavior:
     ):
         rng = rng_factory(310)
 
-        generating = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        generating = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         generating.set_params(np.array([0.5]))
 
         scaffold = make_scaffold_dataset(
@@ -356,9 +322,7 @@ class TestParametricGOFNullBehavior:
             rng,
         )
 
-        fitted = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        fitted = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         fitted.fit(dataset)
 
         result = fitted.parametric_gof_bootstrap(

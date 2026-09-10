@@ -26,15 +26,33 @@ Fixed seeds -> deterministic regression tests, not formal hypothesis tests.
 If you change a dataset size/tolerance, rerun with a few different seeds
 manually before trusting a single fixed-seed pass/fail.
 """
+
 import numpy as np
 import pytest
 
-from .conftest import make_scaffold_dataset, simulate_dataset_from_model, assert_recovered, params_dict
+from .conftest import (
+    make_scaffold_dataset,
+    simulate_dataset_from_model,
+    assert_recovered,
+    params_dict,
+)
 
-from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory
-from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
-from BehaviorScreen.point_process.renewal_process import RenewalProcess, RenewalKernelFactory
-from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
+from BehaviorScreen.point_process.poisson_process import (
+    PoissonProcess,
+    RateKernelFactory,
+)
+from BehaviorScreen.point_process.hawkes_process import (
+    HawkesProcess,
+    HistoryKernelFactory,
+)
+from BehaviorScreen.point_process.renewal_process import (
+    RenewalProcess,
+    RenewalKernelFactory,
+)
+from BehaviorScreen.point_process.survival_process import (
+    SurvivalProcess,
+    SurvivalKernelFactory,
+)
 from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
 from BehaviorScreen.point_process.zero_inflated_mixed_effects_process import (
     ZeroInflatedGammaMixedEffectsProcess,
@@ -48,10 +66,10 @@ from BehaviorScreen.point_process.zero_inflated_baseline_only_frailty_hawkes imp
 from BehaviorScreen.point_process.partially_fixed_process import PartiallyFixedProcess
 from BehaviorScreen.point_process.kernel_shapes import logit_bounded, sigmoid_bounded
 
-
 # =============================================================================
 # PoissonProcess
 # =============================================================================
+
 
 class TestPoissonProcessRecovery:
 
@@ -87,9 +105,7 @@ class TestPoissonProcessRecovery:
         true_B = 0.6
         true_f_dip = 0.7
         true_tau_dip = 0.4
-        true_z_dip = float(
-            logit_bounded(true_f_dip, 0.995)
-        )
+        true_z_dip = float(logit_bounded(true_f_dip, 0.995))
 
         scaffold = make_scaffold_dataset(
             num_fish=160,
@@ -97,15 +113,15 @@ class TestPoissonProcessRecovery:
             duration_s=5.0,
         )
 
-        model = PoissonProcess(
-            RateKernelFactory.omr_forward()
-        )
+        model = PoissonProcess(RateKernelFactory.omr_forward())
         model.set_params(
-            np.array([
-                true_B,
-                true_z_dip,
-                true_tau_dip,
-            ])
+            np.array(
+                [
+                    true_B,
+                    true_z_dip,
+                    true_tau_dip,
+                ]
+            )
         )
 
         dataset = simulate_dataset_from_model(
@@ -114,9 +130,7 @@ class TestPoissonProcessRecovery:
             rng,
         )
 
-        fit_model = PoissonProcess(
-            RateKernelFactory.omr_forward()
-        )
+        fit_model = PoissonProcess(RateKernelFactory.omr_forward())
         fit_model.fit_multistart(
             dataset,
             n_starts=5,
@@ -157,6 +171,7 @@ class TestPoissonProcessRecovery:
 # HawkesProcess
 # =============================================================================
 
+
 @pytest.mark.slow
 class TestHawkesProcessRecovery:
 
@@ -168,16 +183,24 @@ class TestHawkesProcessRecovery:
         machinery, not a fundamental identifiability limit.
         """
         rng = rng_factory(2)
-        true_B, true_alpha, true_beta = 0.4, 0.3, 2.0  # branching ratio 0.15, subcritical
+        true_B, true_alpha, true_beta = (
+            0.4,
+            0.3,
+            2.0,
+        )  # branching ratio 0.15, subcritical
 
         scaffold = make_scaffold_dataset(num_fish=50, num_trials=6, duration_s=20.0)
-        base = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
+        base = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()
+        )
         base.set_params(np.array([true_B, true_alpha, true_beta]))
 
         dataset = simulate_dataset_from_model(base, scaffold, rng)
         assert len(dataset.event_times) > 2000
 
-        fit_model = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
+        fit_model = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()
+        )
         fit_model.fit_multistart(dataset, n_starts=8, n_jobs=1, seed=42)
 
         pd = params_dict(fit_model)
@@ -187,12 +210,15 @@ class TestHawkesProcessRecovery:
 
         true_branching = true_alpha / true_beta
         fitted_branching = pd["alpha_hawkes"] / pd["beta_hawkes"]
-        assert_recovered("branching ratio (alpha/beta)", fitted_branching, true_branching, rtol=0.20)
+        assert_recovered(
+            "branching ratio (alpha/beta)", fitted_branching, true_branching, rtol=0.20
+        )
 
 
 # =============================================================================
 # RenewalProcess
 # =============================================================================
+
 
 @pytest.mark.slow
 class TestRenewalProcessRecovery:
@@ -202,26 +228,33 @@ class TestRenewalProcessRecovery:
         true_B, true_A_exc, true_tau_exc = 0.5, 1.0, 0.3
 
         scaffold = make_scaffold_dataset(num_fish=50, num_trials=6, duration_s=20.0)
-        base = RenewalProcess(RateKernelFactory.homogeneous_poisson(), RenewalKernelFactory.exponential_excitation())
+        base = RenewalProcess(
+            RateKernelFactory.homogeneous_poisson(),
+            RenewalKernelFactory.exponential_excitation(),
+        )
         base.set_params(np.array([true_B, true_A_exc, true_tau_exc]))
 
         dataset = simulate_dataset_from_model(base, scaffold, rng)
         assert len(dataset.event_times) > 2000
 
         fit_model = RenewalProcess(
-            RateKernelFactory.homogeneous_poisson(), RenewalKernelFactory.exponential_excitation()
+            RateKernelFactory.homogeneous_poisson(),
+            RenewalKernelFactory.exponential_excitation(),
         )
         fit_model.fit_multistart(dataset, n_starts=8, n_jobs=1, seed=43)
 
         pd = params_dict(fit_model)
         assert_recovered("B", pd["B"], true_B, rtol=0.12)
         assert_recovered("A_excitation", pd["A_excitation"], true_A_exc, rtol=0.30)
-        assert_recovered("tau_excitation", pd["tau_excitation"], true_tau_exc, rtol=0.30)
+        assert_recovered(
+            "tau_excitation", pd["tau_excitation"], true_tau_exc, rtol=0.30
+        )
 
 
 # =============================================================================
 # SurvivalProcess
 # =============================================================================
+
 
 @pytest.mark.slow
 class TestSurvivalProcessRecovery:
@@ -234,14 +267,22 @@ class TestSurvivalProcessRecovery:
         true_H, true_mu, true_sigma, true_B = 3.0, 0.3, 0.08, 0.05
 
         scaffold = make_scaffold_dataset(num_fish=150, num_trials=10, duration_s=1.0)
-        model = SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.3, t_bounds=(0.05, 0.6)))
+        model = SurvivalProcess(
+            SurvivalKernelFactory.gaussian_bump_baseline(
+                t_init=0.3, t_bounds=(0.05, 0.6)
+            )
+        )
         model.set_params(np.array([true_H, true_mu, true_sigma, true_B]))
 
         dataset = simulate_dataset_from_model(model, scaffold, rng)
         n_exact = sum(1 for _, _, t_ev in dataset.iter_streams() if len(t_ev) > 0)
         assert n_exact > 300, f"expected enough responders for recovery, got {n_exact}"
 
-        fit_model = SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.3, t_bounds=(0.05, 0.6)))
+        fit_model = SurvivalProcess(
+            SurvivalKernelFactory.gaussian_bump_baseline(
+                t_init=0.3, t_bounds=(0.05, 0.6)
+            )
+        )
         fit_model.fit(dataset)
 
         pd = params_dict(fit_model)
@@ -255,6 +296,7 @@ class TestSurvivalProcessRecovery:
 # GammaMixedEffectsProcess
 # =============================================================================
 
+
 @pytest.mark.slow
 class TestGammaMixedEffectsProcessRecovery:
 
@@ -263,22 +305,29 @@ class TestGammaMixedEffectsProcessRecovery:
         true_B, true_r = 0.6, 3.0
 
         scaffold = make_scaffold_dataset(num_fish=150, num_trials=6, duration_s=15.0)
-        model = GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson()), r_init=5.0)
+        model = GammaMixedEffectsProcess(
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()), r_init=5.0
+        )
         model.set_params(np.array([true_B, true_r]))
 
         gains = model._draw_fish_gains(scaffold.num_fish, 1, rng)[:, 0]
         dataset = simulate_dataset_from_model(model, scaffold, rng, fish_gains=gains)
 
-        fit_model = GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson()), r_init=5.0)
+        fit_model = GammaMixedEffectsProcess(
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()), r_init=5.0
+        )
         fit_model.fit(dataset)
 
-        assert_recovered("B", fit_model.base_process.param_dict_["B"], true_B, rtol=0.12)
+        assert_recovered(
+            "B", fit_model.base_process.param_dict_["B"], true_B, rtol=0.12
+        )
         assert_recovered("r_dispersion", fit_model.dispersion_r, true_r, rtol=0.40)
 
 
 # =============================================================================
 # ZeroInflatedGammaMixedEffectsProcess
 # =============================================================================
+
 
 @pytest.mark.slow
 class TestZeroInflatedGammaMixedEffectsProcessRecovery:
@@ -292,7 +341,10 @@ class TestZeroInflatedGammaMixedEffectsProcessRecovery:
 
         scaffold = make_scaffold_dataset(num_fish=250, num_trials=6, duration_s=15.0)
         model = ZeroInflatedGammaMixedEffectsProcess(
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()), pi_init=0.3, r_init=5.0, fit_c=False,
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            pi_init=0.3,
+            r_init=5.0,
+            fit_c=False,
         )
         z_pi_true = float(logit_bounded(true_pi, 1.0))
         model.set_params(np.array([true_B, z_pi_true, true_r]))
@@ -301,15 +353,24 @@ class TestZeroInflatedGammaMixedEffectsProcessRecovery:
         dataset = simulate_dataset_from_model(model, scaffold, rng, fish_gains=gains)
 
         n_nonresponders = np.sum(np.isclose(gains, 0.0))
-        assert n_nonresponders > 30, "sanity check: enough true non-responders simulated"
+        assert (
+            n_nonresponders > 30
+        ), "sanity check: enough true non-responders simulated"
 
         fit_model = ZeroInflatedGammaMixedEffectsProcess(
-            PoissonProcess(RateKernelFactory.homogeneous_poisson()), pi_init=0.3, r_init=5.0, fit_c=False,
+            PoissonProcess(RateKernelFactory.homogeneous_poisson()),
+            pi_init=0.3,
+            r_init=5.0,
+            fit_c=False,
         )
         fit_model.fit_multistart(dataset, n_starts=6, n_jobs=1, seed=44)
 
-        assert_recovered("B", fit_model.base_process.param_dict_["B"], true_B, rtol=0.12)
-        assert_recovered("pi_nonresponder", fit_model.pi_nonresponder, true_pi, rtol=0.35, atol=0.08)
+        assert_recovered(
+            "B", fit_model.base_process.param_dict_["B"], true_B, rtol=0.12
+        )
+        assert_recovered(
+            "pi_nonresponder", fit_model.pi_nonresponder, true_pi, rtol=0.35, atol=0.08
+        )
         assert_recovered("r_responder", fit_model.r_responder, true_r, rtol=0.45)
         assert fit_model.c_nonresponder == 0.0
 
@@ -317,6 +378,7 @@ class TestZeroInflatedGammaMixedEffectsProcessRecovery:
 # =============================================================================
 # BaselineOnlyFrailtyHawkesProcess
 # =============================================================================
+
 
 @pytest.mark.slow
 class TestBaselineOnlyFrailtyHawkesProcessRecovery:
@@ -331,15 +393,21 @@ class TestBaselineOnlyFrailtyHawkesProcessRecovery:
         true_B, true_alpha, true_beta, true_r = 0.4, 0.3, 2.0, 4.0
 
         scaffold = make_scaffold_dataset(num_fish=60, num_trials=5, duration_s=12.0)
-        base = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
+        base = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()
+        )
         model = BaselineOnlyFrailtyHawkesProcess(base, r_init=5.0, n_quad_nodes=15)
         model.set_params(np.array([true_B, true_alpha, true_beta, true_r]))
 
         gains = rng.gamma(shape=true_r, scale=1.0 / true_r, size=scaffold.num_fish)
         dataset = simulate_dataset_from_model(model, scaffold, rng, fish_gains=gains)
 
-        fit_base = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
-        fit_model = BaselineOnlyFrailtyHawkesProcess(fit_base, r_init=5.0, n_quad_nodes=15)
+        fit_base = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()
+        )
+        fit_model = BaselineOnlyFrailtyHawkesProcess(
+            fit_base, r_init=5.0, n_quad_nodes=15
+        )
         fit_model.fit_multistart(dataset, n_starts=6, n_jobs=1, seed=45)
 
         base_pd = params_dict(fit_model.base_process)
@@ -352,6 +420,7 @@ class TestBaselineOnlyFrailtyHawkesProcessRecovery:
 # =============================================================================
 # ZeroInflatedBaselineOnlyFrailtyHawkesProcess
 # =============================================================================
+
 
 @pytest.mark.slow
 class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
@@ -388,26 +457,24 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
             RateKernelFactory.homogeneous_poisson(),
             HistoryKernelFactory.exponential(),
         )
-        generating_model = (
-            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-                generating_base,
-                pi_init=true_pi,
-                r_init=true_r,
-                fit_c=False,
-                n_quad_nodes=n_quad_nodes,
-            )
+        generating_model = ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+            generating_base,
+            pi_init=true_pi,
+            r_init=true_r,
+            fit_c=False,
+            n_quad_nodes=n_quad_nodes,
         )
 
-        z_pi_true = float(
-            logit_bounded(true_pi, 1.0)
+        z_pi_true = float(logit_bounded(true_pi, 1.0))
+        true_params = np.array(
+            [
+                true_B,
+                true_alpha,
+                true_beta,
+                z_pi_true,
+                true_r,
+            ]
         )
-        true_params = np.array([
-            true_B,
-            true_alpha,
-            true_beta,
-            z_pi_true,
-            true_r,
-        ])
 
         generating_model.set_params(true_params)
 
@@ -431,14 +498,12 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
             RateKernelFactory.homogeneous_poisson(),
             HistoryKernelFactory.exponential(),
         )
-        fitted_model = (
-            ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-                fitted_base,
-                pi_init=true_pi,
-                r_init=true_r,
-                fit_c=False,
-                n_quad_nodes=n_quad_nodes,
-            )
+        fitted_model = ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+            fitted_base,
+            pi_init=true_pi,
+            r_init=true_r,
+            fit_c=False,
+            n_quad_nodes=n_quad_nodes,
         )
 
         fitted_model.fit_multistart(
@@ -461,9 +526,7 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
 
         assert nll_at_fit <= nll_at_truth + 1e-5
 
-        base_params = params_dict(
-            fitted_model.base_process
-        )
+        base_params = params_dict(fitted_model.base_process)
 
         assert_recovered(
             "B",
@@ -497,12 +560,9 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
             rtol=0.50,
         )
 
-        true_branching_ratio = (
-            true_alpha / true_beta
-        )
+        true_branching_ratio = true_alpha / true_beta
         fitted_branching_ratio = (
-            base_params["alpha_hawkes"]
-            / base_params["beta_hawkes"]
+            base_params["alpha_hawkes"] / base_params["beta_hawkes"]
         )
 
         assert_recovered(
@@ -525,22 +585,35 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
         true_B, true_alpha, true_beta, true_r = 0.4, 0.3, 2.0, 4.0
 
         scaffold = make_scaffold_dataset(num_fish=30, num_trials=4, duration_s=10.0)
-        base_gen = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
-        gen_model = BaselineOnlyFrailtyHawkesProcess(base_gen, r_init=5.0, n_quad_nodes=15)
+        base_gen = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()
+        )
+        gen_model = BaselineOnlyFrailtyHawkesProcess(
+            base_gen, r_init=5.0, n_quad_nodes=15
+        )
         gen_model.set_params(np.array([true_B, true_alpha, true_beta, true_r]))
         gains = rng.gamma(shape=true_r, scale=1.0 / true_r, size=scaffold.num_fish)
-        dataset = simulate_dataset_from_model(gen_model, scaffold, rng, fish_gains=gains)
+        dataset = simulate_dataset_from_model(
+            gen_model, scaffold, rng, fish_gains=gains
+        )
 
         plain = BaselineOnlyFrailtyHawkesProcess(
-            HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()),
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential(),
+            ),
             n_quad_nodes=15,
         )
         plain.set_params(np.array([true_B, true_alpha, true_beta, true_r]))
         plain_nll = plain._nll(list(plain.params_), dataset)
 
         zi = ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-            HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()),
-            fit_c=False, n_quad_nodes=15,
+            HawkesProcess(
+                RateKernelFactory.homogeneous_poisson(),
+                HistoryKernelFactory.exponential(),
+            ),
+            fit_c=False,
+            n_quad_nodes=15,
         )
         z_pi_zero = float(logit_bounded(1e-4, 1.0))
         zi_params = [true_B, true_alpha, true_beta, z_pi_zero, true_r]
@@ -555,6 +628,7 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
 # =============================================================================
 # PartiallyFixedProcess
 # =============================================================================
+
 
 class TestPartiallyFixedProcessRecovery:
 
@@ -581,5 +655,7 @@ class TestPartiallyFixedProcessRecovery:
         fitted_f_dip = float(sigmoid_bounded(pd["z_dip"], 0.995))
 
         assert_recovered("B", pd["B"], true_B, rtol=0.10)
-        assert_recovered("f_dip (derived)", fitted_f_dip, true_f_dip, rtol=0.20, atol=0.03)
+        assert_recovered(
+            "f_dip (derived)", fitted_f_dip, true_f_dip, rtol=0.20, atol=0.03
+        )
         assert fixed_model.base_process.param_dict_["tau_dip"] == true_tau_dip

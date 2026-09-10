@@ -10,19 +10,34 @@ whether simulation or optimization is involved at all.
 Tolerances are TIGHT (near machine precision or tight closed-form-MLE
 tolerance) since there is no stochastic noise to average out.
 """
+
 import numpy as np
 import pytest
 
 from BehaviorScreen.point_process.dataset import PointProcessDataset
-from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory
-from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
-from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
+from BehaviorScreen.point_process.poisson_process import (
+    PoissonProcess,
+    RateKernelFactory,
+)
+from BehaviorScreen.point_process.hawkes_process import (
+    HawkesProcess,
+    HistoryKernelFactory,
+)
+from BehaviorScreen.point_process.survival_process import (
+    SurvivalProcess,
+    SurvivalKernelFactory,
+)
+from BehaviorScreen.point_process.renewal_process import (
+    RenewalProcess,
+    RenewalKernelFactory,
+)
 from BehaviorScreen.point_process.mixed_effects_process import (
     GammaMixedEffectsProcess,
 )
 from BehaviorScreen.point_process.zero_inflated_mixed_effects_process import (
     ZeroInflatedGammaMixedEffectsProcess,
 )
+
 
 class TestHomogeneousPoissonKnownAnswer:
 
@@ -98,7 +113,9 @@ class TestHawkesKnownAnswer:
             duration_s=duration_s,
         )
 
-        model = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
+        model = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()
+        )
         computed_nll = model._nll([B, alpha, beta], dataset)
 
         lam1 = B
@@ -127,11 +144,17 @@ class TestHawkesKnownAnswer:
             fish_ids=np.array(["f0"]),
             duration_s=duration_s,
         )
-        model = HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
+        model = HawkesProcess(
+            RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential()
+        )
         computed_nll = model._nll([B, alpha, beta], dataset)
 
         expected_nll = -(
-            np.log(B) - (B * duration_s + (alpha / beta) * (1 - np.exp(-beta * (duration_s - t1))))
+            np.log(B)
+            - (
+                B * duration_s
+                + (alpha / beta) * (1 - np.exp(-beta * (duration_s - t1)))
+            )
         )
         assert computed_nll == pytest.approx(expected_nll, rel=1e-9)
 
@@ -179,17 +202,25 @@ class TestSurvivalKnownAnswer:
         second event at a later time must not change the NLL at all."""
         B, T, t_obs = 0.3, 4.0, 1.5
         dataset_one = PointProcessDataset(
-            event_times=np.array([t_obs]), event_trials_idx=np.array([0]),
-            event_fish_idx=np.array([0]), fish_trial_mask=np.ones((1, 1), dtype=bool),
-            fish_ids=np.array(["f0"]), duration_s=T,
+            event_times=np.array([t_obs]),
+            event_trials_idx=np.array([0]),
+            event_fish_idx=np.array([0]),
+            fish_trial_mask=np.ones((1, 1), dtype=bool),
+            fish_ids=np.array(["f0"]),
+            duration_s=T,
         )
         dataset_two = PointProcessDataset(
-            event_times=np.array([t_obs, t_obs + 1.0]), event_trials_idx=np.array([0, 0]),
-            event_fish_idx=np.array([0, 0]), fish_trial_mask=np.ones((1, 1), dtype=bool),
-            fish_ids=np.array(["f0"]), duration_s=T,
+            event_times=np.array([t_obs, t_obs + 1.0]),
+            event_trials_idx=np.array([0, 0]),
+            event_fish_idx=np.array([0, 0]),
+            fish_trial_mask=np.ones((1, 1), dtype=bool),
+            fish_ids=np.array(["f0"]),
+            duration_s=T,
         )
         model = SurvivalProcess(SurvivalKernelFactory.constant_hazard())
-        assert model._nll([B], dataset_one) == pytest.approx(model._nll([B], dataset_two), rel=1e-12)
+        assert model._nll([B], dataset_one) == pytest.approx(
+            model._nll([B], dataset_two), rel=1e-12
+        )
 
 
 class TestGammaFrailtyCompensatorKnownAnswer:
@@ -204,17 +235,13 @@ class TestGammaFrailtyCompensatorKnownAnswer:
         posterior_rate = r + s_previous
 
         no_event_probability = (
-            posterior_rate /
-            (posterior_rate + delta_s)
+            posterior_rate / (posterior_rate + delta_s)
         ) ** posterior_shape
 
         expected = -np.log(no_event_probability)
 
-        implemented_formula = (
-            r + n_previous
-        ) * np.log(
-            (r + s_previous + delta_s) /
-            (r + s_previous)
+        implemented_formula = (r + n_previous) * np.log(
+            (r + s_previous + delta_s) / (r + s_previous)
         )
 
         assert implemented_formula == pytest.approx(
@@ -222,12 +249,11 @@ class TestGammaFrailtyCompensatorKnownAnswer:
             rel=1e-12,
         )
 
+
 class TestZeroInflatedFrailtyCompensatorKnownAnswer:
 
     def test_pi_zero_reduces_to_gamma_frailty(self):
-        base = PoissonProcess(
-            RateKernelFactory.homogeneous_poisson()
-        )
+        base = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         model = ZeroInflatedGammaMixedEffectsProcess(
             base,
             fit_c=False,
@@ -252,13 +278,85 @@ class TestZeroInflatedFrailtyCompensatorKnownAnswer:
             beta=beta,
         )
 
-        expected = (
-            r + n_previous
-        ) * np.log(
-            (r + s_new) / (r + s_previous)
-        )
+        expected = (r + n_previous) * np.log((r + s_new) / (r + s_previous))
 
         assert computed == pytest.approx(
             expected,
             rel=1e-10,
         )
+
+
+class TestRenewalKnownAnswer:
+
+    def test_exponential_excitation_two_events(self):
+        """
+        Direct known-answer test of RenewalProcess._stream_integral_and_ll()
+        for a homogeneous baseline and two events.
+        """
+        B = 0.5
+        A_exc = 1.2
+        tau_exc = 0.3
+        t1, t2 = 1.0, 1.8
+        duration_s = 3.0
+
+        model = RenewalProcess(
+            RateKernelFactory.homogeneous_poisson(),
+            RenewalKernelFactory.exponential_excitation(),
+            integration_dt=0.001,
+        )
+
+        computed_log_intensity, computed_integral = model._stream_integral_and_ll(
+            t_events=np.array([t1, t2]),
+            trial=0,
+            duration_s=duration_s,
+            params_base=[B],
+            params_renewal=[A_exc, tau_exc],
+        )
+
+        # First event has no prior-event modulation.
+        lambda_1 = B
+
+        # Second event depends on the lag from the first event.
+        lambda_2 = B * (1.0 + A_exc * np.exp(-(t2 - t1) / tau_exc))
+        expected_log_intensity = np.log(lambda_1) + np.log(lambda_2)
+
+        def modulated_segment_integral(length):
+            return B * (length + A_exc * tau_exc * (1.0 - np.exp(-length / tau_exc)))
+
+        # Before t1: unmodulated baseline.
+        expected_integral = B * t1
+
+        # After t1, until t2: modulation relative to t1.
+        expected_integral += modulated_segment_integral(t2 - t1)
+
+        # After t2, until trial end: modulation resets relative to t2.
+        expected_integral += modulated_segment_integral(duration_s - t2)
+
+        assert computed_log_intensity == pytest.approx(
+            expected_log_intensity,
+            rel=1e-10,
+        )
+        assert computed_integral == pytest.approx(
+            expected_integral,
+            rel=1e-5,
+        )
+
+    def test_empty_stream_is_unmodulated_baseline(self):
+        B = 0.5
+        duration_s = 3.0
+
+        model = RenewalProcess(
+            RateKernelFactory.homogeneous_poisson(),
+            RenewalKernelFactory.exponential_excitation(),
+        )
+
+        log_intensity, total_integral = model._stream_integral_and_ll(
+            t_events=np.array([], dtype=float),
+            trial=0,
+            duration_s=duration_s,
+            params_base=[B],
+            params_renewal=[1.2, 0.3],
+        )
+
+        assert log_intensity == pytest.approx(0.0)
+        assert total_integral == pytest.approx(B * duration_s)

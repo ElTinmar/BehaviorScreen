@@ -47,9 +47,7 @@ class TestPartiallyFixedParameterSynchronization:
         fixed_r = 3.0
 
         base_process = GammaMixedEffectsProcess(
-            PoissonProcess(
-                RateKernelFactory.homogeneous_poisson()
-            )
+            PoissonProcess(RateKernelFactory.homogeneous_poisson())
         )
 
         wrapped = PartiallyFixedProcess(
@@ -61,9 +59,7 @@ class TestPartiallyFixedParameterSynchronization:
 
         assert wrapped.param_names == ["B"]
 
-        wrapped.set_params(
-            np.array([true_B])
-        )
+        wrapped.set_params(np.array([true_B]))
 
         np.testing.assert_allclose(
             wrapped.params_,
@@ -75,21 +71,12 @@ class TestPartiallyFixedParameterSynchronization:
             np.array([true_B, fixed_r]),
         )
 
-        assert (
-            wrapped.base_process.param_dict_["B"]
-            == true_B
-        )
-        assert (
-            wrapped.base_process.param_dict_["r_dispersion"]
-            == fixed_r
-        )
+        assert wrapped.base_process.param_dict_["B"] == true_B
+        assert wrapped.base_process.param_dict_["r_dispersion"] == fixed_r
 
         # GammaMixedEffectsProcess itself must synchronize its own
         # Poisson base process.
-        assert (
-            wrapped.base_process.base_process.param_dict_["B"]
-            == true_B
-        )
+        assert wrapped.base_process.base_process.param_dict_["B"] == true_B
 
 
 class TestPartiallyFixedGainDelegation:
@@ -104,9 +91,7 @@ class TestPartiallyFixedGainDelegation:
         fixed_r = 2.5
 
         base_process = GammaMixedEffectsProcess(
-            PoissonProcess(
-                RateKernelFactory.homogeneous_poisson()
-            )
+            PoissonProcess(RateKernelFactory.homogeneous_poisson())
         )
 
         wrapped = PartiallyFixedProcess(
@@ -115,9 +100,7 @@ class TestPartiallyFixedGainDelegation:
                 "r_dispersion": fixed_r,
             },
         )
-        wrapped.set_params(
-            np.array([true_B])
-        )
+        wrapped.set_params(np.array([true_B]))
 
         wrapped_gains = wrapped._draw_fish_gains(
             num_fish=20,
@@ -157,9 +140,7 @@ class TestPartiallyFixedGainDelegation:
         fixed_r = 3.0
 
         base_process = GammaMixedEffectsProcess(
-            PoissonProcess(
-                RateKernelFactory.homogeneous_poisson()
-            )
+            PoissonProcess(RateKernelFactory.homogeneous_poisson())
         )
 
         wrapped = PartiallyFixedProcess(
@@ -168,9 +149,7 @@ class TestPartiallyFixedGainDelegation:
                 "r_dispersion": fixed_r,
             },
         )
-        wrapped.set_params(
-            np.array([true_B])
-        )
+        wrapped.set_params(np.array([true_B]))
 
         scaffold = make_scaffold_dataset(
             num_fish=15,
@@ -220,9 +199,7 @@ class TestPartiallyFixedTimeRescalingDelegation:
         fixed_r = 2.0
 
         base_process = GammaMixedEffectsProcess(
-            PoissonProcess(
-                RateKernelFactory.homogeneous_poisson()
-            )
+            PoissonProcess(RateKernelFactory.homogeneous_poisson())
         )
 
         wrapped = PartiallyFixedProcess(
@@ -231,9 +208,7 @@ class TestPartiallyFixedTimeRescalingDelegation:
                 "r_dispersion": fixed_r,
             },
         )
-        wrapped.set_params(
-            np.array([true_B])
-        )
+        wrapped.set_params(np.array([true_B]))
 
         scaffold = make_scaffold_dataset(
             num_fish=20,
@@ -246,12 +221,8 @@ class TestPartiallyFixedTimeRescalingDelegation:
             rng=np.random.default_rng(502),
         )
 
-        wrapped_tau = wrapped._stream_tau_values(
-            dataset
-        )
-        base_tau = wrapped.base_process._stream_tau_values(
-            dataset
-        )
+        wrapped_tau = wrapped._stream_tau_values(dataset)
+        base_tau = wrapped.base_process._stream_tau_values(dataset)
 
         assert set(wrapped_tau) == set(base_tau)
 
@@ -299,9 +270,7 @@ class TestPartiallyFixedTimeRescalingDelegation:
         fixed_r = 3.0
 
         base_process = GammaMixedEffectsProcess(
-            PoissonProcess(
-                RateKernelFactory.homogeneous_poisson()
-            )
+            PoissonProcess(RateKernelFactory.homogeneous_poisson())
         )
 
         wrapped = PartiallyFixedProcess(
@@ -310,9 +279,7 @@ class TestPartiallyFixedTimeRescalingDelegation:
                 "r_dispersion": fixed_r,
             },
         )
-        wrapped.set_params(
-            np.array([true_B])
-        )
+        wrapped.set_params(np.array([true_B]))
 
         scaffold = make_scaffold_dataset(
             num_fish=20,
@@ -358,14 +325,8 @@ class TestPartiallyFixedTimeRescalingDelegation:
             equal_nan=True,
         )
 
-        assert (
-            wrapped_result["n_rescaled"]
-            == base_result["n_rescaled"]
-        )
-        assert (
-            wrapped_result["n_exact"]
-            == base_result["n_exact"]
-        )
+        assert wrapped_result["n_rescaled"] == base_result["n_rescaled"]
+        assert wrapped_result["n_exact"] == base_result["n_exact"]
 
 
 class TestPartiallyFixedCompensatorProfileDelegation:
@@ -396,11 +357,13 @@ class TestPartiallyFixedCompensatorProfileDelegation:
         # Free order after fixing mu:
         # H, sigma, B
         wrapped.set_params(
-            np.array([
-                3.0,   # H
-                0.08,  # sigma
-                0.05,  # B
-            ])
+            np.array(
+                [
+                    3.0,  # H
+                    0.08,  # sigma
+                    0.05,  # B
+                ]
+            )
         )
 
         duration_s = 1.0
@@ -411,28 +374,22 @@ class TestPartiallyFixedCompensatorProfileDelegation:
             np.array([0.25], dtype=float),
             np.array([0.25, 0.70], dtype=float),
         ]:
-            wrapped_profile = (
-                wrapped.stream_compensator_profile(
-                    event_times,
-                    trial,
-                    duration_s,
-                )
+            wrapped_profile = wrapped.stream_compensator_profile(
+                event_times,
+                trial,
+                duration_s,
             )
 
-            base_profile = (
-                wrapped.base_process.stream_compensator_profile(
-                    event_times,
-                    trial,
-                    duration_s,
-                )
+            base_profile = wrapped.base_process.stream_compensator_profile(
+                event_times,
+                trial,
+                duration_s,
             )
 
             wrapped_probes, wrapped_cum, wrapped_last_censored, wrapped_exposure = (
                 wrapped_profile
             )
-            base_probes, base_cum, base_last_censored, base_exposure = (
-                base_profile
-            )
+            base_probes, base_cum, base_last_censored, base_exposure = base_profile
 
             np.testing.assert_allclose(
                 wrapped_probes,
@@ -442,14 +399,8 @@ class TestPartiallyFixedCompensatorProfileDelegation:
                 wrapped_cum,
                 base_cum,
             )
-            assert (
-                wrapped_last_censored
-                == base_last_censored
-            )
-            assert (
-                wrapped_exposure
-                == base_exposure
-            )
+            assert wrapped_last_censored == base_last_censored
+            assert wrapped_exposure == base_exposure
 
     def test_is_survival_delegates_to_base_process(self):
         """
@@ -469,20 +420,20 @@ class TestPartiallyFixedCompensatorProfileDelegation:
         )
 
         survival_wrapped.set_params(
-            np.array([
-                3.0,
-                0.08,
-                0.05,
-            ])
+            np.array(
+                [
+                    3.0,
+                    0.08,
+                    0.05,
+                ]
+            )
         )
 
         assert survival_wrapped.is_survival
         assert survival_wrapped.base_process.is_survival
 
         poisson_wrapped = PartiallyFixedProcess(
-            PoissonProcess(
-                RateKernelFactory.omr_forward()
-            ),
+            PoissonProcess(RateKernelFactory.omr_forward()),
             fixed_values={
                 "tau_dip": 0.4,
             },
@@ -490,10 +441,12 @@ class TestPartiallyFixedCompensatorProfileDelegation:
 
         # Free parameters are B and z_dip.
         poisson_wrapped.set_params(
-            np.array([
-                0.6,
-                0.5,
-            ])
+            np.array(
+                [
+                    0.6,
+                    0.5,
+                ]
+            )
         )
 
         assert not poisson_wrapped.is_survival

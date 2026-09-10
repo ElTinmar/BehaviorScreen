@@ -15,6 +15,7 @@ recovery test CANNOT see, because simulate_stream and _nll's compensator
 would consistently use the same (wrong) integral together (see conversation
 notes on shared-code-path risk).
 """
+
 import numpy as np
 import pytest
 from scipy import integrate as scipy_integrate
@@ -26,12 +27,19 @@ from BehaviorScreen.point_process.renewal_process import RenewalKernelFactory
 
 class TestHistoryKernelIntegralConsistency:
 
-    @pytest.mark.parametrize("alpha,beta,T", [
-        (0.5, 2.0, 3.0),
-        (1.2, 0.3, 10.0),
-        (0.05, 5.0, 1.0),
-        (3.0, 0.05, 0.5),  # slow decay relative to T -- stresses the closed form differently
-    ])
+    @pytest.mark.parametrize(
+        "alpha,beta,T",
+        [
+            (0.5, 2.0, 3.0),
+            (1.2, 0.3, 10.0),
+            (0.05, 5.0, 1.0),
+            (
+                3.0,
+                0.05,
+                0.5,
+            ),  # slow decay relative to T -- stresses the closed form differently
+        ],
+    )
     def test_exponential_history_kernel(self, alpha, beta, T):
         hk = HistoryKernelFactory.exponential()
         closed_form = hk.integrate(T, [alpha, beta])
@@ -74,8 +82,8 @@ class TestHistoryKernelIntegralConsistency:
             param_names=fast_hk.param_names,
             initial_guesses=fast_hk.initial_guesses,
             bounds=fast_hk.bounds,
-            integral_func=None,        # force generic integrate path too (unused here)
-            event_history_func=None,   # force the O(N^2) generic event_history path
+            integral_func=None,  # force generic integrate path too (unused here)
+            event_history_func=None,  # force the O(N^2) generic event_history path
         )
         generic_result = generic_hk.event_history(t_events, [alpha, beta])
 
@@ -104,11 +112,16 @@ class TestRateKernelIntegralConsistency:
         """
         rk = RateKernelFactory.omr_forward()
         from BehaviorScreen.point_process.kernel_shapes import logit_bounded
+
         B, z_dip, tau_dip = 0.5, float(logit_bounded(0.6, 0.995)), 0.3
         T, trial = 2.0, 0
 
         quad_result, _ = scipy_integrate.quad(
-            lambda t: rk.evaluate(np.array([t]), np.array([trial]), [B, z_dip, tau_dip])[0], 0, T
+            lambda t: rk.evaluate(
+                np.array([t]), np.array([trial]), [B, z_dip, tau_dip]
+            )[0],
+            0,
+            T,
         )
 
         errors = []
@@ -117,7 +130,9 @@ class TestRateKernelIntegralConsistency:
             errors.append(abs(numeric - quad_result))
 
         assert errors[-1] < errors[0], "finer grid should be at least as accurate"
-        assert errors[-1] < 1e-4, f"finest grid still off from quad reference: {errors[-1]}"
+        assert (
+            errors[-1] < 1e-4
+        ), f"finest grid still off from quad reference: {errors[-1]}"
 
     def test_cumulative_integrate_matches_integrate_at_endpoint(self):
         """cumulative_integrate(t_events, ...)'s LAST value (if t_events'
@@ -126,11 +141,14 @@ class TestRateKernelIntegralConsistency:
         (cumulative_trapezoid + interp vs. plain trapezoid)."""
         rk = RateKernelFactory.omr_forward()
         from BehaviorScreen.point_process.kernel_shapes import logit_bounded
+
         params = [0.5, float(logit_bounded(0.6, 0.995)), 0.3]
         T, trial = 3.0, 0
 
         total_direct = rk.integrate(T, trial, params, integration_dt=0.002)
-        cumulative = rk.cumulative_integrate(np.array([T]), trial, params, integration_dt=0.002)
+        cumulative = rk.cumulative_integrate(
+            np.array([T]), trial, params, integration_dt=0.002
+        )
 
         assert cumulative[-1] == pytest.approx(total_direct, rel=1e-3)
 
@@ -141,10 +159,44 @@ class TestRenewalKernelIntegralConsistency:
         rk = RenewalKernelFactory.exponential_recovery()
         tau_r, T = 0.15, 2.0
         numeric = rk.integrate(T, [tau_r])
-        quad_result, _ = scipy_integrate.quad(lambda lag: rk.evaluate(np.array([lag]), [tau_r])[0], 0, T)
+        quad_result, _ = scipy_integrate.quad(
+            lambda lag: rk.evaluate(np.array([lag]), [tau_r])[0], 0, T
+        )
         assert numeric == pytest.approx(quad_result, rel=1e-3)
 
     def test_hard_absorption_integral_is_identically_zero(self):
         rk = RenewalKernelFactory.hard_absorption()
         result = rk.integrate(np.array([0.0, 1.0, 100.0]), [])
         np.testing.assert_allclose(result, 0.0)
+
+
+class TestRefractoryDelayedExcitationKernel:
+
+    def test_boundary_and_long_lag_behavior(self):
+        kernel = RenewalKernelFactory.refractory_delayed_excitation(shape_k=2.0)
+        params = [0.1, 1.0, 0.25]
+
+        rho_zero = kernel.evaluate(np.array([0.0]), params)[0]
+        rho_long = kernel.evaluate(np.array([20.0]), params)[0]
+
+        assert rho_zero == pytest.approx(0.0, abs=1e-12)
+        assert rho_long == pytest.approx(1.0, abs=1e-6)
+
+    def test_kernel_is_nonnegative(self):
+        kernel = RenewalKernelFactory.refractory_delayed_excitation(shape_k=2.0)
+        params = [0.1, 1.0, 0.25]
+
+        lag = np.linspace(0.0, 10.0, 10_000)
+        rho = kernel.evaluate(lag, params)
+
+        assert np.all(rho >= 0.0)
+
+    def test_zero_excitation_reduces_to_refractory_recovery(self):
+        kernel = RenewalKernelFactory.refractory_delayed_excitation(shape_k=2.0)
+        params = [0.1, 0.0, 0.25]
+
+        lag = np.linspace(0.0, 2.0, 1000)
+        observed = kernel.evaluate(lag, params)
+        expected = 1.0 - np.exp(-lag / 0.1)
+
+        np.testing.assert_allclose(observed, expected)
