@@ -91,3 +91,16 @@ class PartiallyFixedProcess(PointProcess):
 
     def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx: int) -> float:
             return self.base_process._intensity_upper_bound(dataset, t_idx)
+
+    def _draw_fish_gains(self, num_fish, n_sims, rng):
+        return self.base_process._draw_fish_gains(
+            num_fish, n_sims, rng
+        )
+
+    def _stream_tau_values(self, dataset):
+        return self.base_process._stream_tau_values(dataset)
+
+    def stream_compensator_profile(self, t_ev, trial, duration_s):
+        return self.base_process.stream_compensator_profile(
+            t_ev, trial, duration_s
+        )
