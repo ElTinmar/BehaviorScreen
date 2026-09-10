@@ -18,38 +18,14 @@ to a new model family: no reference formulas to derive by hand, just
 """
 import numpy as np
 import pytest
-from scipy.stats import kstest
 
-from .conftest import make_scaffold_dataset, simulate_dataset_from_model, DummyFitResult
+from .conftest import make_scaffold_dataset, simulate_dataset_from_model, assert_stream_calibrated
 
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory
 from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
 from BehaviorScreen.point_process.renewal_process import RenewalProcess, RenewalKernelFactory
 from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
-
-
-def _assert_residuals_uniform(model, dataset: PointProcessDataset, min_p_value: float = 0.01):
-    """
-    Shared assertion: model.params_ must ALREADY be set to the TRUE
-    generating parameters (no fit() call). fit_result is stubbed since
-    time_rescaling doesn't need it, but some shared helper paths check for
-    its existence.
-    """
-    model.fit_result = DummyFitResult()
-    tr = model.time_rescaling(dataset)
-    exact_residuals = tr["residuals"][~tr["censored"]]
-    assert len(exact_residuals) > 100, "need enough residuals for the KS test to have power"
-
-    u = 1.0 - np.exp(-exact_residuals)
-    stat, p_value = kstest(u, "uniform")
-    assert p_value > min_p_value, (
-        f"time-rescaled residuals at TRUE parameters are not Uniform(0,1) "
-        f"(KS stat={stat:.4f}, p={p_value:.4f}) -- simulate_stream and "
-        f"cumulative_integrated_intensity/compensator machinery disagree "
-        f"about the intensity they each implement for {model.name}."
-    )
-
 
 class TestPoissonSimulationCompensatorConsistency:
 
@@ -61,7 +37,7 @@ class TestPoissonSimulationCompensatorConsistency:
         scaffold = make_scaffold_dataset(num_fish=100, num_trials=6, duration_s=15.0)
         dataset = simulate_dataset_from_model(model, scaffold, rng)
 
-        _assert_residuals_uniform(model, dataset)
+        assert_stream_calibrated(model, dataset)
 
     def test_shaped_kernel_omr_forward(self, rng_factory):
         """Checks a kernel with NO closed-form integral_func (falls back to
@@ -75,10 +51,10 @@ class TestPoissonSimulationCompensatorConsistency:
         z_dip = float(logit_bounded(0.6, 0.995))
         model.set_params(np.array([0.5, z_dip, 0.3]))
 
-        scaffold = make_scaffold_dataset(num_fish=150, num_trials=10, duration_s=3.0)
+        scaffold = make_scaffold_dataset(num_fish=150, num_trials=10, duration_s=10.0)
         dataset = simulate_dataset_from_model(model, scaffold, rng)
 
-        _assert_residuals_uniform(model, dataset)
+        assert_stream_calibrated(model, dataset)
 
 
 @pytest.mark.slow
@@ -103,7 +79,7 @@ class TestHawkesSimulationCompensatorConsistency:
         dataset = simulate_dataset_from_model(model, scaffold, rng)
         assert len(dataset.event_times) > 2000
 
-        _assert_residuals_uniform(model, dataset)
+        assert_stream_calibrated(model, dataset)
 
 
 @pytest.mark.slow
@@ -120,7 +96,7 @@ class TestRenewalSimulationCompensatorConsistency:
         dataset = simulate_dataset_from_model(model, scaffold, rng)
         assert len(dataset.event_times) > 2000
 
-        _assert_residuals_uniform(model, dataset)
+        assert_stream_calibrated(model, dataset)
 
 
 class TestSurvivalSimulationCompensatorConsistency:
@@ -137,10 +113,10 @@ class TestSurvivalSimulationCompensatorConsistency:
         model = SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.3, t_bounds=(0.05, 0.6)))
         model.set_params(np.array([3.0, 0.3, 0.08, 0.05]))
 
-        scaffold = make_scaffold_dataset(num_fish=300, num_trials=10, duration_s=1.0)
+        scaffold = make_scaffold_dataset(num_fish=300, num_trials=10, duration_s=10.0)
         dataset = simulate_dataset_from_model(model, scaffold, rng)
 
         n_exact = sum(1 for _, _, t_ev in dataset.iter_streams() if len(t_ev) > 0)
         assert n_exact > 300
 
-        _assert_residuals_uniform(model, dataset)
+        assert_stream_calibrated(model, dataset)

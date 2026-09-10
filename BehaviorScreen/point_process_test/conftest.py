@@ -165,6 +165,22 @@ def assert_recovered(name: str, fitted: float, true: float, rtol: float = 0.15, 
         f"Parameter recovery failed for '{name}': fitted={fitted:.4f}, true={true:.4f}, "
         f"|diff|={diff:.4f} > tol={tol:.4f} (rtol={rtol}, atol={atol})"
     )
+    
+
+def assert_stream_calibrated(model, dataset, min_p_value: float = 0.01):
+    """
+    Uses combined_stream_gap_calibration_test (Fisher-combined per-stream
+    GAP-based uniformity p-values), valid for BOTH baseline-only and
+    history-dependent processes -- see that method's docstring, and
+    per_stream_gap_pvalue's docstring for why the order-statistic
+    alternative is invalid for Hawkes/Renewal specifically.
+    """
+    calib = model.combined_stream_gap_calibration_test(dataset)
+    assert calib["combined_p_value"] > min_p_value, (
+        f"Fisher-combined GAP calibration p-value={calib['combined_p_value']:.4g} "
+        f"(n_streams_tested={calib['n_streams_tested']}) -- simulate_stream and "
+        f"cumulative_integrated_intensity/compensator machinery disagree for {model.name}."
+    )
 
 
 def params_dict(model) -> Dict[str, float]:

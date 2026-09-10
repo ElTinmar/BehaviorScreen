@@ -7,10 +7,10 @@ import pandas as pd
 import joblib
 from tqdm import tqdm
 from scipy.optimize import minimize
-from scipy.stats import norm, chi2
+from scipy.stats import norm, chi2, kstest, combine_pvalues
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from scipy.special import gammaln
+import warnings
 
 from .tqdm_joblib import tqdm_joblib
 from .dataset import PointProcessDataset
@@ -371,6 +371,80 @@ class PointProcess:
         probes = np.append(t_sorted, duration_s)
         cum = self.cumulative_integrated_intensity(probes, trial)
         return t_sorted, cum[:-1], False, float(cum[-1])
+
+    def per_stream_gap_pvalue(
+        self, t_ev: np.ndarray, trial: float, duration_s: float,
+    ) -> Optional[float]:
+
+        if len(t_ev) < 2:
+            return None
+        t_sorted = np.sort(np.asarray(t_ev, dtype=float))
+        probes = np.append(t_sorted, duration_s)
+        cum = self.cumulative_integrated_intensity(probes, trial)
+        diffs = np.diff(np.insert(cum, 0, 0.0))
+        exact = diffs[:-1]
+        if len(exact) == 0:
+            return None
+        u = 1.0 - np.exp(-exact)
+        return float(kstest(u, "uniform").pvalue)
+
+    def combined_stream_gap_calibration_test(self, dataset, min_lambda_for_asymptotic_validity=15.0):
+        mean_count = dataset.stream_event_counts.mean()
+        if mean_count < min_lambda_for_asymptotic_validity:
+            warnings.warn(
+                f"Mean events/stream ({mean_count:.1f}) is low -- the Exponential(1) "
+                f"reference used by this test is measurably truncated in this regime "
+                f"(see conversation notes). Prefer a design-matched parametric-bootstrap "
+                f"calibration for this condition instead of trusting this p-value directly."
+            )
+        pvalues = []
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            p = self.per_stream_gap_pvalue(t_ev, t_idx, dataset.duration_s)
+            if p is not None:
+                pvalues.append(max(p, 1e-300))
+        if len(pvalues) == 0:
+            return {"n_streams_tested": 0, "fisher_statistic": np.nan, "combined_p_value": np.nan}
+        stat, combined_p = combine_pvalues(pvalues, method="fisher")
+        return {"n_streams_tested": len(pvalues), "fisher_statistic": float(stat), "combined_p_value": float(combined_p)}
+
+
+    def pooled_gap_qq_pairs(self, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Pooled QQ-plot data built from the SAME gap-based transform used by
+        per_stream_gap_pvalue/combined_stream_gap_calibration_test -- valid for
+        ANY compensator, including history-dependent ones (Hawkes/Renewal),
+        unlike the order-statistic version (_stream_normalized_times/
+        pooled_qq_pairs), which requires Lambda(duration_s) to be independent
+        of the realized event history.
+
+        Each stream's OWN final gap (truncated by duration_s, not a genuine
+        complete draw -- see per_stream_gap_pvalue's docstring) is excluded
+        before pooling. 
+
+        Returns (expected, observed): expected is the standard i/(N+1) plotting
+        position for the POOLED sample of size N (this is now safe -- it's a
+        single flat sample of "exact, non-truncated" gaps from potentially
+        many streams, no per-stream conditioning issue remains once the
+        truncated gap is dropped from each).
+        """
+        exact_gaps: List[float] = []
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            if len(t_ev) < 2:
+                continue
+            t_sorted = np.sort(np.asarray(t_ev, dtype=float))
+            probes = np.append(t_sorted, dataset.duration_s)
+            cum = self.cumulative_integrated_intensity(probes, t_idx)
+            diffs = np.diff(np.insert(cum, 0, 0.0))
+            exact_gaps.extend(diffs[:-1].tolist())  # drop each stream's own last gap
+
+        if len(exact_gaps) == 0:
+            return np.array([]), np.array([])
+
+        u = 1.0 - np.exp(-np.array(exact_gaps))
+        u_sorted = np.sort(u)
+        n = len(u_sorted)
+        expected = np.arange(1, n + 1) / (n + 1)
+        return expected, u_sorted
 
     def _stream_tau_values(
         self, dataset: PointProcessDataset
@@ -810,6 +884,7 @@ class PointProcess:
         return {
             "residuals": self.compute_residuals(dataset),
             "time_rescaling": self.time_rescaling(dataset),
+            "stream_calibration": self.combined_stream_gap_calibration_test(dataset),
             "parameter_correlation": self.estimate_parameter_correlation(dataset, eps=eps),
             "acf2d": self.residual_2d_autocorrelation(
                 dataset, max_trial_lag=max_trial_lag, max_time_lag=max_time_lag
@@ -841,48 +916,46 @@ class PointProcess:
         ax.figure.colorbar(im, cax=cax, label="Deviance Residual")
         return ax
 
-    def plot_panel_calibration_ks(
+    def plot_panel_calibration_qq(
         self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
         ax: Optional[plt.Axes] = None,
     ) -> plt.Axes:
-
-        if diag_data is None:
-            diag_data = self.compute_diagnostics_data(dataset)
+        """
+        Universal Panel B replacement: pooled QQ-plot of gap-based rescaled
+        residuals (pooled_gap_qq_pairs), each stream's own truncated final gap
+        excluded before pooling. Valid for EVERY process family -- baseline-
+        only (Poisson) and history-dependent (Hawkes/Renewal) alike -- since it
+        reuses exactly the transform combined_stream_gap_calibration_test's
+        reported p-value is built from. No isinstance/uses_history branching
+        needed in diagnose() anymore for THIS panel (still needed for the
+        censored-vs-recurrent branch, which is a separate, orthogonal
+        consideration -- see plot_panel_calibration_cox_snell).
+        """
         if ax is None:
             _, ax = plt.subplots()
 
-        tr_data = diag_data["time_rescaling"]
-        n_rescaled = tr_data["n_rescaled"]
-
-        if n_rescaled == 0:
-            ax.text(0.5, 0.5, "No events available for calibration check", ha='center', va='center')
-            ax.set_title("B. Time-Rescaling Calibration", fontsize=11, fontweight='bold')
+        expected, observed = self.pooled_gap_qq_pairs(dataset)
+        if len(expected) == 0:
+            ax.text(0.5, 0.5, "No streams with enough events for calibration check",
+                    ha='center', va='center')
+            ax.set_title("B. Pooled Gap-Based Calibration QQ-Plot", fontsize=11, fontweight='bold')
             return ax
 
-        r_grid, surv = tr_data["residual_grid"], tr_data["survival_estimate"]
-        u_grid = 1.0 - np.exp(-r_grid)
-        empirical_cdf = 1.0 - surv
-        ax.step(u_grid, empirical_cdf, where='post', color='crimson', lw=2,
-                label="Empirical CDF of $U_k$")
-
-        grid_r_boot = np.linspace(0, r_grid[-1], 201)
-        lower_S, upper_S = self.bootstrap_pooled_survival_band(tr_data["fish_pairs"], grid=grid_r_boot)
-        u_boot = 1.0 - np.exp(-grid_r_boot)
-        ax.fill_between(u_boot, 1 - upper_S, 1 - lower_S, color="crimson", alpha=0.15,
-                        label="95% band (fish-level bootstrap)", zorder=1)
-
-        ax.plot([0, 1], [0, 1], 'k--', label="Uniform(0,1) Ideal", lw=1.5)
-        ks_bound = 1.36 / np.sqrt(n_rescaled)
-        ax.plot([0, 1], [ks_bound, 1 + ks_bound], 'k:', alpha=0.5, label="95% KS Limits")
-        ax.plot([0, 1], [-ks_bound, 1 - ks_bound], 'k:', alpha=0.5)
-        ax.set_xlim([0, 1]); ax.set_ylim([0, 1])
-        ax.set_title("B. Time-Rescaling: Rescaled-Interval CDF vs. Uniform(0,1)",
-                    fontsize=11, fontweight='bold')
-        ax.set_xlabel("Transformed Interval ($U_k$)")
-        ax.set_ylabel("Cumulative Probability")
-        ax.legend(loc="upper left", fontsize=8)
+        calib = self.combined_stream_gap_calibration_test(dataset)
+        ax.scatter(expected, observed, s=8, alpha=0.35, color='steelblue',
+                label="Observed (pooled exact gaps, own-stream truncated gap excluded)")
+        ax.plot([0, 1], [0, 1], 'k--', lw=1.5, label='Ideal (y=x)')
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+        ax.set_xlabel("Expected quantile (i/(N+1))")
+        ax.set_ylabel(r"Observed $U_i = 1-e^{-\tau_i}$")
+        ax.set_title(
+            f"B. Pooled Gap-Based Calibration QQ ({calib['n_streams_tested']} streams, "
+            f"Fisher-combined p={calib['combined_p_value']:.3g})",
+            fontsize=11, fontweight='bold',
+        )
+        ax.legend(loc='upper left', fontsize=8)
+        ax.grid(True, linestyle=':', alpha=0.4)
         return ax
-
 
     def plot_panel_residual_histogram(
         self, dataset: PointProcessDataset, diag_data: Optional[Dict[str, Any]] = None,
@@ -1145,6 +1218,7 @@ class PointProcess:
         t_zero_idx = np.where(acf2d_data["time_lags_bins"] == 0)[0][0]
         acf_offdiag = acf2d_data["acf2d"].copy()
         acf_offdiag[m_zero_idx, t_zero_idx] = np.nan
+        stream_calib = diag_data.get("stream_calibration", {})
 
         ax.axis('off')
         summary_text = (
@@ -1157,6 +1231,10 @@ class PointProcess:
             f"Median Per-Fish D_n : {tr_data['median_fish_dn']:.4f}\n"
             f"Max 2D Autocorr     : {np.nanmax(np.abs(acf_offdiag)):.4f}\n"
             f"95% 2D CI Limit     : ±{acf2d_data['conf_limit']:.4f}\n"
+        )
+        summary_text += (
+            f"Stream Calibration (Fisher) : N_streams={stream_calib.get('n_streams_tested', 'NA')}, "
+            f"p={stream_calib.get('combined_p_value', float('nan')):.4g}\n"
         )
         ax.text(0.1, 0.5, summary_text, fontsize=10, fontfamily='monospace',
                 verticalalignment='center',
@@ -1199,7 +1277,7 @@ class PointProcess:
         if np.any(tr_data["censored"]):
             self.plot_panel_calibration_cox_snell(dataset, diag_data, ax=axes[0, 1])
         else:
-            self.plot_panel_calibration_ks(dataset, diag_data, ax=axes[0, 1])
+            self.plot_panel_calibration_qq(dataset, diag_data, ax=axes[0, 1])
 
         self.plot_panel_residual_histogram(dataset, diag_data, ax=axes[1, 0])
 
