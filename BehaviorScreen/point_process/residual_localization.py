@@ -1,4 +1,3 @@
-# point_process/residual_localization.py
 """
 Stratified Cox-Snell residual-localization diagnostics.
 
@@ -11,25 +10,34 @@ These diagnostics help localize a global calibration failure by examining:
 5. estimated fish-frailty quantile;
 6. stream event-count category.
 
-This is intended as a separate exploratory figure, not as six independent
-formal hypothesis tests.
+The bootstrap can either refit every simulated dataset or perform a faster
+fixed-parameter predictive simulation.
+
+This figure is intended for exploratory localization of a global GOF failure,
+not as six independent formal hypothesis tests.
 """
 
 from __future__ import annotations
 
 import copy
+import warnings
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from tqdm import tqdm
+from scipy.integrate import trapezoid
 
-from .dataset import PointProcessDataset
+from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.tqdm_joblib import tqdm_joblib
 
 
 # =============================================================================
 # Residual metadata
 # =============================================================================
+
 
 def residual_interval_frame(
     model,
@@ -143,8 +151,8 @@ def residual_interval_frame(
 
     try:
         gains = model.estimate_fish_gains(dataset)
-
         required_columns = {"fish_idx", "estimated_gain"}
+
         if isinstance(gains, pd.DataFrame) and required_columns.issubset(gains.columns):
             gain_map = gains.set_index("fish_idx")["estimated_gain"]
             frame["estimated_gain"] = frame["fish_idx"].map(gain_map)
@@ -156,18 +164,17 @@ def residual_interval_frame(
             )
 
             enough_fish = len(fish_gain) >= n_gain_quantiles
-            enough_unique_gains = (
-                fish_gain["estimated_gain"].nunique() >= n_gain_quantiles
-            )
+            enough_unique = fish_gain["estimated_gain"].nunique() >= n_gain_quantiles
 
-            if enough_fish and enough_unique_gains:
+            if enough_fish and enough_unique:
                 labels = [f"Q{i + 1}" for i in range(n_gain_quantiles)]
 
+                # Ranking first avoids qcut failures when many fish have
+                # identical posterior gain estimates.
                 fish_gain["gain_quantile"] = pd.qcut(
-                    fish_gain["estimated_gain"],
+                    fish_gain["estimated_gain"].rank(method="first"),
                     q=n_gain_quantiles,
                     labels=labels,
-                    duplicates="drop",
                 ).astype(str)
 
                 quantile_map = fish_gain.set_index("fish_idx")["gain_quantile"]
@@ -186,6 +193,7 @@ def residual_interval_frame(
 # Group definitions
 # =============================================================================
 
+
 def add_localization_groups(
     frame: pd.DataFrame,
     dataset: PointProcessDataset,
@@ -194,24 +202,29 @@ def add_localization_groups(
     """Add trial-block, interval-start-time, and event-order labels."""
     frame = frame.copy()
 
-    trial_fraction = frame["trial_idx"].to_numpy(dtype=float) / max(
-        dataset.num_trials, 1
-    )
-    trial_block_index = np.minimum(
-        np.floor(3.0 * trial_fraction).astype(int),
-        2,
-    )
-    trial_labels = np.asarray(["Early trials", "Middle trials", "Late trials"])
-    frame["trial_block"] = trial_labels[trial_block_index]
+    trial_indices = np.arange(dataset.num_trials)
+    trial_blocks = np.array_split(trial_indices, 3)
+    trial_block_map = {}
 
-    # Interval start time is known before the next event and is therefore a
-    # preferable localization variable to the eventual interval endpoint.
+    for label, block in zip(
+        ["Early trials", "Middle trials", "Late trials"],
+        trial_blocks,
+    ):
+        for trial_idx in block:
+            trial_block_map[int(trial_idx)] = label
+
+    frame["trial_block"] = frame["trial_idx"].map(trial_block_map)
+
+    time_labels = [
+        f"{left:g}–{right:g}s" for left, right in zip(time_edges[:-1], time_edges[1:])
+    ]
     frame["time_bin"] = pd.cut(
         frame["interval_start_s"],
         bins=time_edges,
+        labels=time_labels,
         include_lowest=True,
         right=False,
-    ).astype(str)
+    )
 
     def event_order_group(row: pd.Series) -> str:
         if row["censored"]:
@@ -235,6 +248,7 @@ def add_localization_groups(
 # Cox-Snell calculations
 # =============================================================================
 
+
 def _evaluate_step(
     x: np.ndarray,
     knots: np.ndarray,
@@ -249,8 +263,8 @@ def _evaluate_step(
 
     indices = np.searchsorted(knots, x, side="right") - 1
     valid = (indices >= 0) & (x <= max_x)
-    indices_valid = np.clip(indices[valid], 0, len(values) - 1)
-    result[valid] = values[indices_valid]
+    valid_indices = np.clip(indices[valid], 0, len(values) - 1)
+    result[valid] = values[valid_indices]
 
     return result
 
@@ -261,9 +275,7 @@ def cox_snell_curve(
     r_grid: np.ndarray,
     min_km_at_risk: int = 1,
 ) -> np.ndarray:
-    """
-    Evaluate the Cox-Snell curve -log(KM survival) on a common residual grid.
-    """
+    """Evaluate -log(KM survival) on a common Cox-Snell residual grid."""
     if frame.empty:
         return np.full_like(r_grid, np.nan, dtype=float)
 
@@ -330,7 +342,7 @@ def signed_calibration_area(
     if np.sum(valid) < 2:
         return np.nan
 
-    area = np.trapezoid(
+    area = trapezoid(
         curve[valid] - r_grid[valid],
         x=r_grid[valid],
     )
@@ -343,8 +355,9 @@ def signed_calibration_area(
 # Summary extraction
 # =============================================================================
 
+
 def _count_category(count: int) -> str:
-    """Map a raw stream event count to a plotting category."""
+    """Map a stream event count to a plotting category."""
     if count == 0:
         return "0"
     if count == 1:
@@ -354,16 +367,6 @@ def _count_category(count: int) -> str:
     return "4+"
 
 
-def _ordered_time_labels(frame: pd.DataFrame) -> List[str]:
-    """Return pd.cut labels sorted by their lower interval boundary."""
-    labels = frame["time_bin"].dropna().unique().tolist()
-
-    def lower_bound(label: str) -> float:
-        return float(label.lstrip("[(").split(",")[0])
-
-    return sorted(labels, key=lower_bound)
-
-
 def localization_summary(
     model,
     dataset: PointProcessDataset,
@@ -371,6 +374,7 @@ def localization_summary(
     time_edges: np.ndarray,
     gap_edges: np.ndarray,
     min_km_at_risk: int = 1,
+    include_frame: bool = False,
 ) -> Dict[str, Any]:
     """Compute all quantities needed by the six localization panels."""
     frame = residual_interval_frame(model, dataset)
@@ -383,6 +387,9 @@ def localization_summary(
         "Events 4–6",
         "Events 7+",
         "Terminal censored",
+    ]
+    time_groups = [
+        f"{left:g}–{right:g}s" for left, right in zip(time_edges[:-1], time_edges[1:])
     ]
 
     trial_curves = {
@@ -418,11 +425,10 @@ def localization_summary(
         for group in gain_groups
     }
 
-    time_groups = _ordered_time_labels(frame)
     time_areas = {
         group: signed_calibration_area(
             model,
-            frame[frame["time_bin"] == group],
+            frame[frame["time_bin"].astype(str) == group],
             r_grid,
             min_km_at_risk=min_km_at_risk,
         )
@@ -447,13 +453,14 @@ def localization_summary(
     count_groups = ["0", "1", "2–3", "4+"]
     count_proportions = {
         group: float(
-            np.mean([_count_category(int(count)) == group for count in stream_counts])
+            np.mean(
+                [_count_category(int(count)) == group for count in stream_counts]
+            )
         )
         for group in count_groups
     }
 
-    return {
-        "frame": frame,
+    result = {
         "trial_curves": trial_curves,
         "order_curves": order_curves,
         "gain_curves": gain_curves,
@@ -462,10 +469,68 @@ def localization_summary(
         "count_proportions": count_proportions,
     }
 
+    if include_frame:
+        result["frame"] = frame
+
+    return result
+
 
 # =============================================================================
-# Simulation/bootstrap
+# Parallel bootstrap worker
 # =============================================================================
+
+
+def _run_localization_bootstrap_replicate(
+    seed_seq,
+    model,
+    dataset: PointProcessDataset,
+    refit: bool,
+    refit_n_starts: int,
+    min_km_at_risk: int,
+    r_grid: np.ndarray,
+    time_edges: np.ndarray,
+    gap_edges: np.ndarray,
+) -> Dict[str, Any]:
+    """Run one simulate-refit-localize bootstrap replicate."""
+    rng = np.random.default_rng(seed_seq)
+
+    try:
+        model_b = copy.deepcopy(model)
+        dataset_b = model_b.simulate_dataset(template=dataset, rng=rng)
+
+        if refit:
+            model_b.initial_guesses = list(np.asarray(model.params_, dtype=float))
+
+            if refit_n_starts <= 1:
+                model_b.fit(dataset_b)
+            else:
+                model_b.fit_multistart(
+                    dataset_b,
+                    n_starts=refit_n_starts,
+                    seed=int(rng.integers(0, 2**31 - 1)),
+                    n_jobs=1,
+                )
+
+        summary = localization_summary(
+            model_b,
+            dataset_b,
+            r_grid=r_grid,
+            time_edges=time_edges,
+            gap_edges=gap_edges,
+            min_km_at_risk=min_km_at_risk,
+            include_frame=False,
+        )
+
+        return {"success": True, "summary": summary}
+
+    except Exception as exc:
+        return {"success": False, "error": repr(exc)}
+
+
+# =============================================================================
+# Parallel bootstrap orchestration
+# =============================================================================
+
 
 def bootstrap_localization(
     model,
@@ -478,15 +543,56 @@ def bootstrap_localization(
     r_grid: Optional[np.ndarray] = None,
     time_edges: Optional[np.ndarray] = None,
     gap_edges: Optional[np.ndarray] = None,
+    n_jobs: int = -1,
+    verbose: bool = True,
 ) -> Dict[str, Any]:
     """
     Simulate residual-localization summaries under the fitted model.
 
-    If refit=True, each replicate performs:
+    Bootstrap replicates are parallelized across processes. Each replicate
+    performs:
 
-        simulate -> refit -> recompute residual localization
+        simulate -> optionally refit -> recompute residual localization
 
-    If refit=False, this performs a faster fixed-parameter predictive check.
+    Parameters
+    ----------
+    model
+        Fitted point-process model.
+
+    dataset
+        Dataset defining the fish x trial design.
+
+    n_boot
+        Number of bootstrap replicates.
+
+    seed
+        Root random seed.
+
+    refit
+        If True, refit the model to every simulated dataset. If False, use
+        the observed fitted parameters for every simulated dataset.
+
+    refit_n_starts
+        Number of optimizer starts used per bootstrap replicate. Inner
+        multistart fitting is always serial to avoid nested parallelism.
+
+    min_km_at_risk
+        Minimum KM risk-set size used to retain a Cox-Snell curve segment.
+
+    r_grid
+        Common Cox-Snell residual grid.
+
+    time_edges
+        Edges defining interval-start-time groups.
+
+    gap_edges
+        Histogram edges for post-event waiting times.
+
+    n_jobs
+        Number of parallel outer workers. Use -1 for all available CPUs.
+
+    verbose
+        Whether to display the tqdm progress bar.
     """
     if model.params_ is None:
         raise ValueError("Model must be fitted first.")
@@ -508,6 +614,13 @@ def bootstrap_localization(
     time_edges = np.asarray(time_edges, dtype=float)
     gap_edges = np.asarray(gap_edges, dtype=float)
 
+    if np.any(np.diff(r_grid) <= 0):
+        raise ValueError("r_grid must be strictly increasing.")
+    if np.any(np.diff(time_edges) <= 0):
+        raise ValueError("time_edges must be strictly increasing.")
+    if np.any(np.diff(gap_edges) <= 0):
+        raise ValueError("gap_edges must be strictly increasing.")
+
     observed = localization_summary(
         model,
         dataset,
@@ -515,50 +628,50 @@ def bootstrap_localization(
         time_edges=time_edges,
         gap_edges=gap_edges,
         min_km_at_risk=min_km_at_risk,
+        include_frame=True,
     )
 
-    rng = np.random.default_rng(seed)
-    replicates: List[Dict[str, Any]] = []
-    errors: List[str] = []
+    seeds = np.random.SeedSequence(seed).spawn(n_boot)
+    progress = tqdm(
+        total=n_boot,
+        desc="Residual localization bootstrap",
+        disable=not verbose,
+    )
 
-    for _ in range(n_boot):
-        try:
-            replicate_seed = int(rng.integers(0, 2**32 - 1))
-            replicate_rng = np.random.default_rng(replicate_seed)
-
-            model_b = copy.deepcopy(model)
-            dataset_b = model_b.simulate_dataset(
-                template=dataset,
-                rng=replicate_rng,
-            )
-
-            if refit:
-                model_b.initial_guesses = list(
-                    np.asarray(model.params_, dtype=float)
+    # The outer bootstrap is parallel. BLAS/OpenMP thread pools inside each
+    # worker are restricted to one thread to prevent oversubscription.
+    with joblib.parallel_backend("loky", inner_max_num_threads=1):
+        with tqdm_joblib(progress):
+            worker_results = joblib.Parallel(
+                n_jobs=n_jobs,
+                batch_size=1,
+                pre_dispatch="n_jobs",
+            )(
+                joblib.delayed(_run_localization_bootstrap_replicate)(
+                    seed_seq=seed_seq,
+                    model=model,
+                    dataset=dataset,
+                    refit=refit,
+                    refit_n_starts=refit_n_starts,
+                    min_km_at_risk=min_km_at_risk,
+                    r_grid=r_grid,
+                    time_edges=time_edges,
+                    gap_edges=gap_edges,
                 )
-
-                if refit_n_starts <= 1:
-                    model_b.fit(dataset_b)
-                else:
-                    model_b.fit_multistart(
-                        dataset_b,
-                        n_starts=refit_n_starts,
-                        seed=int(replicate_rng.integers(0, 2**31 - 1)),
-                        n_jobs=1,
-                    )
-
-            summary = localization_summary(
-                model_b,
-                dataset_b,
-                r_grid=r_grid,
-                time_edges=time_edges,
-                gap_edges=gap_edges,
-                min_km_at_risk=min_km_at_risk,
+                for seed_seq in seeds
             )
-            replicates.append(summary)
 
-        except Exception as exc:
-            errors.append(repr(exc))
+    replicates = [
+        result["summary"] for result in worker_results if result["success"]
+    ]
+    errors = [
+        result["error"] for result in worker_results if not result["success"]
+    ]
+
+    print(
+        f"Residual localization bootstrap: {len(replicates)}/{n_boot} "
+        f"successful ({len(errors)} failures)."
+    )
 
     if not replicates:
         raise RuntimeError(
@@ -584,6 +697,7 @@ def bootstrap_localization(
 # Bootstrap summary helpers
 # =============================================================================
 
+
 def _curve_band(
     replicates: Sequence[Dict[str, Any]],
     section: str,
@@ -604,9 +718,11 @@ def _curve_band(
     curves = np.asarray(curves, dtype=float)
     alpha = (100.0 - ci) / 2.0
 
-    median = np.nanmedian(curves, axis=0)
-    lower = np.nanpercentile(curves, alpha, axis=0)
-    upper = np.nanpercentile(curves, 100.0 - alpha, axis=0)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        median = np.nanmedian(curves, axis=0)
+        lower = np.nanpercentile(curves, alpha, axis=0)
+        upper = np.nanpercentile(curves, 100.0 - alpha, axis=0)
 
     return median, lower, upper
 
@@ -645,17 +761,21 @@ def _plot_grouped_cox_snell_curves(
     r_grid: np.ndarray,
     ci: float,
 ) -> None:
-    """Shared plotting logic for grouped Cox-Snell curves."""
+    """
+    Plot grouped observed Cox-Snell curves and bootstrap reference bands.
+
+    Solid lines are observed curves. Dotted lines are bootstrap medians.
+    """
     colors = plt.cm.tab10.colors
 
     for index, group in enumerate(groups):
-        curve = observed_curves.get(group)
+        observed_curve = observed_curves.get(group)
 
-        if curve is None:
+        if observed_curve is None:
             continue
 
         color = colors[index % len(colors)]
-        _, lower, upper = _curve_band(
+        median, lower, upper = _curve_band(
             replicates,
             replicate_section,
             group,
@@ -672,10 +792,21 @@ def _plot_grouped_cox_snell_curves(
                 alpha=0.10,
             )
 
-        valid_curve = np.isfinite(curve)
+        if len(median):
+            valid_median = np.isfinite(median)
+            ax.plot(
+                r_grid[valid_median],
+                median[valid_median],
+                color=color,
+                linestyle=":",
+                linewidth=1.2,
+                alpha=0.9,
+            )
+
+        valid_observed = np.isfinite(observed_curve)
         ax.plot(
-            r_grid[valid_curve],
-            curve[valid_curve],
+            r_grid[valid_observed],
+            observed_curve[valid_observed],
             color=color,
             linewidth=1.8,
             label=group,
@@ -690,6 +821,7 @@ def _plot_grouped_cox_snell_curves(
 # =============================================================================
 # Main figure
 # =============================================================================
+
 
 def plot_residual_localization(
     result: Dict[str, Any],
@@ -822,9 +954,12 @@ def plot_residual_localization(
     )
 
     alpha = (100.0 - ci) / 2.0
-    gap_median = np.nanmedian(gap_matrix, axis=0)
-    gap_lower = np.nanpercentile(gap_matrix, alpha, axis=0)
-    gap_upper = np.nanpercentile(gap_matrix, 100.0 - alpha, axis=0)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        gap_median = np.nanmedian(gap_matrix, axis=0)
+        gap_lower = np.nanpercentile(gap_matrix, alpha, axis=0)
+        gap_upper = np.nanpercentile(gap_matrix, 100.0 - alpha, axis=0)
 
     ax.fill_between(
         gap_centers,
