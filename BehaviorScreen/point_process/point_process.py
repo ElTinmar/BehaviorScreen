@@ -1511,7 +1511,9 @@ class PointProcess:
             vals = np.array([v for v, _ in pooled_pairs])
             cens = np.array([c for _, c in pooled_pairs])
             residual_grid, km_S = PointProcess._survival_estimate(vals, cens)
-            boot_curves[b, :] = np.interp(grid, residual_grid, km_S, left=1.0, right=km_S[-1])
+            boot_curves[b, :] = PointProcess._evaluate_step_function(
+                grid, residual_grid, km_S, max_x=np.inf
+            )
 
         alpha = (100.0 - ci) / 2.0
         lower = np.nanpercentile(boot_curves, alpha, axis=0)
