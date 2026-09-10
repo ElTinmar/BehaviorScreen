@@ -1178,36 +1178,41 @@ class PointProcess:
         return corr
 
     def stream_compensator_profile(
-        self, t_ev: np.ndarray, trial: float, duration_s: float,
+        self,
+        t_ev: np.ndarray,
+        trial: float,
+        duration_s: float,
     ) -> Tuple[np.ndarray, np.ndarray, bool, float]:
         """
-        Polymorphic hook: for ONE (fish, trial) stream, which points count as
-        exact calibration residuals under THIS process's own likelihood
-        convention, whether the last one is right-censored, and how much
-        exposure this trial contributes to a fish's running total (consumed
-        by GammaMixedEffectsProcess). Also used by _stream_tau_values/
-        time_rescaling below.
+        Compensator profile for one recurrent-event stream.
 
-        Returns (probe_times, compensator_at_probes, last_is_censored,
-        full_trial_exposure).
+        Every observed event terminates an exact waiting interval. Trial end
+        terminates one administratively right-censored waiting interval.
 
-        DEFAULT = RECURRENT convention (correct as-is for PoissonProcess/
-        HawkesProcess/RenewalProcess): every real event in t_ev is an exact
-        residual, nothing is censored, and exposure always accrues to
-        duration_s regardless of event count -- exactly what these classes'
-        own _nll methods already assume. Override only for a terminating
-        process (see SurvivalProcess).
+        Thus:
+        - a stream with n events contributes n exact intervals and one
+            terminal censored interval;
+        - an empty stream contributes one censored interval;
+        - event history resets because this method is called separately for
+            every fish x trial stream.
         """
-        if len(t_ev) == 0:
-            full_exposure = self.cumulative_integrated_intensity(
-                np.array([duration_s]), trial
-            )[0]
-            return np.array([]), np.array([]), False, float(full_exposure)
+        if self.params_ is None:
+            raise ValueError("Model must be fitted or assigned parameters first.")
 
-        t_sorted = np.sort(t_ev)
-        probes = np.append(t_sorted, duration_s)
-        cum = self.cumulative_integrated_intensity(probes, trial)
-        return t_sorted, cum[:-1], False, float(cum[-1])
+        t_sorted = np.sort(np.asarray(t_ev, dtype=float))
+        probes = np.append(t_sorted, float(duration_s))
+
+        cumulative = self.cumulative_integrated_intensity(
+            probes,
+            trial,
+        )
+
+        return (
+            probes,
+            cumulative,
+            True,                    # final probe is trial-end censoring
+            float(cumulative[-1]),
+        )
 
     def _stream_tau_values(
         self, dataset: PointProcessDataset
