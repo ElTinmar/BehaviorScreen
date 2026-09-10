@@ -736,6 +736,7 @@ for exp_name, config in model_config.items():
     dataset = datasets[exp_name]
     model_dir = OUTPUT_ROOT / exp_name / "models"
 
+    # AIC-based model selection ----------------------------
     summary_table, fitted_models = ModelComparator.compare(
         models=config['models'],
         dataset=dataset,
@@ -751,6 +752,31 @@ for exp_name, config in model_config.items():
 
     print("\n--- MODEL COMPARISON TABLE ---")
     print(summary_table.to_string(index=False))
+
+    # GOF parametric bootstrap ---------------------------
+    gof_boot = best_model.parametric_gof_bootstrap(
+        dataset,
+        n_boot=300,
+        seed=123,
+        refit_n_starts=1,
+        n_jobs=-1,
+    )
+
+    print(gof_boot["summary"].to_string(index=False))
+
+    save_csv(
+        gof_boot["summary"],
+        model_dir,
+        f"parametric_gof_summary_{best_model.name}",
+    )
+
+    save_csv(
+        gof_boot["bootstrap_statistics"],
+        model_dir,
+        f"parametric_gof_replicates_{best_model.name}",
+    )
+
+    # plots -------------------------------------------------------
 
     fig, _ = ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
     save_fig(fig, model_dir, f"model_fits_overlay")

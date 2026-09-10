@@ -26,6 +26,63 @@ def _fit_single_bootstrap(seed_seq, dataset: PointProcessDataset, model: "PointP
     except Exception:
         return None
 
+def _fit_single_parametric_gof(
+    seed_seq,
+    dataset: PointProcessDataset,
+    fitted_model: "PointProcess",
+    u_grid: np.ndarray,
+    acf_lags: int,
+    refit_n_starts: int,
+):
+    """
+    One parametric-bootstrap GOF replicate:
+
+        simulate -> refit -> recompute GOF
+
+    Returns None if simulation, fitting, or diagnostics fail.
+    """
+    rng = np.random.default_rng(seed_seq)
+
+    try:
+        # Deep copy prevents state changes in one worker from affecting others.
+        model_b = copy.deepcopy(fitted_model)
+
+        # 1. Simulate under the observed fitted model.
+        dataset_b = model_b.simulate_dataset(dataset, rng=rng)
+
+        # 2. Refit to the simulated dataset.
+        #
+        # Warm-start at the observed-data MLE. This is usually appropriate
+        # because bootstrap datasets were generated near that parameter value.
+        model_b.initial_guesses = list(np.asarray(fitted_model.params_, dtype=float))
+
+        if refit_n_starts <= 1:
+            model_b.fit(dataset_b)
+        else:
+            model_b.fit_multistart(
+                dataset_b,
+                n_starts=refit_n_starts,
+                seed=int(rng.integers(0, 2**31 - 1)),
+                n_jobs=1,  # avoid nested parallelism inside joblib workers
+            )
+
+        # 3. Recompute exactly the same diagnostics.
+        stats_b = model_b.gof_statistics(
+            dataset_b,
+            u_grid=u_grid,
+            acf_lags=acf_lags,
+        )
+
+        return stats_b
+
+    except Exception as exc:
+        # Returning the error string is useful for debugging systematic
+        # simulation/refitting failures.
+        return {
+            "_failed": True,
+            "_error": repr(exc),
+        }
+
     
 class PointProcess:
     # Heuristic: parameter names matching these patterns get log-uniform
@@ -278,6 +335,529 @@ class PointProcess:
         self, dataset: PointProcessDataset, t_idx: int, gain: float, rng
     ) -> np.ndarray:
         raise NotImplementedError
+
+    def simulate_dataset(
+        self,
+        template: PointProcessDataset,
+        rng: Optional[np.random.Generator] = None,
+    ) -> PointProcessDataset:
+        """
+        Simulate one complete dataset from the fitted model while preserving the
+        observed experimental design:
+
+        - same number of fish and trials;
+        - same fish_trial_mask;
+        - same trial duration and trial indices;
+        - one newly drawn frailty per fish, shared across that fish's trials;
+        - within-trial event history resets because simulate_stream() is called
+        independently for each trial.
+
+        The fitted model parameters are held fixed during generation.
+        """
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before simulating a dataset.")
+
+        rng = rng or np.random.default_rng()
+
+        # Shape = (num_fish, 1): one frailty draw per fish, reused over trials.
+        fish_gains = self._draw_fish_gains(
+            num_fish=template.num_fish,
+            n_sims=1,
+            rng=rng,
+        )[:, 0]
+
+        event_times = []
+        event_trials = []
+        event_fish = []
+
+        for f_idx, t_idx, _ in template.iter_streams():
+            simulated_events = np.asarray(
+                self.simulate_stream(
+                    dataset=template,
+                    t_idx=t_idx,
+                    gain=float(fish_gains[f_idx]),
+                    rng=rng,
+                ),
+                dtype=float,
+            )
+
+            if len(simulated_events) == 0:
+                continue
+
+            event_times.append(simulated_events)
+            event_trials.append(
+                np.full(len(simulated_events), t_idx, dtype=int)
+            )
+            event_fish.append(
+                np.full(len(simulated_events), f_idx, dtype=int)
+            )
+
+        return PointProcessDataset(
+            event_times=(
+                np.concatenate(event_times)
+                if event_times else np.array([], dtype=float)
+            ),
+            event_trials_idx=(
+                np.concatenate(event_trials)
+                if event_trials else np.array([], dtype=int)
+            ),
+            event_fish_idx=(
+                np.concatenate(event_fish)
+                if event_fish else np.array([], dtype=int)
+            ),
+            fish_trial_mask=template.fish_trial_mask.copy(),
+            fish_ids=template.fish_ids.copy(),
+            bout_name=template.bout_name,
+            laterality=template.laterality,
+            duration_s=template.duration_s,
+            binning_dt=template.binning_dt,
+        )
+
+    @staticmethod
+    def _evaluate_step_function(
+        x: np.ndarray,
+        step_x: np.ndarray,
+        step_y: np.ndarray,
+    ) -> np.ndarray:
+        """
+        Evaluate a right-continuous step function defined by values step_y at
+        locations step_x.
+
+        Assumes step_x is sorted and normally begins at zero.
+        """
+        x = np.asarray(x, dtype=float)
+        step_x = np.asarray(step_x, dtype=float)
+        step_y = np.asarray(step_y, dtype=float)
+
+        idx = np.searchsorted(step_x, x, side="right") - 1
+        idx = np.clip(idx, 0, len(step_y) - 1)
+        return step_y[idx]
+
+    def gof_statistics(
+        self,
+        dataset: PointProcessDataset,
+        u_grid: Optional[np.ndarray] = None,
+        acf_lags: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        Compute scalar GOF statistics and a common-grid time-rescaling curve.
+
+        Statistics whose large values indicate lack of fit:
+        - calibration_ks
+        - calibration_cvm
+        - max_abs_event_acf
+
+        Additional raw summaries are returned for posterior-predictive-style
+        comparison with their parametric-bootstrap distributions.
+        """
+        if self.params_ is None:
+            raise ValueError("Model must be fitted before computing GOF statistics.")
+
+        if u_grid is None:
+            # Avoid exactly u=1 because r=-log(1-u) would be infinite.
+            u_grid = np.linspace(0.0, 0.995, 300)
+
+        tr = self.time_rescaling(
+            dataset,
+            acf_lags=acf_lags,
+        )
+
+        residual_grid = tr["residual_grid"]
+        survival = tr["survival_estimate"]
+
+        # Transform a fixed Uniform-scale grid to the Exp(1) residual scale.
+        r_eval = -np.log1p(-u_grid)
+
+        survival_eval = self._evaluate_step_function(
+            r_eval,
+            residual_grid,
+            survival,
+        )
+        empirical_cdf = 1.0 - survival_eval
+
+        differences = empirical_cdf - u_grid
+
+        calibration_ks = float(np.max(np.abs(differences)))
+        calibration_cvm = float(
+            np.trapezoid(differences**2, x=u_grid)
+        )
+
+        acf = np.asarray(tr["acf"], dtype=float)
+        max_abs_event_acf = (
+            float(np.max(np.abs(acf)))
+            if len(acf) > 0 else np.nan
+        )
+
+        stream_counts = dataset.stream_event_counts.astype(float)
+        fish_totals = dataset.fish_total_counts.astype(float)
+
+        zero_fraction = (
+            float(np.mean(stream_counts == 0))
+            if len(stream_counts) else np.nan
+        )
+        multiple_fraction = (
+            float(np.mean(stream_counts >= 2))
+            if len(stream_counts) else np.nan
+        )
+
+        return {
+            # Formal discrepancy statistics: larger means worse.
+            "calibration_ks": calibration_ks,
+            "calibration_cvm": calibration_cvm,
+            "max_abs_event_acf": max_abs_event_acf,
+
+            # Raw predictive summaries.
+            "zero_stream_fraction": zero_fraction,
+            "multiple_event_stream_fraction": multiple_fraction,
+            "mean_stream_count": (
+                float(np.mean(stream_counts))
+                if len(stream_counts) else np.nan
+            ),
+            "variance_stream_count": (
+                float(np.var(stream_counts))
+                if len(stream_counts) else np.nan
+            ),
+            "mean_fish_total": (
+                float(np.mean(fish_totals))
+                if len(fish_totals) else np.nan
+            ),
+            "variance_fish_total": (
+                float(np.var(fish_totals))
+                if len(fish_totals) else np.nan
+            ),
+            "max_fish_total": (
+                float(np.max(fish_totals))
+                if len(fish_totals) else np.nan
+            ),
+
+            # Metadata.
+            "n_rescaled": tr["n_rescaled"],
+            "n_exact": tr["n_exact"],
+
+            # Common-grid calibration curve.
+            "u_grid": u_grid,
+            "calibration_cdf": empirical_cdf,
+        }
+
+
+    def parametric_gof_bootstrap(
+        self,
+        dataset: PointProcessDataset,
+        n_boot: int = 300,
+        seed: int = 42,
+        ci: float = 95.0,
+        acf_lags: int = 20,
+        refit_n_starts: int = 1,
+        n_jobs: int = -1,
+        u_grid: Optional[np.ndarray] = None,
+    ) -> Dict[str, Any]:
+        """
+        Parametric-bootstrap goodness-of-fit assessment.
+
+        Procedure:
+        1. Compute GOF statistics on the observed fitted model.
+        2. Simulate complete fish x trial datasets from that model.
+        3. Refit the model to every simulated dataset.
+        4. Recompute identical GOF statistics.
+        5. Compare observed statistics/curves with bootstrap distributions.
+
+        This tests the currently fitted model family. It does not repeat model
+        selection among competing model families.
+        """
+        if self.params_ is None:
+            raise ValueError(
+                "Model must be fitted before running parametric GOF bootstrap."
+            )
+
+        if u_grid is None:
+            u_grid = np.linspace(0.0, 0.995, 300)
+        else:
+            u_grid = np.asarray(u_grid, dtype=float)
+
+        observed = self.gof_statistics(
+            dataset,
+            u_grid=u_grid,
+            acf_lags=acf_lags,
+        )
+
+        seeds = np.random.SeedSequence(seed).spawn(n_boot)
+
+        with tqdm_joblib(tqdm(total=n_boot, desc="Parametric GOF bootstrap")):
+            results = joblib.Parallel(n_jobs=n_jobs)(
+                joblib.delayed(_fit_single_parametric_gof)(
+                    seed_seq=s,
+                    dataset=dataset,
+                    fitted_model=self,
+                    u_grid=u_grid,
+                    acf_lags=acf_lags,
+                    refit_n_starts=refit_n_starts,
+                )
+                for s in seeds
+            )
+
+        failures = [
+            r for r in results
+            if r is None or r.get("_failed", False)
+        ]
+        valid = [
+            r for r in results
+            if r is not None and not r.get("_failed", False)
+        ]
+
+        print(
+            f"Parametric GOF bootstrap: "
+            f"{len(valid)}/{n_boot} successful fits "
+            f"({len(failures)} failures)."
+        )
+
+        if len(valid) == 0:
+            failure_examples = [
+                r.get("_error", "Unknown error")
+                for r in failures[:5]
+                if isinstance(r, dict)
+            ]
+            raise RuntimeError(
+                "All parametric GOF bootstrap replicates failed. "
+                f"Example errors: {failure_examples}"
+            )
+
+        # ------------------------------------------------------------------
+        # Scalar bootstrap table
+        # ------------------------------------------------------------------
+
+        scalar_names = [
+            "calibration_ks",
+            "calibration_cvm",
+            "max_abs_event_acf",
+            "zero_stream_fraction",
+            "multiple_event_stream_fraction",
+            "mean_stream_count",
+            "variance_stream_count",
+            "mean_fish_total",
+            "variance_fish_total",
+            "max_fish_total",
+            "n_rescaled",
+            "n_exact",
+        ]
+
+        records = []
+        alpha = (100.0 - ci) / 2.0
+
+        # Only these have an intrinsic "larger = worse" interpretation.
+        upper_tail_discrepancies = {
+            "calibration_ks",
+            "calibration_cvm",
+            "max_abs_event_acf",
+        }
+
+        for name in scalar_names:
+            boot_values = np.array(
+                [r[name] for r in valid],
+                dtype=float,
+            )
+            boot_values = boot_values[np.isfinite(boot_values)]
+
+            obs_value = float(observed[name])
+
+            if len(boot_values) == 0:
+                records.append({
+                    "statistic": name,
+                    "observed": obs_value,
+                    "bootstrap_mean": np.nan,
+                    "bootstrap_median": np.nan,
+                    "ci_lower": np.nan,
+                    "ci_upper": np.nan,
+                    "bootstrap_percentile": np.nan,
+                    "p_upper": np.nan,
+                    "p_two_sided": np.nan,
+                })
+                continue
+
+            percentile = (
+                100.0 * np.mean(boot_values <= obs_value)
+            )
+
+            # Appropriate for discrepancies where larger explicitly means worse.
+            if name in upper_tail_discrepancies:
+                p_upper = (
+                    1.0 + np.sum(boot_values >= obs_value)
+                ) / (len(boot_values) + 1.0)
+            else:
+                p_upper = np.nan
+
+            # Descriptive two-sided tail location for raw summaries.
+            lower_tail = (
+                1.0 + np.sum(boot_values <= obs_value)
+            ) / (len(boot_values) + 1.0)
+            upper_tail = (
+                1.0 + np.sum(boot_values >= obs_value)
+            ) / (len(boot_values) + 1.0)
+            p_two_sided = min(1.0, 2.0 * min(lower_tail, upper_tail))
+
+            records.append({
+                "statistic": name,
+                "observed": obs_value,
+                "bootstrap_mean": float(np.mean(boot_values)),
+                "bootstrap_median": float(np.median(boot_values)),
+                "ci_lower": float(np.percentile(boot_values, alpha)),
+                "ci_upper": float(np.percentile(
+                    boot_values, 100.0 - alpha
+                )),
+                "bootstrap_percentile": percentile,
+                "p_upper": p_upper,
+                "p_two_sided": p_two_sided,
+            })
+
+        summary = pd.DataFrame(records)
+
+        # ------------------------------------------------------------------
+        # Simultaneous pointwise calibration envelope
+        # ------------------------------------------------------------------
+
+        bootstrap_cdfs = np.array(
+            [r["calibration_cdf"] for r in valid],
+            dtype=float,
+        )
+
+        cdf_lower = np.nanpercentile(
+            bootstrap_cdfs, alpha, axis=0
+        )
+        cdf_upper = np.nanpercentile(
+            bootstrap_cdfs, 100.0 - alpha, axis=0
+        )
+        cdf_median = np.nanmedian(bootstrap_cdfs, axis=0)
+
+        # A simultaneous envelope based on the bootstrap maximum vertical
+        # deviation from the ideal Uniform diagonal.
+        sup_deviations = np.nanmax(
+            np.abs(bootstrap_cdfs - u_grid[None, :]),
+            axis=1,
+        )
+        simultaneous_critical_value = float(
+            np.nanpercentile(sup_deviations, ci)
+        )
+
+        simultaneous_lower = np.clip(
+            u_grid - simultaneous_critical_value,
+            0.0,
+            1.0,
+        )
+        simultaneous_upper = np.clip(
+            u_grid + simultaneous_critical_value,
+            0.0,
+            1.0,
+        )
+
+        bootstrap_scalar_df = pd.DataFrame([
+            {
+                key: value
+                for key, value in result.items()
+                if np.isscalar(value) and not key.startswith("_")
+            }
+            for result in valid
+        ])
+
+        return {
+            "observed": observed,
+            "summary": summary,
+            "bootstrap_statistics": bootstrap_scalar_df,
+            "n_requested": n_boot,
+            "n_successful": len(valid),
+            "n_failed": len(failures),
+            "failure_messages": [
+                r.get("_error", "Unknown error")
+                for r in failures
+                if isinstance(r, dict)
+            ],
+            "u_grid": u_grid,
+            "observed_calibration_cdf": observed["calibration_cdf"],
+            "bootstrap_cdf_median": cdf_median,
+            "bootstrap_cdf_lower": cdf_lower,
+            "bootstrap_cdf_upper": cdf_upper,
+            "simultaneous_cdf_lower": simultaneous_lower,
+            "simultaneous_cdf_upper": simultaneous_upper,
+            "simultaneous_critical_value": simultaneous_critical_value,
+        }
+
+    def plot_parametric_gof_calibration(
+        self,
+        gof_result: Dict[str, Any],
+        ax: Optional[plt.Axes] = None,
+        show_pointwise_band: bool = False,
+    ) -> plt.Axes:
+        """
+        Plot the observed time-rescaling CDF against parametric-bootstrap
+        envelopes obtained after simulating and refitting the model.
+        """
+        if ax is None:
+            _, ax = plt.subplots(figsize=(7, 6))
+
+        u = gof_result["u_grid"]
+        observed_cdf = gof_result["observed_calibration_cdf"]
+
+        if show_pointwise_band:
+            ax.fill_between(
+                u,
+                gof_result["bootstrap_cdf_lower"],
+                gof_result["bootstrap_cdf_upper"],
+                color="steelblue",
+                alpha=0.18,
+                label="Pointwise parametric-bootstrap band",
+            )
+
+        ax.fill_between(
+            u,
+            gof_result["simultaneous_cdf_lower"],
+            gof_result["simultaneous_cdf_upper"],
+            color="gray",
+            alpha=0.25,
+            label="Simultaneous parametric-bootstrap envelope",
+        )
+
+        ax.plot(
+            u,
+            gof_result["bootstrap_cdf_median"],
+            color="steelblue",
+            linestyle=":",
+            linewidth=1.5,
+            label="Bootstrap median fitted-residual CDF",
+        )
+
+        ax.step(
+            u,
+            observed_cdf,
+            where="post",
+            color="crimson",
+            linewidth=2,
+            label="Observed fitted-residual CDF",
+        )
+
+        ax.plot(
+            [0, 1],
+            [0, 1],
+            "k--",
+            linewidth=1.5,
+            label="Uniform ideal",
+        )
+
+        summary = gof_result["summary"]
+        ks_row = summary.loc[
+            summary["statistic"] == "calibration_ks"
+        ].iloc[0]
+
+        ax.set_title(
+            "Parametric-bootstrap time-rescaling GOF\n"
+            f"KS discrepancy={ks_row['observed']:.3f}, "
+            f"bootstrap p={ks_row['p_upper']:.3f}"
+        )
+        ax.set_xlabel("Uniform-scale residual $u$")
+        ax.set_ylabel("Empirical residual CDF")
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        ax.legend(loc="upper left", fontsize=8)
+        ax.grid(True, linestyle=":", alpha=0.3)
+
+        return ax
 
     def _intensity_upper_bound(self, dataset, t_idx) -> float:
         raise NotImplementedError
