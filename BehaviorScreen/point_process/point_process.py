@@ -10,7 +10,7 @@ from scipy.optimize import minimize
 from scipy.stats import norm, chi2
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from scipy.special import gammaln
+from scipy.integrate import trapezoid
 
 from .tqdm_joblib import tqdm_joblib
 from .dataset import PointProcessDataset
@@ -455,7 +455,7 @@ class PointProcess:
         dataset: PointProcessDataset,
         u_grid: Optional[np.ndarray] = None,
         acf_lags: int = 20,
-        min_km_at_risk: int = 10,
+        min_km_at_risk: int = 1,
     ) -> Dict[str, Any]:
         """
         Compute scalar GOF statistics and time-rescaling calibration curves.
@@ -556,7 +556,7 @@ class PointProcess:
 
             if np.sum(valid_grid) >= 2:
                 calibration_cvm = float(
-                    np.trapezoid(
+                    trapezoid(
                         discrepancy**2,
                         x=u_grid[valid_grid],
                     )
@@ -642,7 +642,7 @@ class PointProcess:
         seed: int = 42,
         ci: float = 95.0,
         acf_lags: int = 20,
-        min_km_at_risk: int = 10,
+        min_km_at_risk: int = 1,
         min_envelope_fraction: float = 0.80,
         refit_n_starts: int = 1,
         n_jobs: int = -1,
@@ -1699,7 +1699,7 @@ class PointProcess:
         gof_seed: int = 42,
         gof_ci: float = 95.0,
         gof_acf_lags: int = 20,
-        gof_min_km_at_risk: int = 10,
+        gof_min_km_at_risk: int = 1,
         gof_min_envelope_fraction: float = 0.80,
         gof_refit_n_starts: int = 1,
         gof_n_jobs: int = -1,
@@ -2396,7 +2396,7 @@ class PointProcess:
         gof_seed: int = 42,
         gof_ci: float = 95.0,
         gof_acf_lags: int = 20,
-        gof_min_km_at_risk: int = 10,
+        gof_min_km_at_risk: int = 1,
         gof_min_envelope_fraction: float = 0.80,
         gof_refit_n_starts: int = 1,
         gof_n_jobs: int = -1,
