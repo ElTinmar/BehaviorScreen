@@ -137,6 +137,81 @@ class RenewalKernelFactory:
             integral_func=lambda duration, params: 0.0 * np.asarray(duration, dtype=float),
             latex_formula=r"$\rho(\Delta t) = 0,\ \Delta t > 0$",
         )
+
+    @staticmethod
+    def refractory_delayed_excitation(
+        shape_k: float = 2.0,
+        tau_refractory_init: float = 0.10,
+        excitation_init: float = 1.0,
+        pulse_peak_lag_init: float = 0.25,
+    ) -> RenewalKernel:
+        """
+        Smooth refractory recovery plus delayed excitation.
+
+            rho(lag) = 1 - exp(-lag / tau_r)
+                    + A_exc * pulse(lag; t_peak, k)
+
+            pulse(lag; t_peak, k)
+                = (lag / t_peak)^k
+                * exp[k * (1 - lag / t_peak)]
+
+        Properties
+        ----------
+        rho(0) = 0
+            Complete instantaneous suppression.
+
+        rho(lag) can exceed 1
+            Delayed facilitation is possible.
+
+        rho(lag) -> 1
+            Event rate returns to the baseline rate at long lags.
+
+        ``shape_k`` is fixed to reduce confounding between pulse width, location,
+        and amplitude. ``pulse_peak_lag`` is the peak of the pulse component,
+        not necessarily the exact maximum of the combined rho function.
+        """
+        if shape_k <= 0:
+            raise ValueError("shape_k must be positive.")
+
+        def _func(lag, params):
+            tau_refractory, A_excitation, pulse_peak_lag = params
+
+            recovery = 1.0 - np.exp(-lag / tau_refractory)
+
+            ratio = lag / pulse_peak_lag
+            pulse = np.power(ratio, shape_k) * np.exp(
+                shape_k * (1.0 - ratio)
+            )
+
+            return recovery + A_excitation * pulse
+
+        return RenewalKernel(
+            name="RefractoryDelayedExcitation",
+            func=_func,
+            param_names=[
+                "tau_refractory",
+                "A_delayed_excitation",
+                "pulse_peak_lag",
+            ],
+            initial_guesses=[
+                tau_refractory_init,
+                excitation_init,
+                pulse_peak_lag_init,
+            ],
+            bounds=[
+                (0.005, 1.0),
+                (0.0, 20.0),
+                (0.01, 2.0),
+            ],
+            latex_formula=(
+                r"$\rho(\Delta t)=1-e^{-\Delta t/\tau_r}"
+                r"+A_{\mathrm{exc}}"
+                r"\left(\frac{\Delta t}{t_p}\right)^k"
+                r"\exp\left[k\left(1-\frac{\Delta t}{t_p}\right)\right]$"
+            ),
+        )
+
+
 class RenewalProcess(PointProcess):
     """
     Modulated renewal process: intensity depends on absolute time-in-trial
@@ -188,43 +263,86 @@ class RenewalProcess(PointProcess):
         return trapezoid(lam, grid)
     
     def _stream_integral_and_ll(
-        self, t_events: np.ndarray, trial: float, duration_s: float,
-        params_base: List[float], params_renewal: List[float],
+        self,
+        t_events: np.ndarray,
+        trial: float,
+        duration_s: float,
+        params_base: List[float],
+        params_renewal: List[float],
     ) -> Tuple[float, float]:
+        """
+        Compute event log intensities and compensator for one recurrent stream.
 
-        t_events = np.sort(t_events)
-        n = len(t_events)
+        The compensator is integrated piecewise between events so that every
+        post-event segment uses the correct most-recent-event reference time.
+        This avoids smearing the renewal reset across a global integration grid.
+        """
+        t_events = np.sort(np.asarray(t_events, dtype=float))
+        n_events = len(t_events)
 
-        grid = np.arange(0.0, duration_s + self.integration_dt, self.integration_dt)
-        grid[-1] = min(grid[-1], duration_s)
-        if grid[-1] < duration_s:
-            grid = np.append(grid, duration_s)
+        if n_events == 0:
+            total_integral = self.kernel.integrate(
+                duration_s,
+                trial,
+                params_base,
+                integration_dt=self.integration_dt,
+            )
+            return 0.0, float(total_integral)
 
-        base_vals = self.kernel.evaluate(grid, np.full_like(grid, trial), params_base)
-
-        if n == 0:
-            return 0.0, float(trapezoid(base_vals, grid))
-
-        idx = np.searchsorted(t_events, grid, side='right') - 1
-        has_prior = idx >= 0
-        t_last = np.where(has_prior, t_events[np.clip(idx, 0, None)], 0.0)
-
-        rho = np.ones_like(grid)
-        rho[has_prior] = self.renewal_kernel.evaluate(
-            grid[has_prior] - t_last[has_prior], params_renewal
+        # Before the first event there is no renewal modulation.
+        total_integral = float(
+            self.kernel.integrate(
+                t_events[0],
+                trial,
+                params_base,
+                integration_dt=self.integration_dt,
+            )
         )
-        lam_grid = base_vals * rho
-        total_integral = float(trapezoid(lam_grid, grid))
 
-        lam0 = max(self.kernel.evaluate(np.array([t_events[0]]), np.array([trial]), params_base)[0], 1e-12)
-        sum_log_intensity = np.log(lam0)
-        for i in range(1, n):
-            dt = t_events[i] - t_events[i - 1]
-            lam = self.kernel.evaluate(np.array([t_events[i]]), np.array([trial]), params_base)[0]
-            rho_i = self.renewal_kernel.evaluate(np.array([dt]), params_renewal)[0]
-            sum_log_intensity += np.log(max(lam * rho_i, 1e-12))
+        # After every event, integrate with that event as the most recent event.
+        for event_idx, event_time in enumerate(t_events):
+            segment_end = (
+                t_events[event_idx + 1]
+                if event_idx + 1 < n_events
+                else duration_s
+            )
 
-        return float(sum_log_intensity), total_integral
+            total_integral += self._segment_integral(
+                t0=float(event_time),
+                t1=float(segment_end),
+                trial=trial,
+                params_base=params_base,
+                t_ref=float(event_time),
+                params_refractory=params_renewal,
+            )
+
+        # The first event has no preceding within-trial history.
+        first_base_rate = self.kernel.evaluate(
+            np.array([t_events[0]]),
+            np.array([trial]),
+            params_base,
+        )[0]
+        sum_log_intensity = np.log(max(first_base_rate, 1e-300))
+
+        for event_idx in range(1, n_events):
+            event_time = t_events[event_idx]
+            previous_event = t_events[event_idx - 1]
+            lag = event_time - previous_event
+
+            base_rate = self.kernel.evaluate(
+                np.array([event_time]),
+                np.array([trial]),
+                params_base,
+            )[0]
+            renewal_multiplier = self.renewal_kernel.evaluate(
+                np.array([lag]),
+                params_renewal,
+            )[0]
+
+            intensity = base_rate * renewal_multiplier
+            sum_log_intensity += np.log(max(intensity, 1e-300))
+
+        return float(sum_log_intensity), float(total_integral)
 
     def _renewal_nll(self, t_events, trial, duration_s, params_base, params_refractory) -> float:
         sum_log_intensity, total_integral = self._stream_integral_and_ll(
