@@ -307,72 +307,249 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         H_a = np.asarray(hk.integrate(lag_a, hist_params, integration_dt=self.integration_dt))
         return float(np.sum(H_b - H_a))
 
-    def _stream_tau_values(self, dataset: PointProcessDataset) -> Dict[Tuple[int, int], List[Tuple[float, bool]]]:
+    def _stream_tau_values(
+        self,
+        dataset: PointProcessDataset,
+    ) -> Dict[Tuple[int, int], List[Tuple[float, bool]]]:
         """
-        Custom override (NOT the generic stream_compensator_profile-based
-        default): this model's compensator requires the QUADRATURE-based
-        posterior mean gain (_posterior_mean_gain), sequentially updated
-        across a fish's own trial history -- a single call to
-        stream_compensator_profile per stream cannot express this, since
-        g_hat must evolve BETWEEN events using state that persists across
-        trial boundaries (see class docstring / _posterior_mean_gain).
+        Exact marginal time-rescaling residuals for baseline-only Gamma frailty.
 
-        Output contract matches the base class exactly: Dict[(f_idx,t_idx),
-        List[(tau, is_censored)]]. HawkesProcess-based streams are never
-        censored (every event is an exact, uncensored observation) --
-        is_censored is always False here, unlike SurvivalProcess.
+        For every active recurrent trial, returns:
+
+        - one exact residual for each observed event;
+        - one right-censored residual from the final event to trial end;
+        - for an empty trial, one right-censored residual from trial onset to
+        trial end.
+
+        Hawkes event history resets at every trial boundary. Fish-level frailty
+        information persists across trials through ``fish_events_so_far`` and
+        ``S_base_so_far``.
+
+        The interval compensator is evaluated from the marginal no-event
+        probability:
+
+            tau = dH + log Z(S) - log Z(S + dB),
+
+        rather than by holding a posterior-mean gain fixed over the interval.
         """
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
-        kernel_params, hist_params = self.base_process._split_params(self.params_[:-1])
-        r = self.params_[-1]
-        kernel = self.base_process.kernel
-        idt = self.base_process.integration_dt
 
-        result: Dict[Tuple[int, int], List[Tuple[float, bool]]] = {}
+        base_params, r = self._split_params(
+            list(self.params_)
+        )
+        kernel_params, hist_params = (
+            self.base_process._split_params(base_params)
+        )
+
+        kernel = self.base_process.kernel
+        history_kernel = self.base_process.history_kernel
+        integration_dt = self.base_process.integration_dt
+
+        result: Dict[
+            Tuple[int, int],
+            List[Tuple[float, bool]],
+        ] = {}
 
         for f_idx in range(dataset.num_fish):
-            fish_events_so_far: List[Tuple[float, float]] = []
+            # Information about the persistent fish-level gain. Event-history
+            # rates here are the rates at the times of earlier events; they do
+            # not imply that Hawkes history crosses trial boundaries.
+            fish_events_so_far: List[
+                Tuple[float, float]
+            ] = []
             S_base_so_far = 0.0
 
             for t_idx in range(dataset.num_trials):
                 if not dataset.fish_trial_mask[f_idx, t_idx]:
                     continue
 
-                mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
-                t_ev = np.sort(dataset.event_times[mask])
+                t_ev = dataset._stream_index.get(
+                    (f_idx, t_idx),
+                    np.array([], dtype=float),
+                )
+                t_ev = np.sort(
+                    np.asarray(t_ev, dtype=float)
+                )
 
-                trial_event_times: List[float] = []
-                prev_t = 0.0
+                trial_events: List[float] = []
+                previous_time = 0.0
+                pairs: List[Tuple[float, bool]] = []
 
-                if len(t_ev) > 0:
-                    pairs: List[Tuple[float, bool]] = []
-                    for i, t_e in enumerate(t_ev):
-                        g_hat = self._posterior_mean_gain(fish_events_so_far, S_base_so_far, r)
+                # ----------------------------------------------------------
+                # Exact event-ending intervals
+                # ----------------------------------------------------------
 
-                        d_base = (kernel.integrate(t_e, t_idx, kernel_params, integration_dt=idt)
-                                - kernel.integrate(prev_t, t_idx, kernel_params, integration_dt=idt))
-                        d_hist = self._history_compensator_segment(trial_event_times, prev_t, t_e, hist_params)
+                for event_time_raw in t_ev:
+                    event_time = float(event_time_raw)
 
-                        tau = g_hat * d_base + d_hist
-                        pairs.append((float(tau), False))   # <-- tuple format, matches base contract
+                    base_integral_end = kernel.integrate(
+                        event_time,
+                        t_idx,
+                        kernel_params,
+                        integration_dt=integration_dt,
+                    )
+                    base_integral_start = kernel.integrate(
+                        previous_time,
+                        t_idx,
+                        kernel_params,
+                        integration_dt=integration_dt,
+                    )
+                    d_base = float(
+                        base_integral_end
+                        - base_integral_start
+                    )
 
-                        base_rate_i = kernel.evaluate(np.array([t_e]), np.array([t_idx]), kernel_params)[0]
-                        if trial_event_times:
-                            lags = t_e - np.array(trial_event_times)
-                            hist_rate_i = float(np.sum(self.base_process.history_kernel.evaluate(lags, hist_params)))
-                        else:
-                            hist_rate_i = 0.0
+                    d_history = (
+                        self._history_compensator_segment(
+                            event_times_this_trial=trial_events,
+                            a=previous_time,
+                            b=event_time,
+                            hist_params=hist_params,
+                        )
+                    )
 
-                        fish_events_so_far.append((base_rate_i, hist_rate_i))
-                        S_base_so_far += d_base
-                        trial_event_times.append(t_e)
-                        prev_t = t_e
+                    log_evidence_before = (
+                        self._log_gain_evidence(
+                            events_so_far=fish_events_so_far,
+                            S_base_so_far=S_base_so_far,
+                            r=r,
+                        )
+                    )
+                    log_evidence_after_no_event = (
+                        self._log_gain_evidence(
+                            events_so_far=fish_events_so_far,
+                            S_base_so_far=(
+                                S_base_so_far + d_base
+                            ),
+                            r=r,
+                        )
+                    )
 
-                    result[(f_idx, t_idx)] = pairs
+                    tau = (
+                        d_history
+                        + log_evidence_before
+                        - log_evidence_after_no_event
+                    )
 
-                S_base_so_far += (kernel.integrate(dataset.duration_s, t_idx, kernel_params, integration_dt=idt)
-                                - kernel.integrate(prev_t, t_idx, kernel_params, integration_dt=idt))
+                    if tau < -1e-9:
+                        raise RuntimeError(
+                            "Negative marginal compensator increment: "
+                            f"fish={f_idx}, trial={t_idx}, "
+                            f"event_time={event_time}, tau={tau}."
+                        )
+
+                    pairs.append(
+                        (float(max(tau, 0.0)), False)
+                    )
+
+                    # Update baseline exposure before adding the current event.
+                    S_base_so_far += d_base
+
+                    base_rate = float(
+                        kernel.evaluate(
+                            np.array([event_time]),
+                            np.array([t_idx]),
+                            kernel_params,
+                        )[0]
+                    )
+
+                    if trial_events:
+                        lags = (
+                            event_time
+                            - np.asarray(
+                                trial_events,
+                                dtype=float,
+                            )
+                        )
+                        history_rate = float(
+                            np.sum(
+                                history_kernel.evaluate(
+                                    lags,
+                                    hist_params,
+                                )
+                            )
+                        )
+                    else:
+                        history_rate = 0.0
+
+                    fish_events_so_far.append(
+                        (base_rate, history_rate)
+                    )
+                    trial_events.append(event_time)
+                    previous_time = event_time
+
+                # ----------------------------------------------------------
+                # Administratively censored terminal interval
+                # ----------------------------------------------------------
+
+                terminal_base_integral = kernel.integrate(
+                    dataset.duration_s,
+                    t_idx,
+                    kernel_params,
+                    integration_dt=integration_dt,
+                )
+                previous_base_integral = kernel.integrate(
+                    previous_time,
+                    t_idx,
+                    kernel_params,
+                    integration_dt=integration_dt,
+                )
+                d_base_terminal = float(
+                    terminal_base_integral
+                    - previous_base_integral
+                )
+
+                d_history_terminal = (
+                    self._history_compensator_segment(
+                        event_times_this_trial=trial_events,
+                        a=previous_time,
+                        b=dataset.duration_s,
+                        hist_params=hist_params,
+                    )
+                )
+
+                log_evidence_before = (
+                    self._log_gain_evidence(
+                        events_so_far=fish_events_so_far,
+                        S_base_so_far=S_base_so_far,
+                        r=r,
+                    )
+                )
+                log_evidence_after_no_event = (
+                    self._log_gain_evidence(
+                        events_so_far=fish_events_so_far,
+                        S_base_so_far=(
+                            S_base_so_far
+                            + d_base_terminal
+                        ),
+                        r=r,
+                    )
+                )
+
+                terminal_tau = (
+                    d_history_terminal
+                    + log_evidence_before
+                    - log_evidence_after_no_event
+                )
+
+                if terminal_tau < -1e-9:
+                    raise RuntimeError(
+                        "Negative terminal marginal compensator increment: "
+                        f"fish={f_idx}, trial={t_idx}, "
+                        f"tau={terminal_tau}."
+                    )
+
+                pairs.append(
+                    (float(max(terminal_tau, 0.0)), True)
+                )
+
+                # No event occurred during the terminal interval, but its
+                # baseline exposure updates the frailty posterior carried into
+                # the next trial.
+                S_base_so_far += d_base_terminal
+
+                result[(f_idx, t_idx)] = pairs
 
         return result
 
@@ -405,4 +582,83 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
             "n_events": [len(event_pairs.get(f, [])) for f in np.where(active)[0]],
             "estimated_gain": gains,
         })
-    
+
+
+    def _log_gain_evidence(
+        self,
+        events_so_far: List[Tuple[float, float]],
+        S_base_so_far: float,
+        r: float,
+    ) -> float:
+        """
+        Log marginal evidence for the gain-dependent part of one fish's history.
+
+        For prior event pairs (b_l, h_l),
+
+            Z(S) =
+                integral p(g) exp(-g S)
+                product_l (g b_l + h_l) dg,
+
+        with g ~ Gamma(r, r).
+
+        Terms involving only the Hawkes-history exposure do not depend on g and
+        are deliberately omitted. They cancel in the evidence ratio used for
+        the marginal no-event compensator.
+
+        The exact marginal compensator increment over an interval with baseline
+        exposure dB and history exposure dH is
+
+            tau = dH + log Z(S) - log Z(S + dB).
+
+        The computation is exact up to generalized Gauss-Laguerre quadrature.
+        """
+        r = max(float(r), 1e-8)
+        S_base_so_far = float(S_base_so_far)
+
+        alpha = max(r - 1.0, -0.999)
+        nodes, weights = roots_genlaguerre(
+            self.n_quad_nodes,
+            alpha,
+        )
+
+        denom = r + S_base_so_far
+        gains = nodes / denom
+
+        log_event_terms = np.zeros(
+            self.n_quad_nodes,
+            dtype=float,
+        )
+
+        if events_so_far:
+            base_rates = np.asarray(
+                [event[0] for event in events_so_far],
+                dtype=float,
+            )
+            history_rates = np.asarray(
+                [event[1] for event in events_so_far],
+                dtype=float,
+            )
+
+            for q, gain in enumerate(gains):
+                intensities = (
+                    gain * base_rates + history_rates
+                )
+
+                if np.any(intensities <= 0.0):
+                    log_event_terms[q] = -np.inf
+                else:
+                    log_event_terms[q] = float(
+                        np.sum(np.log(intensities))
+                    )
+
+        log_quadrature = logsumexp(
+            np.log(np.maximum(weights, 1e-300))
+            + log_event_terms
+        )
+
+        return float(
+            r * np.log(r)
+            - gammaln(r)
+            - r * np.log(denom)
+            + log_quadrature
+        )

@@ -287,73 +287,242 @@ class ZeroInflatedBaselineOnlyFrailtyHawkesProcess(BaselineOnlyFrailtyHawkesProc
             "estimated_gain": gains,
         })
 
-    # -- Predictable compensator (OVERRIDES: mixture-aware plug-in gain) ---
 
     def _stream_tau_values(
-        self, dataset: PointProcessDataset
+        self,
+        dataset: PointProcessDataset,
     ) -> Dict[Tuple[int, int], List[Tuple[float, bool]]]:
         """
-        Structurally identical walk to the parent's own override -- only
-        _posterior_mean_gain's call signature changed (pi/r/c/beta instead
-        of r). Same plug-in-posterior-mean-gain APPROXIMATION as the parent
-        (see class docstring for why an exact compensator isn't available).
+        Exact marginal time-rescaling residuals for the zero-inflated,
+        baseline-only frailty Hawkes model.
+
+        Every active recurrent trial contributes one exact interval per event
+        and one terminal right-censored interval. Hawkes history resets between
+        trials, while fish-level mixture/frailty information persists.
         """
         if self.params_ is None:
             raise ValueError("Model must be fitted first.")
-        base_params, pi, r, c = self._split_params(self.params_)
-        mu_R = self._mu_responder(pi, c)
-        beta = r / mu_R
-        kernel_params, hist_params = self.base_process._split_params(base_params)
-        kernel = self.base_process.kernel
-        idt = self.base_process.integration_dt
 
-        result: Dict[Tuple[int, int], List[Tuple[float, bool]]] = {}
+        base_params, pi, r, c = self._split_params(
+            list(self.params_)
+        )
+        mu_responder = self._mu_responder(pi, c)
+        beta = r / mu_responder
+
+        kernel_params, hist_params = (
+            self.base_process._split_params(base_params)
+        )
+
+        kernel = self.base_process.kernel
+        history_kernel = self.base_process.history_kernel
+        integration_dt = self.base_process.integration_dt
+
+        result: Dict[
+            Tuple[int, int],
+            List[Tuple[float, bool]],
+        ] = {}
 
         for f_idx in range(dataset.num_fish):
-            fish_events_so_far: List[Tuple[float, float]] = []
+            fish_events_so_far: List[
+                Tuple[float, float]
+            ] = []
             S_base_so_far = 0.0
 
             for t_idx in range(dataset.num_trials):
                 if not dataset.fish_trial_mask[f_idx, t_idx]:
                     continue
 
-                mask = (dataset.event_fish_idx == f_idx) & (dataset.event_trials_idx == t_idx)
-                t_ev = np.sort(dataset.event_times[mask])
+                t_ev = dataset._stream_index.get(
+                    (f_idx, t_idx),
+                    np.array([], dtype=float),
+                )
+                t_ev = np.sort(
+                    np.asarray(t_ev, dtype=float)
+                )
 
-                trial_event_times: List[float] = []
-                prev_t = 0.0
+                trial_events: List[float] = []
+                previous_time = 0.0
+                pairs: List[Tuple[float, bool]] = []
 
-                if len(t_ev) > 0:
-                    pairs: List[Tuple[float, bool]] = []
-                    for t_e in t_ev:
-                        g_hat = self._posterior_mean_gain(fish_events_so_far, S_base_so_far, pi, r, c, beta)
+                # ----------------------------------------------------------
+                # Exact event-ending intervals
+                # ----------------------------------------------------------
 
-                        d_base = (kernel.integrate(t_e, t_idx, kernel_params, integration_dt=idt)
-                                - kernel.integrate(prev_t, t_idx, kernel_params, integration_dt=idt))
-                        d_hist = self._history_compensator_segment(trial_event_times, prev_t, t_e, hist_params)
+                for event_time_raw in t_ev:
+                    event_time = float(event_time_raw)
 
-                        tau = g_hat * d_base + d_hist
-                        pairs.append((float(tau), False))
+                    d_base = float(
+                        kernel.integrate(
+                            event_time,
+                            t_idx,
+                            kernel_params,
+                            integration_dt=integration_dt,
+                        )
+                        - kernel.integrate(
+                            previous_time,
+                            t_idx,
+                            kernel_params,
+                            integration_dt=integration_dt,
+                        )
+                    )
 
-                        base_rate_i = kernel.evaluate(np.array([t_e]), np.array([t_idx]), kernel_params)[0]
-                        if trial_event_times:
-                            lags = t_e - np.array(trial_event_times)
-                            hist_rate_i = float(np.sum(self.base_process.history_kernel.evaluate(lags, hist_params)))
-                        else:
-                            hist_rate_i = 0.0
+                    d_history = (
+                        self._history_compensator_segment(
+                            event_times_this_trial=trial_events,
+                            a=previous_time,
+                            b=event_time,
+                            hist_params=hist_params,
+                        )
+                    )
 
-                        fish_events_so_far.append((base_rate_i, hist_rate_i))
-                        S_base_so_far += d_base
-                        trial_event_times.append(t_e)
-                        prev_t = t_e
+                    log_evidence_before = (
+                        self._log_mixture_gain_evidence(
+                            events_so_far=fish_events_so_far,
+                            S_base_so_far=S_base_so_far,
+                            pi=pi,
+                            r=r,
+                            c=c,
+                            beta=beta,
+                        )
+                    )
+                    log_evidence_after_no_event = (
+                        self._log_mixture_gain_evidence(
+                            events_so_far=fish_events_so_far,
+                            S_base_so_far=(
+                                S_base_so_far + d_base
+                            ),
+                            pi=pi,
+                            r=r,
+                            c=c,
+                            beta=beta,
+                        )
+                    )
 
-                    result[(f_idx, t_idx)] = pairs
+                    tau = (
+                        d_history
+                        + log_evidence_before
+                        - log_evidence_after_no_event
+                    )
 
-                S_base_so_far += (kernel.integrate(dataset.duration_s, t_idx, kernel_params, integration_dt=idt)
-                                - kernel.integrate(prev_t, t_idx, kernel_params, integration_dt=idt))
+                    if tau < -1e-9:
+                        raise RuntimeError(
+                            "Negative mixture marginal compensator increment: "
+                            f"fish={f_idx}, trial={t_idx}, "
+                            f"event_time={event_time}, tau={tau}."
+                        )
+
+                    pairs.append(
+                        (float(max(tau, 0.0)), False)
+                    )
+
+                    S_base_so_far += d_base
+
+                    base_rate = float(
+                        kernel.evaluate(
+                            np.array([event_time]),
+                            np.array([t_idx]),
+                            kernel_params,
+                        )[0]
+                    )
+
+                    if trial_events:
+                        lags = (
+                            event_time
+                            - np.asarray(
+                                trial_events,
+                                dtype=float,
+                            )
+                        )
+                        history_rate = float(
+                            np.sum(
+                                history_kernel.evaluate(
+                                    lags,
+                                    hist_params,
+                                )
+                            )
+                        )
+                    else:
+                        history_rate = 0.0
+
+                    fish_events_so_far.append(
+                        (base_rate, history_rate)
+                    )
+                    trial_events.append(event_time)
+                    previous_time = event_time
+
+                # ----------------------------------------------------------
+                # Administratively censored terminal interval
+                # ----------------------------------------------------------
+
+                d_base_terminal = float(
+                    kernel.integrate(
+                        dataset.duration_s,
+                        t_idx,
+                        kernel_params,
+                        integration_dt=integration_dt,
+                    )
+                    - kernel.integrate(
+                        previous_time,
+                        t_idx,
+                        kernel_params,
+                        integration_dt=integration_dt,
+                    )
+                )
+
+                d_history_terminal = (
+                    self._history_compensator_segment(
+                        event_times_this_trial=trial_events,
+                        a=previous_time,
+                        b=dataset.duration_s,
+                        hist_params=hist_params,
+                    )
+                )
+
+                log_evidence_before = (
+                    self._log_mixture_gain_evidence(
+                        events_so_far=fish_events_so_far,
+                        S_base_so_far=S_base_so_far,
+                        pi=pi,
+                        r=r,
+                        c=c,
+                        beta=beta,
+                    )
+                )
+                log_evidence_after_no_event = (
+                    self._log_mixture_gain_evidence(
+                        events_so_far=fish_events_so_far,
+                        S_base_so_far=(
+                            S_base_so_far
+                            + d_base_terminal
+                        ),
+                        pi=pi,
+                        r=r,
+                        c=c,
+                        beta=beta,
+                    )
+                )
+
+                terminal_tau = (
+                    d_history_terminal
+                    + log_evidence_before
+                    - log_evidence_after_no_event
+                )
+
+                if terminal_tau < -1e-9:
+                    raise RuntimeError(
+                        "Negative terminal mixture compensator increment: "
+                        f"fish={f_idx}, trial={t_idx}, "
+                        f"tau={terminal_tau}."
+                    )
+
+                pairs.append(
+                    (float(max(terminal_tau, 0.0)), True)
+                )
+
+                S_base_so_far += d_base_terminal
+                result[(f_idx, t_idx)] = pairs
 
         return result
-
     # -- Simulation-support overrides (params layout changed) --------------
 
     def _base_exposure_for_stream(self, dataset: PointProcessDataset, t_idx: int) -> float:
@@ -467,4 +636,111 @@ class ZeroInflatedBaselineOnlyFrailtyHawkesProcess(BaselineOnlyFrailtyHawkesProc
             "(same issue as ZeroInflatedGammaMixedEffectsProcess). It "
             "already IS its own frailty-integrated model; use its _nll "
             "directly rather than composing it further."
+        )
+
+    def _log_mixture_gain_evidence(
+        self,
+        events_so_far: List[Tuple[float, float]],
+        S_base_so_far: float,
+        pi: float,
+        r: float,
+        c: float,
+        beta: float,
+    ) -> float:
+        """
+        Log gain-dependent marginal evidence for the point-mass/Gamma mixture.
+
+            Z_mix(S) =
+                pi Z_NR(S) + (1-pi) Z_R(S).
+
+        The exact marginal interval compensator is
+
+            tau = dH + log Z_mix(S) - log Z_mix(S + dB).
+
+        ``Z_NR`` is evaluated at deterministic gain c. ``Z_R`` is evaluated by
+        generalized Gauss-Laguerre quadrature for Gamma(r, beta).
+        """
+        S_base_so_far = float(S_base_so_far)
+        r = max(float(r), 1e-8)
+        beta = max(float(beta), 1e-12)
+
+        if events_so_far:
+            base_rates = np.asarray(
+                [event[0] for event in events_so_far],
+                dtype=float,
+            )
+            history_rates = np.asarray(
+                [event[1] for event in events_so_far],
+                dtype=float,
+            )
+        else:
+            base_rates = np.array([], dtype=float)
+            history_rates = np.array([], dtype=float)
+
+        # --------------------------------------------------------------
+        # Deterministic nonresponder branch
+        # --------------------------------------------------------------
+
+        log_nonresponder = -c * S_base_so_far
+
+        if len(base_rates) > 0:
+            intensities_nr = (
+                c * base_rates + history_rates
+            )
+
+            if np.any(intensities_nr <= 0.0):
+                log_nonresponder = -np.inf
+            else:
+                log_nonresponder += float(
+                    np.sum(np.log(intensities_nr))
+                )
+
+        # --------------------------------------------------------------
+        # Gamma responder branch
+        # --------------------------------------------------------------
+
+        alpha = max(r - 1.0, -0.999)
+        nodes, weights = roots_genlaguerre(
+            self.n_quad_nodes,
+            alpha,
+        )
+
+        denom = beta + S_base_so_far
+        gains = nodes / denom
+
+        log_event_terms = np.zeros(
+            self.n_quad_nodes,
+            dtype=float,
+        )
+
+        if len(base_rates) > 0:
+            for q, gain in enumerate(gains):
+                intensities = (
+                    gain * base_rates + history_rates
+                )
+
+                if np.any(intensities <= 0.0):
+                    log_event_terms[q] = -np.inf
+                else:
+                    log_event_terms[q] = float(
+                        np.sum(np.log(intensities))
+                    )
+
+        log_responder = (
+            r * np.log(beta)
+            - gammaln(r)
+            - r * np.log(denom)
+            + logsumexp(
+                np.log(np.maximum(weights, 1e-300))
+                + log_event_terms
+            )
+        )
+
+        return float(
+            np.logaddexp(
+                np.log(max(pi, 1e-300))
+                + log_nonresponder,
+                np.log(max(1.0 - pi, 1e-300))
+                + log_responder,
+            )
         )
