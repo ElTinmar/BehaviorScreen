@@ -286,6 +286,40 @@ class RenewalProcess(PointProcess):
 
         return trapezoid(lam, grid)
 
+    @staticmethod
+    def _trapezoid_weights(grid: np.ndarray) -> np.ndarray:
+        """Weights such that dot(weights, values) equals trapezoid(values, grid)."""
+        grid = np.asarray(grid, dtype=float)
+
+        if len(grid) < 2:
+            return np.zeros_like(grid)
+
+        weights = np.empty_like(grid)
+        weights[0] = 0.5 * (grid[1] - grid[0])
+        weights[-1] = 0.5 * (grid[-1] - grid[-2])
+
+        if len(grid) > 2:
+            weights[1:-1] = 0.5 * (grid[2:] - grid[:-2])
+
+        return weights
+
+    def _segment_grid(self, start: float, end: float) -> np.ndarray:
+        """Integration grid on [start, end], including both endpoints."""
+        if end <= start:
+            return np.array([], dtype=float)
+
+        grid = np.arange(start, end, self.integration_dt, dtype=float)
+
+        if len(grid) == 0 or grid[0] != start:
+            grid = np.insert(grid, 0, start)
+
+        if grid[-1] < end:
+            grid = np.append(grid, end)
+        else:
+            grid[-1] = end
+
+        return grid
+
     def _stream_integral_and_ll(
         self,
         t_events: np.ndarray,
@@ -295,76 +329,120 @@ class RenewalProcess(PointProcess):
         params_renewal: List[float],
     ) -> Tuple[float, float]:
         """
-        Compute event log intensities and compensator for one recurrent stream.
+        Compute the event log-intensity sum and compensator for one stream.
 
-        The compensator is integrated piecewise between events so that every
-        post-event segment uses the correct most-recent-event reference time.
-        This avoids smearing the renewal reset across a global integration grid.
+        Integration remains piecewise at event boundaries, but all segment grids
+        are concatenated and evaluated in one vectorized call. This avoids repeated
+        kernel.evaluate() calls while preserving renewal resets exactly as
+        integration boundaries.
         """
         t_events = np.sort(np.asarray(t_events, dtype=float))
         n_events = len(t_events)
 
+        # ------------------------------------------------------------------
+        # Event log intensities
+        # ------------------------------------------------------------------
+
         if n_events == 0:
-            total_integral = self.kernel.integrate(
-                duration_s,
-                trial,
+            sum_log_intensity = 0.0
+        else:
+            event_trials = np.full(n_events, trial, dtype=float)
+            base_rates = self.kernel.evaluate(
+                t_events,
+                event_trials,
                 params_base,
-                integration_dt=self.integration_dt,
             )
-            return 0.0, float(total_integral)
+
+            renewal_multipliers = np.ones(n_events, dtype=float)
+
+            if n_events > 1:
+                event_lags = np.diff(t_events)
+                renewal_multipliers[1:] = self.renewal_kernel.evaluate(
+                    event_lags,
+                    params_renewal,
+                )
+
+            event_intensities = np.maximum(
+                base_rates * renewal_multipliers,
+                1e-300,
+            )
+            sum_log_intensity = float(np.sum(np.log(event_intensities)))
+
+        # ------------------------------------------------------------------
+        # Piecewise compensator geometry
+        # ------------------------------------------------------------------
+
+        integration_times = []
+        integration_ages = []
+        integration_weights = []
+        has_prior_event = []
 
         # Before the first event there is no renewal modulation.
+        first_end = float(t_events[0]) if n_events > 0 else float(duration_s)
+        first_grid = self._segment_grid(0.0, first_end)
+
+        if len(first_grid) > 0:
+            integration_times.append(first_grid)
+            integration_ages.append(np.zeros_like(first_grid))
+            integration_weights.append(self._trapezoid_weights(first_grid))
+            has_prior_event.append(np.zeros(len(first_grid), dtype=bool))
+
+        # After each event, age is measured from that event until the next event
+        # or trial termination.
+        for event_idx, event_time in enumerate(t_events):
+            segment_end = (
+                float(t_events[event_idx + 1])
+                if event_idx + 1 < n_events
+                else float(duration_s)
+            )
+
+            segment_grid = self._segment_grid(float(event_time), segment_end)
+            if len(segment_grid) == 0:
+                continue
+
+            integration_times.append(segment_grid)
+            integration_ages.append(segment_grid - float(event_time))
+            integration_weights.append(self._trapezoid_weights(segment_grid))
+            has_prior_event.append(np.ones(len(segment_grid), dtype=bool))
+
+        if not integration_times:
+            return sum_log_intensity, 0.0
+
+        integration_times = np.concatenate(integration_times)
+        integration_ages = np.concatenate(integration_ages)
+        integration_weights = np.concatenate(integration_weights)
+        has_prior_event = np.concatenate(has_prior_event)
+
+        # ------------------------------------------------------------------
+        # One vectorized evaluation for the entire stream
+        # ------------------------------------------------------------------
+
+        integration_trials = np.full(
+            len(integration_times),
+            trial,
+            dtype=float,
+        )
+        base_values = self.kernel.evaluate(
+            integration_times,
+            integration_trials,
+            params_base,
+        )
+
+        renewal_values = np.ones(len(integration_times), dtype=float)
+        if np.any(has_prior_event):
+            renewal_values[has_prior_event] = self.renewal_kernel.evaluate(
+                integration_ages[has_prior_event],
+                params_renewal,
+            )
+
         total_integral = float(
-            self.kernel.integrate(
-                t_events[0],
-                trial,
-                params_base,
-                integration_dt=self.integration_dt,
+            np.dot(
+                integration_weights,
+                base_values * renewal_values,
             )
         )
 
-        # After every event, integrate with that event as the most recent event.
-        for event_idx, event_time in enumerate(t_events):
-            segment_end = (
-                t_events[event_idx + 1] if event_idx + 1 < n_events else duration_s
-            )
-
-            total_integral += self._segment_integral(
-                t0=float(event_time),
-                t1=float(segment_end),
-                trial=trial,
-                params_base=params_base,
-                t_ref=float(event_time),
-                params_refractory=params_renewal,
-            )
-
-        # The first event has no preceding within-trial history.
-        first_base_rate = self.kernel.evaluate(
-            np.array([t_events[0]]),
-            np.array([trial]),
-            params_base,
-        )[0]
-        sum_log_intensity = np.log(max(first_base_rate, 1e-300))
-
-        for event_idx in range(1, n_events):
-            event_time = t_events[event_idx]
-            previous_event = t_events[event_idx - 1]
-            lag = event_time - previous_event
-
-            base_rate = self.kernel.evaluate(
-                np.array([event_time]),
-                np.array([trial]),
-                params_base,
-            )[0]
-            renewal_multiplier = self.renewal_kernel.evaluate(
-                np.array([lag]),
-                params_renewal,
-            )[0]
-
-            intensity = base_rate * renewal_multiplier
-            sum_log_intensity += np.log(max(intensity, 1e-300))
-
-        return float(sum_log_intensity), float(total_integral)
+        return sum_log_intensity, total_integral
 
     def _renewal_nll(
         self, t_events, trial, duration_s, params_base, params_refractory
