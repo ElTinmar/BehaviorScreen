@@ -10,11 +10,21 @@ These diagnostics help localize a global calibration failure by examining:
 5. estimated fish-frailty quantile;
 6. stream event-count category.
 
+For event-order stratification, a terminally censored interval is assigned
+to the order of the next event that could have occurred. For example:
+
+- an empty recurrent trial contributes a censored Event-1 interval;
+- a trial with two events contributes exact Event-1 and Event-2 intervals,
+  followed by a censored Event-3 interval.
+
+This preserves the relevant censoring information within each event-order
+stratum.
+
 The bootstrap can either refit every simulated dataset or perform a faster
 fixed-parameter predictive simulation.
 
-This figure is intended for exploratory localization of a global GOF failure,
-not as six independent formal hypothesis tests.
+This figure is intended for exploratory localization of a global GOF
+failure, not as six independent formal hypothesis tests.
 """
 
 from __future__ import annotations
@@ -27,8 +37,8 @@ import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 from scipy.integrate import trapezoid
+from tqdm import tqdm
 
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.tqdm_joblib import tqdm_joblib
@@ -49,11 +59,26 @@ def residual_interval_frame(
 
     For recurrent models:
       - one exact interval per event;
-      - one terminal censored interval per active fish x trial.
+      - one terminally censored interval per active fish x trial.
 
     For survival models:
       - one exact first-event interval; or
-      - one censored interval ending at trial termination.
+      - one censored first-event interval ending at trial termination.
+
+    Event-order convention
+    ----------------------
+    ``event_order`` is the order of the event that terminates, or could have
+    terminated, the waiting interval.
+
+    Therefore:
+
+      - onset -> first event: Event 1, exact;
+      - first -> second event: Event 2, exact;
+      - second event -> trial end: Event 3, censored;
+      - onset -> trial end in an empty trial: Event 1, censored.
+
+    This convention keeps exact and censored observations in the same
+    event-order risk set.
 
     Returned columns
     ----------------
@@ -84,13 +109,7 @@ def residual_interval_frame(
 
         if model.is_survival:
             tau, censored = pairs[0]
-
-            if censored:
-                interval_end = dataset.duration_s
-                event_order = 0
-            else:
-                interval_end = float(t_ev[0]) if len(t_ev) else dataset.duration_s
-                event_order = 1
+            interval_end = dataset.duration_s if censored else float(t_ev[0])
 
             records.append(
                 {
@@ -99,7 +118,7 @@ def residual_interval_frame(
                     "interval_start_s": 0.0,
                     "interval_end_s": float(interval_end),
                     "raw_interval_s": float(interval_end),
-                    "event_order": int(event_order),
+                    "event_order": 1,
                     "censored": bool(censored),
                     "tau": float(tau),
                     "stream_event_count": int(len(t_ev)),
@@ -113,7 +132,10 @@ def residual_interval_frame(
         for tau, censored in pairs:
             if censored:
                 interval_end = float(dataset.duration_s)
-                event_order = 0
+
+                # The terminal interval is the waiting time for the next
+                # event that did not occur before trial termination.
+                event_order = event_cursor + 1
             else:
                 if event_cursor >= len(t_ev):
                     raise RuntimeError(
@@ -125,13 +147,21 @@ def residual_interval_frame(
                 event_order = event_cursor + 1
                 event_cursor += 1
 
+            raw_interval = interval_end - previous_time
+            if raw_interval < -1e-10:
+                raise RuntimeError(
+                    "Negative raw interval encountered for "
+                    f"fish={f_idx}, trial={t_idx}: "
+                    f"start={previous_time}, end={interval_end}."
+                )
+
             records.append(
                 {
                     "fish_idx": int(f_idx),
                     "trial_idx": int(t_idx),
                     "interval_start_s": float(previous_time),
-                    "interval_end_s": interval_end,
-                    "raw_interval_s": float(interval_end - previous_time),
+                    "interval_end_s": float(interval_end),
+                    "raw_interval_s": float(max(raw_interval, 0.0)),
                     "event_order": int(event_order),
                     "censored": bool(censored),
                     "tau": float(tau),
@@ -140,6 +170,13 @@ def residual_interval_frame(
             )
 
             previous_time = interval_end
+
+        if event_cursor != len(t_ev):
+            raise RuntimeError(
+                "Number of exact residuals does not match observed events for "
+                f"fish={f_idx}, trial={t_idx}: exact residuals={event_cursor}, "
+                f"events={len(t_ev)}."
+            )
 
     frame = pd.DataFrame.from_records(records)
 
@@ -153,7 +190,9 @@ def residual_interval_frame(
         gains = model.estimate_fish_gains(dataset)
         required_columns = {"fish_idx", "estimated_gain"}
 
-        if isinstance(gains, pd.DataFrame) and required_columns.issubset(gains.columns):
+        if isinstance(gains, pd.DataFrame) and required_columns.issubset(
+            gains.columns
+        ):
             gain_map = gains.set_index("fish_idx")["estimated_gain"]
             frame["estimated_gain"] = frame["fish_idx"].map(gain_map)
 
@@ -164,15 +203,18 @@ def residual_interval_frame(
             )
 
             enough_fish = len(fish_gain) >= n_gain_quantiles
-            enough_unique = fish_gain["estimated_gain"].nunique() >= n_gain_quantiles
+            enough_unique = (
+                fish_gain["estimated_gain"].nunique() >= n_gain_quantiles
+            )
 
             if enough_fish and enough_unique:
                 labels = [f"Q{i + 1}" for i in range(n_gain_quantiles)]
 
-                # Ranking first avoids qcut failures when many fish have
+                # Ranking avoids qcut failures when several fish have
                 # identical posterior gain estimates.
+                ranked_gains = fish_gain["estimated_gain"].rank(method="first")
                 fish_gain["gain_quantile"] = pd.qcut(
-                    fish_gain["estimated_gain"].rank(method="first"),
+                    ranked_gains,
                     q=n_gain_quantiles,
                     labels=labels,
                 ).astype(str)
@@ -183,7 +225,7 @@ def residual_interval_frame(
                 )
 
     except (NotImplementedError, AttributeError, ValueError):
-        # Models without fish-level gains retain the "All fish" label.
+        # Models without fish-level gain estimates retain "All fish".
         pass
 
     return frame
@@ -194,17 +236,41 @@ def residual_interval_frame(
 # =============================================================================
 
 
+def _make_time_labels(time_edges: np.ndarray) -> List[str]:
+    """Create stable labels for interval-start-time bins."""
+    return [
+        f"{left:g}–{right:g}s"
+        for left, right in zip(time_edges[:-1], time_edges[1:])
+    ]
+
+
+def _event_order_group(event_order: int) -> str:
+    """Map the next-event order to a plotting category."""
+    if event_order <= 1:
+        return "Event 1"
+    if event_order <= 3:
+        return "Events 2–3"
+    if event_order <= 6:
+        return "Events 4–6"
+    return "Events 7+"
+
+
 def add_localization_groups(
     frame: pd.DataFrame,
     dataset: PointProcessDataset,
     time_edges: np.ndarray,
 ) -> pd.DataFrame:
-    """Add trial-block, interval-start-time, and event-order labels."""
+    """
+    Add trial-block, interval-start-time, and event-order labels.
+
+    Censoring is not used to define the event-order group. Exact and censored
+    intervals awaiting the same next-event order belong to the same group.
+    """
     frame = frame.copy()
 
     trial_indices = np.arange(dataset.num_trials)
     trial_blocks = np.array_split(trial_indices, 3)
-    trial_block_map = {}
+    trial_block_map: Dict[int, str] = {}
 
     for label, block in zip(
         ["Early trials", "Middle trials", "Late trials"],
@@ -215,9 +281,7 @@ def add_localization_groups(
 
     frame["trial_block"] = frame["trial_idx"].map(trial_block_map)
 
-    time_labels = [
-        f"{left:g}–{right:g}s" for left, right in zip(time_edges[:-1], time_edges[1:])
-    ]
+    time_labels = _make_time_labels(time_edges)
     frame["time_bin"] = pd.cut(
         frame["interval_start_s"],
         bins=time_edges,
@@ -226,21 +290,7 @@ def add_localization_groups(
         right=False,
     )
 
-    def event_order_group(row: pd.Series) -> str:
-        if row["censored"]:
-            return "Terminal censored"
-
-        order = int(row["event_order"])
-
-        if order == 1:
-            return "Event 1"
-        if order <= 3:
-            return "Events 2–3"
-        if order <= 6:
-            return "Events 4–6"
-        return "Events 7+"
-
-    frame["event_order_group"] = frame.apply(event_order_group, axis=1)
+    frame["event_order_group"] = frame["event_order"].map(_event_order_group)
     return frame
 
 
@@ -255,7 +305,7 @@ def _evaluate_step(
     values: np.ndarray,
     max_x: float,
 ) -> np.ndarray:
-    """Evaluate a right-continuous step function up to max_x."""
+    """Evaluate a right-continuous step function up to ``max_x``."""
     result = np.full_like(x, np.nan, dtype=float)
 
     if len(knots) == 0:
@@ -275,7 +325,12 @@ def cox_snell_curve(
     r_grid: np.ndarray,
     min_km_at_risk: int = 1,
 ) -> np.ndarray:
-    """Evaluate -log(KM survival) on a common Cox-Snell residual grid."""
+    """
+    Evaluate ``-log(KM survival)`` on a common Cox-Snell residual grid.
+
+    Exact and censored observations in ``frame`` are passed together to the
+    Kaplan-Meier estimator.
+    """
     if frame.empty:
         return np.full_like(r_grid, np.nan, dtype=float)
 
@@ -298,7 +353,9 @@ def cox_snell_curve(
     if not np.any(supported):
         return np.full_like(r_grid, np.nan, dtype=float)
 
-    r_limit = float(knots[np.where(supported)[0][-1]])
+    last_supported_index = np.where(supported)[0][-1]
+    r_limit = float(knots[last_supported_index])
+
     survival_grid = _evaluate_step(
         r_grid,
         knots,
@@ -320,15 +377,15 @@ def signed_calibration_area(
     min_km_at_risk: int = 1,
 ) -> float:
     """
-    Compute the signed mean Cox-Snell departure from the identity line.
+    Compute the mean signed Cox-Snell departure from the identity line.
 
-    Negative:
-        The empirical curve lies below the diagonal. Residuals are too large,
-        meaning the model tends to accumulate intensity too quickly.
+    Negative values:
+        The empirical curve lies below the diagonal. Residuals are relatively
+        large, so the model tends to accumulate intensity too quickly.
 
-    Positive:
-        The empirical curve lies above the diagonal. Residuals are too small,
-        meaning the model tends to accumulate intensity too slowly.
+    Positive values:
+        The empirical curve lies above the diagonal. Residuals are relatively
+        small, so the model tends to accumulate intensity too slowly.
     """
     curve = cox_snell_curve(
         model,
@@ -338,7 +395,6 @@ def signed_calibration_area(
     )
 
     valid = np.isfinite(curve)
-
     if np.sum(valid) < 2:
         return np.nan
 
@@ -381,16 +437,8 @@ def localization_summary(
     frame = add_localization_groups(frame, dataset, time_edges)
 
     trial_groups = ["Early trials", "Middle trials", "Late trials"]
-    order_groups = [
-        "Event 1",
-        "Events 2–3",
-        "Events 4–6",
-        "Events 7+",
-        "Terminal censored",
-    ]
-    time_groups = [
-        f"{left:g}–{right:g}s" for left, right in zip(time_edges[:-1], time_edges[1:])
-    ]
+    order_groups = ["Event 1", "Events 2–3", "Events 4–6", "Events 7+"]
+    time_groups = _make_time_labels(time_edges)
 
     trial_curves = {
         group: cox_snell_curve(
@@ -428,14 +476,16 @@ def localization_summary(
     time_areas = {
         group: signed_calibration_area(
             model,
-            frame[frame["time_bin"].astype(str) == group],
+            frame[frame["time_bin"] == group],
             r_grid,
             min_km_at_risk=min_km_at_risk,
         )
         for group in time_groups
     }
 
-    # Event order >= 2 means the interval began after a preceding event.
+    # Event order >= 2 means the exact interval began after a preceding event.
+    # Censored intervals are excluded because they do not provide an observed
+    # post-event waiting time.
     post_event_gaps = frame.loc[
         (~frame["censored"]) & (frame["event_order"] >= 2),
         "raw_interval_s",
@@ -451,12 +501,12 @@ def localization_summary(
 
     stream_counts = dataset.stream_event_counts.astype(int)
     count_groups = ["0", "1", "2–3", "4+"]
+    stream_categories = np.asarray(
+        [_count_category(int(count)) for count in stream_counts]
+    )
+
     count_proportions = {
-        group: float(
-            np.mean(
-                [_count_category(int(count)) == group for count in stream_counts]
-            )
-        )
+        group: float(np.mean(stream_categories == group))
         for group in count_groups
     }
 
@@ -573,8 +623,8 @@ def bootstrap_localization(
         the observed fitted parameters for every simulated dataset.
 
     refit_n_starts
-        Number of optimizer starts used per bootstrap replicate. Inner
-        multistart fitting is always serial to avoid nested parallelism.
+        Number of optimizer starts per bootstrap replicate. Inner multistart
+        fitting is serial to prevent nested parallelism.
 
     min_km_at_risk
         Minimum KM risk-set size used to retain a Cox-Snell curve segment.
@@ -586,7 +636,7 @@ def bootstrap_localization(
         Edges defining interval-start-time groups.
 
     gap_edges
-        Histogram edges for post-event waiting times.
+        Histogram edges for exact post-event waiting times.
 
     n_jobs
         Number of parallel outer workers. Use -1 for all available CPUs.
@@ -598,6 +648,8 @@ def bootstrap_localization(
         raise ValueError("Model must be fitted first.")
     if n_boot < 1:
         raise ValueError("n_boot must be at least 1.")
+    if min_km_at_risk < 1:
+        raise ValueError("min_km_at_risk must be at least 1.")
 
     if r_grid is None:
         r_grid = np.linspace(0.0, 5.0, 151)
@@ -608,7 +660,11 @@ def bootstrap_localization(
     if gap_edges is None:
         gap_bin_width = max(dataset.binning_dt, 0.05)
         gap_max = min(dataset.duration_s, 5.0)
-        gap_edges = np.arange(0.0, gap_max + gap_bin_width, gap_bin_width)
+        gap_edges = np.arange(
+            0.0,
+            gap_max + gap_bin_width,
+            gap_bin_width,
+        )
 
     r_grid = np.asarray(r_grid, dtype=float)
     time_edges = np.asarray(time_edges, dtype=float)
@@ -620,6 +676,11 @@ def bootstrap_localization(
         raise ValueError("time_edges must be strictly increasing.")
     if np.any(np.diff(gap_edges) <= 0):
         raise ValueError("gap_edges must be strictly increasing.")
+    if time_edges[0] > 0.0 or time_edges[-1] < dataset.duration_s:
+        raise ValueError(
+            "time_edges must cover the complete trial interval "
+            "[0, dataset.duration_s]."
+        )
 
     observed = localization_summary(
         model,
@@ -639,7 +700,7 @@ def bootstrap_localization(
     )
 
     # The outer bootstrap is parallel. BLAS/OpenMP thread pools inside each
-    # worker are restricted to one thread to prevent oversubscription.
+    # worker are restricted to one thread to avoid CPU oversubscription.
     with joblib.parallel_backend("loky", inner_max_num_threads=1):
         with tqdm_joblib(progress):
             worker_results = joblib.Parallel(
@@ -765,12 +826,12 @@ def _plot_grouped_cox_snell_curves(
     Plot grouped observed Cox-Snell curves and bootstrap reference bands.
 
     Solid lines are observed curves. Dotted lines are bootstrap medians.
+    Shaded regions are pointwise bootstrap intervals.
     """
     colors = plt.cm.tab10.colors
 
     for index, group in enumerate(groups):
         observed_curve = observed_curves.get(group)
-
         if observed_curve is None:
             continue
 
@@ -813,8 +874,8 @@ def _plot_grouped_cox_snell_curves(
         )
 
     ax.plot(r_grid, r_grid, "k--", linewidth=1.2, label="Ideal")
-    ax.set_xlabel("Cox–Snell residual r")
-    ax.set_ylabel("-log KM survival")
+    ax.set_xlabel("Cox–Snell residual $r$")
+    ax.set_ylabel(r"$-\log \widehat{S}_{\mathrm{KM}}(r)$")
     ax.grid(True, linestyle=":", alpha=0.3)
 
 
@@ -922,13 +983,7 @@ def plot_residual_localization(
     # C. Event order
     # ------------------------------------------------------------------
 
-    order_groups = [
-        "Event 1",
-        "Events 2–3",
-        "Events 4–6",
-        "Events 7+",
-        "Terminal censored",
-    ]
+    order_groups = ["Event 1", "Events 2–3", "Events 4–6", "Events 7+"]
 
     _plot_grouped_cox_snell_curves(
         ax=axes[0, 2],
@@ -939,7 +994,7 @@ def plot_residual_localization(
         r_grid=r_grid,
         ci=ci,
     )
-    axes[0, 2].set_title("C. Cox–Snell calibration by event order")
+    axes[0, 2].set_title("C. Cox–Snell calibration by next-event order")
     axes[0, 2].legend(fontsize=7)
 
     # ------------------------------------------------------------------
@@ -983,7 +1038,7 @@ def plot_residual_localization(
         linewidth=2,
         label="Observed",
     )
-    ax.set_title("D. Post-event waiting-time density")
+    ax.set_title("D. Exact post-event waiting-time density")
     ax.set_xlabel("Time since preceding event (s)")
     ax.set_ylabel("Density")
     ax.legend(fontsize=8)
@@ -1038,12 +1093,9 @@ def plot_residual_localization(
     count_lowers = np.asarray(count_lowers)
     count_uppers = np.asarray(count_uppers)
 
-    yerr = np.vstack(
-        [
-            count_medians - count_lowers,
-            count_uppers - count_medians,
-        ]
-    )
+    lower_errors = np.maximum(count_medians - count_lowers, 0.0)
+    upper_errors = np.maximum(count_uppers - count_medians, 0.0)
+    yerr = np.vstack([lower_errors, upper_errors])
 
     ax.bar(
         x - 0.18,
