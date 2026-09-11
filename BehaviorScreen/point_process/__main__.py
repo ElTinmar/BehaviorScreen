@@ -258,10 +258,16 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
+            # GammaMixedEffectsProcess( # identifiability issues
+            #     RenewalProcess(
+            #         RateKernelFactory.phototaxis_dip_exgaussian_peak(),
+            #         RenewalKernelFactory.refractory_delayed_excitation(),
+            #     )
+            # ),
             GammaMixedEffectsProcess(
                 RenewalProcess(
-                    RateKernelFactory.phototaxis_dip_exgaussian_peak(),
-                    RenewalKernelFactory.refractory_delayed_excitation(),
+                    RateKernelFactory.phototaxis_exgaussian_peak_no_dip(),
+                    RenewalKernelFactory.delayed_excitation(),
                 )
             ),
             ZeroInflatedGammaMixedEffectsProcess(
