@@ -92,6 +92,7 @@ possible_roots = [
         "/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen"
     ),
     Path("/media/martin/DATA_18TB/Screen"),
+    Path("/ptmp/mapri"),
 ]
 # possible_roots = [Path('/media/martin/DATA_18TB/Screen/WT/danieau')]
 
