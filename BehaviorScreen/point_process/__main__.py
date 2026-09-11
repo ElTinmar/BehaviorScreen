@@ -187,6 +187,12 @@ model_config = {
                     HistoryKernelFactory.exponential(),
                 ),
             ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
+            ),
         ],
     },
     "prey_capture_contra": {
@@ -222,6 +228,12 @@ model_config = {
                     RateKernelFactory.homogeneous_poisson(),
                     HistoryKernelFactory.exponential(),
                 ),
+            ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
             ),
         ],
     },
@@ -323,6 +335,12 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.phototaxis_contra(),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
+            ),
         ],
     },
     "omr_lateral_ipsi": {
@@ -359,6 +377,12 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
+            ),
         ],
     },
     "omr_lateral_contra": {
@@ -399,6 +423,12 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.omr_lateral_contra(),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
+            ),
         ],
     },
     "omr_forward": {
@@ -437,6 +467,12 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.omr_forward(),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
+            ),
         ],
     },
     "okr_ipsi": {
@@ -473,6 +509,12 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
+            ),
         ],
     },
     "okr_contra": {
@@ -523,6 +565,12 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.homogeneous_poisson(),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
+            ),
         ],
     },
     "looming_ipsi": {
@@ -683,6 +731,12 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.spont(),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
+            ),
         ],
     },
     "spont_bright": {
@@ -731,6 +785,12 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.spont(),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
+            ),
         ],
     },
     "after_looming": {
@@ -767,6 +827,12 @@ model_config = {
             #         HistoryKernelFactory.exponential()
             #     ),
             # ),
+            ZeroInflatedGammaMixedEffectsProcess(
+                RenewalProcess(
+                    RateKernelFactory.after_looming(),
+                    RenewalKernelFactory.delayed_excitation(),
+                )
+            ),
         ],
     },
 }
