@@ -225,6 +225,69 @@ class RenewalKernelFactory:
             ),
         )
 
+    @staticmethod
+    def delayed_excitation(
+        shape_k: float = 2.0,
+        excitation_init: float = 1.0,
+        pulse_peak_lag_init: float = 1.0,
+    ) -> RenewalKernel:
+        """
+        Delayed excitation without an estimated refractory-recovery term:
+
+            rho(lag) = 1 + A_exc * pulse(lag; t_peak, k)
+
+            pulse(lag; t_peak, k)
+                = (lag / t_peak)^k
+                * exp[k * (1 - lag / t_peak)]
+
+        Properties
+        ----------
+        rho(0) = 1
+            No fitted instantaneous suppression or excitation.
+
+        rho(t_peak) = 1 + A_exc
+            The pulse component reaches its maximum at ``t_peak``.
+
+        rho(lag) -> 1
+            The process returns to its baseline intensity at long lags.
+
+        ``shape_k`` is fixed to reduce confounding among pulse width, location,
+        and amplitude.
+        """
+        if shape_k <= 0:
+            raise ValueError("shape_k must be positive.")
+
+        def _func(lag, params):
+            A_excitation, pulse_peak_lag = params
+
+            ratio = lag / pulse_peak_lag
+            pulse = np.power(ratio, shape_k) * np.exp(shape_k * (1.0 - ratio))
+
+            return 1.0 + A_excitation * pulse
+
+        return RenewalKernel(
+            name=f"DelayedExcitation(k={shape_k:g})",
+            func=_func,
+            param_names=[
+                "A_delayed_excitation",
+                "pulse_peak_lag",
+            ],
+            initial_guesses=[
+                excitation_init,
+                pulse_peak_lag_init,
+            ],
+            bounds=[
+                (0.0, 20.0),
+                (0.02, 5.0),
+            ],
+            latex_formula=(
+                r"$\rho(\Delta t)="
+                r"1+A_{\mathrm{exc}}"
+                r"\left(\frac{\Delta t}{t_p}\right)^k"
+                r"\exp\left[k\left(1-\frac{\Delta t}{t_p}\right)\right]$"
+            ),
+        )
+
 
 class RenewalProcess(PointProcess):
     """

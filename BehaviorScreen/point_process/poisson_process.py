@@ -784,6 +784,95 @@ class RateKernelFactory:
             ),
         )
 
+    @staticmethod
+    def phototaxis_exgaussian_peak_no_dip(
+        mu_init: float = 0.25,
+        mu_bounds: Tuple[float, float] = (0.001, 3.0),
+        sigma_init: float = 0.05,
+        sigma_bounds: Tuple[float, float] = (0.01, 2.0),
+        tau_decay_init: float = 0.4,
+        tau_decay_bounds: Tuple[float, float] = (0.01, 5.0),
+    ) -> RateKernel:
+        """
+        Tonic baseline plus a trial-modulated ex-Gaussian transient:
+
+            lambda_0(t, m)
+                = B * exp(alpha_B * m)
+                + A_peak * exp(alpha_peak * m)
+                    * exGaussian(t; mu, sigma, tau_decay)
+
+        This is the reduced version of phototaxis_dip_exgaussian_peak after
+        removing f_dip and tau_dip. Those parameters are not identifiable when
+        the fitted dip amplitude is zero.
+
+        Notes
+        -----
+        ``exgaussian_shape`` is a probability-density shape with unit integral.
+        Consequently, ``A_peak`` is a scale multiplying that density; it is not
+        literally the height of the resulting peak in Hz. The existing name is
+        retained for compatibility with the other phototaxis kernels.
+        """
+
+        def _func(t, trial, params):
+            (
+                B,
+                A_peak,
+                alpha_B,
+                alpha_peak,
+                mu,
+                sigma,
+                tau_decay,
+            ) = params
+
+            baseline = B * np.exp(alpha_B * trial)
+            transient_scale = A_peak * np.exp(alpha_peak * trial)
+            transient_shape = exgaussian_shape(
+                t,
+                mu,
+                sigma,
+                tau_decay,
+            )
+
+            return baseline + transient_scale * transient_shape
+
+        return RateKernel(
+            name="PhototaxisExGaussianPeakNoDip",
+            func=_func,
+            param_names=[
+                "B",
+                "A_peak",
+                "alpha_B",
+                "alpha_peak",
+                "mu",
+                "sigma",
+                "tau_decay",
+            ],
+            initial_guesses=[
+                0.25,
+                0.17,
+                0.03,
+                0.02,
+                mu_init,
+                sigma_init,
+                tau_decay_init,
+            ],
+            bounds=[
+                (1e-4, 20.0),  # B
+                (1e-4, 30.0),  # A_peak
+                (-2.0, 2.0),  # alpha_B
+                (-2.0, 2.0),  # alpha_peak
+                mu_bounds,  # mu
+                sigma_bounds,  # sigma
+                tau_decay_bounds,  # tau_decay
+            ],
+            latex_formula=(
+                r"$\lambda_0(t,m)="
+                r"B e^{\alpha_Bm}"
+                r"+A_{\mathrm{peak}}e^{\alpha_{\mathrm{peak}}m}"
+                r"\operatorname{exGauss}(t;\mu,\sigma,\tau_{\mathrm{decay}})$"
+            ),
+        )
+
 
 class PoissonProcess(PointProcess):
 
