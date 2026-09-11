@@ -264,15 +264,15 @@ model_config = {
             #         RenewalKernelFactory.refractory_delayed_excitation(),
             #     )
             # ),
-            GammaMixedEffectsProcess(
+            ZeroInflatedGammaMixedEffectsProcess(
                 RenewalProcess(
                     RateKernelFactory.phototaxis_exgaussian_peak_no_dip(),
                     RenewalKernelFactory.delayed_excitation(),
                 )
             ),
-            ZeroInflatedGammaMixedEffectsProcess(
-                PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())
-            ),
+            # ZeroInflatedGammaMixedEffectsProcess(
+            #     PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())
+            # ),
             # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
             #     HawkesProcess(
             #         RateKernelFactory.phototaxis_dip_exgaussian_peak(),
