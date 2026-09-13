@@ -806,7 +806,6 @@ def main():
         "-d",
         "--data-root",
         type=Path,
-        action="append",
         dest="data_root",
         help="Path to data directory/directories (can specify multiple times).",
     )
