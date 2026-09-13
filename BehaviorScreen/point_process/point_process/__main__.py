@@ -6,45 +6,45 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 from BehaviorScreen.core import Stim, Laterality
-from BehaviorScreen.point_process.dataset import (
+from BehaviorScreen.point_process.point_process.dataset import (
     BehavioralDataLoader,
     PointProcessDataset,
     DatasetPlotter,
 )
-from BehaviorScreen.point_process.point_process import ModelComparator, ModelPlotter
-from BehaviorScreen.point_process.poisson_process import (
+from BehaviorScreen.point_process.point_process.point_process import ModelComparator, ModelPlotter
+from BehaviorScreen.point_process.point_process.poisson_process import (
     RateKernelFactory,
     PoissonProcess,
     PreyCapture,
 )
-from BehaviorScreen.point_process.hawkes_process import (
+from BehaviorScreen.point_process.point_process.hawkes_process import (
     HistoryKernelFactory,
     HawkesProcess,
 )
-from BehaviorScreen.point_process.renewal_process import (
+from BehaviorScreen.point_process.point_process.renewal_process import (
     RenewalKernelFactory,
     RenewalProcess,
 )
-from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
-from BehaviorScreen.point_process.survival_process import (
+from BehaviorScreen.point_process.point_process.mixed_effects_process import GammaMixedEffectsProcess
+from BehaviorScreen.point_process.point_process.survival_process import (
     SurvivalProcess,
     SurvivalKernelFactory,
 )
-from BehaviorScreen.point_process.baseline_only_frailty_hawkes import (
+from BehaviorScreen.point_process.point_process.baseline_only_frailty_hawkes import (
     BaselineOnlyFrailtyHawkesProcess,
 )
-from BehaviorScreen.point_process.zero_inflated_mixed_effects_process import (
+from BehaviorScreen.point_process.point_process.zero_inflated_mixed_effects_process import (
     ZeroInflatedGammaMixedEffectsProcess,
 )
-from BehaviorScreen.point_process.zero_inflated_baseline_only_frailty_hawkes import (
+from BehaviorScreen.point_process.point_process.zero_inflated_baseline_only_frailty_hawkes import (
     ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
 )
-from BehaviorScreen.point_process.io import save_fig, save_csv
-from BehaviorScreen.point_process.frailty_analysis import (
+from BehaviorScreen.point_process.point_process.io import save_fig, save_csv
+from BehaviorScreen.point_process.point_process.frailty_analysis import (
     collect_fish_gains,
     plot_fish_gain_correlation,
 )
-from BehaviorScreen.point_process.residual_localization import (
+from BehaviorScreen.point_process.point_process.residual_localization import (
     bootstrap_localization,
     plot_residual_localization,
 )

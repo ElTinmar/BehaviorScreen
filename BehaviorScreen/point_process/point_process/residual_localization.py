@@ -40,8 +40,8 @@ import pandas as pd
 from scipy.integrate import trapezoid
 from tqdm import tqdm
 
-from BehaviorScreen.point_process.dataset import PointProcessDataset
-from BehaviorScreen.point_process.tqdm_joblib import tqdm_joblib
+from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.tqdm_joblib import tqdm_joblib
 
 # =============================================================================
 # Residual metadata

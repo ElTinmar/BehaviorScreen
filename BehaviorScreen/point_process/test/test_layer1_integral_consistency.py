@@ -20,9 +20,9 @@ import numpy as np
 import pytest
 from scipy import integrate as scipy_integrate
 
-from BehaviorScreen.point_process.poisson_process import RateKernelFactory
-from BehaviorScreen.point_process.hawkes_process import HistoryKernelFactory
-from BehaviorScreen.point_process.renewal_process import RenewalKernelFactory
+from BehaviorScreen.point_process.point_process.poisson_process import RateKernelFactory
+from BehaviorScreen.point_process.point_process.hawkes_process import HistoryKernelFactory
+from BehaviorScreen.point_process.point_process.renewal_process import RenewalKernelFactory
 
 
 class TestHistoryKernelIntegralConsistency:
@@ -68,7 +68,7 @@ class TestHistoryKernelIntegralConsistency:
         constructing a second HistoryKernel with the same `func` but no
         `event_history_func` override, forcing the generic path.
         """
-        from BehaviorScreen.point_process.hawkes_process import HistoryKernel
+        from BehaviorScreen.point_process.point_process.hawkes_process import HistoryKernel
 
         alpha, beta = 0.6, 1.3
         t_events = np.array([0.1, 0.35, 0.4, 1.2, 1.25, 3.0])
@@ -111,7 +111,7 @@ class TestRateKernelIntegralConsistency:
         biased rather than just discretization-noisy.
         """
         rk = RateKernelFactory.omr_forward()
-        from BehaviorScreen.point_process.kernel_shapes import logit_bounded
+        from BehaviorScreen.point_process.point_process.kernel_shapes import logit_bounded
 
         B, z_dip, tau_dip = 0.5, float(logit_bounded(0.6, 0.995)), 0.3
         T, trial = 2.0, 0
@@ -140,7 +140,7 @@ class TestRateKernelIntegralConsistency:
         compute the same total integral, via different code paths
         (cumulative_trapezoid + interp vs. plain trapezoid)."""
         rk = RateKernelFactory.omr_forward()
-        from BehaviorScreen.point_process.kernel_shapes import logit_bounded
+        from BehaviorScreen.point_process.point_process.kernel_shapes import logit_bounded
 
         params = [0.5, float(logit_bounded(0.6, 0.995)), 0.3]
         T, trial = 3.0, 0

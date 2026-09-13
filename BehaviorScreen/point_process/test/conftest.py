@@ -38,7 +38,7 @@ from typing import Dict, List, Optional
 import numpy as np
 import pytest
 
-from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
 
 # =============================================================================
 # Dataset construction helpers

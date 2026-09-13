@@ -14,27 +14,27 @@ tolerance) since there is no stochastic noise to average out.
 import numpy as np
 import pytest
 
-from BehaviorScreen.point_process.dataset import PointProcessDataset
-from BehaviorScreen.point_process.poisson_process import (
+from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.poisson_process import (
     PoissonProcess,
     RateKernelFactory,
 )
-from BehaviorScreen.point_process.hawkes_process import (
+from BehaviorScreen.point_process.point_process.hawkes_process import (
     HawkesProcess,
     HistoryKernelFactory,
 )
-from BehaviorScreen.point_process.survival_process import (
+from BehaviorScreen.point_process.point_process.survival_process import (
     SurvivalProcess,
     SurvivalKernelFactory,
 )
-from BehaviorScreen.point_process.renewal_process import (
+from BehaviorScreen.point_process.point_process.renewal_process import (
     RenewalProcess,
     RenewalKernelFactory,
 )
-from BehaviorScreen.point_process.mixed_effects_process import (
+from BehaviorScreen.point_process.point_process.mixed_effects_process import (
     GammaMixedEffectsProcess,
 )
-from BehaviorScreen.point_process.zero_inflated_mixed_effects_process import (
+from BehaviorScreen.point_process.point_process.zero_inflated_mixed_effects_process import (
     ZeroInflatedGammaMixedEffectsProcess,
 )
 

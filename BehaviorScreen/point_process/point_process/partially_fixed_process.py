@@ -1,8 +1,8 @@
 from typing import Dict, List
 import numpy as np
 
-from BehaviorScreen.point_process.point_process import PointProcess
-from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.point_process import PointProcess
+from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
 
 
 class PartiallyFixedProcess(PointProcess):

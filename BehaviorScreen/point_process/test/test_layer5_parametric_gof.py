@@ -6,15 +6,15 @@ from .conftest import (
     simulate_dataset_from_model,
 )
 
-from BehaviorScreen.point_process.poisson_process import (
+from BehaviorScreen.point_process.point_process.poisson_process import (
     PoissonProcess,
     RateKernelFactory,
 )
-from BehaviorScreen.point_process.hawkes_process import (
+from BehaviorScreen.point_process.point_process.hawkes_process import (
     HawkesProcess,
     HistoryKernelFactory,
 )
-from BehaviorScreen.point_process.survival_process import (
+from BehaviorScreen.point_process.point_process.survival_process import (
     SurvivalProcess,
     SurvivalKernelFactory,
 )

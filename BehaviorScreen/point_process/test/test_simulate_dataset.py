@@ -16,8 +16,8 @@ import numpy as np
 
 from .conftest import make_scaffold_dataset
 
-from BehaviorScreen.point_process.dataset import PointProcessDataset
-from BehaviorScreen.point_process.poisson_process import (
+from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.poisson_process import (
     PoissonProcess,
     RateKernelFactory,
 )

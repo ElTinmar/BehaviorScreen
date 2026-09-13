@@ -23,36 +23,36 @@ from scipy.stats import kstest
 
 from .conftest import make_scaffold_dataset, simulate_dataset_from_model, DummyFitResult
 
-from BehaviorScreen.point_process.dataset import PointProcessDataset
-from BehaviorScreen.point_process.poisson_process import (
+from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.poisson_process import (
     PoissonProcess,
     RateKernelFactory,
 )
-from BehaviorScreen.point_process.hawkes_process import (
+from BehaviorScreen.point_process.point_process.hawkes_process import (
     HawkesProcess,
     HistoryKernelFactory,
 )
-from BehaviorScreen.point_process.renewal_process import (
+from BehaviorScreen.point_process.point_process.renewal_process import (
     RenewalProcess,
     RenewalKernelFactory,
 )
-from BehaviorScreen.point_process.survival_process import (
+from BehaviorScreen.point_process.point_process.survival_process import (
     SurvivalProcess,
     SurvivalKernelFactory,
 )
-from BehaviorScreen.point_process.mixed_effects_process import (
+from BehaviorScreen.point_process.point_process.mixed_effects_process import (
     GammaMixedEffectsProcess,
 )
-from BehaviorScreen.point_process.zero_inflated_mixed_effects_process import (
+from BehaviorScreen.point_process.point_process.zero_inflated_mixed_effects_process import (
     ZeroInflatedGammaMixedEffectsProcess,
 )
-from BehaviorScreen.point_process.baseline_only_frailty_hawkes import (
+from BehaviorScreen.point_process.point_process.baseline_only_frailty_hawkes import (
     BaselineOnlyFrailtyHawkesProcess,
 )
-from BehaviorScreen.point_process.zero_inflated_baseline_only_frailty_hawkes import (
+from BehaviorScreen.point_process.point_process.zero_inflated_baseline_only_frailty_hawkes import (
     ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
 )
-from BehaviorScreen.point_process.kernel_shapes import logit_bounded
+from BehaviorScreen.point_process.point_process.kernel_shapes import logit_bounded
 
 
 def _km_exp1_sup_distance(
@@ -149,7 +149,7 @@ class TestPoissonSimulationCompensatorConsistency:
         non-uniform residuals even though Layer 1 already checked
         integrate-vs-quad convergence for this same kernel."""
         rng = rng_factory(201)
-        from BehaviorScreen.point_process.kernel_shapes import logit_bounded
+        from BehaviorScreen.point_process.point_process.kernel_shapes import logit_bounded
 
         model = PoissonProcess(RateKernelFactory.omr_forward())
         z_dip = float(logit_bounded(0.6, 0.995))
