@@ -15,10 +15,6 @@ from BehaviorScreen.point_process.point_process.dataset import (
     DatasetPlotter,
     PointProcessDataset,
 )
-from BehaviorScreen.point_process.point_process.frailty_analysis import (
-    collect_fish_gains,
-    plot_fish_gain_correlation,
-)
 from BehaviorScreen.point_process.point_process.hawkes_process import (
     HawkesProcess,
     HistoryKernelFactory,
@@ -54,8 +50,6 @@ from BehaviorScreen.point_process.point_process.zero_inflated_baseline_only_frai
 from BehaviorScreen.point_process.point_process.zero_inflated_mixed_effects_process import (
     ZeroInflatedGammaMixedEffectsProcess,
 )
-
-OUTPUT_ROOT = Path("./figures")
 
 
 def get_model_config() -> dict:
@@ -611,24 +605,14 @@ def summarize_dispersion_across_conditions(
     ).reset_index(drop=True)
 
 
-def get_data_loader() -> BehavioralDataLoader:
-    """Resolves data paths and instantiates the loader."""
-    possible_roots = [
-        Path("/home/martin/Desktop/DATA"),
-        Path(
-            "/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen"
-        ),
-        Path("/media/martin/DATA_18TB/Screen"),
-        Path("/ptmp/mapri"),
-    ]
-    root = next((p for p in possible_roots if p.exists()), possible_roots[0])
-    return BehavioralDataLoader(root / "bouts_control.csv")
-
-
-def run_diagnostics_task(exp_name: str, config: dict, dataset: PointProcessDataset):
+def run_diagnostics_task(
+    exp_name: str,
+    dataset: PointProcessDataset,
+    output_root: Path,
+):
     """Generates dataset diagnostic plots."""
     print(f"\n--- Running dataset diagnostics: {exp_name} ---")
-    diag_dir = OUTPUT_ROOT / exp_name / "dataset_diagnostics"
+    diag_dir = output_root / exp_name / "dataset_diagnostics"
 
     fig, _ = DatasetPlotter.plot_isi_histogram(dataset)
     save_fig(fig, diag_dir, "isi_histogram")
@@ -663,7 +647,7 @@ def run_diagnostics_task(exp_name: str, config: dict, dataset: PointProcessDatas
     fig, _ = DatasetPlotter.plot_fish_rank_activity(dataset)
     save_fig(fig, diag_dir, "fish_rank_activity")
 
-    survival_diag_dir = OUTPUT_ROOT / exp_name / "survival_diagnostics"
+    survival_diag_dir = output_root / exp_name / "survival_diagnostics"
     print(f"--- Survival diagnostics: {exp_name} ---")
 
     fig, _ = DatasetPlotter.plot_kaplan_meier(dataset)
@@ -681,13 +665,18 @@ def run_diagnostics_task(exp_name: str, config: dict, dataset: PointProcessDatas
     plt.close("all")
 
 
-def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset):
+def run_fit_task(
+    exp_name: str,
+    config: dict,
+    dataset: PointProcessDataset,
+    output_root: Path,
+):
     """Performs model fitting, AIC comparison, bootstrapping, and residual localization."""
     print(f"\n==================================================")
     print(f" PROCESSING FIT EXPERIMENT: {exp_name.upper()}")
     print(f"==================================================")
 
-    model_dir = OUTPUT_ROOT / exp_name / "models"
+    model_dir = output_root / exp_name / "models"
 
     summary_table, fitted_models = ModelComparator.compare(
         models=config["models"],
@@ -749,7 +738,11 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset):
     plt.close("all")
 
 
-def run_consolidation_task(model_config: dict, loader: BehavioralDataLoader):
+def run_consolidation_task(
+    model_config: dict,
+    loader: BehavioralDataLoader,
+    output_root: Path,
+):
     """Consolidates cross-experiment results after cluster jobs finish."""
     print("\n================ CONSOLIDATING EXPERIMENT RESULTS ================")
     all_summaries = []
@@ -757,16 +750,14 @@ def run_consolidation_task(model_config: dict, loader: BehavioralDataLoader):
     best_models = {}
 
     for exp_name, config in model_config.items():
-        summary_path = OUTPUT_ROOT / exp_name / "models" / "model_comparison_table.csv"
+        summary_path = output_root / exp_name / "models" / "model_comparison_table.csv"
         if summary_path.exists():
             df = pd.read_csv(summary_path)
             all_summaries.append(df)
 
-            # Reconstruct dataset for cross-behavior frailty correlation
             dataset = loader.prepare_dataset(**config["dataset"])
             datasets[exp_name] = dataset
 
-            # Best model is top row from summary
             best_model_name = df.iloc[0]["Model"]
             best_model_obj = next(
                 m for m in config["models"] if m.name == best_model_name
@@ -777,11 +768,23 @@ def run_consolidation_task(model_config: dict, loader: BehavioralDataLoader):
         master_summary_df = pd.concat(all_summaries, ignore_index=True)
         print("\n================ MASTER MODEL COMPARISON TABLE ================")
         print(master_summary_df.to_string(index=False))
-        save_csv(master_summary_df, OUTPUT_ROOT, "master_model_comparison")
+        save_csv(master_summary_df, output_root, "master_model_comparison")
 
-        # Dispersion summary across datasets
         dispersion_summary = summarize_dispersion_across_conditions(datasets)
-        save_csv(dispersion_summary, OUTPUT_ROOT, "dispersion_summary")
+        save_csv(dispersion_summary, output_root, "dispersion_summary")
+
+        models_and_datasets = {
+            exp_name: (best_models[exp_name], datasets[exp_name])
+            for exp_name in best_models
+            if hasattr(best_models[exp_name], "estimate_fish_gains")
+        }
+        if models_and_datasets:
+            gain_df = collect_fish_gains(models_and_datasets)
+            fig, ax, corr = plot_fish_gain_correlation(
+                gain_df,
+                title="Pooled control population: cross-behavior frailty gain correlation",
+            )
+            save_fig(fig, output_root, "fish_gain_correlation_pooled_population")
 
 
 def main():
@@ -799,13 +802,31 @@ def main():
         default="fit",
         help="Task execution mode.",
     )
+    parser.add_argument(
+        "-d",
+        "--data-root",
+        type=Path,
+        action="append",
+        dest="data_root",
+        help="Path to data directory/directories (can specify multiple times).",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=Path,
+        default=Path("./figures"),
+        help="Directory where output figures and CSVs will be stored (default: ./figures).",
+    )
+
     args = parser.parse_args()
+    csv_filename = "bouts_control.csv"
 
     model_config = get_model_config()
+    output_root = args.output_dir
 
     if args.mode == "consolidate":
-        loader = get_data_loader()
-        run_consolidation_task(model_config, loader)
+        loader = BehavioralDataLoader(args.data_root / csv_filename)
+        run_consolidation_task(model_config, loader, output_root)
         return
 
     if not args.exp:
@@ -818,14 +839,14 @@ def main():
             f"Unknown experiment '{args.exp}'. Valid keys: {list(model_config.keys())}"
         )
 
-    loader = get_data_loader()
+    loader = BehavioralDataLoader(args.data_root / csv_filename)
     config = model_config[args.exp]
     dataset = loader.prepare_dataset(**config["dataset"])
 
     if args.mode == "diagnostics":
-        run_diagnostics_task(args.exp, config, dataset)
+        run_diagnostics_task(args.exp, dataset, output_root)
     elif args.mode == "fit":
-        run_fit_task(args.exp, config, dataset)
+        run_fit_task(args.exp, config, dataset, output_root)
 
 
 if __name__ == "__main__":

@@ -15,8 +15,14 @@ EXP_NAME=$(sed -n "${SLURM_ARRAY_TASK_ID}p" experiments.txt)
 
 echo "Starting task $SLURM_ARRAY_TASK_ID: $EXP_NAME"
 
-# Run Diagnostics first (fast)
-python run_analysis.py --exp "$EXP_NAME" --mode diagnostics
+# Path options (update if needed)
+DATA_DIR="/ptmp/mapri"
+OUT_DIR="./figures"
 
-# Run Model Fitting & Bootstrapping (compute-intensive)
-python run_analysis.py --exp "$EXP_NAME" --mode fit
+# Run Model Fitting & Bootstrapping exclusively on this node
+srun conda run --no-capture-output -n BehaviorScreen \
+    python -m BehaviorScreen.point_process.point_process \
+    --exp "$EXP_NAME" \
+    --mode fit \
+    --data-root "$DATA_DIR" \
+    --output-dir "$OUT_DIR"
