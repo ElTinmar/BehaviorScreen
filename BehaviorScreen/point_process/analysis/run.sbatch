@@ -13,7 +13,7 @@ mkdir -p logs
 PROJECT_ROOT="/raven/u/mapri/Code/BehaviorScreen"
 cd "$PROJECT_ROOT" || exit 1
 
-EXP_FILE="$PROJECT_ROOT/experiments.txt"
+EXP_FILE="$PROJECT_ROOT/BehaviorScreen/point_process/analysis/experiments.txt"
 
 # Extract key corresponding to the Slurm Array Task ID
 EXP_NAME=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$EXP_FILE" | tr -d '\r')
