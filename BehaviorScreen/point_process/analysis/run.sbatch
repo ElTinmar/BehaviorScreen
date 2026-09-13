@@ -10,8 +10,13 @@
 
 mkdir -p logs
 
+PROJECT_ROOT="/raven/u/mapri/Code/BehaviorScreen"
+cd "$PROJECT_ROOT" || exit 1
+
+EXP_FILE="$PROJECT_ROOT/experiments.txt"
+
 # Extract key corresponding to the Slurm Array Task ID
-EXP_NAME=$(sed -n "${SLURM_ARRAY_TASK_ID}p" experiments.txt)
+EXP_NAME=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$EXP_FILE" | tr -d '\r')
 
 echo "Starting task $SLURM_ARRAY_TASK_ID: $EXP_NAME"
 
