@@ -21,7 +21,7 @@ OUT_DIR="./figures"
 
 # Run Model Fitting & Bootstrapping exclusively on this node
 srun conda run --no-capture-output -n BehaviorScreen \
-    python -m BehaviorScreen.point_process.point_process \
+    python BehaviorScreen/point_process/analysis/run_analysis.py \
     --exp "$EXP_NAME" \
     --mode fit \
     --data-root "$DATA_DIR" \
