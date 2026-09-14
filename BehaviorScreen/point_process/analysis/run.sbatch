@@ -16,7 +16,7 @@ EXP_FILE="$PROJECT_ROOT/BehaviorScreen/point_process/analysis/experiments.txt"
 
 # Extract key corresponding to the Slurm Array Task ID
 EXP_NAME=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$EXP_FILE" | tr -d '\r')
-scontrol update JobId=$SLURM_JOB_ID Name=$EXP_NAME
+scontrol update JobId=${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID} Name=$EXP_NAME
 
 echo "Starting task $SLURM_ARRAY_TASK_ID: $EXP_NAME"
 
