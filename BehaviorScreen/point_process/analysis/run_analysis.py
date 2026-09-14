@@ -231,6 +231,12 @@ def get_model_config() -> dict:
                         RenewalKernelFactory.delayed_excitation(),
                     )
                 ),
+                ZeroInflatedGammaMixedEffectsProcess(
+                    RenewalProcess(
+                        RateKernelFactory.homogeneous_poisson(),
+                        RenewalKernelFactory.delayed_excitation(),
+                    )
+                ),
             ],
         },
         "omr_lateral_ipsi": {
@@ -284,6 +290,12 @@ def get_model_config() -> dict:
                 ZeroInflatedGammaMixedEffectsProcess(
                     RenewalProcess(
                         RateKernelFactory.omr_lateral_contra(),
+                        RenewalKernelFactory.delayed_excitation(),
+                    )
+                ),
+                ZeroInflatedGammaMixedEffectsProcess(
+                    RenewalProcess(
+                        RateKernelFactory.homogeneous_poisson(),
                         RenewalKernelFactory.delayed_excitation(),
                     )
                 ),
@@ -519,6 +531,12 @@ def get_model_config() -> dict:
                         RenewalKernelFactory.delayed_excitation(),
                     )
                 ),
+                ZeroInflatedGammaMixedEffectsProcess(
+                    RenewalProcess(
+                        RateKernelFactory.homogeneous_poisson(),
+                        RenewalKernelFactory.delayed_excitation(),
+                    )
+                ),
             ],
         },
         "spont_bright": {
@@ -547,6 +565,12 @@ def get_model_config() -> dict:
                         RenewalKernelFactory.delayed_excitation(),
                     )
                 ),
+                ZeroInflatedGammaMixedEffectsProcess(
+                    RenewalProcess(
+                        RateKernelFactory.homogeneous_poisson(),
+                        RenewalKernelFactory.delayed_excitation(),
+                    )
+                ),
             ],
         },
         "after_looming": {
@@ -569,6 +593,12 @@ def get_model_config() -> dict:
                 ZeroInflatedGammaMixedEffectsProcess(
                     RenewalProcess(
                         RateKernelFactory.after_looming(),
+                        RenewalKernelFactory.delayed_excitation(),
+                    )
+                ),
+                ZeroInflatedGammaMixedEffectsProcess(
+                    RenewalProcess(
+                        RateKernelFactory.homogeneous_poisson(),
                         RenewalKernelFactory.delayed_excitation(),
                     )
                 ),
