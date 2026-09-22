@@ -24,8 +24,8 @@ stimuli:
     parameters: 
       - background_color: {'==': "[0.0, 0.0, 0.0, 1.0]"}
     trial_range: 
-      start: 10
-      stop: 20
+      start: 0
+      stop: 10
       step: 1
 
   # TODO make sure there is no contamination from ptx only 
@@ -34,8 +34,8 @@ stimuli:
     parameters: 
       - foreground_color: {'==': "[0.2, 0.2, 0.0, 1.0]"}
     trial_range: 
-      start: 5
-      stop: 15
+      start: 0
+      stop: 10
       step: 1
 
   - stim: PREY_CAPTURE
@@ -166,8 +166,8 @@ stimuli:
       - [2, 5]
       - [5, 10]
     trial_range: 
-      start: 20
-      stop: 25
+      start: 0
+      stop: 5
       step: 1
 
   # - stim: BRIGHT
