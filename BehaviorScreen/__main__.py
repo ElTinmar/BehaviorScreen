@@ -227,7 +227,7 @@ def main(args: argparse.Namespace) -> None:
     filter(
         input_csv = args.root / args.bouts_csv,
         config_yaml = args.yaml,
-        quality_control = args.root / args.qc,
+        quality_control = args.root / args.qc_csv,
         output_csv = args.root / args.filtered_bouts_csv
     )
 
