@@ -24,7 +24,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--full_model_dir",
         type=str,
-        default='Martin_Jan2026_Full/model',
+        default='Martin_Apr2026_Full/model',
         help="Path to LightningPose trained full model directory",
     )
 
