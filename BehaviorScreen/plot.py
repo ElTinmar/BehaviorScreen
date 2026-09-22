@@ -186,7 +186,7 @@ def plot_bout_heatmap(
         x_labels: list[str],
         y_labels: list[str],
         cmap: str = 'inferno', 
-        clim: Tuple[float, float] = (0, 0.35)
+        clim: Tuple[float, float] = (0, 0.45)
     ) -> None:
 
     im = ax.imshow(data, aspect='auto', cmap=cmap)
