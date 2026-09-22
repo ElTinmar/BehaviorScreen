@@ -466,7 +466,7 @@ def plot_heatmap(
 
     fish_names = filtered_bouts.file.unique()
     N_fish = len(fish_names)
-    N_trials = max(filtered_bouts.trial_num)
+    N_trials = max(filtered_bouts.trial_num)+1
     N_epochs = len(stim_specs)
     N_bouts = len(bouts_category_name_short)
     N_sides = len(sides)
