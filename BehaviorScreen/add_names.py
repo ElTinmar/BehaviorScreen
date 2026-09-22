@@ -4,8 +4,12 @@ from BehaviorScreen.protocol import protocol, protocol_ptx
 import json
 from typing import List, Dict
 
-ROOT = Path("/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen")
-ROOT = Path("/media/martin/DATA_18TB/Screen")
+possible_roots = [
+    Path("/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen"),
+    Path("/media/martin/DATA_18TB/Screen"),
+    Path("/ptmp/mapri/Screen")
+]
+ROOT = [root for root in possible_roots if root.exists()][0]
 
 def save_stimuli(stim_file: Path, stimuli: List[Dict]) -> None:
     with open(stim_file, 'w') as f:
@@ -24,8 +28,8 @@ for file in ROOT.rglob("stim_*.json"):
     for s,l in zip(stim, labels):
         s['name'] = l
     
-    # backup_file = file.with_stem(file.stem + '_old')
-    # file.rename(backup_file)
+    backup_file = file.with_stem(file.stem + '_old')
+    file.rename(backup_file)
 
     save_stimuli(file, stim)
 
