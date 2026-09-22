@@ -223,13 +223,13 @@ def main(args: argparse.Namespace) -> None:
         cpu=args.cpu
     )
 
-    print("5. filter bouts", flush=True)
-    filter(
-        input_csv = args.root / args.bouts_csv,
-        config_yaml = args.yaml,
-        quality_control = args.root / args.qc_csv,
-        output_csv = args.root / args.filtered_bouts_csv
-    )
+    # print("5. filter bouts", flush=True)
+    # filter(
+    #     input_csv = args.root / args.bouts_csv,
+    #     config_yaml = args.yaml,
+    #     quality_control = args.root / args.qc_csv,
+    #     output_csv = args.root / args.filtered_bouts_csv
+    # )
 
     print("5. extract eye metrics", flush=True)
     # TODO
