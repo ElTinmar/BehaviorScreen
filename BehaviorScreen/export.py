@@ -2,6 +2,7 @@ import json
 import argparse
 from pathlib import Path
 import numpy as np
+from typing import List, Dict
 
 from video_tools import CPU_VideoProcessor
 from BehaviorScreen.load import (
@@ -12,6 +13,7 @@ from BehaviorScreen.load import (
     load_data
 )
 from BehaviorScreen.process import get_background_image_safe
+from BehaviorScreen.protocol import protocol, protocol_ptx
 
 def ensure_results_dir(directories: Directories) -> None:
     directories.results.mkdir(parents=True, exist_ok=True)
@@ -100,11 +102,22 @@ def export_timestamps(
 
         behavior_data.video_timestamps.to_csv(out_path, index=False)
 
+def patch_epoch_name(stimuli: List[Dict]) -> List[Dict]:
+    '''Use epoch name with older version of ZebVR'''
+
+    patched_stimuli = stimuli.copy()
+    num_stim = len(patched_stimuli)
+    labels = protocol_ptx if num_stim == len(protocol_ptx) else protocol
+    for s,l in zip(patched_stimuli, labels):
+        s['name'] = l
+    return patched_stimuli
+
 def export_stimuli(
         directories: Directories,
         behavior_file: BehaviorFiles,
         behavior_data: BehaviorData,
         overwrite: bool = False,
+        patch: bool = True
     ) -> None:
     # NOTE: not using JSON properly
 
@@ -117,8 +130,13 @@ def export_stimuli(
         if out_path.exists() and not overwrite:
             continue
 
+        if patch:
+            stim = patch_epoch_name(behavior_data.stimuli)
+        else:
+            stim = behavior_data.stimuli
+
         with open(out_path, 'w') as fp:
-            for line in behavior_data.stimuli:
+            for line in stim:
                 fp.write(json.dumps(line) + '\n')
 
 def export_videos(
