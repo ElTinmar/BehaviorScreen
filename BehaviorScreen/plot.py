@@ -874,14 +874,14 @@ def build_classic_bout_heatmap_matrix(
       - rows:    flat list of (bout_category, sign_group) -- every bout
                  category always gets both LEFT and RIGHT rows, since every
                  bout has a sign regardless of stimulus.
-      - columns: flat list of (epoch_name, time_bin) -- crucially, each raw
-                 stimulus direction (e.g. "grating right" vs "grating
-                 left", pooled together as "OMR lateral" in the other 4
-                 heatmap variants) gets ITS OWN column here, exactly like
-                 the original plot's per-parameter columns (e.g. the old
-                 omr_angle_deg==-90 / ==90 split). This lets you read off
-                 all four combinations of (stimulus direction) x (bout
-                 sign) per category.
+      - columns: for each stim, TIME BIN is the outer loop and raw
+                 epoch_name (stimulus direction, e.g. "grating right" vs
+                 "grating left") is the inner loop -- i.e. directions are
+                 INTERLEAVED per time bin (bin1_left, bin1_right,
+                 bin2_left, bin2_right, ...), matching the original
+                 pre-refactor code's `product(time_ranges, parameters)`
+                 column ordering (time bin outer, parameter/direction
+                 inner).
       - no group separators.
 
     `avg` must be the classic-specific table (epoch_name + sign_group
@@ -909,17 +909,25 @@ def build_classic_bout_heatmap_matrix(
         stim_rows = avg[avg.stim_name == stim]
         if stim_rows.empty:
             continue
-        # each raw epoch_name (stimulus direction) under this stim gets its
-        # own column -- NOT pooled, unlike the 4 main heatmap variants.
+
+        # time bin OUTER, epoch_name (direction) INNER -- interleaves
+        # e.g. "grating left"/"grating right" per bin, matching the
+        # original plot's product(time_ranges, parameters) column order.
+        bins = (
+            stim_rows[["time_bin_start", "time_bin_stop"]]
+            .drop_duplicates()
+            .sort_values("time_bin_start")
+        )
         epoch_names = sorted(stim_rows.epoch_name.unique())
-        for epoch_name in epoch_names:
-            en_rows = stim_rows[stim_rows.epoch_name == epoch_name]
-            bins = (
-                en_rows[["time_bin_start", "time_bin_stop"]]
-                .drop_duplicates()
-                .sort_values("time_bin_start")
-            )
-            for t_start, t_stop in bins.itertuples(index=False):
+
+        for t_start, t_stop in bins.itertuples(index=False):
+            for epoch_name in epoch_names:
+                has_data = (
+                    (stim_rows.epoch_name == epoch_name) &
+                    (stim_rows.time_bin_start == t_start)
+                ).any()
+                if not has_data:
+                    continue
                 col_tuples.append((epoch_name, t_start))
                 col_labels.append(f"{epoch_name} | {t_start:g}-{t_stop:g}s")
 
