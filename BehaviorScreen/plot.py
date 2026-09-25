@@ -282,12 +282,16 @@ def get_epoch_trial_counts(behavior_data: BehaviorData, spec: StimSpec) -> int:
 # Bout heatmap
 #
 # Per-fish/per-epoch bout counting is fully vectorized (groupby + reindex on
-# the full trial x category x laterality grid). Four aggregation levels are
-# then produced from the same tidy table:
-#   - full detail       : trial x time bin, per bout category
-#   - trial-averaged     : time bin only, per bout category
-#   - time-bin-averaged  : trial only, per bout category
-#   - fully averaged     : one value per bout category
+# the full trial x category x laterality grid). Several aggregation levels
+# are then produced from the same tidy table:
+#   - full detail        : trial x time bin, per bout category
+#   - trial-averaged      : time bin only, per bout category
+#   - time-bin-averaged   : trial only, per bout category
+#   - fully averaged      : one value per bout category
+#   - classic             : trial-averaged, laid out like the original
+#                           (pre-refactor) heatmap: flat rows
+#                           (category x laterality), flat columns
+#                           (stim x time bin), no group separators.
 # In all cases, averaging across FISH is a plain mean of per-fish rates
 # (each fish is one sample). Averaging across TRIAL/TIME BIN is instead
 # done by summing bout_counts and duration within each fish first, then
@@ -674,6 +678,94 @@ HEATMAP_VARIANTS: List[Tuple[bool, bool, str, str]] = [
 ]
 
 
+def build_classic_bout_heatmap_matrix(
+        avg: pd.DataFrame,
+        category_order: List[str],
+        stim_order: List[str],
+    ) -> Tuple[pd.DataFrame, List[str], List[str]]:
+    """
+    Build the "classic" heatmap matrix, matching the layout of the
+    original (pre-refactor) heatmap:
+      - rows:    flat list of (bout_category, laterality_group), e.g.
+                 "approach_ipsi", "approach_contra", "approach_none", ...
+      - columns: flat list of (stim_name, time_bin), one column per epoch
+                 x time bin (no laterality split in the columns -- that's
+                 folded into the rows instead, like the old "side" split).
+      - no group separators; every category x laterality combination gets
+        its own row, even if some (stim, laterality) combinations have no
+        data (e.g. "ipsi"/"contra" columns are NaN for non-lateralized
+        stimuli) -- unlike the old plot, which always had real L/R sign
+        counts, "ipsi"/"contra" genuinely don't apply there.
+
+    `avg` must be trial-averaged already (no `trial_idx` column); time bins
+    must still be present (no `average_time_bin`).
+    """
+
+    if "trial_idx" in avg.columns:
+        raise ValueError("classic heatmap expects trial-averaged data (no trial_idx column)")
+    if "time_bin_start" not in avg.columns:
+        raise ValueError("classic heatmap expects time bins to be preserved")
+
+    lateralities = _order_lateralities(avg.laterality_group.unique())
+
+    row_index = pd.MultiIndex.from_tuples(
+        [(cat, lat) for cat in category_order for lat in lateralities],
+        names=["bout_category", "laterality_group"],
+    )
+
+    col_tuples = []
+    col_labels = []
+    for stim in stim_order:
+        stim_rows = avg[avg.stim_name == stim]
+        if stim_rows.empty:
+            continue
+        bins = (
+            stim_rows[["time_bin_start", "time_bin_stop"]]
+            .drop_duplicates()
+            .sort_values("time_bin_start")
+        )
+        for t_start, t_stop in bins.itertuples(index=False):
+            col_tuples.append((stim, t_start))
+            col_labels.append(f"{stim} | {t_start:g}-{t_stop:g}s")
+
+    col_index = pd.MultiIndex.from_tuples(col_tuples, names=["stim_name", "time_bin_start"])
+
+    pivot = avg.pivot_table(
+        index=["bout_category", "laterality_group"],
+        columns=["stim_name", "time_bin_start"],
+        values="bout_frequency",
+    )
+    pivot = pivot.reindex(index=row_index, columns=col_index)
+
+    row_labels = [f"{cat}_{lat}" for cat, lat in pivot.index]
+
+    return pivot, col_labels, row_labels
+
+
+def plot_bout_heatmap_classic(
+        fig: plt.Figure,
+        ax: plt.Axes,
+        pivot: pd.DataFrame,
+        col_labels: List[str],
+        row_labels: List[str],
+        cmap: str = 'inferno',
+        clim: Tuple[float, float] = (0, 0.45),
+    ) -> None:
+    """Simple, flat heatmap -- same style as the original pre-refactor plot."""
+
+    data = pivot.to_numpy(dtype=float)
+
+    im = ax.imshow(data, aspect='auto', cmap=cmap)
+    im.set_clim(*clim)
+    fig.colorbar(im, ax=ax, label='bout frequency')
+    ax.set_xticks(range(data.shape[1]))
+    ax.set_xticklabels(col_labels, rotation=90, ha='center', fontsize=7)
+    ax.set_yticks(range(data.shape[0]))
+    ax.set_yticklabels(row_labels, fontsize=7)
+    ax.set_xlabel("epoch")
+    ax.set_ylabel("bout category")
+
+
 def plot_heatmap(
         quality_control: Path,
         input_csv: Path,
@@ -714,6 +806,24 @@ def plot_heatmap(
 
         variant_png = output_png.parent / f"{output_png.stem}{suffix}{output_png.suffix}"
         fig.savefig(variant_png, bbox_inches='tight')
+
+    # classic heatmap: same layout as the original pre-refactor plot
+    # (trial-averaged, flat category x laterality rows, flat stim x
+    # time-bin columns, no separator lines)
+    classic_avg = aggregate_bout_frequency(per_fish, average_trial=True, average_time_bin=False)
+    classic_pivot, classic_col_labels, classic_row_labels = build_classic_bout_heatmap_matrix(
+        classic_avg, category_order, stim_order
+    )
+    classic_avg.to_csv(output_png.parent / 'bout_frequency_avg_classic.csv', index=False)
+
+    fig_w = max(20, 0.3 * len(classic_col_labels))
+    fig_h = max(10, 0.3 * len(classic_row_labels))
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout='constrained')
+    plot_bout_heatmap_classic(fig, ax, classic_pivot, classic_col_labels, classic_row_labels)
+    fig.tight_layout()
+
+    classic_png = output_png.parent / f"{output_png.stem}_classic{output_png.suffix}"
+    fig.savefig(classic_png, bbox_inches='tight')
 
     plt.show()
 
