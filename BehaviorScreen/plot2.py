@@ -1,18 +1,14 @@
-from typing import List, Tuple, Generator, Any, NamedTuple
+from typing import List, Tuple, Generator, Any
 import argparse
 from pathlib import Path
 import re
 from dataclasses import dataclass
 import operator
-import textwrap
-import warnings
 
 import yaml
 import pandas as pd
 import numpy as np
-from scipy.signal import savgol_filter
 import matplotlib.pyplot as plt
-from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from tqdm import tqdm
 from megabouts.utils import bouts_category_name_short
 
@@ -26,12 +22,7 @@ from BehaviorScreen.load import (
     load_data,
     find_files
 )
-from BehaviorScreen.process import (
-    get_trials,
-    compute_angle_between_vectors,
-    get_target_time,
-    interpolate_ts
-)
+from BehaviorScreen.process import get_trials
 
 
 def pd_series_in(s: pd.Series, v: Any) -> pd.Series:
@@ -83,8 +74,28 @@ class RuleSet:
 
 @dataclass
 class StimSpec:
+    """
+    A stimulus epoch to analyze.
+
+    Trials/bouts are matched by `stim` + `parameters`. `parameters` is a
+    list of RuleSets combined with OR: a row counts for this spec if it
+    matches ANY of the rulesets. Each ruleset should normally include an
+    `epoch_name` rule to disambiguate sub-conditions that share the same
+    `Stim` enum value (e.g. "OMR lateral" vs "OMR forward", both Stim.OMR;
+    or "dark" vs "bright -> dark", both Stim.DARK) -- when a ruleset pools
+    several raw epoch_name values (e.g. left+right), that's how ipsi/contra
+    trials end up grouped under one display name; the actual side is
+    resolved later via the per-bout `laterality` column.
+
+    `stim` is technically redundant with a sufficiently specific
+    `epoch_name` rule, but is kept as a cheap consistency guard (and for
+    readability in the YAML) rather than an active filter dependency.
+
+    There is no separate trial range/count: `trial_num` in the bouts table
+    is already a 0-based, contiguous index local to each raw epoch_name
+    value (assigned upstream by the megabouts step), so it's used directly.
+    """
     stim: Stim
-    trials: range
     name: str
     time_range: Tuple[float, float] | None
     parameters: List[RuleSet]
@@ -100,16 +111,6 @@ class StimSpec:
     def __repr__(self) -> str:
         params = " | ".join(str(p) for p in self.parameters)
         return f"{self.name}[{params}]"
-
-
-class EyesTimeseries(NamedTuple):
-    timestamps: np.ndarray
-    angle_left_deg: np.ndarray
-    angle_right_deg: np.ndarray
-    angle_left_smooth_deg: np.ndarray
-    angle_right_smooth_deg: np.ndarray
-    version_angle_deg: np.ndarray
-    vergence_angle_deg: np.ndarray
 
 
 def load_bouts(bout_csv: Path) -> pd.DataFrame:
@@ -181,14 +182,6 @@ def read_stim_specs(
         if not bins:
             raise ValueError(f"No time_bins defined for stimulus '{name}'")
 
-        trials = range(
-            entry["trial_range"]["start"],
-            entry["trial_range"]["stop"],
-            entry["trial_range"]["step"]
-        )
-
-        # each item is one condition (e.g. one direction); they are pooled
-        # together with OR and disambiguated later via `laterality`
         parameters = [parse_rules(p) for p in entry.get("parameters", [{}])]
         time_ranges = [None] if ignore_time_bins else bins
 
@@ -196,7 +189,6 @@ def read_stim_specs(
             yield StimSpec(
                 stim=stim,
                 name=name,
-                trials=trials,
                 time_range=time_range,
                 parameters=parameters,
             )
@@ -247,227 +239,61 @@ def get_behavior_data(behavior_files: List[BehaviorFiles], fish: str) -> Behavio
             return load_data(f)
 
 
-def get_valid_trial_count(behavior_data: BehaviorData, spec: StimSpec) -> int:
-    """How many of spec.trials were actually presented to this fish."""
-
+def get_matched_trial_rows(behavior_data: BehaviorData, spec: StimSpec) -> pd.DataFrame:
+    """All trials (from the stimulus log) that match this spec, in their
+    natural row order."""
     stim_trials = get_trials(behavior_data)
     if stim_trials.empty:
-        return 0
-
+        return stim_trials
     mask = spec.get_mask(stim_trials) & (stim_trials.stim_select == spec.stim)
-    spec_data = stim_trials[mask]
-    if spec_data.empty:
-        return 0
-
-    return min(len(spec.trials), len(spec_data))
+    return stim_trials[mask]
 
 
 def stim_presented(behavior_data: BehaviorData, spec: StimSpec) -> bool:
 
-    n_valid = get_valid_trial_count(behavior_data, spec)
-    if n_valid == 0:
+    matched = get_matched_trial_rows(behavior_data, spec)
+    if matched.empty:
         return False
 
     if spec.time_range is None:
         return True
 
-    stim_trials = get_trials(behavior_data)
-    mask = spec.get_mask(stim_trials) & (stim_trials.stim_select == spec.stim)
-    spec_data = stim_trials[mask].iloc[:n_valid]
-
-    trial_duration = 1e-9 * (spec_data.stop_timestamp - spec_data.start_timestamp)
-    valid_time_range = spec.time_range[0] < trial_duration
-
-    return bool(valid_time_range.any())
+    trial_duration = 1e-9 * (matched.stop_timestamp - matched.start_timestamp)
+    return bool((spec.time_range[0] < trial_duration).any())
 
 
-def get_eye_traces(
-        behavior_data: BehaviorData,
-        likelihood_threshold: float = 0.9,
-        divergence_threshold_deg: float = -10,
-        convergence_threshold_deg: float = 60,
-        window_length: int = 41
-    ) -> EyesTimeseries:
+def get_epoch_trial_counts(behavior_data: BehaviorData, spec: StimSpec) -> int:
+    """
+    Number of trial slots ("trial_idx" values) to use for this spec.
 
-    assert window_length % 2 == 1
-
-    # extract data
-    left_front_keypoint = behavior_data.eyes_tracking.eye_left_front[['x', 'y']].to_numpy()
-    left_front_likelihood = behavior_data.eyes_tracking.eye_left_front.likelihood.to_numpy()
-
-    left_back_keypoint = behavior_data.eyes_tracking.eye_left_back[['x', 'y']].to_numpy()
-    left_back_likelihood = behavior_data.eyes_tracking.eye_left_back.likelihood.to_numpy()
-
-    right_front_keypoint = behavior_data.eyes_tracking.eye_right_front[['x', 'y']].to_numpy()
-    right_front_likelihood = behavior_data.eyes_tracking.eye_right_front.likelihood.to_numpy()
-
-    right_back_keypoint = behavior_data.eyes_tracking.eye_right_back[['x', 'y']].to_numpy()
-    right_back_likelihood = behavior_data.eyes_tracking.eye_right_back.likelihood.to_numpy()
-
-    left_vector = left_back_keypoint - left_front_keypoint
-    right_vector = right_back_keypoint - right_front_keypoint
-
-    L_rad = compute_angle_between_vectors(left_vector, np.array([0, 1]))
-    R_rad = compute_angle_between_vectors(right_vector, np.array([0, 1]))
-    L = np.rad2deg(L_rad)
-    R = np.rad2deg(R_rad)
-
-    # remove outliers
-    L[(left_front_likelihood < likelihood_threshold) | (left_back_likelihood < likelihood_threshold)] = np.nan
-    R[(right_front_likelihood < likelihood_threshold) | (right_back_likelihood < likelihood_threshold)] = np.nan
-    L[(-L < divergence_threshold_deg) | (-L > convergence_threshold_deg)] = np.nan
-    R[(R < divergence_threshold_deg) | (R > convergence_threshold_deg)] = np.nan
-
-    # interpolate and smooth
-    L = pd.Series(L).interpolate(limit_direction="both").to_numpy()
-    R = pd.Series(R).interpolate(limit_direction="both").to_numpy()
-    L_s = savgol_filter(L, window_length, polyorder=2)
-    R_s = savgol_filter(R, window_length, polyorder=2)
-    version_angle = (L_s + R_s) / 2
-    vergence_angle = R_s - L_s
-
-    timestamps = behavior_data.video_timestamps.timestamp.to_numpy()
-    n = len(timestamps)
-    if n != len(version_angle):
-        warnings.warn(f"frame mismatch: timestamps: {n} | eye tracking: {len(version_angle)}")
-        # NOTE this happens for a file in WT/ronidazole
-
-    res = EyesTimeseries(
-        timestamps=timestamps,
-        angle_left_deg=L[:n],
-        angle_right_deg=R[:n],
-        angle_left_smooth_deg=L_s[:n],
-        angle_right_smooth_deg=R_s[:n],
-        version_angle_deg=version_angle[:n],
-        vergence_angle_deg=vergence_angle[:n]
-    )
-    return res
-
-
-def plot_eyes(
-        quality_control: Path,
-        config_yaml: Path,
-        output_png: Path,
-        behavior_files: List[BehaviorFiles],
-        target_fps: float = 120,
-        max_trial_duration_s: float = 30
-    ):
-    # TODO split processing and plotting
-
-    output_npz = output_png.with_suffix('.npz')
-
-    removed_by_qc = []
-    if quality_control.exists():
-        qc = pd.read_csv(quality_control)
-        removed_by_qc.extend(qc.file)
-
-    cfg = load_yaml_config(config_yaml)
-    stim_specs = list(read_stim_specs(cfg, ignore_time_bins=True))
-    target_time = get_target_time(max_trial_duration_s, target_fps)
-
-    N_fish = len(behavior_files)
-    N_trials = max([len(spec.trials) for spec in stim_specs])
-    N_epochs = len(stim_specs)
-    N_samples = len(target_time)
-
-    vergence_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
-    version_angle = np.full((N_fish, N_trials, N_epochs, N_samples), np.nan)
-
-    for fish_idx, behavior_file in tqdm(enumerate(behavior_files)):
-
-        if behavior_file.metadata.stem in removed_by_qc:
-            continue
-
-        behavior_data: BehaviorData = load_data(behavior_file)
-        stim_trials = get_trials(behavior_data)
-        eyes = get_eye_traces(behavior_data, likelihood_threshold=0.9)
-
-        for spec_idx, spec in enumerate(stim_specs):
-            spec_mask = spec.get_mask(stim_trials) & (stim_trials.stim_select == spec.stim)
-            spec_data = stim_trials[spec_mask]
-            if spec_data.empty:
-                continue
-
-            valid_trials = [i for i, trial in enumerate(spec.trials) if i < len(spec_data)]
-            trial_data = spec_data.iloc[valid_trials]
-
-            for trial_idx, (trial, row) in enumerate(trial_data.iterrows()):
-                mask = (eyes.timestamps > row.start_timestamp) & (eyes.timestamps < row.stop_timestamp)
-                trial_duration = 1e-9 * (row.stop_timestamp - row.start_timestamp)
-                trial_time = 1e-9 * (eyes.timestamps[mask] - row.start_timestamp)
-                n = np.searchsorted(target_time, trial_duration)
-                version_angle[fish_idx, trial_idx, spec_idx, :n] = interpolate_ts(target_time[:n], trial_time, eyes.version_angle_deg[mask])
-                vergence_angle[fish_idx, trial_idx, spec_idx, :n] = interpolate_ts(target_time[:n], trial_time, eyes.vergence_angle_deg[mask])
-
-    with open(output_npz, 'wb') as fp:
-        np.savez(fp,
-                 version=version_angle,
-                 vergence=vergence_angle)
-
-    vergence_per_fish = np.nanmean(vergence_angle, axis=1)
-    version_per_fish = np.nanmean(version_angle, axis=1)
-    data = {
-        'vergence_mean': np.nanmean(vergence_per_fish, axis=0).flatten(),
-        'vergence_std': np.nanstd(vergence_per_fish, axis=0).flatten(),
-        'version_mean': np.nanmean(version_per_fish, axis=0).flatten(),
-        'version_std': np.nanstd(version_per_fish, axis=0).flatten()
-    }
-
-    fig, axes = plt.subplots(nrows=3, ncols=1, figsize=(24, 6),
-                              sharex=True,
-                              gridspec_kw={'height_ratios': [1, 1, 0.5]},
-                              layout='constrained')
-
-    x_axis = np.arange(len(data['vergence_mean']))
-
-    axes[0].plot(x_axis, data['vergence_mean'], color='black', lw=2)
-    axes[0].fill_between(x_axis,
-                          data['vergence_mean'] - data['vergence_std'],
-                          data['vergence_mean'] + data['vergence_std'],
-                          color='black', alpha=0.2, edgecolor='none')
-
-    axes[1].plot(x_axis, data['version_mean'], color='black', lw=2)
-    axes[1].fill_between(x_axis,
-                          data['version_mean'] - data['version_std'],
-                          data['version_mean'] + data['version_std'],
-                          color='black', alpha=0.2, edgecolor='none')
-
-    axes[0].set_ylabel('<vergence [deg]>')
-    axes[0].set_ylim((15, 65))
-    axes[0].legend(loc='upper right', frameon=False)
-
-    axes[1].set_ylabel('<version [deg]>')
-    axes[1].axhline(0, linestyle='--', color='gray', alpha=0.5)
-    axes[1].set_ylim((-15, 15))
-
-    axes[2].set_axis_off()
-    N_samples = len(data['vergence_mean']) // len(stim_specs)
-    for idx, stim in enumerate(stim_specs):
-        text_label = textwrap.fill(str(stim), width=20)
-        x_pos = idx * N_samples + N_samples // 2
-        axes[2].text(x_pos, 1.0, text_label, ha='right', va='top', rotation=45, fontsize=9)
-
-    # Scale Bar
-    scale_duration_sec = 10
-    scale_width_samples = scale_duration_sec * target_fps
-    scalebar = AnchoredSizeBar(axes[1].transData, scale_width_samples,
-                                f'{scale_duration_sec} s', 'lower right',
-                                pad=0.5, color='black', frameon=False, size_vertical=0.2)
-    axes[1].add_artist(scalebar)
-
-    plt.savefig(output_png, bbox_inches='tight')
-    plt.show()
+    trial_num is 0-based and contiguous WITHIN each raw epoch_name value.
+    When a spec pools several raw epoch_name values (e.g. "grating right" +
+    "grating left"), trial_num=k in each pooled group means "k-th
+    presentation of that direction" -- so the grid width is the size of the
+    largest constituent group, not their sum.
+    """
+    matched = get_matched_trial_rows(behavior_data, spec)
+    if matched.empty:
+        return 0
+    return int(matched.groupby("epoch_name").size().max())
 
 
 # ---------------------------------------------------------------------------
 # Bout heatmap
 #
 # Per-fish/per-epoch bout counting is fully vectorized (groupby + reindex on
-# the full trial x category x laterality grid). Averaging is done over fish
-# ONLY -- trial and time bin are preserved and end up as the two axes of a
-# 2D block per bout category. All the blocks (one per bout category, split
-# horizontally by stimulus x laterality) are then assembled into a SINGLE
-# heatmap image.
+# the full trial x category x laterality grid). Four aggregation levels are
+# then produced from the same tidy table:
+#   - full detail       : trial x time bin, per bout category
+#   - trial-averaged     : time bin only, per bout category
+#   - time-bin-averaged  : trial only, per bout category
+#   - fully averaged     : one value per bout category
+# In all cases, averaging across FISH is a plain mean of per-fish rates
+# (each fish is one sample). Averaging across TRIAL/TIME BIN is instead
+# done by summing bout_counts and duration within each fish first, then
+# recomputing frequency = counts / duration -- this correctly weights
+# unequal time-bin durations, and is equivalent to a plain mean of
+# frequencies when durations are equal (e.g. across trials).
 # ---------------------------------------------------------------------------
 
 LATERALITY_ORDER = {"ipsi": 0, "contra": 1, "all": 2}
@@ -499,6 +325,10 @@ def compute_epoch_bout_counts(
     Bout counts/frequency for one fish x one stim epoch, on the full
     (trial_idx, bout_category, laterality_group) grid -- missing
     combinations are filled with 0, not dropped.
+
+    `trial_num` is already a 0-based, contiguous index local to each raw
+    epoch_name (assigned upstream in the megabouts step), so it's used
+    directly as `trial_idx` -- no remapping needed.
     """
 
     lo, hi = spec.time_range
@@ -512,10 +342,10 @@ def compute_epoch_bout_counts(
     )
     epoch_bouts = fish_bouts[mask].copy()
 
-    trial_map = {t: i for i, t in enumerate(spec.trials)}
-    epoch_bouts["trial_idx"] = epoch_bouts.trial_num.map(trial_map)
-    epoch_bouts = epoch_bouts.dropna(subset=["trial_idx"])
-    epoch_bouts["trial_idx"] = epoch_bouts["trial_idx"].astype(int)
+    # some bouts may have an undefined/NaN category or trial_num -- drop
+    # those rather than crashing on int casting/indexing
+    epoch_bouts = epoch_bouts.dropna(subset=["category", "trial_num"])
+    epoch_bouts["trial_idx"] = epoch_bouts["trial_num"].astype(int)
     epoch_bouts = epoch_bouts[epoch_bouts.trial_idx < valid_n_trials]
     epoch_bouts["category"] = epoch_bouts["category"].astype(int)
 
@@ -590,7 +420,7 @@ def compute_bout_frequency_table(
                 print(f"{fish} - {spec} not presented, skipping")
                 continue
 
-            valid_n_trials = get_valid_trial_count(behavior_data, spec)
+            valid_n_trials = get_epoch_trial_counts(behavior_data, spec)
             if valid_n_trials == 0:
                 continue
 
@@ -621,27 +451,77 @@ def compute_bout_frequency_table(
     return pd.concat(tables, ignore_index=True)
 
 
+def aggregate_bout_frequency(
+        per_fish: pd.DataFrame,
+        average_trial: bool,
+        average_time_bin: bool,
+    ) -> pd.DataFrame:
+    """
+    Aggregate the tidy per-fish bout frequency table, optionally collapsing
+    the trial and/or time-bin dimensions. bout_category and laterality_group
+    are never collapsed.
+
+    Two-step aggregation, to stay statistically correct:
+      1. WITHIN each fish, sum bout_counts and duration across whichever
+         dimension(s) are being collapsed, then recompute
+         bout_frequency = counts / duration. This correctly weights
+         unequal time-bin durations (a naive mean of per-bin frequencies
+         would overweight short bins), and reduces to a plain mean when
+         durations are equal (e.g. collapsing across trials, which share
+         the same duration for a given time bin).
+      2. ACROSS fish, take a plain mean of the (possibly collapsed)
+         per-fish bout_frequency -- each fish counts as one sample.
+    """
+
+    working = per_fish
+
+    if average_trial or average_time_bin:
+        keep_cols = ["file", "stim_name", "bout_category", "laterality_group"]
+        if not average_time_bin:
+            keep_cols += ["time_bin_start", "time_bin_stop", "time_bin_duration"]
+        if not average_trial:
+            keep_cols += ["trial_idx"]
+
+        working = (
+            per_fish
+            .groupby(keep_cols, as_index=False)[["bout_counts", "time_bin_duration"]]
+            .sum()
+        )
+        working["bout_frequency"] = working["bout_counts"] / working["time_bin_duration"]
+
+    group_cols = ["stim_name", "bout_category", "laterality_group"]
+    if not average_time_bin:
+        group_cols += ["time_bin_start", "time_bin_stop", "time_bin_duration"]
+    if not average_trial:
+        group_cols += ["trial_idx"]
+
+    avg = working.groupby(group_cols, as_index=False)["bout_frequency"].mean()
+    return avg
+
+
 def build_bout_heatmap_matrix(
         avg: pd.DataFrame,
         category_order: List[str],
         stim_order: List[str],
     ) -> Tuple[pd.DataFrame, List[Tuple[int, int, str]], List[Tuple[int, int, str]], List[str], int]:
     """
-    Assemble the tidy per-(stim, time_bin, trial, category, laterality)
-    table into a single 2D matrix ready to be passed to imshow.
+    Assemble an aggregated bout-frequency table into a single 2D matrix
+    ready to be passed to imshow.
 
-    Rows:    (bout_category, trial_idx) stacked -- one block of `n_trials`
-             rows per bout category.
-    Columns: (stim_name, laterality_group, time_bin_start) stacked -- one
-             block of time bins per (stim, laterality) pair.
+    Whether `trial_idx` / `time_bin_start` are still present as columns in
+    `avg` (i.e. whether that dimension was averaged out) determines whether
+    rows are split by trial and whether columns are split by time bin.
 
-    Returns the pivoted DataFrame plus group boundaries (for separator
-    lines / labels) at both the stim level and the (stim, laterality) level.
+    Rows:    bout_category, optionally x trial_idx.
+    Columns: stim_name x laterality_group, optionally x time_bin_start.
     """
 
-    n_trials = int(avg.trial_idx.max()) + 1
+    has_trial = "trial_idx" in avg.columns
+    has_time_bin = "time_bin_start" in avg.columns
 
-    columns: List[Tuple[str, str, float]] = []
+    n_trials = int(avg.trial_idx.max()) + 1 if has_trial else 1
+
+    columns: list = []
     col_groups: List[Tuple[int, int, str]] = []      # stim-level blocks
     col_subgroups: List[Tuple[int, int, str]] = []   # (stim, laterality) blocks
     time_bin_labels: List[str] = []
@@ -656,33 +536,42 @@ def build_bout_heatmap_matrix(
 
         for later in lateralities:
             sub_rows = stim_rows[stim_rows.laterality_group == later]
-            bins = (
-                sub_rows[["time_bin_start", "time_bin_stop"]]
-                .drop_duplicates()
-                .sort_values("time_bin_start")
-            )
-
             sub_start = len(columns)
-            for t_start, t_stop in bins.itertuples(index=False):
-                columns.append((stim, later, t_start))
-                time_bin_labels.append(f"{t_start:g}-{t_stop:g}s")
+
+            if has_time_bin:
+                bins = (
+                    sub_rows[["time_bin_start", "time_bin_stop"]]
+                    .drop_duplicates()
+                    .sort_values("time_bin_start")
+                )
+                for t_start, t_stop in bins.itertuples(index=False):
+                    columns.append((stim, later, t_start))
+                    time_bin_labels.append(f"{t_start:g}-{t_stop:g}s")
+            else:
+                columns.append((stim, later))
+                time_bin_labels.append("avg")
+
             col_subgroups.append((sub_start, len(columns), later))
 
         col_groups.append((stim_start, len(columns), stim))
 
-    row_index = pd.MultiIndex.from_tuples(
-        [(cat, t) for cat in category_order for t in range(n_trials)],
-        names=["bout_category", "trial_idx"],
-    )
-    col_index = pd.MultiIndex.from_tuples(
-        columns, names=["stim_name", "laterality_group", "time_bin_start"]
-    )
+    if has_trial:
+        row_index = pd.MultiIndex.from_tuples(
+            [(cat, t) for cat in category_order for t in range(n_trials)],
+            names=["bout_category", "trial_idx"],
+        )
+        index_cols = ["bout_category", "trial_idx"]
+    else:
+        row_index = pd.Index(category_order, name="bout_category")
+        index_cols = ["bout_category"]
 
-    pivot = avg.pivot_table(
-        index=["bout_category", "trial_idx"],
-        columns=["stim_name", "laterality_group", "time_bin_start"],
-        values="bout_frequency",
+    col_names = (
+        ["stim_name", "laterality_group", "time_bin_start"] if has_time_bin
+        else ["stim_name", "laterality_group"]
     )
+    col_index = pd.MultiIndex.from_tuples(columns, names=col_names)
+
+    pivot = avg.pivot_table(index=index_cols, columns=col_names, values="bout_frequency")
     pivot = pivot.reindex(index=row_index, columns=col_index)
 
     return pivot, col_groups, col_subgroups, time_bin_labels, n_trials
@@ -707,13 +596,17 @@ def plot_bout_heatmap(
     im = ax.imshow(data, aspect='auto', cmap=cmap, vmin=clim[0], vmax=clim[1])
     fig.colorbar(im, ax=ax, label='bout frequency', fraction=0.015, pad=0.005)
 
-    # x ticks: time bin label per column
+    # x ticks: time bin label (or "avg") per column
     ax.set_xticks(range(n_cols))
     ax.set_xticklabels(time_bin_labels, rotation=90, fontsize=6)
 
-    # y ticks: trial number per row
-    ax.set_yticks(range(n_rows))
-    ax.set_yticklabels([t for _, t in pivot.index], fontsize=6)
+    # y ticks: trial number per row, if trials weren't averaged out
+    has_trial_rows = isinstance(pivot.index, pd.MultiIndex)
+    if has_trial_rows:
+        ax.set_yticks(range(n_rows))
+        ax.set_yticklabels([t for _, t in pivot.index], fontsize=6)
+    else:
+        ax.set_yticks([])
 
     # stim-level separators + labels (above the plot)
     for start, end, label in col_groups:
@@ -748,6 +641,15 @@ def plot_bout_heatmap(
     ax.set_ylabel("")
 
 
+# (average_trial, average_time_bin, filename_suffix, title)
+HEATMAP_VARIANTS: List[Tuple[bool, bool, str, str]] = [
+    (False, False, "", "trial x time bin"),
+    (True, False, "_trial_avg", "averaged over trials"),
+    (False, True, "_timebin_avg", "averaged over time bins"),
+    (True, True, "_full_avg", "averaged over trials and time bins"),
+]
+
+
 def plot_heatmap(
         quality_control: Path,
         input_csv: Path,
@@ -757,39 +659,38 @@ def plot_heatmap(
     ) -> None:
 
     output_csv = output_png.parent / 'bout_frequency.csv'
-    output_avg_csv = output_png.parent / 'bout_frequency_avg.csv'
 
     cfg = load_yaml_config(config_yaml)
     per_fish = compute_bout_frequency_table(quality_control, input_csv, config_yaml, behavior_files)
     per_fish.to_csv(output_csv, index=False)
 
     if per_fish.empty:
-        print("No bouts found, skipping heatmap plot")
+        print("No bouts found, skipping heatmap plots")
         return
-
-    # average over fish only -- trial and time bin are preserved
-    group_cols = [
-        "stim_name", "time_bin_start", "time_bin_stop", "time_bin_duration",
-        "trial_idx", "bout_category", "laterality_group",
-    ]
-    avg = per_fish.groupby(group_cols, as_index=False)["bout_frequency"].mean()
-    avg.to_csv(output_avg_csv, index=False)
 
     category_order = list(bouts_category_name_short)
     stim_order = stim_name_order(cfg)
 
-    pivot, col_groups, col_subgroups, time_bin_labels, n_trials = build_bout_heatmap_matrix(
-        avg, category_order, stim_order
-    )
+    for average_trial, average_time_bin, suffix, title in HEATMAP_VARIANTS:
 
-    n_rows, n_cols = pivot.shape
-    fig_w = max(16, 0.22 * n_cols)
-    fig_h = max(12, 0.28 * n_rows)
+        avg = aggregate_bout_frequency(per_fish, average_trial, average_time_bin)
+        avg.to_csv(output_png.parent / f'bout_frequency_avg{suffix}.csv', index=False)
 
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout='constrained')
-    plot_bout_heatmap(fig, ax, pivot, category_order, col_groups, col_subgroups, time_bin_labels, n_trials)
+        pivot, col_groups, col_subgroups, time_bin_labels, n_trials = build_bout_heatmap_matrix(
+            avg, category_order, stim_order
+        )
 
-    fig.savefig(output_png, bbox_inches='tight')
+        n_rows, n_cols = pivot.shape
+        fig_w = max(16, 0.22 * n_cols)
+        fig_h = max(6, 0.28 * n_rows)
+
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout='constrained')
+        plot_bout_heatmap(fig, ax, pivot, category_order, col_groups, col_subgroups, time_bin_labels, n_trials)
+        ax.set_title(title, fontsize=10)
+
+        variant_png = output_png.parent / f"{output_png.stem}{suffix}{output_png.suffix}"
+        fig.savefig(variant_png, bbox_inches='tight')
+
     plt.show()
 
 
@@ -826,13 +727,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bouts-png",
         default='bouts.png',
-        help="output bout PNG file",
-    )
-
-    parser.add_argument(
-        "--eyes-png",
-        default='eyes.png',
-        help="output eye PNG file",
+        help="output bout PNG file (variants are saved alongside with suffixes)",
     )
 
     # Directory layout overrides
@@ -897,7 +792,6 @@ def run_plot(
         qc_csv: str,
         bouts_csv: str,
         bouts_png: str,
-        eyes_png: str,
         config_yaml: Path,
         root: Path,
         metadata: str,
@@ -914,7 +808,6 @@ def run_plot(
     quality_control = root / qc_csv
     input_csv = root / bouts_csv
     output_bouts_png = root / bouts_png
-    output_eyes_png = root / eyes_png
 
     directories = Directories(
         root,
@@ -938,15 +831,6 @@ def run_plot(
         behavior_files
     )
 
-    plot_eyes(
-        quality_control,
-        config_yaml,
-        output_eyes_png,
-        behavior_files,
-        max_trial_duration_s=30,
-        target_fps=120
-    )
-
 
 def main(args: argparse.Namespace) -> None:
 
@@ -954,7 +838,6 @@ def main(args: argparse.Namespace) -> None:
         qc_csv=args.qc_csv,
         bouts_csv=args.bouts_csv,
         bouts_png=args.bouts_png,
-        eyes_png=args.eyes_png,
         config_yaml=args.yaml,
         root=args.root,
         metadata=args.metadata,
