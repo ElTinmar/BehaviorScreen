@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from megabouts.utils import bouts_category_name_short
 
-from BehaviorScreen.core import Stim
+from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.load import (
     base_regexp,
     FileNameInfo,
@@ -296,6 +296,15 @@ def get_epoch_trial_counts(behavior_data: BehaviorData, spec: StimSpec) -> int:
 # frequencies when durations are equal (e.g. across trials).
 # ---------------------------------------------------------------------------
 
+# Raw `laterality` column in bouts.csv holds Laterality enum values
+# (IPSILATERAL=1, NONDIRECTIONAL=0, CONTRALATERAL=-1). Bouts under
+# non-lateralized stimuli (no laterality assigned at all) show up as NaN.
+LATERALITY_CODE_LABELS = {
+    Laterality.IPSILATERAL: "ipsi",
+    Laterality.CONTRALATERAL: "contra",
+    Laterality.NONDIRECTIONAL: "none",
+}
+
 LATERALITY_ORDER = {"ipsi": 0, "contra": 1, "none": 2}
 
 
@@ -303,14 +312,31 @@ def _order_lateralities(values) -> List[str]:
     return sorted(values, key=lambda v: LATERALITY_ORDER.get(v, 99))
 
 
+def _map_laterality(series: pd.Series) -> pd.Series:
+    """
+    Map raw Laterality codes to display labels.
+
+    NONDIRECTIONAL (0) is a genuine category (straight bouts under a
+    lateralized stim), not a fallback -- it maps to "none" just like the
+    fallback for bouts with no laterality assigned at all (NaN, under a
+    non-lateralized stim), so both end up sharing the "none" column. If you
+    ever need to tell "genuinely straight" apart from "not applicable",
+    this is the place to split them into two labels instead.
+    """
+    mapped = series.map(LATERALITY_CODE_LABELS)
+    return mapped.where(mapped.notna(), "none")
+
+
 def get_laterality_labels(bouts: pd.DataFrame, spec: StimSpec) -> List[str]:
     """
-    Laterality labels (ipsi/contra) relevant to this stim, based on what's
-    actually present in the `laterality` column for matching bouts. Falls
-    back to a single "none" bucket for non-lateralized stimuli.
+    Laterality labels (ipsi/contra/none) relevant to this stim, based on
+    what's actually present in the `laterality` column for matching bouts.
+    Falls back to a single "none" bucket for non-lateralized stimuli.
     """
     mask = (bouts.stim == spec.stim) & spec.get_mask(bouts)
-    values = bouts.loc[mask, "laterality"].dropna().unique().tolist()
+    if "laterality" not in bouts.columns:
+        return ["none"]
+    values = _map_laterality(bouts.loc[mask, "laterality"]).unique().tolist()
     return _order_lateralities(values) if values else ["none"]
 
 
@@ -349,11 +375,9 @@ def compute_epoch_bout_counts(
     epoch_bouts = epoch_bouts[epoch_bouts.trial_idx < valid_n_trials]
     epoch_bouts["category"] = epoch_bouts["category"].astype(int)
 
-    # ipsi/contra when meaningful, otherwise pool everything as "none"
+    # map raw numeric laterality codes to ipsi/contra/none
     if "laterality" in epoch_bouts.columns:
-        epoch_bouts["laterality_group"] = epoch_bouts["laterality"].where(
-            epoch_bouts["laterality"].notna(), "none"
-        )
+        epoch_bouts["laterality_group"] = _map_laterality(epoch_bouts["laterality"])
     else:
         epoch_bouts["laterality_group"] = "none"
 
