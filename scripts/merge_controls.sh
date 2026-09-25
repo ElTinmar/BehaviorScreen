@@ -11,6 +11,7 @@ cart2/vehicle/bouts.csv \
 opn4b/vehicle/bouts.csv \
 WT/danieau/bouts.csv \
 WT/ronidazole/bouts.csv \
+WT/vehicle/bouts.csv \
 tbr1b_run3/vehicle/bouts.csv \
 gbx/vehicle/bouts.csv \
 mpn310/vehicle/bouts.csv \
