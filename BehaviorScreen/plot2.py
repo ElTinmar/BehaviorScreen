@@ -296,7 +296,7 @@ def get_epoch_trial_counts(behavior_data: BehaviorData, spec: StimSpec) -> int:
 # frequencies when durations are equal (e.g. across trials).
 # ---------------------------------------------------------------------------
 
-LATERALITY_ORDER = {"ipsi": 0, "contra": 1, "all": 2}
+LATERALITY_ORDER = {"ipsi": 0, "contra": 1, "none": 2}
 
 
 def _order_lateralities(values) -> List[str]:
@@ -307,11 +307,11 @@ def get_laterality_labels(bouts: pd.DataFrame, spec: StimSpec) -> List[str]:
     """
     Laterality labels (ipsi/contra) relevant to this stim, based on what's
     actually present in the `laterality` column for matching bouts. Falls
-    back to a single "all" bucket for non-lateralized stimuli.
+    back to a single "none" bucket for non-lateralized stimuli.
     """
     mask = (bouts.stim == spec.stim) & spec.get_mask(bouts)
     values = bouts.loc[mask, "laterality"].dropna().unique().tolist()
-    return _order_lateralities(values) if values else ["all"]
+    return _order_lateralities(values) if values else ["none"]
 
 
 def compute_epoch_bout_counts(
@@ -349,13 +349,13 @@ def compute_epoch_bout_counts(
     epoch_bouts = epoch_bouts[epoch_bouts.trial_idx < valid_n_trials]
     epoch_bouts["category"] = epoch_bouts["category"].astype(int)
 
-    # ipsi/contra when meaningful, otherwise pool everything as "all"
+    # ipsi/contra when meaningful, otherwise pool everything as "none"
     if "laterality" in epoch_bouts.columns:
         epoch_bouts["laterality_group"] = epoch_bouts["laterality"].where(
-            epoch_bouts["laterality"].notna(), "all"
+            epoch_bouts["laterality"].notna(), "none"
         )
     else:
-        epoch_bouts["laterality_group"] = "all"
+        epoch_bouts["laterality_group"] = "none"
 
     epoch_bouts["bout_category"] = epoch_bouts["category"].map(lambda i: categories[i])
 
