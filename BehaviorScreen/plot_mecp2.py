@@ -701,7 +701,7 @@ plt.tight_layout()
 plt.savefig(f"JT_histograms.svg", format='svg', bbox_inches='tight')
 plt.show()
 
-##########
+########## 
 groups = ['mecp2/bouts.csv', 'nacre/bouts.csv']
 groups_name = ['mecp2-mutant', 'wild type']
 groups_color = {'mecp2-mutant': COLOR_MECP2, 'wild type': COLOR_WT}
@@ -1071,6 +1071,9 @@ def anova(quantity, xrange):
         'cond': pd.Categorical(cond),  # Treat as categorical/factors
         'stim': pd.Categorical(stim)
     })
+
+    # Compute mean and SEM grouped by condition
+    summary_stats = df.groupby('cond')['quant'].agg(mean='mean', sem='sem')
     
     # The formula 'quant ~ cond + stim' specifies a two-way ANOVA without interaction
     model = ols('quant ~ cond + stim', data=df).fit()
@@ -1079,11 +1082,12 @@ def anova(quantity, xrange):
     # Extract p-values for 'cond' and 'stim'
     p = tbl['PR(>F)'].dropna().tolist()
     
-    return p, tbl
+    return p, tbl, summary_stats
 
 quantity = [mecp2_ipsi_clean, nacre_ipsi_clean]
 xrange = np.arange(18)
 anova(quantity, xrange)
+
 
 ############# Sigmoid
 
