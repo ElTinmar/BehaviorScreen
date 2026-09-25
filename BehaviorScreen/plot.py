@@ -820,7 +820,6 @@ def plot_heatmap(
     fig_h = max(10, 0.3 * len(classic_row_labels))
     fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout='constrained')
     plot_bout_heatmap_classic(fig, ax, classic_pivot, classic_col_labels, classic_row_labels)
-    fig.tight_layout()
 
     classic_png = output_png.parent / f"{output_png.stem}_classic{output_png.suffix}"
     fig.savefig(classic_png, bbox_inches='tight')
