@@ -300,6 +300,14 @@ def get_epoch_trial_counts(behavior_data: BehaviorData, spec: StimSpec) -> int:
 # frequencies when durations are equal (e.g. across trials).
 # ---------------------------------------------------------------------------
 
+# Bout categories dropped from every table/plot. Encoded category indices
+# in bouts.csv still refer to the FULL bouts_category_name_short list, so
+# that list must stay intact for the int -> name mapping -- only the
+# display/grid order (BOUT_CATEGORIES) is filtered.
+ALL_BOUT_CATEGORIES = list(bouts_category_name_short)
+EXCLUDED_BOUT_CATEGORIES = {"LCS", "SCS"}
+BOUT_CATEGORIES = [c for c in ALL_BOUT_CATEGORIES if c not in EXCLUDED_BOUT_CATEGORIES]
+
 # Raw `laterality` column in bouts.csv holds Laterality enum values
 # (IPSILATERAL=1, NONDIRECTIONAL=0, CONTRALATERAL=-1). Bouts under
 # non-lateralized stimuli (no laterality assigned at all) show up as NaN.
@@ -348,13 +356,13 @@ def compute_epoch_bout_counts(
         fish_bouts: pd.DataFrame,
         spec: StimSpec,
         valid_n_trials: int,
-        categories: List[str],
         laterality_labels: List[str],
     ) -> pd.DataFrame:
     """
     Bout counts/frequency for one fish x one stim epoch, on the full
     (trial_idx, bout_category, laterality_group) grid -- missing
-    combinations are filled with 0, not dropped.
+    combinations are filled with 0, not dropped. Categories in
+    EXCLUDED_BOUT_CATEGORIES are dropped entirely (not shown, not counted).
 
     `trial_num` is already a 0-based, contiguous index local to each raw
     epoch_name (assigned upstream in the megabouts step), so it's used
@@ -379,13 +387,17 @@ def compute_epoch_bout_counts(
     epoch_bouts = epoch_bouts[epoch_bouts.trial_idx < valid_n_trials]
     epoch_bouts["category"] = epoch_bouts["category"].astype(int)
 
+    # map integer category code -> name using the FULL category list (the
+    # code is fixed by megabouts and doesn't change when we drop display
+    # categories), then drop excluded categories entirely
+    epoch_bouts["bout_category"] = epoch_bouts["category"].map(lambda i: ALL_BOUT_CATEGORIES[i])
+    epoch_bouts = epoch_bouts[~epoch_bouts["bout_category"].isin(EXCLUDED_BOUT_CATEGORIES)]
+
     # map raw numeric laterality codes to ipsi/contra/none
     if "laterality" in epoch_bouts.columns:
         epoch_bouts["laterality_group"] = _map_laterality(epoch_bouts["laterality"])
     else:
         epoch_bouts["laterality_group"] = "none"
-
-    epoch_bouts["bout_category"] = epoch_bouts["category"].map(lambda i: categories[i])
 
     counts = (
         epoch_bouts
@@ -396,7 +408,7 @@ def compute_epoch_bout_counts(
     )
 
     full_index = pd.MultiIndex.from_product(
-        [range(valid_n_trials), categories, laterality_labels],
+        [range(valid_n_trials), BOUT_CATEGORIES, laterality_labels],
         names=["trial_idx", "bout_category", "laterality_group"],
     )
     counts = (
@@ -422,7 +434,6 @@ def compute_bout_frequency_table(
     bouts = load_bouts(input_csv)
     filtered_bouts = filter_bouts(quality_control, bouts, cfg)
 
-    categories = list(bouts_category_name_short)
     laterality_labels = {
         id(spec): get_laterality_labels(filtered_bouts, spec) for spec in stim_specs
     }
@@ -453,7 +464,7 @@ def compute_bout_frequency_table(
                 continue
 
             counts = compute_epoch_bout_counts(
-                fish_bouts, spec, valid_n_trials, categories, laterality_labels[id(spec)]
+                fish_bouts, spec, valid_n_trials, laterality_labels[id(spec)]
             )
 
             counts["file"] = fish
@@ -614,6 +625,7 @@ def plot_bout_heatmap(
         col_subgroups: List[Tuple[int, int, str]],
         time_bin_labels: List[str],
         n_trials: int,
+        title: str | None = None,
         cmap: str = 'inferno',
         clim: Tuple[float, float] = (0, 0.45),
     ) -> None:
@@ -622,48 +634,72 @@ def plot_bout_heatmap(
     n_rows, n_cols = data.shape
 
     im = ax.imshow(data, aspect='auto', cmap=cmap, vmin=clim[0], vmax=clim[1])
-    fig.colorbar(im, ax=ax, label='bout frequency', fraction=0.015, pad=0.005)
+    fig.colorbar(im, ax=ax, label='bout frequency', fraction=0.015, pad=0.01)
 
-    # x ticks: time bin label (or "avg") per column
-    ax.set_xticks(range(n_cols))
-    ax.set_xticklabels(time_bin_labels, rotation=90, fontsize=6)
+    # x ticks: time bin label per column -- skip entirely when there's no
+    # real time-bin information (all columns would just say "avg", which
+    # adds no information and only clutters the plot)
+    show_time_bin_ticks = any(lbl != "avg" for lbl in time_bin_labels)
+    if show_time_bin_ticks:
+        ax.set_xticks(range(n_cols))
+        ax.set_xticklabels(time_bin_labels, rotation=90, fontsize=7)
+    else:
+        ax.set_xticks([])
 
     # y ticks: trial number per row, if trials weren't averaged out
     has_trial_rows = isinstance(pivot.index, pd.MultiIndex)
     if has_trial_rows:
         ax.set_yticks(range(n_rows))
-        ax.set_yticklabels([t for _, t in pivot.index], fontsize=6)
+        ax.set_yticklabels([t for _, t in pivot.index], fontsize=7)
     else:
         ax.set_yticks([])
 
-    # stim-level separators + labels (above the plot)
+    # Labels below use FIXED POINT offsets (via annotate + offset points),
+    # not fractions of the data range -- this keeps them legible and
+    # non-overlapping regardless of how many rows/columns the heatmap has
+    # (unlike e.g. `-0.05 * n_rows`, which shrinks to nothing for small,
+    # heavily-averaged heatmaps and causes labels to collide with each
+    # other / the title).
+
+    # stim-level separators + labels (well above the axes)
     for start, end, label in col_groups:
         if start > 0:
             ax.axvline(start - 0.5, color='white', lw=1.6)
-        ax.text(
-            (start + end - 1) / 2, -0.05 * n_rows, label,
-            ha='center', va='bottom', fontsize=9, clip_on=False,
+        ax.annotate(
+            label,
+            xy=((start + end - 1) / 2, 1), xycoords=("data", "axes fraction"),
+            xytext=(0, 38), textcoords="offset points",
+            ha='center', va='bottom', fontsize=10, annotation_clip=False,
         )
 
-    # (stim, laterality) separators + labels (just above tick labels)
+    # (stim, laterality) separators + labels (just above the axes)
     for start, end, label in col_subgroups:
         if start > 0:
             ax.axvline(start - 0.5, color='white', lw=0.6, alpha=0.7)
-        ax.text(
-            (start + end - 1) / 2, -0.012 * n_rows, label,
-            ha='center', va='bottom', fontsize=6, clip_on=False,
+        ax.annotate(
+            label,
+            xy=((start + end - 1) / 2, 1), xycoords=("data", "axes fraction"),
+            xytext=(0, 16), textcoords="offset points",
+            ha='center', va='bottom', fontsize=8, annotation_clip=False,
         )
 
-    # bout category separators + labels (left of the plot)
+    # bout category separators + labels (left of the axes)
     for idx, cat in enumerate(category_order):
         row_start = idx * n_trials
         row_end = row_start + n_trials
         if row_start > 0:
             ax.axhline(row_start - 0.5, color='white', lw=1.6)
-        ax.text(
-            -0.006 * n_cols, (row_start + row_end - 1) / 2, cat,
-            ha='right', va='center', fontsize=8, clip_on=False,
+        ax.annotate(
+            cat,
+            xy=(0, (row_start + row_end - 1) / 2), xycoords=("axes fraction", "data"),
+            xytext=(-10, 0), textcoords="offset points",
+            ha='right', va='center', fontsize=9, annotation_clip=False,
         )
+
+    # title pad (points) is large enough to clear the stim-level group
+    # labels above (offset 38 pts + their own text height)
+    if title:
+        ax.set_title(title, fontsize=12, pad=62)
 
     ax.set_xlabel("")
     ax.set_ylabel("")
@@ -693,7 +729,7 @@ def build_classic_bout_heatmap_matrix(
                  folded into the rows instead, like the old "side" split).
       - no group separators; every category x laterality combination gets
         its own row, even if some (stim, laterality) combinations have no
-        data (e.g. "ipsi"/"contra" columns are NaN for non-lateralized
+        data (e.g. "ipsi"/"contra" rows are NaN for non-lateralized
         stimuli) -- unlike the old plot, which always had real L/R sign
         counts, "ipsi"/"contra" genuinely don't apply there.
 
@@ -759,9 +795,9 @@ def plot_bout_heatmap_classic(
     im.set_clim(*clim)
     fig.colorbar(im, ax=ax, label='bout frequency')
     ax.set_xticks(range(data.shape[1]))
-    ax.set_xticklabels(col_labels, rotation=90, ha='center', fontsize=7)
+    ax.set_xticklabels(col_labels, rotation=90, ha='center', fontsize=8)
     ax.set_yticks(range(data.shape[0]))
-    ax.set_yticklabels(row_labels, fontsize=7)
+    ax.set_yticklabels(row_labels, fontsize=8)
     ax.set_xlabel("epoch")
     ax.set_ylabel("bout category")
 
@@ -784,7 +820,7 @@ def plot_heatmap(
         print("No bouts found, skipping heatmap plots")
         return
 
-    category_order = list(bouts_category_name_short)
+    category_order = BOUT_CATEGORIES
     stim_order = stim_name_order(cfg)
 
     for average_trial, average_time_bin, suffix, title in HEATMAP_VARIANTS:
@@ -801,8 +837,10 @@ def plot_heatmap(
         fig_h = max(6, 0.28 * n_rows)
 
         fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout='constrained')
-        plot_bout_heatmap(fig, ax, pivot, category_order, col_groups, col_subgroups, time_bin_labels, n_trials)
-        ax.set_title(title, fontsize=10)
+        plot_bout_heatmap(
+            fig, ax, pivot, category_order, col_groups, col_subgroups, time_bin_labels, n_trials,
+            title=title,
+        )
 
         variant_png = output_png.parent / f"{output_png.stem}{suffix}{output_png.suffix}"
         fig.savefig(variant_png, bbox_inches='tight')
@@ -816,8 +854,8 @@ def plot_heatmap(
     )
     classic_avg.to_csv(output_png.parent / 'bout_frequency_avg_classic.csv', index=False)
 
-    fig_w = max(20, 0.3 * len(classic_col_labels))
-    fig_h = max(10, 0.3 * len(classic_row_labels))
+    fig_w = max(20, 0.35 * len(classic_col_labels))
+    fig_h = max(10, 0.32 * len(classic_row_labels))
     fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout='constrained')
     plot_bout_heatmap_classic(fig, ax, classic_pivot, classic_col_labels, classic_row_labels)
 
