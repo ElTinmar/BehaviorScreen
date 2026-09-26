@@ -974,7 +974,8 @@ def plot_heatmap(
         input_csv: Path,
         config_yaml: Path,
         output_png: Path,
-        behavior_files: List[BehaviorFiles]
+        behavior_files: List[BehaviorFiles],
+        block: bool = True
     ) -> None:
 
     output_csv = output_png.parent / 'bout_frequency.csv'
@@ -1039,7 +1040,7 @@ def plot_heatmap(
     classic_png = output_png.parent / f"{output_png.stem}_classic{output_png.suffix}"
     fig.savefig(classic_png, bbox_inches='tight')
 
-    plt.show()
+    plt.show(block=block)
 
 
 def build_parser() -> argparse.ArgumentParser:
