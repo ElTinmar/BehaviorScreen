@@ -1041,6 +1041,7 @@ def plot_heatmap(
     fig.savefig(classic_png, bbox_inches='tight')
 
     plt.show(block=block)
+    plt.close('all')
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1134,6 +1135,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Subfolder containing plots (default: plots)",
     )
 
+    parser.add_argument(
+        "--block",
+        action='store_true'
+    )
+
     return parser
 
 
@@ -1152,6 +1158,7 @@ def run_plot(
         video_timestamp: str,
         results: str,
         plots: str,
+        block: bool
     ) -> None:
 
     quality_control = root / qc_csv
@@ -1177,7 +1184,8 @@ def run_plot(
         input_csv,
         config_yaml,
         output_bouts_png,
-        behavior_files
+        behavior_files,
+        block
     )
 
 
@@ -1198,6 +1206,7 @@ def main(args: argparse.Namespace) -> None:
         video_timestamp=args.video_timestamp,
         results=args.results,
         plots=args.plots,
+        block=args.block
     )
 
 
