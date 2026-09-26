@@ -2,7 +2,7 @@ from .config import FOLDERS, CONFIG_YAML
 from BehaviorScreen.plot import run_plot
 from multiprocessing import Pool
 
-N = 10
+N = 6
 
 def process_folder(folder):
     print(f"processing {folder}")
@@ -26,6 +26,7 @@ def process_folder(folder):
         video_timestamp = "results",
         results = "results",
         plots = "results",
+        interactive=False
     )
     
 if __name__ == "__main__":

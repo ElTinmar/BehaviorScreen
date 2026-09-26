@@ -975,7 +975,7 @@ def plot_heatmap(
         config_yaml: Path,
         output_png: Path,
         behavior_files: List[BehaviorFiles],
-        block: bool = True
+        interactive: bool = True
     ) -> None:
 
     output_csv = output_png.parent / 'bout_frequency.csv'
@@ -1040,8 +1040,8 @@ def plot_heatmap(
     classic_png = output_png.parent / f"{output_png.stem}_classic{output_png.suffix}"
     fig.savefig(classic_png, bbox_inches='tight')
 
-    plt.show(block=block)
-    plt.close('all')
+    if interactive:
+        plt.show()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1136,7 +1136,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--block",
+        "--interactive",
         action='store_true'
     )
 
@@ -1158,7 +1158,7 @@ def run_plot(
         video_timestamp: str,
         results: str,
         plots: str,
-        block: bool
+        interactive: bool
     ) -> None:
 
     quality_control = root / qc_csv
@@ -1185,7 +1185,7 @@ def run_plot(
         config_yaml,
         output_bouts_png,
         behavior_files,
-        block
+        interactive
     )
 
 
@@ -1206,7 +1206,7 @@ def main(args: argparse.Namespace) -> None:
         video_timestamp=args.video_timestamp,
         results=args.results,
         plots=args.plots,
-        block=args.block
+        interactive=args.interactive
     )
 
 
