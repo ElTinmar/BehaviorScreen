@@ -18,6 +18,8 @@ from BehaviorScreen.core import (
     AGAROSE_WELL_DIMENSIONS, 
     STIM_PARAMETERS
 )
+from BehaviorScreen.protocol import PROTOCOL_SPEC
+
 
 def get_background_image(
         behavior_data: BehaviorData
@@ -174,6 +176,51 @@ def get_trials(
 
         if Stim(stim_select) in keep_stim:
             rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def get_epoch_trial_presentation(behavior_data: BehaviorData) -> pd.DataFrame:
+
+    stim_trials = get_trials(behavior_data)
+
+    rows = []
+    for spec in PROTOCOL_SPEC:
+        occurrences = stim_trials[stim_trials.epoch_name == spec.name]
+        n_found = len(occurrences)
+        n_rows = max(spec.expected_repeats, n_found)
+
+        for trial_num in range(n_rows):
+            if trial_num < n_found:
+                trial_row = occurrences.iloc[trial_num]
+                duration_s = 1e-9 * (trial_row.stop_timestamp - trial_row.start_timestamp)
+
+                matches_params = True
+                if spec.parameters:
+                    for col, allowed in spec.parameters.items():
+                        if trial_row[col] not in allowed:
+                            matches_params = False
+                            break
+
+                rows.append({
+                    "epoch_name": spec.name,
+                    "stim": int(spec.stim),
+                    "expected_repeats": spec.expected_repeats,
+                    "trial_num": trial_num,
+                    "presented": matches_params,          
+                    "matches_expected_parameters": matches_params,
+                    "trial_duration_s": duration_s,
+                })
+            else:
+                rows.append({
+                    "epoch_name": spec.name,
+                    "stim": int(spec.stim),
+                    "expected_repeats": spec.expected_repeats,
+                    "trial_num": trial_num,
+                    "presented": False,
+                    "matches_expected_parameters": np.nan,  # N/A: nothing to compare
+                    "trial_duration_s": np.nan,
+                })
 
     return pd.DataFrame(rows)
 
