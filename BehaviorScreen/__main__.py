@@ -53,9 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--epoch-presentation-csv",
-        default='epoch_trial_presence.csv',
-        help="per-trial epoch presentation record (used by plot and point-process fitting)",
+        "--valid-trials-csv",
+        default='valid_trials.csv',
+        help="per-trial epoch presentation + tracking quality record (used by plot and point-process fitting)",
     )
 
     parser.add_argument(
@@ -202,7 +202,7 @@ def main(args: argparse.Namespace) -> None:
     quality_control(
         root=args.root,
         output_csv=args.qc_csv,
-        epoch_presentation_csv=args.epoch_presentation_csv,
+        valid_trials_csv=args.valid_trials_csv,
         metadata=args.results,
         stimuli=args.results,
         tracking=args.results,
@@ -244,6 +244,7 @@ def main(args: argparse.Namespace) -> None:
     print("6. plot", flush=True)
     run_plot(
         qc_csv=args.qc_csv,
+        valid_trials_csv=args.valid_trials_csv,
         bouts_csv=args.bouts_csv,
         bouts_png = args.bouts_png,
         eyes_png = args.eyes_png,
