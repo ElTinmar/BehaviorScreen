@@ -108,8 +108,8 @@ def patch_epoch_name(stimuli: List[Dict]) -> List[Dict]:
     patched_stimuli = stimuli.copy()
     num_stim = len(patched_stimuli)
     labels = protocol_ptx if num_stim == len(protocol_ptx) else protocol
-    for s,l in zip(patched_stimuli, labels):
-        s['name'] = l
+    for s, (name, stim) in zip(patched_stimuli, labels):
+        s['name'] = name
     return patched_stimuli
 
 def export_stimuli(
