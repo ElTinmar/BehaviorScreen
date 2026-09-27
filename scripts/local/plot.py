@@ -2,7 +2,7 @@ from .config import FOLDERS, CONFIG_YAML
 from BehaviorScreen.plot import run_plot
 from multiprocessing import Pool
 
-N = 6
+N = 12
 
 def process_folder(folder):
     print(f"processing {folder}")
