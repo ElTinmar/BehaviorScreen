@@ -12,44 +12,65 @@ class Epoch:
     BoutSign counts as IPSILATERAL while it's showing (e.g. BoutSign.RIGHT
     for "...right"/"...clockwise" epochs). Leave ipsi_sign=None for
     non-directional epochs (both bout signs then map to NONDIRECTIONAL).
+
+    `parameters`, when given, constrains which stimulus-log rows count as
+    a genuine presentation of this epoch, beyond just matching epoch_name
+    (e.g. phototaxis's foreground_color). Only appropriate when the
+    constraint is a fixed property of THIS epoch's identity -- i.e. true
+    for every repetition of this name across the whole protocol, not
+    something that varies presentation-to-presentation.
     """
     name: EpochName
     stim: Stim
     ipsi_sign: Optional[BoutSign] = None
+    parameters: Optional[Dict[str, List[Any]]] = None
 
 
 _REGISTRY: Dict[EpochName, Epoch] = {}
 
 
-def epoch(name: EpochName, stim: Stim, ipsi_sign: Optional[BoutSign] = None) -> Epoch:
+def epoch(
+        name: EpochName,
+        stim: Stim,
+        ipsi_sign: Optional[BoutSign] = None,
+        parameters: Optional[Dict[str, List[Any]]] = None,
+    ) -> Epoch:
     """
     Declare (or re-fetch) one epoch, for use inside `protocol`/`protocol_ptx`.
 
-    This is now the ONLY place a given epoch_name's stim/laterality side is
-    declared. Previously the same name had to be retyped identically in
-    `protocol`, in a hand-written laterality dict, and (for non-directional
-    epochs) in a separate name list -- with nothing checking the three
-    stayed in sync. Re-declaring the SAME name (protocol_ptx reuses several
-    names already declared while building `protocol`) is fine as long as
-    stim/ipsi_sign agree; if they don't, that's a genuine inconsistency and
-    raises immediately here, instead of silently producing a wrong/missing
-    laterality entry discovered only later, deep in megabouts.py.
+    This is the ONLY place a given epoch_name's stim/laterality
+    side/parameter constraints are declared -- everything derived below
+    (EPOCH_LATERALITY, PROTOCOL_SPEC) is built from this registry, instead
+    of being hand-written a second/third time with nothing checking it
+    stayed in sync with `protocol`.
+
+    Re-declaring the SAME name (protocol_ptx reuses several names already
+    declared while building `protocol`) is fine as long as
+    stim/ipsi_sign/parameters all agree; if they don't, that's a genuine
+    inconsistency and raises immediately here, instead of silently
+    producing a wrong/missing laterality or presence entry discovered only
+    later, deep in megabouts.py or plot.py.
     """
     existing = _REGISTRY.get(name)
     if existing is not None:
-        if existing.stim != stim or existing.ipsi_sign != ipsi_sign:
+        if (existing.stim != stim
+                or existing.ipsi_sign != ipsi_sign
+                or existing.parameters != parameters):
             raise ValueError(
-                f"epoch '{name}' redeclared with different stim/ipsi_sign: "
-                f"{existing} vs Epoch({name!r}, {stim}, {ipsi_sign})"
+                f"epoch '{name}' redeclared with different stim/ipsi_sign/parameters: "
+                f"{existing} vs Epoch({name!r}, {stim}, {ipsi_sign}, {parameters})"
             )
         return existing
 
-    new_epoch = Epoch(name=name, stim=stim, ipsi_sign=ipsi_sign)
+    new_epoch = Epoch(name=name, stim=stim, ipsi_sign=ipsi_sign, parameters=parameters)
     _REGISTRY[name] = new_epoch
     return new_epoch
 
 
 ## PROTOCOLS ---------------------------------------------------
+
+
+_PHOTOTAXIS_PARAMS = {"foreground_color": ["[0.1, 0.1, 0.0, 1.0]"]}
 
 # Full protocol
 protocol: List[Epoch] = [
@@ -64,9 +85,9 @@ protocol += 5 * [
 ]
 protocol += [epoch("ramp 1", Stim.RAMP)]
 protocol += 10 * [
-    epoch("phototaxis bright right", Stim.PHOTOTAXIS, BoutSign.RIGHT),
+    epoch("phototaxis bright right", Stim.PHOTOTAXIS, BoutSign.RIGHT, _PHOTOTAXIS_PARAMS),
     epoch("phototaxis break after bright right", Stim.BRIGHT, BoutSign.RIGHT),
-    epoch("phototaxis bright left", Stim.PHOTOTAXIS, BoutSign.LEFT),
+    epoch("phototaxis bright left", Stim.PHOTOTAXIS, BoutSign.LEFT, _PHOTOTAXIS_PARAMS),
     epoch("phototaxis break after bright left", Stim.BRIGHT, BoutSign.LEFT),
 ]
 protocol += [epoch("ramp 2", Stim.RAMP)]
@@ -106,9 +127,9 @@ protocol += 7 * [
 # phototaxis only
 protocol_ptx: List[Epoch] = [epoch("adaptation", Stim.BRIGHT)]
 protocol_ptx += 10 * [
-    epoch("phototaxis bright right", Stim.PHOTOTAXIS, BoutSign.RIGHT),
+    epoch("phototaxis bright right", Stim.PHOTOTAXIS, BoutSign.RIGHT, _PHOTOTAXIS_PARAMS),
     epoch("phototaxis break after bright right", Stim.BRIGHT, BoutSign.RIGHT),
-    epoch("phototaxis bright left", Stim.PHOTOTAXIS, BoutSign.LEFT),
+    epoch("phototaxis bright left", Stim.PHOTOTAXIS, BoutSign.LEFT, _PHOTOTAXIS_PARAMS),
     epoch("phototaxis break after bright left", Stim.BRIGHT, BoutSign.LEFT),
 ]
 
@@ -119,10 +140,10 @@ def _build_laterality_table(
         registry: Dict[EpochName, Epoch]
     ) -> Dict[Tuple[EpochName, BoutSign], Laterality]:
     """
-    Derived directly from each epoch's declared ipsi_sign -- replaces the
-    previously hand-written laterality dict AND the separate
-    non_directional-name list, both of which required retyping every
-    epoch name a second/third time with nothing checking they matched
+    Derived directly from each epoch's declared ipsi_sign -- replaces a
+    hand-written (epoch_name, BoutSign) -> Laterality dict and a separate
+    non-directional-name list, both of which previously required retyping
+    every epoch name a second/third time with nothing checking it matched
     `protocol`.
     """
     table: Dict[Tuple[EpochName, BoutSign], Laterality] = {}
@@ -161,7 +182,12 @@ def _build_epoch_specs(protocol_entries: List[Epoch]) -> List[EpochSpec]:
         if ep.name in seen:
             continue
         seen.add(ep.name)
-        specs.append(EpochSpec(name=ep.name, stim=ep.stim, expected_repeats=counts[ep.name]))
+        specs.append(EpochSpec(
+            name=ep.name,
+            stim=ep.stim,
+            expected_repeats=counts[ep.name],
+            parameters=ep.parameters,
+        ))
     return specs
 
 
