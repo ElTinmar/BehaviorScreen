@@ -10,7 +10,7 @@ import seaborn as sns
 import statsmodels.formula.api as smf
 
 from BehaviorScreen.load import Directories, find_files, load_data, BehaviorData
-from BehaviorScreen.process import get_trials, get_well_coords_mm, timestamp_to_frame
+from BehaviorScreen.process import get_well_coords_mm, timestamp_to_frame
 from BehaviorScreen.core import Stim, BoutSign
 from BehaviorScreen.plot import load_yaml_config, read_stim_specs
 from megabouts.utils import bouts_category_name_short
