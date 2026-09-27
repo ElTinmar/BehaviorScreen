@@ -244,21 +244,13 @@ def main(args: argparse.Namespace) -> None:
     print("6. plot", flush=True)
     run_plot(
         qc_csv=args.qc_csv,
-        valid_trials_csv=args.valid_trials_csv,
         bouts_csv=args.bouts_csv,
+        valid_trials_csv=args.valid_trials_csv,
         bouts_png = args.bouts_png,
-        eyes_png = args.eyes_png,
         config_yaml = args.yaml,
         root = args.root,
-        metadata=args.results,
-        stimuli=args.results,
-        tracking=args.results,
-        lightning_pose=args.lightning_pose,
-        temperature=args.results,
-        video=args.results,
-        video_timestamp=args.results,
-        results=args.results,
-        plots=args.plots
+        exclude_unusable_trials=True,
+        interactive=False,
     )
 
     print("7. overlay")
