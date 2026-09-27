@@ -1,4 +1,4 @@
-from typing import List, Tuple, Generator, Any
+from typing import List, Tuple, Generator, Any, Dict
 import argparse
 from pathlib import Path
 import re
@@ -13,16 +13,7 @@ from tqdm import tqdm
 from megabouts.utils import bouts_category_name_short
 
 from BehaviorScreen.core import Stim, Laterality, BoutSign
-from BehaviorScreen.load import (
-    base_regexp,
-    FileNameInfo,
-    Directories,
-    BehaviorData,
-    BehaviorFiles,
-    load_data,
-    find_files
-)
-from BehaviorScreen.process import get_trials
+from BehaviorScreen.load import base_regexp, FileNameInfo
 
 
 MAX_COLORBAR = 0.6
@@ -236,56 +227,72 @@ def cosinor(info: FileNameInfo) -> Tuple[float, float]:
     return (np.cos(theta), np.sin(theta))
 
 
-def get_behavior_data(behavior_files: List[BehaviorFiles], fish: str) -> BehaviorData | None:
-    for f in behavior_files:
-        if fish in str(f.metadata):
-            return load_data(f)
+# ---------------------------------------------------------------------------
+# Per-trial presence/tracking-quality lookup.
+#
+# Replaces the old behavior_data-based stim_presented/get_epoch_trial_counts
+# (which re-loaded each fish's raw BehaviorData to re-derive trial durations
+# and counts from get_trials()). Both facts are now read directly from
+# valid_trials.csv (BehaviorScreen.qc.quality_control), which already
+# resolves:
+#   - an epoch missing from the log entirely -> presented=False
+#   - an epoch logged but with mismatched stimulus parameters -> presented=False
+#   - per-trial online/offline tracking mismatch -> tracking_ok=False
+# ---------------------------------------------------------------------------
+
+def load_valid_trials(valid_trials_csv: Path) -> pd.DataFrame:
+    df = pd.read_csv(valid_trials_csv)
+    df["presented"] = df["presented"].astype(bool)
+    df["tracking_ok"] = df["tracking_ok"].astype(bool)
+    df["usable"] = df["presented"] & df["tracking_ok"]
+    return df
 
 
-def get_matched_trial_rows(behavior_data: BehaviorData, spec: StimSpec) -> pd.DataFrame:
-    """All trials (from the stimulus log) that match this spec, in their
-    natural row order."""
-    stim_trials = get_trials(behavior_data)
-    if stim_trials.empty:
-        return stim_trials
-    mask = spec.get_mask(stim_trials) & (stim_trials.stim_select == spec.stim)
-    return stim_trials[mask]
+def stim_presented(
+        valid_trials: pd.DataFrame,
+        fish: str,
+        spec: StimSpec,
+        matched_epoch_names: List[str],
+    ) -> bool:
 
-
-def stim_presented(behavior_data: BehaviorData, spec: StimSpec) -> bool:
-
-    matched = get_matched_trial_rows(behavior_data, spec)
-    if matched.empty:
+    rows = valid_trials[
+        (valid_trials.file == fish) &
+        (valid_trials.epoch_name.isin(matched_epoch_names)) &
+        (valid_trials.presented)
+    ]
+    if rows.empty:
         return False
-
     if spec.time_range is None:
         return True
-
-    trial_duration = 1e-9 * (matched.stop_timestamp - matched.start_timestamp)
-    return bool((spec.time_range[0] < trial_duration).any())
+    return bool((rows.trial_duration_s > spec.time_range[0]).any())
 
 
-def get_epoch_trial_counts(behavior_data: BehaviorData, spec: StimSpec) -> int:
+def get_epoch_trial_counts(
+        valid_trials: pd.DataFrame,
+        fish: str,
+        matched_epoch_names: List[str],
+    ) -> int:
     """
-    Number of trial slots ("trial_idx" values) to use for this spec.
-
-    trial_num is 0-based and contiguous WITHIN each raw epoch_name value.
-    When a spec pools several raw epoch_name values (e.g. "grating right" +
-    "grating left"), trial_num=k in each pooled group means "k-th
-    presentation of that direction" -- so the grid width is the size of the
-    largest constituent group, not their sum.
+    Number of trial slots ("trial_idx" values) to use for this spec, sized
+    by how many times the epoch was actually PRESENTED (structural fact,
+    independent of tracking quality) -- matches the original semantics
+    (grid width = number of matching trials found in the log).
     """
-    matched = get_matched_trial_rows(behavior_data, spec)
-    if matched.empty:
+    rows = valid_trials[
+        (valid_trials.file == fish) &
+        (valid_trials.epoch_name.isin(matched_epoch_names)) &
+        (valid_trials.presented)
+    ]
+    if rows.empty:
         return 0
-    return int(matched.groupby("epoch_name").size().max())
+    return int(rows.groupby("epoch_name").size().max())
 
 
 # ---------------------------------------------------------------------------
 # Bout heatmap
 #
 # Two parallel per-fish tables are built from the SAME per-fish/per-epoch
-# loop (the expensive part -- behavior_data lookups -- is only done once):
+# loop:
 #
 #   - per_fish          : split by laterality_group (ipsi/contra/none),
 #                          direction-pooled per spec (e.g. "grating right" +
@@ -390,9 +397,10 @@ def get_laterality_labels(bouts: pd.DataFrame, spec: StimSpec) -> List[str]:
 def get_epoch_name_labels(bouts: pd.DataFrame, spec: StimSpec) -> List[str]:
     """
     Distinct RAW epoch_name values matching this spec (e.g. "grating right"
-    and "grating left" for the pooled "OMR lateral" spec). Used only for
-    the classic heatmap, which -- unlike the 4 main variants -- shows each
-    stimulus direction as its own column rather than pooling them.
+    and "grating left" for the pooled "OMR lateral" spec). Used for the
+    classic heatmap, and to resolve which raw epoch_name(s) a pooled spec
+    corresponds to when querying valid_trials.csv (which has no notion of
+    a pooled StimSpec, only raw epoch_name).
     """
     mask = (bouts.stim == spec.stim) & spec.get_mask(bouts)
     if "epoch_name" not in bouts.columns:
@@ -541,18 +549,33 @@ def compute_epoch_bout_counts_classic(
 def compute_bout_frequency_table(
         quality_control: Path,
         input_csv: Path,
+        valid_trials: pd.DataFrame,
         config_yaml: Path,
-        behavior_files: List[BehaviorFiles],
+        exclude_unusable_trials: bool = True,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Returns two tidy per-fish tables, built from the same fish/epoch loop
-    (the expensive part -- per-fish behavior_data lookups -- is only done
-    once):
+    Returns two tidy per-fish tables, built from the same fish/epoch loop:
 
       - per_fish          : split by laterality_group (direction-pooled),
                              used for the 4 main heatmap variants.
       - per_fish_classic  : split by raw epoch_name (direction NOT pooled)
                              x sign_group, used only for the classic plot.
+
+    Presence/trial-count bookkeeping (stim_presented / get_epoch_trial_counts)
+    now comes from valid_trials.csv (BehaviorScreen.qc.quality_control), not
+    from re-loading each fish's raw BehaviorData.
+
+    NEW behavior vs. the pre-valid_trials version: if
+    exclude_unusable_trials=True (default), bouts recorded during a trial
+    NOT usable per valid_trials.csv (i.e. not presented -- e.g. logged with
+    mismatched stimulus parameters -- or not tracking_ok) are dropped
+    entirely, for every fish, BEFORE any per-spec counting. Previously,
+    presented/tracking_ok only affected the trial GRID (which trial_idx
+    slots exist / how wide the grid is) -- a bout detected during an
+    untracked or mismatched-parameter trial would still silently be
+    counted. Since bout DETECTIONS during such trials can't be trusted,
+    they're now excluded from the numerator too, not just used to size the
+    grid -- set exclude_unusable_trials=False to restore the old behavior.
     """
 
     cfg = load_yaml_config(config_yaml)
@@ -576,20 +599,29 @@ def compute_bout_frequency_table(
         fish_info = parse_fish(fish)
         time_cos, time_sin = cosinor(fish_info)
 
-        behavior_data = get_behavior_data(behavior_files, fish)
-        if behavior_data is None:
-            raise RuntimeError(f"{fish} not found, aborting")
+        if exclude_unusable_trials:
+            fish_valid_trials = valid_trials[valid_trials.file == fish]
+            bad_trials = fish_valid_trials.loc[~fish_valid_trials.usable, ["epoch_name", "trial_num"]]
+            if not bad_trials.empty:
+                fish_bouts = fish_bouts.merge(
+                    bad_trials.assign(_unusable=True),
+                    on=["epoch_name", "trial_num"],
+                    how="left",
+                )
+                fish_bouts = fish_bouts[fish_bouts["_unusable"].isna()].drop(columns="_unusable")
 
         for spec in stim_specs:
 
             if spec.time_range is None:
                 raise RuntimeError('time range should not be None')
 
-            if not stim_presented(behavior_data, spec):
+            matched_names = epoch_name_labels[id(spec)]
+
+            if not stim_presented(valid_trials, fish, spec, matched_names):
                 print(f"{fish} - {spec} not presented, skipping")
                 continue
 
-            valid_n_trials = get_epoch_trial_counts(behavior_data, spec)
+            valid_n_trials = get_epoch_trial_counts(valid_trials, fish, matched_names)
             if valid_n_trials == 0:
                 continue
 
@@ -654,8 +686,8 @@ def aggregate_bout_frequency(
          bout_frequency = counts / duration. This correctly weights
          unequal time-bin durations (a naive mean of per-bin frequencies
          would overweight short bins), and reduces to a plain mean when
-         durations are equal (e.g. collapsing across trials, which share
-         the same duration for a given time bin).
+         durations are equal (e.g. across trials, which share the same
+         duration for a given time bin).
       2. ACROSS fish, take a plain mean of the (possibly collapsed)
          per-fish bout_frequency -- each fish counts as one sample.
     """
@@ -969,27 +1001,146 @@ def plot_bout_heatmap_classic(
     ax.set_ylabel("bout category")
 
 
+# ---------------------------------------------------------------------------
+# Fish-count heatmap (new).
+#
+# Built directly from valid_trials.csv, INDEPENDENT of the YAML config's
+# stim_specs -- shows every epoch declared in PROTOCOL_SPEC, not just the
+# ones referenced in screen.yaml, since it's a general protocol-attrition
+# diagnostic ("how many fish do I actually have left, per epoch x trial")
+# rather than an analysis-specific view.
+# ---------------------------------------------------------------------------
+
+def compute_fish_count_table(
+        quality_control: Path,
+        valid_trials: pd.DataFrame,
+    ) -> Tuple[pd.DataFrame, int]:
+    """
+    Per (epoch_name, trial_num), number of fish with a USABLE trial
+    (presented AND tracking_ok), after also excluding fish flagged by
+    qc.csv -- the same fish-level veto filter_bouts already applies to
+    bouts.csv, applied here to valid_trials.csv so the two stay consistent.
+
+    Returns (counts, n_total_fish) where n_total_fish is the number of
+    fish considered at all (post qc.csv exclusion) -- used as the
+    heatmap's colorbar reference maximum.
+    """
+    trials = valid_trials.copy()
+
+    if quality_control.exists():
+        qc = pd.read_csv(quality_control)
+        trials = trials[~trials.file.isin(qc.file)]
+
+    n_total_fish = trials.file.nunique()
+
+    if trials.empty:
+        return pd.DataFrame(columns=["epoch_name", "trial_num", "n_fish"]), n_total_fish
+
+    all_pairs = trials[["epoch_name", "trial_num"]].drop_duplicates()
+
+    counts = (
+        trials[trials.usable]
+        .groupby(["epoch_name", "trial_num"])
+        .size()
+        .rename("n_fish")
+        .reset_index()
+    )
+    counts = (
+        counts
+        .set_index(["epoch_name", "trial_num"])
+        .reindex(pd.MultiIndex.from_frame(all_pairs), fill_value=0)
+        .reset_index()
+    )
+
+    return counts, n_total_fish
+
+
+def build_fish_count_matrix(counts: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
+    """
+    (trial_num x epoch_name) matrix of usable-fish counts. Column order
+    follows first-appearance order in `counts` -- since valid_trials.csv is
+    built by iterating PROTOCOL_SPEC in declared order (BehaviorScreen.qc),
+    this matches the protocol's own epoch ordering.
+    """
+    epoch_order = list(dict.fromkeys(counts["epoch_name"]))
+    n_trials = int(counts["trial_num"].max()) + 1 if not counts.empty else 0
+
+    pivot = counts.pivot_table(index="trial_num", columns="epoch_name", values="n_fish")
+    pivot = pivot.reindex(index=range(n_trials), columns=epoch_order)
+    return pivot, epoch_order
+
+
+def plot_fish_count_heatmap(
+        fig: plt.Figure,
+        ax: plt.Axes,
+        pivot: pd.DataFrame,
+        epoch_order: List[str],
+        n_total_fish: int,
+        cmap: str = 'viridis',
+    ) -> None:
+
+    data = pivot.to_numpy(dtype=float)
+    n_rows, n_cols = data.shape
+
+    im = ax.imshow(data, aspect='auto', cmap=cmap, vmin=0, vmax=max(n_total_fish, 1))
+    fig.colorbar(im, ax=ax, label='# fish usable', fraction=0.02, pad=0.01)
+
+    ax.set_xticks(range(n_cols))
+    ax.set_xticklabels(epoch_order, rotation=90, fontsize=7)
+    ax.set_yticks(range(n_rows))
+    ax.set_yticklabels(range(n_rows), fontsize=7)
+    ax.set_xlabel("epoch_name")
+    ax.set_ylabel("trial_num")
+    ax.set_title(
+        f"Fish remaining per epoch x trial (usable = presented & tracking_ok) "
+        f"-- {n_total_fish} fish total",
+        fontsize=11, fontweight='bold',
+    )
+
+
 def plot_heatmap(
         quality_control: Path,
         input_csv: Path,
+        valid_trials_csv: Path,
         config_yaml: Path,
         output_png: Path,
-        behavior_files: List[BehaviorFiles],
+        exclude_unusable_trials: bool = True,
         interactive: bool = True
     ) -> None:
 
     output_csv = output_png.parent / 'bout_frequency.csv'
     output_csv_classic = output_png.parent / 'bout_frequency_classic.csv'
+    output_fish_count_csv = output_png.parent / 'fish_count.csv'
 
     cfg = load_yaml_config(config_yaml)
+    valid_trials = load_valid_trials(valid_trials_csv)
+
     per_fish, per_fish_classic = compute_bout_frequency_table(
-        quality_control, input_csv, config_yaml, behavior_files
+        quality_control, input_csv, valid_trials, config_yaml,
+        exclude_unusable_trials=exclude_unusable_trials,
     )
     per_fish.to_csv(output_csv, index=False)
     per_fish_classic.to_csv(output_csv_classic, index=False)
 
+    # fish-count heatmap: independent of stim_specs, full-protocol view
+    fish_count, n_total_fish = compute_fish_count_table(quality_control, valid_trials)
+    fish_count.to_csv(output_fish_count_csv, index=False)
+
+    if not fish_count.empty:
+        fish_count_pivot, epoch_order = build_fish_count_matrix(fish_count)
+        fig_w = max(16, 0.25 * len(epoch_order))
+        fig_h = max(6, 0.28 * fish_count_pivot.shape[0])
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout='constrained')
+        plot_fish_count_heatmap(fig, ax, fish_count_pivot, epoch_order, n_total_fish)
+        fish_count_png = output_png.parent / f"{output_png.stem}_fish_count{output_png.suffix}"
+        fig.savefig(fish_count_png, bbox_inches='tight')
+    else:
+        print("No valid_trials data found, skipping fish-count heatmap")
+
     if per_fish.empty:
-        print("No bouts found, skipping heatmap plots")
+        print("No bouts found, skipping bout heatmap plots")
+        if interactive:
+            plt.show()
         return
 
     category_order = BOUT_CATEGORIES
@@ -1075,64 +1226,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--valid-trials-csv",
+        default='valid_trials.csv',
+        help="per-trial presentation + tracking quality record (BehaviorScreen.qc)",
+    )
+
+    parser.add_argument(
         "--bouts-png",
         default='bouts.png',
         help="output bout PNG file (variants are saved alongside with suffixes)",
     )
 
-    # Directory layout overrides
     parser.add_argument(
-        "--metadata",
-        default="results",
-        help="Subfolder containing metadata files (default: results)",
-    )
-
-    parser.add_argument(
-        "--stimuli",
-        default="results",
-        help="Subfolder containing stimulus log files (default: results)",
-    )
-
-    parser.add_argument(
-        "--tracking",
-        default="results",
-        help="Subfolder containing tracking CSV files (default: results)",
-    )
-
-    parser.add_argument(
-        "--lightning-pose",
-        default="lightning_pose",
-        help="Subfolder containing lightning pose tracking CSV files (default: lightning_pose)",
-    )
-
-    parser.add_argument(
-        "--temperature",
-        default="results",
-        help="Subfolder containing temperature logs (default: results)",
-    )
-
-    parser.add_argument(
-        "--video",
-        default="results",
-        help="Subfolder containing raw video files (default: results)",
-    )
-
-    parser.add_argument(
-        "--video-timestamp",
-        default="results",
-        help="Subfolder containing video timestamp files (default: results)",
-    )
-
-    parser.add_argument(
-        "--results",
-        default="results",
-        help="Subfolder where per-animal exports will be written (default: results)",
-    )
-
-    parser.add_argument(
-        "--plots",
-        default="plots",
-        help="Subfolder containing plots (default: plots)",
+        "--include-unusable-trials",
+        action='store_true',
+        help="don't exclude bouts recorded during a trial not marked usable "
+             "(presented & tracking_ok) in valid_trials.csv (default: excluded)",
     )
 
     parser.add_argument(
@@ -1146,45 +1255,26 @@ def build_parser() -> argparse.ArgumentParser:
 def run_plot(
         qc_csv: str,
         bouts_csv: str,
+        valid_trials_csv: str,
         bouts_png: str,
         config_yaml: Path,
         root: Path,
-        metadata: str,
-        stimuli: str,
-        tracking: str,
-        lightning_pose: str,
-        temperature: str,
-        video: str,
-        video_timestamp: str,
-        results: str,
-        plots: str,
+        exclude_unusable_trials: bool,
         interactive: bool
     ) -> None:
 
     quality_control = root / qc_csv
     input_csv = root / bouts_csv
+    valid_trials_path = root / valid_trials_csv
     output_bouts_png = root / bouts_png
-
-    directories = Directories(
-        root,
-        metadata=metadata,
-        stimuli=stimuli,
-        tracking=tracking,
-        full_tracking=lightning_pose,
-        temperature=temperature,
-        video=video,
-        video_timestamp=video_timestamp,
-        results=results,
-        plots=plots
-    )
-    behavior_files = find_files(directories)
 
     plot_heatmap(
         quality_control,
         input_csv,
+        valid_trials_path,
         config_yaml,
         output_bouts_png,
-        behavior_files,
+        exclude_unusable_trials,
         interactive
     )
 
@@ -1194,18 +1284,11 @@ def main(args: argparse.Namespace) -> None:
     run_plot(
         qc_csv=args.qc_csv,
         bouts_csv=args.bouts_csv,
+        valid_trials_csv=args.valid_trials_csv,
         bouts_png=args.bouts_png,
         config_yaml=args.yaml,
         root=args.root,
-        metadata=args.metadata,
-        stimuli=args.stimuli,
-        tracking=args.tracking,
-        lightning_pose=args.lightning_pose,
-        temperature=args.temperature,
-        video=args.video,
-        video_timestamp=args.video_timestamp,
-        results=args.results,
-        plots=args.plots,
+        exclude_unusable_trials=not args.include_unusable_trials,
         interactive=args.interactive
     )
 
