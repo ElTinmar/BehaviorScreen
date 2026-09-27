@@ -248,25 +248,6 @@ def load_valid_trials(valid_trials_csv: Path) -> pd.DataFrame:
     return df
 
 
-def stim_presented(
-        valid_trials: pd.DataFrame,
-        fish: str,
-        spec: StimSpec,
-        matched_epoch_names: List[str],
-    ) -> bool:
-
-    rows = valid_trials[
-        (valid_trials.file == fish) &
-        (valid_trials.epoch_name.isin(matched_epoch_names)) &
-        (valid_trials.presented)
-    ]
-    if rows.empty:
-        return False
-    if spec.time_range is None:
-        return True
-    return bool((rows.trial_duration_s > spec.time_range[0]).any())
-
-
 def get_epoch_trial_counts(
         valid_trials: pd.DataFrame,
         fish: str,
@@ -617,12 +598,9 @@ def compute_bout_frequency_table(
 
             matched_names = epoch_name_labels[id(spec)]
 
-            if not stim_presented(valid_trials, fish, spec, matched_names):
-                print(f"{fish} - {spec} not presented, skipping")
-                continue
-
             valid_n_trials = get_epoch_trial_counts(valid_trials, fish, matched_names)
             if valid_n_trials == 0:
+                print(f"{fish} - {spec} not presented, skipping")
                 continue
 
             common_fields = {
