@@ -289,11 +289,62 @@ class PointProcessDataset:
 
 
 class BehavioralDataLoader:
-    def __init__(self, csv_path: Union[Path, str]):
+    def __init__(
+        self,
+        csv_path: Union[Path, str],
+        valid_trials_csv_path: Optional[Union[Path, str]] = None,
+    ):
         self.raw_df = pd.read_csv(csv_path)
-
-        # normalize columns
         self.raw_df["line"] = self.raw_df["line"].astype(str)
+
+        self.valid_trials_df: Optional[pd.DataFrame] = None
+        if valid_trials_csv_path is not None:
+            df = pd.read_csv(valid_trials_csv_path)
+            df["presented"] = df["presented"].astype(bool)
+            df["tracking_ok"] = df["tracking_ok"].astype(bool)
+            df["usable"] = df["presented"] & df["tracking_ok"]
+            self.valid_trials_df = df
+
+    def _active_pairs(
+        self,
+        sub_df: pd.DataFrame,
+        fish_map: Dict[str, int],
+        n_trials: int,
+    ) -> pd.DataFrame:
+        """
+        (file, trial_num) pairs entering the risk set: trials marked USABLE
+        in valid_trials.csv (BehaviorScreen.qc.quality_control), i.e. both
+        PRESENTED (epoch actually happened, with matching stimulus
+        parameters) AND TRACKING_OK (online/offline tracking agreed
+        throughout the trial window). These are independent axes computed
+        upstream -- see qc.py -- combined here into one risk-set filter.
+
+        Falls back to bout-derived presence if valid_trials_csv_path wasn't
+        provided (KNOWN LIMITATION: `sub_df` still contains one row per
+        detected bout EVENT of ANY category/laterality, so a (fish,
+        trial_num) pair is only marked present if that fish produced >=1
+        bout of ANY kind that trial -- indistinguishable from a trial that
+        was never presented or never properly tracked. This biases every
+        fitted rate UPWARD and every dispersion diagnostic DOWNWARD).
+        """
+        matched_epoch_names = sub_df["epoch_name"].unique().tolist()
+
+        if self.valid_trials_df is not None:
+            valid = self.valid_trials_df
+            valid = valid[valid.epoch_name.isin(matched_epoch_names)]
+            valid = valid[valid.usable]
+            active_pairs = valid[["file", "trial_num"]].drop_duplicates()
+        else:
+            print(
+                "WARNING: no valid_trials_csv_path provided -- falling back to "
+                "bout-derived presence, which cannot distinguish 'never presented "
+                "/ untracked' from 'presented, tracked, genuinely zero bouts'."
+            )
+            active_pairs = sub_df[["file", "trial_num"]].drop_duplicates()
+
+        active_pairs = active_pairs[active_pairs.file.isin(fish_map.keys())]
+        active_pairs = active_pairs[active_pairs.trial_num < n_trials]
+        return active_pairs
 
     def prepare_dataset(
         self,
@@ -315,7 +366,6 @@ class BehavioralDataLoader:
         bout_label = "+".join(bout_names)
         laterality_label = "+".join(str(l) for l in lateralities)
 
-        # 1. Filter sub_df by stimulus or epoch_name
         sub_df = self.raw_df
         if stim is not None:
             sub_df = sub_df[sub_df["stim"] == stim]
@@ -338,7 +388,6 @@ class BehavioralDataLoader:
                 f"line/condition combination was actually run under this stimulus."
             )
 
-        # 2. Extract metadata & build integer index mappings
         all_fish_ids = np.sort(sub_df["file"].unique())
         unique_trials = np.sort(sub_df["trial_num"].unique())
 
@@ -356,41 +405,16 @@ class BehavioralDataLoader:
 
         fish_map = {f_id: idx for idx, f_id in enumerate(all_fish_ids)}
 
-        # 3. Build (N_fish, N_trials) boolean presence matrix
         n_fish = len(all_fish_ids)
         fish_trial_mask = np.zeros((n_fish, n_trials), dtype=bool)
 
-        active_pairs = sub_df[["file", "trial_num"]].drop_duplicates()
-        f_indices = active_pairs["file"].map(fish_map).values
-        t_indices = active_pairs["trial_num"].values
-        fish_trial_mask[f_indices, t_indices] = True
+        active_pairs = self._active_pairs(sub_df, fish_map, n_trials)
 
-        # KNOWN LIMITATION (not fixed -- believed marginal, revisit if dispersion/
-        # rate estimates look off for low-count conditions, e.g. SLC/looming):
-        #
-        # `active_pairs` is derived from `sub_df`, which at this point is filtered
-        # only by stim/epoch_name -- it still contains one row per detected bout
-        # EVENT of ANY category/laterality. So a (fish, trial) pair is only marked
-        # present here if that fish produced >=1 bout of ANY kind that trial.
-        #
-        # A fish that was genuinely tracked/present but emitted ZERO bouts of every
-        # category that trial (froze, sub-threshold movement, or just a true zero
-        # under a low base rate -- more likely in short-duration conditions like
-        # looming) is indistinguishable here from a fish that was never tracked
-        # (protocol aborted, lost tracking). Both produce zero rows in sub_df, so
-        # both get fish_trial_mask=False.
-        #
-        # Effect: this silently excludes true zero-count exposures from the risk
-        # set, which biases every fitted rate (PoissonProcess/HawkesProcess/...)
-        # UPWARD, and biases stream_fano_factor/fish_fano_factor DOWNWARD (dropped
-        # zeros shrink variance relative to mean) -- i.e. it can make the dataset
-        # look less overdispersed than it really is. Effect size scales with how
-        # often a genuinely-present fish has an all-category zero-bout trial, so
-        # it's expected to be worse for low base-rate / short-duration conditions
-        # (e.g. looming, where trials are shorter) than for long, high-rate ones.
-        #
-        # Correct fix (not applied): build presence from an independent
-        # tracking/participation record, not from bout rows.
+        f_indices = active_pairs["file"].map(fish_map)
+        valid_idx = f_indices.notna()
+        f_indices = f_indices[valid_idx].astype(int).values
+        t_indices = active_pairs.loc[valid_idx, "trial_num"].values
+        fish_trial_mask[f_indices, t_indices] = True
 
         occupancy = fish_trial_mask.mean()
         min_fish_per_trial = fish_trial_mask.sum(axis=0).min()
@@ -401,7 +425,6 @@ class BehavioralDataLoader:
             f"min fish/trial = {min_fish_per_trial}, min trials/fish = {min_trials_per_fish}"
         )
 
-        # 4. Filter target events
         bout_idx = [bouts_category_name_short.index(b) for b in bout_names]
         is_target_event = sub_df["category"].isin(bout_idx) & sub_df["laterality"].isin(
             lateralities
@@ -413,7 +436,6 @@ class BehavioralDataLoader:
         )
         events = sub_df[event_mask]
 
-        # 5. Extract event arrays as integer indices & floats
         event_times = (events["trial_time"] - t_start).values.astype(float)
         event_trials_idx = events["trial_num"].values.astype(int)
         event_fish_idx = events["file"].map(fish_map).values.astype(int)
