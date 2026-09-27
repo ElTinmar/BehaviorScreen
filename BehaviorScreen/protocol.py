@@ -192,4 +192,3 @@ def _build_epoch_specs(protocol_entries: List[Epoch]) -> List[EpochSpec]:
 
 
 PROTOCOL_SPEC: List[EpochSpec] = _build_epoch_specs(protocol)
-PROTOCOL_PTX_SPEC: List[EpochSpec] = _build_epoch_specs(protocol_ptx)
