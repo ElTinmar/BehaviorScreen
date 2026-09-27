@@ -53,6 +53,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--epoch-presentation-csv",
+        default='epoch_trial_presence.csv',
+        help="per-trial epoch presentation record (used by plot and point-process fitting)",
+    )
+
+    parser.add_argument(
         "--bouts-csv",
         default='bouts.csv',
         help="Bouts CSV file",
@@ -196,6 +202,7 @@ def main(args: argparse.Namespace) -> None:
     quality_control(
         root=args.root,
         output_csv=args.qc_csv,
+        epoch_presentation_csv=args.epoch_presentation_csv,
         metadata=args.results,
         stimuli=args.results,
         tracking=args.results,

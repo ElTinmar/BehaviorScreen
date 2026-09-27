@@ -12,7 +12,7 @@ from BehaviorScreen.load import (
     find_files, 
     load_data
 )
-from BehaviorScreen.process import timestamp_to_frame
+from BehaviorScreen.process import timestamp_to_frame, get_trials, get_epoch_trial_presentation
 from BehaviorScreen.core import Stim
 import pandas as pd
 import numpy as np
@@ -33,6 +33,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--qc-csv",
         default='qc.csv',
         help="Output CSV file",
+    )
+
+    parser.add_argument(
+        "--epoch-presentation-csv",
+        default='epoch_trial_presentation.csv',
+        help="Output CSV file (per-trial epoch presentation record)",
     )
 
     # Directory layout overrides
@@ -204,6 +210,7 @@ def is_fish_not_moving(
 def quality_control(
         root: Path,
         output_csv: str,
+        epoch_presentation_csv: str,
         metadata: str,
         stimuli: str,
         tracking: str,
@@ -230,20 +237,38 @@ def quality_control(
     behavior_files = find_files(directories)
 
     bad_fish = []
+    epoch_presentation_tables = [] 
+
     for behavior_file in tqdm(behavior_files):
         behavior_data = load_data(behavior_file)
+
         not_moving = is_fish_not_moving(behavior_data)
         centroid_issue, heading_issue = is_online_tracking_bad(behavior_data)
         if not_moving | centroid_issue | heading_issue:
             bad_fish.append((behavior_file.metadata.stem, not_moving, centroid_issue, heading_issue))  
+
+        presentation = get_epoch_trial_presentation(behavior_data)
+        presentation["file"] = behavior_file.metadata.stem
+        epoch_presentation_tables.append(presentation)
+
     
     header = ['file', 'not_moving', 'centroid_issue', 'heading_issue']
     pd.DataFrame(bad_fish, columns=header).to_csv(root / output_csv, index=False)
+
+    epoch_presence = (
+        pd.concat(epoch_presentation_tables, ignore_index=True) if epoch_presentation_tables
+        else pd.DataFrame(columns=[
+            'epoch_name', 'stim', 'expected_repeats', 'trial_num',
+            'presented', 'matches_expected_parameters', 'trial_duration_s', 'file',
+        ])
+    )
+    epoch_presence.to_csv(root / epoch_presentation_csv, index=False)
 
 def main(args: argparse.Namespace) -> None:
     quality_control(
         root=args.root,
         output_csv=args.qc_csv,
+        epoch_presentation_csv=args.epoch_presentation_csv, 
         metadata=args.metadata,
         stimuli=args.stimuli,
         tracking=args.tracking,
