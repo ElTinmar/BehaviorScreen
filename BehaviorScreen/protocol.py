@@ -1,5 +1,7 @@
-from BehaviorScreen.core import BoutSign, Laterality
-from typing import Dict, Tuple, List
+from BehaviorScreen.core import BoutSign, Laterality, Stim
+from typing import Dict, Tuple, List, Optional, Any
+from dataclasses import dataclass
+from collections import Counter
 
 EpochName = str
 
@@ -61,7 +63,7 @@ protocol_ptx += 10 * [
 
 ### LATERALITY -------------------------------------------------------
 
-STIM_LATERALITY: Dict[Tuple[EpochName, BoutSign], Laterality] = {
+EPOCH_LATERALITY: Dict[Tuple[EpochName, BoutSign], Laterality] = {
     ("prey capture right", BoutSign.LEFT): Laterality.CONTRALATERAL,
     ("prey capture right", BoutSign.RIGHT): Laterality.IPSILATERAL,
     ("prey capture break after right", BoutSign.LEFT): Laterality.CONTRALATERAL,
@@ -125,4 +127,60 @@ non_directional_stim = [
 
 for stim in non_directional_stim:
     for sign in BoutSign:
-        STIM_LATERALITY[(stim, sign)] = Laterality.NONDIRECTIONAL
+        EPOCH_LATERALITY[(stim, sign)] = Laterality.NONDIRECTIONAL
+
+
+###
+
+@dataclass(frozen=True)
+class EpochSpec:
+    name: EpochName
+    stim: Stim
+    expected_repeats: int
+    parameters: Optional[Dict[str, List[Any]]] = None
+
+
+EPOCH_STIM: Dict[EpochName, Stim] = {
+    "adaptation": Stim.DARK,                    
+    "ramp 0": Stim.RAMP, "ramp 1": Stim.RAMP, "ramp 2": Stim.RAMP,
+    "ramp 3": Stim.RAMP, "ramp 4": Stim.RAMP, "ramp 5": Stim.RAMP,
+    "ramp 6": Stim.RAMP, "ramp 7": Stim.RAMP,
+    "prey capture right": Stim.PREY_CAPTURE,
+    "prey capture break after right": Stim.PREY_CAPTURE,
+    "prey capture left": Stim.PREY_CAPTURE,
+    "prey capture break after left": Stim.PREY_CAPTURE,
+    "phototaxis bright right": Stim.PHOTOTAXIS,
+    "phototaxis break after bright right": Stim.PHOTOTAXIS,
+    "phototaxis bright left": Stim.PHOTOTAXIS,
+    "phototaxis break after bright left": Stim.PHOTOTAXIS,
+    "spontaneous dark": Stim.DARK,
+    "flash dark": Stim.DARK, "flash ramp": Stim.RAMP, "flash bright": Stim.BRIGHT,
+    "grating right": Stim.OMR, "grating break after right": Stim.OMR,
+    "grating left": Stim.OMR, "grating break after left": Stim.OMR,
+    "grating forward": Stim.OMR, "grating break after forward": Stim.OMR,
+    "spontaneous bright": Stim.BRIGHT,
+    "pinwheel clockwise": Stim.OKR, "pinwheel break after clockwise": Stim.OKR,
+    "pinwheel counter-clockwise": Stim.OKR,
+    "pinwheel break after counter-clockwise": Stim.OKR,
+    "looming left": Stim.LOOMING, "looming break after left": Stim.LOOMING,
+    "looming right": Stim.LOOMING, "looming break after right": Stim.LOOMING,
+}
+
+
+def _build_epoch_specs(epoch_names: List[EpochName]) -> List[EpochSpec]:
+    """expected_repeats derived directly from the flattened protocol list --
+    protocol/protocol_ptx stay the single source of truth, no counts to keep
+    in sync by hand."""
+    counts = Counter(epoch_names)
+    seen = set()
+    specs = []
+    for name in epoch_names:
+        if name in seen:
+            continue
+        seen.add(name)
+        specs.append(EpochSpec(name=name, stim=EPOCH_STIM[name], expected_repeats=counts[name]))
+    return specs
+
+
+PROTOCOL_SPEC: List[EpochSpec] = _build_epoch_specs(protocol)
+PROTOCOL_PTX_SPEC: List[EpochSpec] = _build_epoch_specs(protocol_ptx)

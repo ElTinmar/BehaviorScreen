@@ -16,7 +16,7 @@ from megabouts.preprocessing.tail_preprocessing import TailPreprocessingResult
 from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 
 from BehaviorScreen.core import Stim
-from BehaviorScreen.protocol import STIM_LATERALITY
+from BehaviorScreen.protocol import EPOCH_LATERALITY
 from BehaviorScreen.load import (
     base_regexp, 
     FileNameInfo,
@@ -204,7 +204,7 @@ def get_bout_metrics(
                 off_previous = off
 
                 # if stim is directional, is bout in same or opposite direction?
-                laterality = STIM_LATERALITY[(row.epoch_name, sign)]
+                laterality = EPOCH_LATERALITY[(row.epoch_name, sign)]
 
                 # stimulus specific actions
                 stim_phase = np.nan
