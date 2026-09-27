@@ -7,13 +7,13 @@ N = 6
 def process_folder(folder):
     print(f"processing {folder}")
 
-    epoch_presentation_csv = folder / "epoch_trial_presentation.csv"
+    valid_trials_csv = folder / "valid_trials.csv"
     qc_csv = folder / "qc.csv"
 
     quality_control(
         root=folder,
         output_csv=qc_csv,
-        epoch_presentation_csv=epoch_presentation_csv, 
+        valid_trials_csv=valid_trials_csv, 
         metadata = "results",
         stimuli = "results",
         tracking = "results",
