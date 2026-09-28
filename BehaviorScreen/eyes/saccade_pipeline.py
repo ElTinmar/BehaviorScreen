@@ -82,7 +82,7 @@ def interp_to_rate(t, x, fs, t_end=None, pad_seconds=0.5):
 # ----------------------------------------------------------------------
 
 def coarse_detect_events(t, L, R, fs=100.0, lp_cutoff=1.0,
-                          step_width_ms=160, min_prominence=0.6):
+                          step_width_ms=160, min_prominence=0.8):
     """
     Reproduces the first (100 Hz) stage of CDSacDetect.m for one trial's
     left/right eye position traces.
@@ -191,35 +191,149 @@ def discard_overlapping_events(event_times, refractory_s=0.3):
 # 3. STAGE 3: CUSTOM LOWESS SMOOTHING AT 500 Hz (speciallowess4 port)
 # ----------------------------------------------------------------------
 
-def matlab_lowess(y, span):
+def lowess_smooth(y, span):
     """
-    Drop-in replacement for the hand-rolled per-sample loop, using
-    statsmodels' Cython lowess with the `delta` speed hack for large,
-    evenly-spaced traces (e.g. 500 Hz eye-position data).
-
-    Matches MATLAB's smooth(y, span, 'lowess') semantics: local linear
-    regression, tricube weights, non-robust (single pass, no reweighting).
+    Approximate MATLAB:
+        smooth(y, span, 'lowess')
     """
     y = np.asarray(y, dtype=float)
-    n = len(y)
-    span = int(round(span))
-    if span < 2:
+    if y.ndim != 1:
+        raise ValueError("y must be one-dimensional")
+
+    n = y.size
+    if n <= 1:
         return y.copy()
 
-    frac = min(span / n, 1.0)
+    span = float(span)
+
+    # MATLAB permits span < 1 as a fraction of the data length.
+    if 0 < span < 1:
+        window = int(np.ceil(span * n))
+    else:
+        window = int(round(span))
+
+    window = min(max(window, 1), n)
+
+    # MATLAB reduces an even LOWESS span by one.
+    if window % 2 == 0:
+        window -= 1
+
+    if window <= 1:
+        return y.copy()
+
+    # nextafter avoids floating-point truncation producing window - 1
+    # internally when statsmodels computes int(frac * n).
+    frac = np.nextafter(window / n, 1.0)
+
     x = np.arange(n, dtype=float)
 
-    # speed hack: skip exact local refits within `delta` samples of the
-    # last one and linearly interpolate instead -- standard trick for
-    # smoothing long, regularly-spaced series. 1% of n is a safe default;
-    # increase for more speed at a (usually negligible) cost in fidelity.
-    delta = 0.01 * n
-
-    smoothed = sm_lowess(
-        y, x, frac=frac, it=0, delta=delta,
-        is_sorted=True, return_sorted=False,
+    return sm_lowess(
+        endog=y,
+        exog=x,
+        frac=frac,
+        it=0,                 # MATLAB 'lowess', not robust 'rlowess'
+        delta=0.0,            # fit at every sample
+        is_sorted=True,
+        return_sorted=False,
+        missing="drop",
     )
-    return smoothed
+
+def savgol_smooth(y, span, polyorder=2):
+    """
+    Smooth a 1-D signal with a Savitzky-Golay filter.
+
+    Parameters
+    ----------
+    y : array_like
+        Input signal.
+    span : int or float
+        If span >= 1, interpreted as the window length in samples.
+        If 0 < span < 1, interpreted as a fraction of the signal length.
+        An even window is reduced by one.
+    polyorder : int, default=2
+        Degree of the local polynomial. Usually 2 or 3.
+
+    Returns
+    -------
+    ndarray
+        Smoothed signal with the same length as `y`.
+
+    Notes
+    -----
+    NaN/Inf gaps are preserved. Each contiguous finite segment is
+    filtered independently, preventing smoothing across blink gaps.
+    """
+    y = np.asarray(y, dtype=float)
+
+    if y.ndim != 1:
+        raise ValueError("y must be one-dimensional")
+
+    n = y.size
+    if n <= 1:
+        return y.copy()
+
+    span = float(span)
+    polyorder = int(polyorder)
+
+    if not np.isfinite(span) or span <= 0:
+        raise ValueError("span must be positive and finite")
+    if polyorder < 0:
+        raise ValueError("polyorder must be non-negative")
+
+    # MATLAB-like interpretation of fractional spans.
+    if span < 1:
+        window = int(np.ceil(span * n))
+    else:
+        window = int(round(span))
+
+    window = min(max(window, 1), n)
+
+    # Use an odd, centered window.
+    if window % 2 == 0:
+        window -= 1
+
+    if window <= polyorder:
+        return y.copy()
+
+    finite = np.isfinite(y)
+
+    # Fast path when there are no missing samples.
+    if finite.all():
+        return signal.savgol_filter(
+            y,
+            window_length=window,
+            polyorder=polyorder,
+            mode="interp",
+        )
+
+    # Preserve missing values and avoid smoothing across gaps.
+    result = np.full_like(y, np.nan)
+
+    boundaries = np.diff(
+        np.concatenate(([False], finite, [False])).astype(np.int8)
+    )
+    starts = np.flatnonzero(boundaries == 1)
+    stops = np.flatnonzero(boundaries == -1)
+
+    for start, stop in zip(starts, stops):
+        segment = y[start:stop]
+        segment_window = min(window, segment.size)
+
+        if segment_window % 2 == 0:
+            segment_window -= 1
+
+        if segment_window > polyorder:
+            result[start:stop] = signal.savgol_filter(
+                segment,
+                window_length=segment_window,
+                polyorder=polyorder,
+                mode="interp",
+            )
+        else:
+            # Too short for the requested polynomial fit.
+            result[start:stop] = segment
+
+    return result
 
 def speciallowess4(data, wide_window, narrow_window, delta_thresh,
                     anneal_window, conv_window=None, sigma=None):
@@ -249,11 +363,11 @@ def speciallowess4(data, wide_window, narrow_window, delta_thresh,
     data2 = np.concatenate([np.full(pad, data[0]), data, np.full(pad, data[-1])])
 
     # wide-window smoothing (padded, then trimmed)
-    y_wide = matlab_lowess(data2, wide_window)[pad:pad + n]
+    y_wide = savgol_smooth(data2, wide_window)[pad:pad + n]
     y = y_wide.copy()
 
     # narrow-window smoothing (unpadded, per original)
-    y2 = data.copy() if narrow_window == 0 else matlab_lowess(data, narrow_window)
+    y2 = data.copy() if narrow_window == 0 else savgol_smooth(data, narrow_window)
 
     # detect large step-like changes
     cn = step_kernel(conv_window) * conv_window  # original cn is unnormalized +-1
