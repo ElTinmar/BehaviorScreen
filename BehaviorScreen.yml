@@ -11,6 +11,9 @@ dependencies:
 - scikit-learn
 - umap-learn
 - statsmodels
+- requests
+- h5py
+- joblib
 - pip:
   - pyyaml
   - megabouts
