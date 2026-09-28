@@ -2,6 +2,7 @@
  
 import numpy as np
 from scipy import signal, interpolate
+from scipy.ndimage import convolve1d
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 import umap
@@ -335,6 +336,42 @@ def savgol_smooth(y, span, polyorder=2):
 
     return result
 
+
+def fast_regular_lowess(y, span):
+    """
+    Fast approximation to non-robust local-linear LOWESS for uniformly
+    spaced data.
+
+    It matches the interior centered LOWESS estimate. Boundary behavior
+    may differ from MATLAB, so recording edges should be treated carefully.
+    """
+    y = np.asarray(y, dtype=float)
+
+    window = min(max(int(round(span)), 1), len(y))
+
+    if window % 2 == 0:
+        window -= 1
+
+    if window <= 1:
+        return y.copy()
+
+    half_window = window // 2
+    offsets = np.arange(
+        -half_window,
+        half_window + 1,
+        dtype=float,
+    )
+
+    distance = np.abs(offsets) / (half_window + 1)
+    weights = (1.0 - distance**3) ** 3
+    weights /= weights.sum()
+
+    return convolve1d(
+        y,
+        weights,
+        mode="nearest",
+    )
+
 def speciallowess4(data, wide_window, narrow_window, delta_thresh,
                     anneal_window, conv_window=None, sigma=None):
     """
@@ -361,11 +398,11 @@ def speciallowess4(data, wide_window, narrow_window, delta_thresh,
     data2 = np.concatenate([np.full(pad, data[0]), data, np.full(pad, data[-1])])
 
     # wide-window smoothing (padded, then trimmed)
-    y_wide = savgol_smooth(data2, wide_window)[pad:pad + n]
+    y_wide = fast_regular_lowess(data2, wide_window)[pad:pad + n]
     y = y_wide.copy()
 
     # narrow-window smoothing (unpadded, per original)
-    y2 = data.copy() if narrow_window == 0 else savgol_smooth(data, narrow_window)
+    y2 = data.copy() if narrow_window == 0 else fast_regular_lowess(data, narrow_window)
 
     # detect large step-like changes
     cn = step_kernel(conv_window) * conv_window  # original cn is unnormalized +-1
