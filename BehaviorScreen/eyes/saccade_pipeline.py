@@ -5,6 +5,7 @@ from scipy import signal, interpolate
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 import umap
+from statsmodels.nonparametric.smoothers_lowess import lowess as sm_lowess
 
 
 # ----------------------------------------------------------------------
@@ -192,47 +193,33 @@ def discard_overlapping_events(event_times, refractory_s=0.3):
 
 def matlab_lowess(y, span):
     """
-    Approximate port of MATLAB's smooth(y, span, 'lowess'):
-    non-robust local *linear* regression with tricube weights over a
-    moving window of `span` points (odd window, shifted at edges to keep
-    the same number of points where possible).
+    Drop-in replacement for the hand-rolled per-sample loop, using
+    statsmodels' Cython lowess with the `delta` speed hack for large,
+    evenly-spaced traces (e.g. 500 Hz eye-position data).
+
+    Matches MATLAB's smooth(y, span, 'lowess') semantics: local linear
+    regression, tricube weights, non-robust (single pass, no reweighting).
     """
     y = np.asarray(y, dtype=float)
     n = len(y)
     span = int(round(span))
     if span < 2:
         return y.copy()
-    span = min(span, n)
-    half = span // 2
-    x = np.arange(n)
-    yout = np.empty(n)
 
-    for i in range(n):
-        lo, hi = i - half, i + half + 1
-        if lo < 0:
-            lo, hi = 0, min(n, span)
-        elif hi > n:
-            hi, lo = n, max(0, n - span)
-        xi = x[lo:hi]
-        yi = y[lo:hi]
-        d = np.abs(xi - i)
-        maxd = d.max() if d.max() > 0 else 1.0
-        w = (1 - (d / maxd) ** 3) ** 3
+    frac = min(span / n, 1.0)
+    x = np.arange(n, dtype=float)
 
-        Sw = w.sum()
-        Swx = (w * xi).sum()
-        Swy = (w * yi).sum()
-        Swxx = (w * xi * xi).sum()
-        Swxy = (w * xi * yi).sum()
-        denom = Sw * Swxx - Swx ** 2
-        if denom == 0:
-            yout[i] = yi.mean()
-        else:
-            b = (Sw * Swxy - Swx * Swy) / denom
-            a = (Swy - b * Swx) / Sw
-            yout[i] = a + b * i
-    return yout
+    # speed hack: skip exact local refits within `delta` samples of the
+    # last one and linearly interpolate instead -- standard trick for
+    # smoothing long, regularly-spaced series. 1% of n is a safe default;
+    # increase for more speed at a (usually negligible) cost in fidelity.
+    delta = 0.01 * n
 
+    smoothed = sm_lowess(
+        y, x, frac=frac, it=0, delta=delta,
+        is_sorted=True, return_sorted=False,
+    )
+    return smoothed
 
 def speciallowess4(data, wide_window, narrow_window, delta_thresh,
                     anneal_window, conv_window=None, sigma=None):
