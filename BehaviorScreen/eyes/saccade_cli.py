@@ -172,7 +172,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Detect and classify saccades from eye-tracking data.")
     parser.add_argument("root", type=Path, help="Root experiment folder")
     parser.add_argument("--output", type=Path, default=Path("saccades.csv"))
-    parser.add_argument("--mode", choices=["tethered", "freeswim"], default="tethered")
+    parser.add_argument("--mode", choices=["tethered", "freeswim"], default="freeswim")
 
     parser.add_argument("--metadata", default="data")
     parser.add_argument("--stimuli", default="data")
