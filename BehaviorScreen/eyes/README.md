@@ -61,3 +61,25 @@ The reference feature order is:
 
 Angles are in degrees and velocities are in degrees per second.
 
+## Run analysis 
+
+This needs to be run only once to create the reference UMAP space
+using data from the Dowell paper
+
+```
+./make_ref.sh
+```
+
+To detect saccades, run
+
+```
+python -m BehaviorScreen.eyes.detect_saccades /media/martin/DATA_18TB/Screen/WT/vehicle/ --output saccades.csv
+```
+
+To classify the saccades, run
+
+```
+python -m BehaviorScreen.eyes.classify_saccades \
+   --events /media/martin/DATA_18TB/Screen/WT/vehicle/saccades.csv \
+   --output /media/martin/DATA_18TB/Screen/WT/vehicle/classified_saccades.csv
+```
