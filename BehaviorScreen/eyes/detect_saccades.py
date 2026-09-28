@@ -487,8 +487,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output",
-        type=Path,
-        default=Path("saccades.csv"),
+        type=str,
+        default="saccades.csv",
         help="Output event CSV.",
     )
     parser.add_argument(
@@ -556,23 +556,25 @@ def main() -> None:
         print("No events were detected.")
         return
 
-    args.output.parent.mkdir(
+    output = args.root / args.output
+
+    output.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
     events.to_csv(
-        args.output,
+        output,
         index=False,
         float_format="%.10g",
     )
 
-    trace_path = args.output.with_suffix(".npz")
+    trace_path = output.with_suffix(".npz")
     np.savez_compressed(trace_path, **traces)
 
     print(
         f"Saved {len(events):,} events from "
-        f"{events['fish'].nunique():,} fish to {args.output}"
+        f"{events['fish'].nunique():,} fish to {output}"
     )
     print(f"Saved row-aligned traces to {trace_path}")
 
