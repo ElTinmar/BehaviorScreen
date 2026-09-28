@@ -73,13 +73,23 @@ using data from the Dowell paper
 To detect saccades, run
 
 ```
-python -m BehaviorScreen.eyes.detect_saccades /media/martin/DATA_18TB/Screen/WT/vehicle/ --output saccades.csv
+python -m BehaviorScreen.eyes.detect_saccades /media/martin/DATA_18TB/Screen/WT/vehicle --output saccades.csv
 ```
 
 To classify the saccades, run
 
 ```
 python -m BehaviorScreen.eyes.classify_saccades \
+   --model BehaviorScreen/eyes/paper_data/paper_reference.joblib \
    --events /media/martin/DATA_18TB/Screen/WT/vehicle/saccades.csv \
    --output /media/martin/DATA_18TB/Screen/WT/vehicle/classified_saccades.csv
+```
+
+To plot the clusters:
+
+```
+python -m BehaviorScreen.eyes.plot_clusters \
+   --npz /media/martin/DATA_18TB/Screen/WT/vehicle/saccades.npz \
+   --baseline-correct \
+   /media/martin/DATA_18TB/Screen/WT/vehicle/classified_saccades.csv
 ```
