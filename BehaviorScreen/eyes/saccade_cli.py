@@ -34,7 +34,7 @@ from tqdm import tqdm
 from BehaviorScreen.load import Directories, find_files, load_data, BehaviorData
 from BehaviorScreen.process import compute_angle_between_vectors
 
-import saccade_pipeline as sp
+import BehaviorScreen.eyes.saccade_pipeline as sp
 
 
 # ----------------------------------------------------------------------

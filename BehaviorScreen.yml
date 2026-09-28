@@ -8,6 +8,8 @@ dependencies:
 - pip
 - ffmpeg
 - seaborn
+- scikit-learn
+- umap-learn
 - statsmodels
 - pip:
   - pyyaml
