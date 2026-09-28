@@ -338,8 +338,6 @@ def savgol_smooth(y, span, polyorder=2):
 def speciallowess4(data, wide_window, narrow_window, delta_thresh,
                     anneal_window, conv_window=None, sigma=None):
     """
-    Faithful port of speciallowess4.m.
-
     Parameters
     ----------
     data : 1D array
