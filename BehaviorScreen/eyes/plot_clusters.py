@@ -49,8 +49,8 @@ def plot_clusters_raw_traces(csv_path: Path, npz_path: Path, trace_type: str = "
                     if len(idx_all) > max_per_cluster else idx_all)
 
         for i in idx_plot:
-            ax.plot(time_axis, L[i], color="b", alpha=0.15, lw=0.7)
-            ax.plot(time_axis, R[i], color="r", alpha=0.15, lw=0.7)
+            ax.plot(time_axis, L[i], color="b", alpha=0.01, lw=0.5)
+            ax.plot(time_axis, R[i], color="r", alpha=0.01, lw=0.5)
 
         # median trace computed over the FULL cluster population, not just the subsample
         ax.plot(time_axis, np.nanmedian(L[idx_all], axis=0), color="navy", lw=2, label="L (median)")
@@ -80,7 +80,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--npz", type=Path, default=None,
                     help="companion .npz (defaults to csv with .npz extension)")
     p.add_argument("--trace-type", choices=["raw", "smooth"], default="raw")
-    p.add_argument("--max-per-cluster", type=int, default=50)
+    p.add_argument("--max-per-cluster", type=int, default=500)
     p.add_argument("--output", type=Path, default=None)
     return p
 
