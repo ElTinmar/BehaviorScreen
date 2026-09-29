@@ -13,7 +13,7 @@ import pandas as pd
 from megabouts.utils import bouts_category_name_short
 from tqdm import tqdm
 
-from BehaviorScreen.core import BoutSign, Laterality
+from BehaviorScreen.core import EventDirection, Laterality
 from BehaviorScreen.stim_specs import (
     StimSpec,
     apply_event_filters,
@@ -50,8 +50,8 @@ LATERALITY_ORDER = {
 }
 
 BOUT_SIGN_LABELS = {
-    int(BoutSign.LEFT): "LEFT",
-    int(BoutSign.RIGHT): "RIGHT",
+    int(EventDirection.LEFT): "LEFT",
+    int(EventDirection.RIGHT): "RIGHT",
 }
 SIGN_ORDER = {
     "LEFT": 0,

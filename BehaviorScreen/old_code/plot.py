@@ -17,7 +17,7 @@ from mpl_toolkits.axes_grid1.anchored_artists import AnchoredSizeBar
 from tqdm import tqdm
 from megabouts.utils import bouts_category_name_short   
 
-from BehaviorScreen.core import Stim, BoutSign
+from BehaviorScreen.core import Stim, EventDirection
 from BehaviorScreen.load import (
     base_regexp, 
     FileNameInfo,
@@ -462,7 +462,7 @@ def plot_heatmap(
     stim_specs = list(read_stim_specs(cfg)) 
     bouts = load_bouts(input_csv)
     filtered_bouts = filter_bouts(quality_control, bouts, cfg)
-    sides = [BoutSign.LEFT, BoutSign.RIGHT]
+    sides = [EventDirection.LEFT, EventDirection.RIGHT]
 
     fish_names = filtered_bouts.file.unique()
     N_fish = len(fish_names)

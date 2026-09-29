@@ -1,4 +1,4 @@
-from BehaviorScreen.core import BoutSign, Laterality, Stim
+from BehaviorScreen.core import EventDirection, Laterality, Stim
 from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass
 
@@ -9,7 +9,7 @@ EpochName = str
 class Epoch:
     """
     One declared epoch: its Stim, and -- for directional stimuli -- which
-    BoutSign counts as IPSILATERAL while it's showing (e.g. BoutSign.RIGHT
+    EventDirection counts as IPSILATERAL while it's showing (e.g. EventDirection.RIGHT
     for "...right"/"...clockwise" epochs). Leave ipsi_sign=None for
     non-directional epochs (both bout signs then map to NONDIRECTIONAL).
 
@@ -22,7 +22,7 @@ class Epoch:
     """
     name: EpochName
     stim: Stim
-    ipsi_sign: Optional[BoutSign] = None
+    ipsi_sign: Optional[EventDirection] = None
     parameters: Optional[Dict[str, List[Any]]] = None
 
 
@@ -32,7 +32,7 @@ _REGISTRY: Dict[EpochName, Epoch] = {}
 def epoch(
         name: EpochName,
         stim: Stim,
-        ipsi_sign: Optional[BoutSign] = None,
+        ipsi_sign: Optional[EventDirection] = None,
         parameters: Optional[Dict[str, List[Any]]] = None,
     ) -> Epoch:
     """
@@ -78,17 +78,17 @@ protocol: List[Epoch] = [
     epoch("ramp 0", Stim.RAMP),
 ]
 protocol += 5 * [
-    epoch("prey capture right", Stim.PREY_CAPTURE, BoutSign.RIGHT),
-    epoch("prey capture break after right", Stim.DARK, BoutSign.RIGHT),
-    epoch("prey capture left", Stim.PREY_CAPTURE, BoutSign.LEFT),
-    epoch("prey capture break after left", Stim.DARK, BoutSign.LEFT),
+    epoch("prey capture right", Stim.PREY_CAPTURE, EventDirection.RIGHT),
+    epoch("prey capture break after right", Stim.DARK, EventDirection.RIGHT),
+    epoch("prey capture left", Stim.PREY_CAPTURE, EventDirection.LEFT),
+    epoch("prey capture break after left", Stim.DARK, EventDirection.LEFT),
 ]
 protocol += [epoch("ramp 1", Stim.RAMP)]
 protocol += 10 * [
-    epoch("phototaxis bright right", Stim.PHOTOTAXIS, BoutSign.RIGHT, _PHOTOTAXIS_PARAMS),
-    epoch("phototaxis break after bright right", Stim.BRIGHT, BoutSign.RIGHT),
-    epoch("phototaxis bright left", Stim.PHOTOTAXIS, BoutSign.LEFT, _PHOTOTAXIS_PARAMS),
-    epoch("phototaxis break after bright left", Stim.BRIGHT, BoutSign.LEFT),
+    epoch("phototaxis bright right", Stim.PHOTOTAXIS, EventDirection.RIGHT, _PHOTOTAXIS_PARAMS),
+    epoch("phototaxis break after bright right", Stim.BRIGHT, EventDirection.RIGHT),
+    epoch("phototaxis bright left", Stim.PHOTOTAXIS, EventDirection.LEFT, _PHOTOTAXIS_PARAMS),
+    epoch("phototaxis break after bright left", Stim.BRIGHT, EventDirection.LEFT),
 ]
 protocol += [epoch("ramp 2", Stim.RAMP)]
 protocol += 10 * [epoch("spontaneous dark", Stim.DARK)]
@@ -100,10 +100,10 @@ protocol += 5 * [
 ]
 protocol += [epoch("ramp 4", Stim.RAMP)]
 protocol += 5 * [
-    epoch("grating right", Stim.OMR, BoutSign.RIGHT),
-    epoch("grating break after right", Stim.BRIGHT, BoutSign.RIGHT),
-    epoch("grating left", Stim.OMR, BoutSign.LEFT),
-    epoch("grating break after left", Stim.BRIGHT, BoutSign.LEFT),
+    epoch("grating right", Stim.OMR, EventDirection.RIGHT),
+    epoch("grating break after right", Stim.BRIGHT, EventDirection.RIGHT),
+    epoch("grating left", Stim.OMR, EventDirection.LEFT),
+    epoch("grating break after left", Stim.BRIGHT, EventDirection.LEFT),
     epoch("grating forward", Stim.OMR),
     epoch("grating break after forward", Stim.BRIGHT),
 ]
@@ -111,26 +111,26 @@ protocol += [epoch("ramp 5", Stim.RAMP)]
 protocol += 10 * [epoch("spontaneous bright", Stim.BRIGHT)]
 protocol += [epoch("ramp 6", Stim.RAMP)]
 protocol += 5 * [
-    epoch("pinwheel clockwise", Stim.OKR, BoutSign.RIGHT),
-    epoch("pinwheel break after clockwise", Stim.BRIGHT, BoutSign.RIGHT),
-    epoch("pinwheel counter-clockwise", Stim.OKR, BoutSign.LEFT),
-    epoch("pinwheel break after counter-clockwise", Stim.BRIGHT, BoutSign.LEFT),
+    epoch("pinwheel clockwise", Stim.OKR, EventDirection.RIGHT),
+    epoch("pinwheel break after clockwise", Stim.BRIGHT, EventDirection.RIGHT),
+    epoch("pinwheel counter-clockwise", Stim.OKR, EventDirection.LEFT),
+    epoch("pinwheel break after counter-clockwise", Stim.BRIGHT, EventDirection.LEFT),
 ]
 protocol += [epoch("ramp 7", Stim.RAMP)]
 protocol += 7 * [
-    epoch("looming left", Stim.LOOMING, BoutSign.LEFT),
-    epoch("looming break after left", Stim.BRIGHT, BoutSign.LEFT),
-    epoch("looming right", Stim.LOOMING, BoutSign.RIGHT),
-    epoch("looming break after right", Stim.BRIGHT, BoutSign.RIGHT),
+    epoch("looming left", Stim.LOOMING, EventDirection.LEFT),
+    epoch("looming break after left", Stim.BRIGHT, EventDirection.LEFT),
+    epoch("looming right", Stim.LOOMING, EventDirection.RIGHT),
+    epoch("looming break after right", Stim.BRIGHT, EventDirection.RIGHT),
 ]
 
 # phototaxis only
 protocol_ptx: List[Epoch] = [epoch("adaptation", Stim.BRIGHT)]
 protocol_ptx += 10 * [
-    epoch("phototaxis bright right", Stim.PHOTOTAXIS, BoutSign.RIGHT, _PHOTOTAXIS_PARAMS),
-    epoch("phototaxis break after bright right", Stim.BRIGHT, BoutSign.RIGHT),
-    epoch("phototaxis bright left", Stim.PHOTOTAXIS, BoutSign.LEFT, _PHOTOTAXIS_PARAMS),
-    epoch("phototaxis break after bright left", Stim.BRIGHT, BoutSign.LEFT),
+    epoch("phototaxis bright right", Stim.PHOTOTAXIS, EventDirection.RIGHT, _PHOTOTAXIS_PARAMS),
+    epoch("phototaxis break after bright right", Stim.BRIGHT, EventDirection.RIGHT),
+    epoch("phototaxis bright left", Stim.PHOTOTAXIS, EventDirection.LEFT, _PHOTOTAXIS_PARAMS),
+    epoch("phototaxis break after bright left", Stim.BRIGHT, EventDirection.LEFT),
 ]
 
 
@@ -138,17 +138,17 @@ protocol_ptx += 10 * [
 
 def _build_laterality_table(
         registry: Dict[EpochName, Epoch]
-    ) -> Dict[Tuple[EpochName, BoutSign], Laterality]:
+    ) -> Dict[Tuple[EpochName, EventDirection], Laterality]:
     """
     Derived directly from each epoch's declared ipsi_sign -- replaces a
-    hand-written (epoch_name, BoutSign) -> Laterality dict and a separate
+    hand-written (epoch_name, EventDirection) -> Laterality dict and a separate
     non-directional-name list, both of which previously required retyping
     every epoch name a second/third time with nothing checking it matched
     `protocol`.
     """
-    table: Dict[Tuple[EpochName, BoutSign], Laterality] = {}
+    table: Dict[Tuple[EpochName, EventDirection], Laterality] = {}
     for name, ep in registry.items():
-        for sign in BoutSign:
+        for sign in EventDirection:
             if ep.ipsi_sign is None:
                 table[(name, sign)] = Laterality.NONDIRECTIONAL
             elif sign == ep.ipsi_sign:
@@ -158,7 +158,7 @@ def _build_laterality_table(
     return table
 
 
-EPOCH_LATERALITY: Dict[Tuple[EpochName, BoutSign], Laterality] = _build_laterality_table(_REGISTRY)
+EPOCH_LATERALITY: Dict[Tuple[EpochName, EventDirection], Laterality] = _build_laterality_table(_REGISTRY)
 
 
 ### PRESENCE SPEC -----------------------------------------------------

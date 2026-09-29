@@ -11,7 +11,7 @@ import statsmodels.formula.api as smf
 
 from BehaviorScreen.load import Directories, find_files, load_data, BehaviorData
 from BehaviorScreen.process import get_well_coords_mm, timestamp_to_frame
-from BehaviorScreen.core import Stim, BoutSign
+from BehaviorScreen.core import Stim, EventDirection
 from BehaviorScreen.plot import load_yaml_config, read_stim_specs
 from megabouts.utils import bouts_category_name_short
 
@@ -381,8 +381,8 @@ class PreySide(IntEnum):
     LEFT = -20
     RIGHT = 20
 
-ipsilateral = [(BoutSign.LEFT, PreySide.LEFT), (BoutSign.RIGHT, PreySide.RIGHT)]
-contralateral = [(BoutSign.LEFT, PreySide.RIGHT), (BoutSign.RIGHT, PreySide.LEFT)]
+ipsilateral = [(EventDirection.LEFT, PreySide.LEFT), (EventDirection.RIGHT, PreySide.RIGHT)]
+contralateral = [(EventDirection.LEFT, PreySide.RIGHT), (EventDirection.RIGHT, PreySide.LEFT)]
 laterality = [ipsilateral, contralateral]
 
 JT_freq = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins)), np.nan, dtype=np.float32)
@@ -720,8 +720,8 @@ class PreySide(IntEnum):
     LEFT = -20
     RIGHT = 20
 
-ipsilateral = [(BoutSign.LEFT, PreySide.LEFT), (BoutSign.RIGHT, PreySide.RIGHT)]
-contralateral = [(BoutSign.LEFT, PreySide.RIGHT), (BoutSign.RIGHT, PreySide.LEFT)]
+ipsilateral = [(EventDirection.LEFT, PreySide.LEFT), (EventDirection.RIGHT, PreySide.RIGHT)]
+contralateral = [(EventDirection.LEFT, PreySide.RIGHT), (EventDirection.RIGHT, PreySide.LEFT)]
 laterality = [ipsilateral, contralateral]
 uv_intensities = [0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1,0.15,0.2,0.25,0.3,0.4,0.5,0.75,1.0]
 
@@ -1377,8 +1377,8 @@ class PreySide(IntEnum):
     LEFT = -20
     RIGHT = 20
 
-ipsilateral = [(BoutSign.LEFT, PreySide.LEFT), (BoutSign.RIGHT, PreySide.RIGHT)]
-contralateral = [(BoutSign.LEFT, PreySide.RIGHT), (BoutSign.RIGHT, PreySide.LEFT)]
+ipsilateral = [(EventDirection.LEFT, PreySide.LEFT), (EventDirection.RIGHT, PreySide.RIGHT)]
+contralateral = [(EventDirection.LEFT, PreySide.RIGHT), (EventDirection.RIGHT, PreySide.LEFT)]
 laterality = [ipsilateral, contralateral]
 prey_sz = [0.02, 0.05, 0.1, 0.15, 0.2, 0.3, 0.5, 0.75]
 
@@ -1520,8 +1520,8 @@ class GratingSide(IntEnum):
     LEFT = -90
     RIGHT = 90
 
-ipsilateral = [(BoutSign.LEFT, GratingSide.LEFT), (BoutSign.RIGHT, GratingSide.RIGHT)]
-contralateral = [(BoutSign.LEFT, GratingSide.RIGHT), (BoutSign.RIGHT, GratingSide.LEFT)]
+ipsilateral = [(EventDirection.LEFT, GratingSide.LEFT), (EventDirection.RIGHT, GratingSide.RIGHT)]
+contralateral = [(EventDirection.LEFT, GratingSide.RIGHT), (EventDirection.RIGHT, GratingSide.LEFT)]
 laterality = [ipsilateral, contralateral]
 
 RT_freq = np.full((len(groups), N_fish, len(laterality), N_trials, len(time_bins)), np.nan, dtype=np.float32)

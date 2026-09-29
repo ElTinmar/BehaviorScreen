@@ -9,7 +9,7 @@ class MyIntEnum(IntEnum):
     def __str__(self):
         return self.name
     
-class BoutSign(MyIntEnum):
+class EventDirection(MyIntEnum):
     LEFT = -1 if CAMERA_BOTTOM else 1
     RIGHT = 1 if CAMERA_BOTTOM else -1
 

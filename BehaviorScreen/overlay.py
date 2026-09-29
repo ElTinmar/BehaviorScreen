@@ -18,7 +18,7 @@ from BehaviorScreen.load import (
     find_files, 
     load_data
 )
-from BehaviorScreen.core import Stim, BoutSign
+from BehaviorScreen.core import Stim, EventDirection
 from BehaviorScreen.megabouts import MegaboutResults 
 
 from video_tools import FFMPEG_VideoWriter_CPU
@@ -577,7 +577,7 @@ def do_overlay(
             bout_idx, bout_cat, bout_sign = megabout.ethogram.df.bout[['id', 'cat', 'sign']].values[idx] 
             if bout_cat >= 0:
                 proba = megabout.bouts.proba[bout_idx]
-                bout_label = f"{bouts_category_name[bout_cat]}: {proba:.2f}, {BoutSign(bout_sign).name}" 
+                bout_label = f"{bouts_category_name[bout_cat]}: {proba:.2f}, {EventDirection(bout_sign).name}" 
                 add_label(stim, bout_label, position=(10, height_px-30))
 
             writer.write_frame(stim)    
