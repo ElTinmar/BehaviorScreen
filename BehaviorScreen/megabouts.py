@@ -1,40 +1,50 @@
+#!/usr/bin/env python3
+"""Run Megabouts and create a stimulus-augmented bout table."""
+
+from __future__ import annotations
+
+import argparse
+import pickle
+from pathlib import Path
+from typing import Any, NamedTuple
+
 import numpy as np
 import pandas as pd
-from typing import NamedTuple, Dict, List
-import argparse
-from pathlib import Path
-import pickle
 from tqdm import tqdm
 
-from megabouts.tracking_data import TrackingConfig, FullTrackingData
-from megabouts.pipeline import FullTrackingPipeline
-from megabouts.pipeline.freely_swimming_pipeline import EthogramFullTracking
 from megabouts.classification.classification import TailBouts
-from megabouts.segmentation.segmentation import SegmentationResult
-from megabouts.preprocessing.tail_preprocessing import TailPreprocessingResult
-from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
+from megabouts.pipeline import FullTrackingPipeline
+from megabouts.pipeline.freely_swimming_pipeline import (
+    EthogramFullTracking,
+)
+from megabouts.preprocessing.tail_preprocessing import (
+    TailPreprocessingResult,
+)
+from megabouts.preprocessing.traj_preprocessing import (
+    TrajPreprocessingResult,
+)
+from megabouts.segmentation.segmentation import (
+    SegmentationResult,
+)
+from megabouts.tracking_data import (
+    FullTrackingData,
+    TrackingConfig,
+)
 
-from BehaviorScreen.core import Stim
-from BehaviorScreen.protocol import EPOCH_LATERALITY
+from BehaviorScreen.event_context import RecordingContext
 from BehaviorScreen.load import (
-    parse_fish,
-    encode_time_of_day,
-    Directories, 
-    BehaviorData, 
+    BehaviorData,
     BehaviorFiles,
+    Directories,
+    find_files,
     load_data,
-    find_files
 )
-from BehaviorScreen.process import (
-    get_trials, 
-    get_well_coords_mm
-)
-from BehaviorScreen.stimulus import (
-    prey_capture_arc_stimulus_cosine,
-    looming_constant_velocity_approach
-)
+from BehaviorScreen.protocol import EPOCH_LATERALITY
+
 
 class MegaboutResults(NamedTuple):
+    """Outputs returned by the Megabouts full-tracking pipeline."""
+
     timestamp: np.ndarray
     ethogram: EthogramFullTracking
     bouts: TailBouts
@@ -42,334 +52,567 @@ class MegaboutResults(NamedTuple):
     tail: TailPreprocessingResult
     traj: TrajPreprocessingResult
 
-def FullTrackingData_from_lp(df: pd.DataFrame, mm_per_pix: float) -> FullTrackingData:
-        
-    head_x = df.Head.x.to_numpy() * mm_per_pix
-    head_y = df.Head.y.to_numpy() * mm_per_pix
-    tail_parts = [f"Tail_{i}" for i in range(9)] # exclude last tail point
-    tail_x = df.loc[:, (tail_parts, "x")].to_numpy() * mm_per_pix
-    tail_y = df.loc[:, (tail_parts, "y")].to_numpy() * mm_per_pix
-    tracking_data = FullTrackingData.from_keypoints(
-        head_x=head_x, head_y=head_y, tail_x=tail_x, tail_y=tail_y
+
+def full_tracking_data_from_lp(
+    dataframe: pd.DataFrame,
+    millimeters_per_pixel: float,
+) -> FullTrackingData:
+    """Convert Lightning Pose keypoints to Megabouts tracking data."""
+    head_x = (
+        dataframe.Head.x.to_numpy()
+        * millimeters_per_pixel
     )
-    return tracking_data
+    head_y = (
+        dataframe.Head.y.to_numpy()
+        * millimeters_per_pixel
+    )
+
+    tail_parts = [
+        f"Tail_{index}"
+        for index in range(9)
+    ]
+
+    tail_x = (
+        dataframe.loc[:, (tail_parts, "x")]
+        .to_numpy()
+        * millimeters_per_pixel
+    )
+    tail_y = (
+        dataframe.loc[:, (tail_parts, "y")]
+        .to_numpy()
+        * millimeters_per_pixel
+    )
+
+    return FullTrackingData.from_keypoints(
+        head_x=head_x,
+        head_y=head_y,
+        tail_x=tail_x,
+        tail_y=tail_y,
+    )
+
 
 def megabout_fulltracking_pipeline(
-        behavior_data: BehaviorData,
-        min_bout_duration_ms: int = 70,
-        segmentation_threshold: float = 7.5,
-        tail_speed_boxcar_filter_ms: int = 30,
-        savgol_window_ms: int = 20
-    ) -> MegaboutResults:
+    behavior_data: BehaviorData,
+    min_bout_duration_ms: int = 70,
+    segmentation_threshold: float = 7.5,
+    tail_speed_boxcar_filter_ms: int = 30,
+    savgol_window_ms: int = 20,
+) -> MegaboutResults:
+    """Run the Megabouts full-tracking pipeline."""
+    pixels_per_mm = float(
+        behavior_data.metadata[
+            "calibration"
+        ]["pix_per_mm"]
+    )
+    millimeters_per_pixel = 1.0 / pixels_per_mm
 
-    mm_per_pix = 1/behavior_data.metadata['calibration']['pix_per_mm']
-    fps = behavior_data.metadata['camera']['framerate_value']
-    timestamps = behavior_data.tracking.timestamp.to_numpy()
-    # timestamps = behavior_data.video_timestamps.timestamp.to_numpy()
+    frames_per_second = float(
+        behavior_data.metadata[
+            "camera"
+        ]["framerate_value"]
+    )
 
-    # configure pipeline
-    tracking_cfg = TrackingConfig(fps=fps, tracking="full_tracking")
-    pipeline = FullTrackingPipeline(tracking_cfg, exclude_CS=True)
-    pipeline.segmentation_cfg.min_bout_duration_ms = min_bout_duration_ms
-    pipeline.segmentation_cfg.threshold = segmentation_threshold
-    pipeline.tail_preprocessing_cfg.tail_speed_boxcar_filter_ms = tail_speed_boxcar_filter_ms
-    pipeline.tail_preprocessing_cfg.savgol_window_ms = savgol_window_ms
-    
-    # run pipeline
-    tracking_data = FullTrackingData_from_lp(behavior_data.full_tracking, mm_per_pix)
-    ethogram, bouts, segments, tail, traj = pipeline.run(tracking_data)
+    timestamps = behavior_data.tracking[
+        "timestamp"
+    ].to_numpy()
 
-    # TODO, full tracking is one frame longer ??? Or rather behavior_data.tracking is one frame shorter
-    megabout_results = MegaboutResults(
-            timestamps, 
-            ethogram, 
-            bouts, 
-            segments,
-            tail, 
-            traj
-        ) 
+    tracking_config = TrackingConfig(
+        fps=frames_per_second,
+        tracking="full_tracking",
+    )
 
-    return megabout_results
+    pipeline = FullTrackingPipeline(
+        tracking_config,
+        exclude_CS=True,
+    )
+
+    pipeline.segmentation_cfg.min_bout_duration_ms = (
+        min_bout_duration_ms
+    )
+    pipeline.segmentation_cfg.threshold = (
+        segmentation_threshold
+    )
+    pipeline.tail_preprocessing_cfg.tail_speed_boxcar_filter_ms = (
+        tail_speed_boxcar_filter_ms
+    )
+    pipeline.tail_preprocessing_cfg.savgol_window_ms = (
+        savgol_window_ms
+    )
+
+    tracking_data = full_tracking_data_from_lp(
+        behavior_data.full_tracking,
+        millimeters_per_pixel,
+    )
+
+    (
+        ethogram,
+        bouts,
+        segments,
+        tail,
+        trajectory,
+    ) = pipeline.run(tracking_data)
+
+    return MegaboutResults(
+        timestamp=timestamps,
+        ethogram=ethogram,
+        bouts=bouts,
+        segments=segments,
+        tail=tail,
+        traj=trajectory,
+    )
+
+
+def normalize_rows(
+    vectors: np.ndarray,
+) -> np.ndarray:
+    """Normalize two-dimensional vectors row by row."""
+    vectors = np.asarray(vectors, dtype=float)
+
+    norms = np.linalg.norm(
+        vectors,
+        axis=1,
+        keepdims=True,
+    )
+
+    return np.divide(
+        vectors,
+        norms,
+        out=np.full_like(vectors, np.nan),
+        where=norms > 0,
+    )
+
+
+def calculate_tracking_quality(
+    online_centroid: np.ndarray,
+    posthoc_centroid: np.ndarray,
+    online_heading: np.ndarray,
+    posthoc_heading: np.ndarray,
+    start: int,
+    stop: int,
+) -> dict[str, Any]:
+    """Calculate online-versus-posthoc tracking mismatch metrics."""
+    stop = min(
+        stop,
+        len(online_centroid),
+        len(posthoc_centroid),
+        len(online_heading),
+        len(posthoc_heading),
+    )
+    start = max(0, start)
+
+    if stop <= start:
+        return {
+            "centroid_mismatch_avg": np.nan,
+            "centroid_mismatch_max": np.nan,
+            "heading_mismatch_avg": np.nan,
+            "heading_mismatch_max": np.nan,
+            "heading_flip": False,
+        }
+
+    centroid_distance = np.linalg.norm(
+        online_centroid[start:stop]
+        - posthoc_centroid[start:stop],
+        axis=1,
+    )
+
+    dot_product = np.sum(
+        online_heading[start:stop]
+        * posthoc_heading[start:stop],
+        axis=1,
+    )
+    dot_product = np.clip(
+        dot_product,
+        -1.0,
+        1.0,
+    )
+
+    angular_distance = np.rad2deg(
+        np.arccos(dot_product)
+    )
+
+    return {
+        "centroid_mismatch_avg": float(
+            np.nanmean(centroid_distance)
+        ),
+        "centroid_mismatch_max": float(
+            np.nanmax(centroid_distance)
+        ),
+        "heading_mismatch_avg": float(
+            np.nanmean(angular_distance)
+        ),
+        "heading_mismatch_max": float(
+            np.nanmax(angular_distance)
+        ),
+        "heading_flip": bool(
+            np.any(angular_distance > 160.0)
+        ),
+    }
+
+
+def get_peak_signed_value(
+    values: np.ndarray,
+) -> float:
+    """Return the value with the largest absolute magnitude."""
+    values = np.asarray(values, dtype=float)
+
+    if len(values) == 0 or not np.isfinite(values).any():
+        return np.nan
+
+    finite_indices = np.flatnonzero(
+        np.isfinite(values)
+    )
+    local_index = np.argmax(
+        np.abs(values[finite_indices])
+    )
+
+    return float(
+        values[finite_indices[local_index]]
+    )
 
 
 def get_bout_metrics(
-        directories: Directories,
-        behavior_data: BehaviorData, 
-        behavior_files: BehaviorFiles,
-        megabout: MegaboutResults,
-        rollover_time_s: int = 3600
-    ) -> List[Dict]:
+    directories: Directories,
+    behavior_data: BehaviorData,
+    behavior_files: BehaviorFiles,
+    megabout: MegaboutResults,
+    rollover_time_s: int = 3600,
+) -> list[dict[str, Any]]:
+    """Create one augmented row per detected swimming bout."""
+    recording = RecordingContext(
+        directories=directories,
+        behavior_files=behavior_files,
+        behavior_data=behavior_data,
+        rollover_time_s=rollover_time_s,
+    )
 
-    fish = behavior_files.metadata.stem
-    fish_info = parse_fish(fish)
-    cos_daytime, sin_daytime = encode_time_of_day(fish_info)
+    frames_per_second = float(
+        behavior_data.metadata[
+            "camera"
+        ]["framerate_value"]
+    )
 
-    cx,cy,_ = get_well_coords_mm(directories, behavior_files, behavior_data)
-    fps = behavior_data.metadata['camera']['framerate_value']
-    stim_trials = get_trials(behavior_data)
-    bout_start = megabout.timestamp[megabout.bouts.onset]
-    bout_stop = megabout.timestamp[megabout.bouts.offset]
+    bout_onsets = np.asarray(
+        megabout.bouts.onset,
+        dtype=int,
+    )
+    bout_offsets = np.asarray(
+        megabout.bouts.offset,
+        dtype=int,
+    )
+    bout_categories = np.asarray(
+        megabout.bouts.category,
+    )
+    bout_signs = np.asarray(
+        megabout.bouts.sign,
+    )
+    bout_probabilities = np.asarray(
+        megabout.bouts.proba,
+    )
 
-    # these are needed for QC
-    online_tracking_centroid = behavior_data.tracking[['centroid_x','centroid_y']].to_numpy()
-    posthoc_tracking_centroid = behavior_data.full_tracking.Swim_Bladder[['x', 'y']].to_numpy()
-    online_tracking_heading =  behavior_data.tracking[['pc1_x','pc1_y']].to_numpy()
-    posthoc_tracking_heading = behavior_data.full_tracking.Head[['x', 'y']].to_numpy() - posthoc_tracking_centroid
-    posthoc_tracking_heading = posthoc_tracking_heading / np.linalg.norm(posthoc_tracking_heading, axis=1, keepdims=True)
+    number_of_bouts = min(
+        len(bout_onsets),
+        len(bout_offsets),
+        len(bout_categories),
+        len(bout_signs),
+        len(bout_probabilities),
+    )
 
-    rows = []
+    bout_onsets = bout_onsets[:number_of_bouts]
+    bout_offsets = bout_offsets[:number_of_bouts]
+    bout_categories = bout_categories[:number_of_bouts]
+    bout_signs = bout_signs[:number_of_bouts]
+    bout_probabilities = bout_probabilities[
+        :number_of_bouts
+    ]
 
-    for epoch_name, epoch_data in stim_trials.groupby('epoch_name'):
-        for trial_idx, (epoch_idx, row) in enumerate(epoch_data.iterrows()):
+    valid_bout_indices = (
+        (bout_onsets >= 0)
+        & (bout_offsets > bout_onsets)
+        & (bout_onsets < len(megabout.timestamp))
+        & (bout_offsets < len(megabout.timestamp))
+    )
 
-            bout_mask = (bout_start > row.start_timestamp) & (bout_stop < row.stop_timestamp) 
+    bout_start_timestamps = np.full(
+        number_of_bouts,
+        -1,
+        dtype=np.int64,
+    )
+    bout_stop_timestamps = np.full(
+        number_of_bouts,
+        -1,
+        dtype=np.int64,
+    )
 
-            off_previous = 0
-            for on, off, category, sign, proba, bout_index in zip(
-                megabout.bouts.onset[bout_mask], 
-                megabout.bouts.offset[bout_mask],
-                megabout.bouts.category[bout_mask],
-                megabout.bouts.sign[bout_mask],
-                megabout.bouts.proba[bout_mask],
-                np.flatnonzero(bout_mask)
-            ):
+    bout_start_timestamps[valid_bout_indices] = (
+        np.asarray(megabout.timestamp)[
+            bout_onsets[valid_bout_indices]
+        ].astype(np.int64)
+    )
+    bout_stop_timestamps[valid_bout_indices] = (
+        np.asarray(megabout.timestamp)[
+            bout_offsets[valid_bout_indices]
+        ].astype(np.int64)
+    )
 
-                # heading change
-                heading_change = megabout.traj.yaw_smooth[off] - megabout.traj.yaw_smooth[on]
+    trial_indices = np.full(
+        number_of_bouts,
+        -1,
+        dtype=int,
+    )
+    trial_indices[valid_bout_indices] = (
+        recording.trial_indices(
+            bout_start_timestamps[
+                valid_bout_indices
+            ]
+        )
+    )
 
-                # distance 
-                delta_x =  np.diff(megabout.traj.x_smooth[on:off])
-                delta_y = np.diff(megabout.traj.y_smooth[on:off])
-                distance = np.sum(np.sqrt(delta_x**2 + delta_y**2))
-                radial_distance = np.sqrt((megabout.traj.x_smooth[on]-cx)**2 + (megabout.traj.y_smooth[on]-cy)**2)
+    online_centroid = behavior_data.tracking[
+        ["centroid_x", "centroid_y"]
+    ].to_numpy(dtype=float)
 
-                # bout duration
-                bout_duration = (off-on)/fps
+    posthoc_centroid = (
+        behavior_data.full_tracking.Swim_Bladder[
+            ["x", "y"]
+        ].to_numpy(dtype=float)
+    )
 
-                # interbout duration
-                interbout_duration = (on-off_previous)/fps
+    online_heading = behavior_data.tracking[
+        ["pc1_x", "pc1_y"]
+    ].to_numpy(dtype=float)
 
-                # peak axial speed
-                axial_speed = megabout.traj.axial_speed[on:off]
-                peak_axial_speed = axial_speed[np.argmax(np.abs(axial_speed))]
+    posthoc_heading_vector = (
+        behavior_data.full_tracking.Head[
+            ["x", "y"]
+        ].to_numpy(dtype=float)
+        - posthoc_centroid
+    )
+    posthoc_heading = normalize_rows(
+        posthoc_heading_vector
+    )
 
-                # peak yaw speed
-                yaw_speed = megabout.traj.yaw_speed[on:off]
-                peak_yaw_speed = yaw_speed[np.argmax(np.abs(yaw_speed))]
+    rows: list[dict[str, Any]] = []
 
-                # time
-                trial_time = 1e-9*(megabout.timestamp[on] - row.start_timestamp)
-                start_time = 1e-9*(megabout.timestamp[on] - megabout.timestamp[0])
-                stop_time = 1e-9*(megabout.timestamp[off] - megabout.timestamp[0])
+    # Preserve the previous behavior: interbout timing restarts within
+    # each trial.
+    previous_offset_by_trial: dict[int, int] = {}
 
-                # Quality control: posthoc vs online tracking during interbout + bout
-                centroid_distance = np.linalg.norm(online_tracking_centroid[off_previous:off,:] - posthoc_tracking_centroid[off_previous:off,:], axis=1)
-                centroid_mismatch_avg = centroid_distance.sum() / (off-off_previous)
-                centroid_mismatch_max = centroid_distance.max()
+    for bout_index in range(number_of_bouts):
+        if not valid_bout_indices[bout_index]:
+            continue
 
-                dot = np.sum(online_tracking_heading[off_previous:off,:] * posthoc_tracking_heading[off_previous:off,:], axis=1)
-                dot = np.clip(dot, -1.0, 1.0)
-                angular_distance = np.rad2deg(np.arccos(dot))
-                heading_mismatch_avg = angular_distance.sum() / (off-off_previous)
-                heading_mismatch_max = angular_distance.max() 
-                heading_flip = np.any(angular_distance > 160)
-                    
-                off_previous = off
+        onset = int(bout_onsets[bout_index])
+        offset = int(bout_offsets[bout_index])
+        trial_index = int(
+            trial_indices[bout_index]
+        )
 
-                # if stim is directional, is bout in same or opposite direction?
-                laterality = EPOCH_LATERALITY[(row.epoch_name, sign)]
+        if trial_index < 0:
+            continue
 
-                # stimulus specific actions
-                stim_phase = np.nan
-                looming_radius = np.nan
+        # Require the complete bout to be contained in the trial.
+        if (
+            bout_stop_timestamps[bout_index]
+            >= recording.trial_stops[trial_index]
+        ):
+            continue
 
-                if row.stim_select == Stim.PREY_CAPTURE:
-                    stim_phase = prey_capture_arc_stimulus_cosine(
-                        row.start_time_sec,
-                        trial_time,
-                        rollover_time_s,
-                        row.prey_arc_start_deg,
-                        row.prey_arc_stop_deg,
-                        row.prey_speed_deg_s
-                    )
+        event_timestamp = int(
+            bout_start_timestamps[bout_index]
+        )
 
-                if row.stim_select == Stim.LOOMING:
-                    looming_radius = looming_constant_velocity_approach(
-                        row.start_time_sec,
-                        trial_time,
-                        rollover_time_s,
-                        row.looming_angle_start_deg,
-                        row.looming_angle_stop_deg,
-                        row.looming_size_to_speed_ratio_ms,
-                        row.looming_distance_to_screen_mm
-                    )
+        x_mm = float(
+            megabout.traj.x_smooth[onset]
+        )
+        y_mm = float(
+            megabout.traj.y_smooth[onset]
+        )
+        heading = float(
+            megabout.traj.yaw_smooth[onset]
+        )
 
+        common_context = recording.event_context(
+            event_timestamp=event_timestamp,
+            trial_index=trial_index,
+            x_mm=x_mm,
+            y_mm=y_mm,
+            heading=heading,
+        )
 
-                rows.append({
-                    'file': fish,
-                    'dpf': fish_info.age,
-                    'day': f"{fish_info.day}.{fish_info.month}.{fish_info.year}",
-                    'cos_daytime': cos_daytime,
-                    'sin_daytime': sin_daytime,
-                    'bout_index': bout_index,
-                    'frame_start': on,
-                    'frame_stop': off,
-                    'time_start': start_time,
-                    'time_stop': stop_time,
-                    'stim': row.stim_select,
-                    'epoch_name': epoch_name,
-                    'epoch_idx': epoch_idx,
-                    'looming_center_mm_x': row.looming_center_mm_x,
-                    'looming_center_mm_y': row.looming_center_mm_y,
-                    'foreground_color': row.foreground_color,
-                    'background_color': row.background_color,
-                    'looming_angle_start_deg': row.looming_angle_start_deg,
-                    'looming_angle_stop_deg': row.looming_angle_stop_deg,
-                    'looming_distance_to_screen_mm': row.looming_distance_to_screen_mm,
-                    'looming_expansion_speed_deg_per_sec': row.looming_expansion_speed_deg_per_sec,
-                    'looming_expansion_speed_mm_per_sec': row.looming_expansion_speed_mm_per_sec,
-                    'looming_expansion_time_sec': row.looming_expansion_time_sec,
-                    'looming_period_sec': row.looming_period_sec,
-                    'looming_size_to_speed_ratio_ms': row.looming_size_to_speed_ratio_ms,
-                    'looming_type': row.looming_type,
-                    'looming_radius': looming_radius,
-                    'n_preys': row.n_preys,
-                    'okr_spatial_frequency_deg': row.okr_spatial_frequency_deg,
-                    'okr_speed_deg_per_sec': row.okr_speed_deg_per_sec,
-                    'omr_angle_deg': row.omr_angle_deg,
-                    'omr_spatial_period_mm': row.omr_spatial_period_mm,
-                    'omr_speed_mm_per_sec': row.omr_speed_mm_per_sec,
-                    'phototaxis_polarity': row.phototaxis_polarity,
-                    'prey_arc_start_deg': row.prey_arc_start_deg,
-                    'prey_arc_stop_deg': row.prey_arc_stop_deg,
-                    'prey_capture_type': row.prey_capture_type,
-                    'prey_radius_mm': row.prey_radius_mm,
-                    'prey_speed_deg_s': row.prey_speed_deg_s,
-                    'prey_speed_mm_s': row.prey_speed_mm_s,
-                    'prey_trajectory_radius_mm': row.prey_trajectory_radius_mm,
-                    'ramp_duration_sec': row.ramp_duration_sec,
-                    'ramp_powerlaw_exponent': row.ramp_powerlaw_exponent,
-                    'ramp_type': row.ramp_type,
-                    'stim_start_time': 1e-9*(row.start_timestamp - stim_trials.start_timestamp[0]),
-                    'trial_num': trial_idx,
-                    'trial_time': trial_time,
-                    'heading_change': heading_change,
-                    'distance': distance,
-                    'distance_center': radial_distance,
-                    'bout_duration': bout_duration,
-                    'stim_phase': stim_phase,
-                    'interbout_duration': interbout_duration,
-                    'peak_axial_speed': peak_axial_speed,
-                    'peak_yaw_speed': peak_yaw_speed,
-                    'centroid_mismatch_avg': centroid_mismatch_avg,
-                    'heading_mismatch_avg': heading_mismatch_avg,
-                    'centroid_mismatch_max': centroid_mismatch_max,
-                    'heading_mismatch_max': heading_mismatch_max,
-                    'heading_flip': heading_flip,
-                    'category': category,
-                    'sign': sign,
-                    'proba': proba,
-                    'laterality': laterality,
-                })
+        heading_change = float(
+            megabout.traj.yaw_smooth[offset]
+            - megabout.traj.yaw_smooth[onset]
+        )
+
+        delta_x = np.diff(
+            megabout.traj.x_smooth[onset:offset]
+        )
+        delta_y = np.diff(
+            megabout.traj.y_smooth[onset:offset]
+        )
+        distance = float(
+            np.sum(np.hypot(delta_x, delta_y))
+        )
+
+        bout_duration = (
+            offset - onset
+        ) / frames_per_second
+
+        previous_offset = previous_offset_by_trial.get(
+            trial_index,
+            0,
+        )
+        interbout_duration = (
+            onset - previous_offset
+        ) / frames_per_second
+        previous_offset_by_trial[trial_index] = offset
+
+        peak_axial_speed = get_peak_signed_value(
+            megabout.traj.axial_speed[
+                onset:offset
+            ]
+        )
+        peak_yaw_speed = get_peak_signed_value(
+            megabout.traj.yaw_speed[
+                onset:offset
+            ]
+        )
+
+        start_time = (
+            event_timestamp
+            - int(megabout.timestamp[0])
+        ) * 1e-9
+        stop_time = (
+            int(bout_stop_timestamps[bout_index])
+            - int(megabout.timestamp[0])
+        ) * 1e-9
+
+        quality = calculate_tracking_quality(
+            online_centroid=online_centroid,
+            posthoc_centroid=posthoc_centroid,
+            online_heading=online_heading,
+            posthoc_heading=posthoc_heading,
+            start=previous_offset,
+            stop=offset,
+        )
+
+        sign = bout_signs[bout_index]
+        trial = recording.trials.iloc[trial_index]
+
+        try:
+            laterality = EPOCH_LATERALITY[
+                (trial.epoch_name, sign)
+            ]
+        except KeyError:
+            laterality = np.nan
+
+        bout_specific = {
+            "bout_index": bout_index,
+            "frame_start": onset,
+            "frame_stop": offset,
+            "time_start": float(start_time),
+            "time_stop": float(stop_time),
+            "heading_change": heading_change,
+            "distance": distance,
+            "bout_duration": float(bout_duration),
+            "interbout_duration": float(
+                interbout_duration
+            ),
+            "peak_axial_speed": peak_axial_speed,
+            "peak_yaw_speed": peak_yaw_speed,
+            "category": int(
+                bout_categories[bout_index]
+            ),
+            "sign": int(sign),
+            "proba": float(
+                bout_probabilities[bout_index]
+            ),
+            "laterality": laterality,
+        }
+
+        rows.append(
+            {
+                **common_context,
+                **bout_specific,
+                **quality,
+            }
+        )
 
     return rows
 
-def build_parser() -> argparse.ArgumentParser:
 
+def build_parser() -> argparse.ArgumentParser:
+    """Create the command-line parser."""
     parser = argparse.ArgumentParser(
-        description="Run megabout pipeline on tracking data from Lightning Pose"
+        description=(
+            "Run the Megabouts pipeline and create an augmented "
+            "bout table."
+        )
     )
 
     parser.add_argument(
         "root",
         type=Path,
-        help="Root experiment folder (e.g. WT_oct_2025)",
+        help="Root experiment folder.",
     )
-
     parser.add_argument(
         "--bouts-csv",
-        default='bouts.csv',
-        help="Output CSV file containing bout x visual stim",
+        default="bouts.csv",
+        help=(
+            "Output CSV filename relative to root. "
+            "Default: bouts.csv."
+        ),
     )
-
-    # Directory layout overrides
     parser.add_argument(
-        "--metadata",
-        default="results",
-        help="Subfolder containing metadata files (default: data)",
+        "--rollover-time-s",
+        type=int,
+        default=3600,
     )
 
-    parser.add_argument(
-        "--stimuli",
-        default="results",
-        help="Subfolder containing stimulus log files (default: data)",
-    )
-
-    parser.add_argument(
-        "--tracking",
-        default="results",
-        help="Subfolder containing tracking CSV files (default: data)",
-    )
-
+    parser.add_argument("--metadata", default="results")
+    parser.add_argument("--stimuli", default="results")
+    parser.add_argument("--tracking", default="results")
     parser.add_argument(
         "--lightning-pose",
         default="lightning_pose",
-        help="Subfolder containing lightning pose tracking CSV files (default: lightning_pose)",
     )
-
-    parser.add_argument(
-        "--temperature",
-        default="results",
-        help="Subfolder containing temperature logs (default: data)",
-    )
-
-    parser.add_argument(
-        "--video",
-        default="results",
-        help="Subfolder containing raw video files (default: video)",
-    )
-
+    parser.add_argument("--temperature", default="results")
+    parser.add_argument("--video", default="results")
     parser.add_argument(
         "--video-timestamp",
         default="results",
-        help="Subfolder containing video timestamp files (default: video)",
     )
+    parser.add_argument("--results", default="results")
+    parser.add_argument("--plots", default="plots")
 
     parser.add_argument(
-        "--results",
-        default="results",
-        help="Subfolder where per-animal exports will be written (default: results)",
+        "--cpu",
+        action="store_true",
+        help="Force Megabouts to run without CUDA.",
     )
-
-    parser.add_argument(
-        "--plots",
-        default="plots",
-        help="Subfolder containing plots (default: plots)",
-    )
-
-    # Run megabout on CPU if no compatible GPU
-    parser.add_argument("--cpu", action="store_true")
 
     return parser
 
-def run_megabouts(
-        root: Path,
-        output_csv: str,
-        metadata: str,
-        stimuli: str,
-        tracking: str,
-        lightning_pose: str,
-        temperature: str,
-        video: str,
-        video_timestamp: str,
-        results: str,
-        plots: str,
-        cpu: bool,
-    ) -> None:
 
+def run_megabouts(
+    root: Path,
+    output_csv: str,
+    metadata: str,
+    stimuli: str,
+    tracking: str,
+    lightning_pose: str,
+    temperature: str,
+    video: str,
+    video_timestamp: str,
+    results: str,
+    plots: str,
+    cpu: bool,
+    rollover_time_s: int,
+) -> None:
+    """Run Megabouts for all experiments and write the bout table."""
     if cpu:
-        # Force running on CPU if GPU is not compatible
         import torch
+
         torch.cuda.is_available = lambda: False
 
     directories = Directories(
@@ -382,29 +625,72 @@ def run_megabouts(
         video=video,
         video_timestamp=video_timestamp,
         results=results,
-        plots=plots
+        plots=plots,
     )
+
     behavior_files = find_files(directories)
+    bout_rows: list[dict[str, Any]] = []
 
-    bout_stim = []
-    for behavior_file in tqdm(behavior_files):
+    for behavior_file in tqdm(
+        behavior_files,
+        desc="Megabouts",
+    ):
         behavior_data = load_data(behavior_file)
-        megabout = megabout_fulltracking_pipeline(behavior_data)
-        mb_file = behavior_file.metadata.with_suffix('.pkl')
-        with open(mb_file, "wb") as f:
-            pickle.dump(megabout, f)
-        bout_metrics = get_bout_metrics(directories, behavior_data, behavior_file, megabout)
-        bout_stim.extend(bout_metrics)
 
-    bouts = pd.DataFrame(bout_stim)
+        if behavior_data.full_tracking.empty:
+            print(
+                f"[skip] {behavior_file.metadata.stem}: "
+                "no full tracking"
+            )
+            continue
+
+        megabout = megabout_fulltracking_pipeline(
+            behavior_data
+        )
+
+        pickle_path = (
+            behavior_file.metadata.with_suffix(".pkl")
+        )
+
+        with pickle_path.open("wb") as output_file:
+            pickle.dump(megabout, output_file)
+
+        fish_rows = get_bout_metrics(
+            directories=directories,
+            behavior_data=behavior_data,
+            behavior_files=behavior_file,
+            megabout=megabout,
+            rollover_time_s=rollover_time_s,
+        )
+
+        bout_rows.extend(fish_rows)
+
+        print(
+            f"[ok] {behavior_file.metadata.stem}: "
+            f"{len(fish_rows):,} bouts"
+        )
+
+    bouts = pd.DataFrame.from_records(bout_rows)
+    output_path = root / output_csv
+
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
     bouts.to_csv(
-        root / output_csv, 
-        header=True, 
-        index=False
+        output_path,
+        header=True,
+        index=False,
+        float_format="%.10g",
     )
 
-def main(args: argparse.Namespace) -> None:
-    
+    print(f"Saved {len(bouts):,} bouts to {output_path}")
+
+
+def main() -> None:
+    """Run the Megabouts command-line application."""
+    args = build_parser().parse_args()
+
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
@@ -417,9 +703,10 @@ def main(args: argparse.Namespace) -> None:
         video_timestamp=args.video_timestamp,
         results=args.results,
         plots=args.plots,
-        cpu=args.cpu
+        cpu=args.cpu,
+        rollover_time_s=args.rollover_time_s,
     )
-    
-if __name__ == '__main__':
 
-    main(build_parser().parse_args())
+
+if __name__ == "__main__":
+    main()
