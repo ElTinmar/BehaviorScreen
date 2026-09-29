@@ -221,7 +221,7 @@ def parse_fish(fish: str) -> FileNameInfo:
     )
 
 
-def cosinor(info: FileNameInfo) -> Tuple[float, float]:
+def encode_time_of_day(info: FileNameInfo) -> Tuple[float, float]:
     seconds = info.hour*3600 + info.minute*60 + info.second
     theta = 2 * np.pi * (seconds / (24 * 3600))
     return (np.cos(theta), np.sin(theta))
@@ -578,7 +578,7 @@ def compute_bout_frequency_table(
     for fish, fish_bouts in tqdm(fish_groups):
 
         fish_info = parse_fish(fish)
-        time_cos, time_sin = cosinor(fish_info)
+        time_cos, time_sin = encode_time_of_day(fish_info)
 
         if exclude_unusable_trials:
             fish_valid_trials = valid_trials[valid_trials.file == fish]

@@ -114,7 +114,7 @@ def parse_fish(fish: str) -> FileNameInfo:
         extra = g["extra"]
     )
 
-def cosinor(info: FileNameInfo) -> Tuple[float, float]:
+def encode_time_of_day(info: FileNameInfo) -> Tuple[float, float]:
     seconds = info.hour*3600 + info.minute*60 + info.second
     theta = 2 * np.pi * (seconds / (24 * 3600))
     return (np.cos(theta), np.sin(theta))
@@ -129,7 +129,7 @@ def get_bout_metrics(
 
     fish = behavior_files.metadata.stem
     fish_info = parse_fish(fish)
-    cos_daytime, sin_daytime = cosinor(fish_info)
+    cos_daytime, sin_daytime = encode_time_of_day(fish_info)
 
     cx,cy,_ = get_well_coords_mm(directories, behavior_files, behavior_data)
     fps = behavior_data.metadata['camera']['framerate_value']
