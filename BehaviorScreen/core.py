@@ -3,15 +3,14 @@ from typing import TypedDict
 
 TIME_TOLERANCE_S: float = 40
 
-CAMERA_BOTTOM = True
-
 class MyIntEnum(IntEnum):
     def __str__(self):
         return self.name
     
+# Valid for my data, needs checking
 class EventDirection(MyIntEnum):
-    LEFT = -1 if CAMERA_BOTTOM else 1
-    RIGHT = 1 if CAMERA_BOTTOM else -1
+    LEFT = -1 
+    RIGHT = 1 
 
 class Laterality(MyIntEnum):
     IPSILATERAL = 1
@@ -76,3 +75,22 @@ AGAROSE_WELL_DIMENSIONS: WellDimensions = {
     'distance_between_well_centers_mm': 22
 }
 
+SACCADE_CLASS_NAMES = {
+    -1: "Unassigned",
+    0: "Unclassified",
+    1: "Conjugate left",
+    2: "Conjugate right",
+    3: "Miniature convergent",
+    4: "Convergent",
+    5: "Non-saccadic",
+    6: "Divergent",
+    7: "Biphasic convergent right",
+    8: "Biphasic convergent left",
+}
+
+SACCADE_CLASS_DIRECTIONS = {
+    1: EventDirection.LEFT,
+    2: EventDirection.RIGHT,
+    7: EventDirection.RIGHT,
+    8: EventDirection.LEFT
+}
