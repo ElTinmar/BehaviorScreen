@@ -1,1098 +1,1368 @@
-from typing import List, Tuple
+#!/usr/bin/env python3
+"""Calculate and plot stimulus-aligned bout-frequency heatmaps."""
+
+from __future__ import annotations
+
 import argparse
 from pathlib import Path
+from typing import Any
 
-import pandas as pd
 import matplotlib.pyplot as plt
-from tqdm import tqdm
+import numpy as np
+import pandas as pd
 from megabouts.utils import bouts_category_name_short
+from tqdm import tqdm
 
-from BehaviorScreen.core import Laterality, BoutSign
-from BehaviorScreen.load import parse_fish, encode_time_of_day
-from BehaviorScreen.stimulus_specs import (
+from BehaviorScreen.core import BoutSign, Laterality
+from BehaviorScreen.stim_specs import (
     StimSpec,
+    apply_event_filters,
+    exclude_qc_fish,
+    exclude_unusable_trials,
+    get_epoch_trial_count,
+    get_matching_epoch_names,
+    get_single_value,
     load_valid_trials,
     load_yaml_config,
-    parse_rules,
     read_stim_specs,
     stimulus_name_order,
 )
 
-
 MAX_COLORBAR = 0.6
 
-
-def load_bouts(bout_csv: Path) -> pd.DataFrame:
-    return pd.read_csv(bout_csv)
-
-
-def filter_bouts(quality_control: Path, bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
-    # TODO: should the filtered bouts be counted as NaNs instead of
-    # just being removed?
-
-    filtered = bouts.copy()
-    n0 = len(filtered)
-    print(f'TOTAL NUM BOUTS: {n0}')
-
-    if quality_control.exists():
-        qc = pd.read_csv(quality_control)
-        before = len(filtered)
-        filtered = filtered[~filtered['file'].isin(qc['file'])]
-        after = len(filtered)
-        removed = before - after
-        frac_total = removed / n0 if n0 else 0
-        print(f"Quality control → removed {removed:6d} ({frac_total:6.2%})")
-
-    filters = parse_rules(cfg["filters"])
-    for rule in filters.rules:
-        before = len(filtered)
-        mask = rule.get_mask(filtered)
-        filtered = filtered[mask]
-        after = len(filtered)
-        removed = before - after
-        frac_total = removed / n0 if n0 else 0
-        print(f"{rule.column:25s} {rule.operator:>2} {rule.value} → removed {removed:6d} ({frac_total:6.2%})")
-
-    return filtered
-
-
-# ---------------------------------------------------------------------------
-# Per-trial presence/tracking-quality lookup.
-#
-# Replaces the old behavior_data-based stim_presented/get_epoch_trial_counts
-# (which re-loaded each fish's raw BehaviorData to re-derive trial durations
-# and counts from get_trials()). Both facts are now read directly from
-# valid_trials.csv (BehaviorScreen.qc.quality_control), which already
-# resolves:
-#   - an epoch missing from the log entirely -> presented=False
-#   - an epoch logged but with mismatched stimulus parameters -> presented=False
-#   - per-trial online/offline tracking mismatch -> tracking_ok=False
-# ---------------------------------------------------------------------------
-
-
-def get_epoch_trial_counts(
-        valid_trials: pd.DataFrame,
-        fish: str,
-        matched_epoch_names: List[str],
-    ) -> int:
-    """
-    Number of trial slots ("trial_idx" values) to use for this spec, sized
-    by how many times the epoch was actually PRESENTED (structural fact,
-    independent of tracking quality) -- matches the original semantics
-    (grid width = number of matching trials found in the log).
-    """
-    rows = valid_trials[
-        (valid_trials.file == fish) &
-        (valid_trials.epoch_name.isin(matched_epoch_names)) &
-        (valid_trials.presented)
-    ]
-    if rows.empty:
-        return 0
-    return int(rows.groupby("epoch_name").size().max())
-
-
-# ---------------------------------------------------------------------------
-# Bout heatmap
-#
-# Two parallel per-fish tables are built from the SAME per-fish/per-epoch
-# loop:
-#
-#   - per_fish          : split by laterality_group (ipsi/contra/none),
-#                          direction-pooled per spec (e.g. "grating right" +
-#                          "grating left" both count as "OMR lateral").
-#                          Used for the 4 main heatmap variants.
-#
-#   - per_fish_classic  : split by RAW epoch_name (stimulus direction, e.g.
-#                          "grating right" vs "grating left" as SEPARATE
-#                          columns) x sign_group (LEFT/RIGHT, the fish's own
-#                          kinematic turn direction). This mirrors the
-#                          original pre-refactor plot, which had one column
-#                          per raw stimulus parameter combination (e.g.
-#                          omr_angle_deg==-90 / ==90) and rows split by raw
-#                          bout sign -- i.e. every (stim direction) x (bout
-#                          sign) combination is visible, NOT pooled the way
-#                          the 4 main variants pool it via `laterality`.
-#
-# Aggregation levels produced from `per_fish`:
-#   - full detail        : trial x time bin, per bout category
-#   - trial-averaged      : time bin only, per bout category
-#   - time-bin-averaged   : trial only, per bout category
-#   - fully averaged      : one value per bout category
-# `per_fish_classic` only ever feeds the "classic" heatmap (trial-averaged,
-# time bins preserved).
-#
-# In all cases, averaging across FISH is a plain mean of per-fish rates
-# (each fish is one sample). Averaging across TRIAL/TIME BIN is instead
-# done by summing bout_counts and duration within each fish first, then
-# recomputing frequency = counts / duration -- this correctly weights
-# unequal time-bin durations, and is equivalent to a plain mean of
-# frequencies when durations are equal (e.g. across trials).
-# ---------------------------------------------------------------------------
-
-# Bout categories dropped from every table/plot. Encoded category indices
-# in bouts.csv still refer to the FULL bouts_category_name_short list, so
-# that list must stay intact for the int -> name mapping -- only the
-# display/grid order (BOUT_CATEGORIES) is filtered.
 ALL_BOUT_CATEGORIES = list(bouts_category_name_short)
 EXCLUDED_BOUT_CATEGORIES = {"LCS", "SCS"}
-BOUT_CATEGORIES = [c for c in ALL_BOUT_CATEGORIES if c not in EXCLUDED_BOUT_CATEGORIES]
+BOUT_CATEGORIES = [
+    category
+    for category in ALL_BOUT_CATEGORIES
+    if category not in EXCLUDED_BOUT_CATEGORIES
+]
 
-# Raw `laterality` column in bouts.csv holds Laterality enum values
-# (IPSILATERAL=1, NONDIRECTIONAL=0, CONTRALATERAL=-1). Bouts under
-# non-lateralized stimuli (no laterality assigned at all) show up as NaN.
 LATERALITY_CODE_LABELS = {
-    Laterality.IPSILATERAL: "ipsi",
-    Laterality.CONTRALATERAL: "contra",
-    Laterality.NONDIRECTIONAL: "none",
+    int(Laterality.IPSILATERAL): "ipsi",
+    int(Laterality.CONTRALATERAL): "contra",
+    int(Laterality.NONDIRECTIONAL): "none",
 }
-LATERALITY_ORDER = {"ipsi": 0, "contra": 1, "none": 2}
+LATERALITY_ORDER = {
+    "ipsi": 0,
+    "contra": 1,
+    "none": 2,
+}
 
-# Raw `sign` column in bouts.csv holds BoutSign enum values (LEFT=-1,
-# RIGHT=1) -- every bout has a sign, regardless of stimulus, unlike
-# laterality which is only meaningful for lateralized stimuli.
 BOUT_SIGN_LABELS = {
-    BoutSign.LEFT: "LEFT",
-    BoutSign.RIGHT: "RIGHT",
+    int(BoutSign.LEFT): "LEFT",
+    int(BoutSign.RIGHT): "RIGHT",
 }
-SIGN_ORDER = {"LEFT": 0, "RIGHT": 1}
+SIGN_ORDER = {
+    "LEFT": 0,
+    "RIGHT": 1,
+}
 SIGN_LABELS = ["LEFT", "RIGHT"]
 
+# average_trial, average_time_bin, filename suffix, title
+HEATMAP_VARIANTS = [
+    (False, False, "", "trial × time bin"),
+    (True, False, "_trial_avg", "averaged over trials"),
+    (False, True, "_timebin_avg", "averaged over time bins"),
+    (
+        True,
+        True,
+        "_full_avg",
+        "averaged over trials and time bins",
+    ),
+]
 
-def _order_lateralities(values) -> List[str]:
-    return sorted(values, key=lambda v: LATERALITY_ORDER.get(v, 99))
+
+def load_bouts(path: Path) -> pd.DataFrame:
+    """Load the augmented bout table."""
+    if not path.exists():
+        raise FileNotFoundError(path)
+
+    return pd.read_csv(path)
 
 
-def _order_signs(values) -> List[str]:
-    return sorted(values, key=lambda v: SIGN_ORDER.get(v, 99))
+def order_lateralities(values: Any) -> list[str]:
+    """Sort laterality labels in a stable display order."""
+    return sorted(
+        values,
+        key=lambda value: LATERALITY_ORDER.get(value, 99),
+    )
 
 
-def _map_laterality(series: pd.Series) -> pd.Series:
+def order_signs(values: Any) -> list[str]:
+    """Sort left/right labels in a stable display order."""
+    return sorted(
+        values,
+        key=lambda value: SIGN_ORDER.get(value, 99),
+    )
+
+
+def map_laterality(series: pd.Series) -> pd.Series:
     """
-    Map raw Laterality codes to display labels.
+    Map raw laterality codes to display labels.
 
-    NONDIRECTIONAL (0) is a genuine category (straight bouts under a
-    lateralized stim), not a fallback -- it maps to "none" just like the
-    fallback for bouts with no laterality assigned at all (NaN, under a
-    non-lateralized stim), so both end up sharing the "none" column.
+    Both explicit non-directional values and missing laterality values are
+    placed in the ``none`` group.
     """
-    mapped = series.map(LATERALITY_CODE_LABELS)
+    numeric = pd.to_numeric(series, errors="coerce")
+    mapped = numeric.map(LATERALITY_CODE_LABELS)
+
     return mapped.where(mapped.notna(), "none")
 
 
-def _map_sign(series: pd.Series) -> pd.Series:
-    """Map raw BoutSign codes (-1/1) to LEFT/RIGHT display labels."""
-    return series.map(BOUT_SIGN_LABELS)
+def map_sign(series: pd.Series) -> pd.Series:
+    """Map raw bout-sign codes to LEFT and RIGHT."""
+    numeric = pd.to_numeric(series, errors="coerce")
+    return numeric.map(BOUT_SIGN_LABELS)
 
 
-def get_laterality_labels(bouts: pd.DataFrame, spec: StimSpec) -> List[str]:
-    """
-    Laterality labels (ipsi/contra/none) relevant to this stim, based on
-    what's actually present in the `laterality` column for matching bouts.
-    Falls back to a single "none" bucket for non-lateralized stimuli.
-    """
-    mask = (bouts.stim == spec.stim) & spec.get_mask(bouts)
+def get_laterality_labels(
+    bouts: pd.DataFrame,
+    specification: StimSpec,
+) -> list[str]:
+    """Find laterality groups represented by a stimulus specification."""
     if "laterality" not in bouts.columns:
         return ["none"]
-    values = _map_laterality(bouts.loc[mask, "laterality"]).unique().tolist()
-    return _order_lateralities(values) if values else ["none"]
+
+    mask = specification.get_mask(bouts)
+
+    if "stim" in bouts.columns:
+        mask &= bouts["stim"] == specification.stim
+
+    values = map_laterality(bouts.loc[mask, "laterality"]).dropna().unique().tolist()
+
+    return order_lateralities(values) if values else ["none"]
 
 
-def get_epoch_name_labels(bouts: pd.DataFrame, spec: StimSpec) -> List[str]:
-    """
-    Distinct RAW epoch_name values matching this spec (e.g. "grating right"
-    and "grating left" for the pooled "OMR lateral" spec). Used for the
-    classic heatmap, and to resolve which raw epoch_name(s) a pooled spec
-    corresponds to when querying valid_trials.csv (which has no notion of
-    a pooled StimSpec, only raw epoch_name).
-    """
-    mask = (bouts.stim == spec.stim) & spec.get_mask(bouts)
-    if "epoch_name" not in bouts.columns:
-        return [spec.name]
-    values = bouts.loc[mask, "epoch_name"].dropna().unique().tolist()
-    return sorted(values) if values else [spec.name]
+def category_code_to_name(code: Any) -> str | None:
+    """Convert a Megabouts category index to its short name."""
+    try:
+        index = int(code)
+    except (TypeError, ValueError):
+        return None
+
+    if index < 0 or index >= len(ALL_BOUT_CATEGORIES):
+        return None
+
+    return ALL_BOUT_CATEGORIES[index]
 
 
 def compute_epoch_bout_counts(
-        fish_bouts: pd.DataFrame,
-        spec: StimSpec,
-        valid_n_trials: int,
-        laterality_labels: List[str],
-    ) -> pd.DataFrame:
+    fish_bouts: pd.DataFrame,
+    specification: StimSpec,
+    number_of_trials: int,
+    laterality_labels: list[str],
+) -> pd.DataFrame:
     """
-    Bout counts/frequency for one fish x one stim epoch, on the full
-    (trial_idx, bout_category, laterality_group) grid -- missing
-    combinations are filled with 0, not dropped. Categories in
-    EXCLUDED_BOUT_CATEGORIES are dropped entirely (not shown, not counted).
-    Stimulus direction is POOLED here (e.g. "grating right" + "grating
-    left" both count towards "OMR lateral") -- ipsi/contra is resolved
-    from the per-bout `laterality` column, not from direction.
+    Count bouts on a complete trial × category × laterality grid.
 
-    `trial_num` is already a 0-based, contiguous index local to each raw
-    epoch_name (assigned upstream in the megabouts step), so it's used
-    directly as `trial_idx` -- no remapping needed.
+    Missing combinations are represented by zero.
     """
+    if specification.time_range is None:
+        raise ValueError("Bout heatmaps require time bins.")
 
-    lo, hi = spec.time_range
-    duration = hi - lo
+    start, stop = specification.time_range
+    duration = stop - start
+
+    if duration <= 0:
+        raise ValueError(
+            f"Invalid time interval for {specification}: " f"{specification.time_range}"
+        )
 
     mask = (
-        (fish_bouts.stim == spec.stim) &
-        spec.get_mask(fish_bouts) &
-        (fish_bouts.trial_time >= lo) &
-        (fish_bouts.trial_time < hi)
+        specification.get_mask(fish_bouts)
+        & (fish_bouts["stim"] == specification.stim)
+        & (fish_bouts["trial_time"] >= start)
+        & (fish_bouts["trial_time"] < stop)
     )
-    epoch_bouts = fish_bouts[mask].copy()
 
-    # some bouts may have an undefined/NaN category or trial_num -- drop
-    # those rather than crashing on int casting/indexing
-    epoch_bouts = epoch_bouts.dropna(subset=["category", "trial_num"])
-    epoch_bouts["trial_idx"] = epoch_bouts["trial_num"].astype(int)
-    epoch_bouts = epoch_bouts[epoch_bouts.trial_idx < valid_n_trials]
-    epoch_bouts["category"] = epoch_bouts["category"].astype(int)
+    selected = fish_bouts.loc[mask].copy()
+    selected = selected.dropna(subset=["category", "trial_num"])
 
-    # map integer category code -> name using the FULL category list (the
-    # code is fixed by megabouts and doesn't change when we drop display
-    # categories), then drop excluded categories entirely
-    epoch_bouts["bout_category"] = epoch_bouts["category"].map(lambda i: ALL_BOUT_CATEGORIES[i])
-    epoch_bouts = epoch_bouts[~epoch_bouts["bout_category"].isin(EXCLUDED_BOUT_CATEGORIES)]
+    selected["trial_idx"] = pd.to_numeric(
+        selected["trial_num"],
+        errors="coerce",
+    )
+    selected["category"] = pd.to_numeric(
+        selected["category"],
+        errors="coerce",
+    )
+    selected = selected.dropna(subset=["trial_idx", "category"])
 
-    # map raw numeric laterality codes to ipsi/contra/none
-    if "laterality" in epoch_bouts.columns:
-        epoch_bouts["laterality_group"] = _map_laterality(epoch_bouts["laterality"])
+    selected["trial_idx"] = selected["trial_idx"].astype(int)
+    selected["category"] = selected["category"].astype(int)
+
+    selected = selected.loc[
+        (selected["trial_idx"] >= 0) & (selected["trial_idx"] < number_of_trials)
+    ]
+
+    selected["bout_category"] = selected["category"].map(category_code_to_name)
+
+    selected = selected.loc[
+        selected["bout_category"].notna()
+        & ~selected["bout_category"].isin(EXCLUDED_BOUT_CATEGORIES)
+    ]
+
+    if "laterality" in selected.columns:
+        selected["laterality_group"] = map_laterality(selected["laterality"])
     else:
-        epoch_bouts["laterality_group"] = "none"
+        selected["laterality_group"] = "none"
 
     counts = (
-        epoch_bouts
-        .groupby(["trial_idx", "bout_category", "laterality_group"])
+        selected.groupby(
+            [
+                "trial_idx",
+                "bout_category",
+                "laterality_group",
+            ]
+        )
         .size()
         .rename("bout_counts")
-        .reset_index()
     )
 
     full_index = pd.MultiIndex.from_product(
-        [range(valid_n_trials), BOUT_CATEGORIES, laterality_labels],
-        names=["trial_idx", "bout_category", "laterality_group"],
+        [
+            range(number_of_trials),
+            BOUT_CATEGORIES,
+            laterality_labels,
+        ],
+        names=[
+            "trial_idx",
+            "bout_category",
+            "laterality_group",
+        ],
     )
-    counts = (
-        counts
-        .set_index(["trial_idx", "bout_category", "laterality_group"])
-        .reindex(full_index, fill_value=0)
-        .reset_index()
-    )
-    counts["bout_frequency"] = counts["bout_counts"] / duration
 
-    return counts
+    result = counts.reindex(full_index, fill_value=0).reset_index()
+
+    result["time_bin_duration"] = duration
+    result["bout_frequency"] = result["bout_counts"] / duration
+
+    return result
 
 
 def compute_epoch_bout_counts_classic(
-        fish_bouts: pd.DataFrame,
-        spec: StimSpec,
-        valid_n_trials: int,
-        epoch_name_labels: List[str],
-    ) -> pd.DataFrame:
+    fish_bouts: pd.DataFrame,
+    specification: StimSpec,
+    number_of_trials: int,
+    epoch_names: list[str],
+) -> pd.DataFrame:
     """
-    Bout counts/frequency for one fish x one stim epoch, split by RAW
-    epoch_name (stimulus direction, e.g. "grating right" vs "grating left")
-    x bout sign (LEFT/RIGHT, the fish's OWN kinematic turn direction) --
-    used only for the "classic" heatmap.
+    Count bouts by raw epoch name and LEFT/RIGHT bout sign.
 
-    Unlike compute_epoch_bout_counts, directions are NOT pooled here: each
-    raw epoch_name gets its own column, exactly like the original
-    pre-refactor plot (which had one column per raw stimulus parameter
-    combination, e.g. omr_angle_deg==-90 vs ==90). This lets every
-    (stimulus direction) x (bout sign) combination be read off directly,
-    which pooling by `laterality` would otherwise hide.
+    This retains the layout of the original "classic" heatmap.
     """
+    if specification.time_range is None:
+        raise ValueError("Bout heatmaps require time bins.")
 
-    lo, hi = spec.time_range
-    duration = hi - lo
+    start, stop = specification.time_range
+    duration = stop - start
+
+    if duration <= 0:
+        raise ValueError(
+            f"Invalid time interval for {specification}: " f"{specification.time_range}"
+        )
 
     mask = (
-        (fish_bouts.stim == spec.stim) &
-        spec.get_mask(fish_bouts) &
-        (fish_bouts.trial_time >= lo) &
-        (fish_bouts.trial_time < hi)
+        specification.get_mask(fish_bouts)
+        & (fish_bouts["stim"] == specification.stim)
+        & (fish_bouts["trial_time"] >= start)
+        & (fish_bouts["trial_time"] < stop)
     )
-    epoch_bouts = fish_bouts[mask].copy()
 
-    epoch_bouts = epoch_bouts.dropna(subset=["category", "trial_num", "sign", "epoch_name"])
-    epoch_bouts["trial_idx"] = epoch_bouts["trial_num"].astype(int)
-    epoch_bouts = epoch_bouts[epoch_bouts.trial_idx < valid_n_trials]
-    epoch_bouts["category"] = epoch_bouts["category"].astype(int)
+    selected = fish_bouts.loc[mask].copy()
+    selected = selected.dropna(
+        subset=[
+            "category",
+            "trial_num",
+            "sign",
+            "epoch_name",
+        ]
+    )
 
-    epoch_bouts["bout_category"] = epoch_bouts["category"].map(lambda i: ALL_BOUT_CATEGORIES[i])
-    epoch_bouts = epoch_bouts[~epoch_bouts["bout_category"].isin(EXCLUDED_BOUT_CATEGORIES)]
+    selected["trial_idx"] = pd.to_numeric(
+        selected["trial_num"],
+        errors="coerce",
+    )
+    selected["category"] = pd.to_numeric(
+        selected["category"],
+        errors="coerce",
+    )
+    selected = selected.dropna(subset=["trial_idx", "category"])
 
-    epoch_bouts["sign_group"] = _map_sign(epoch_bouts["sign"])
+    selected["trial_idx"] = selected["trial_idx"].astype(int)
+    selected["category"] = selected["category"].astype(int)
+
+    selected = selected.loc[
+        (selected["trial_idx"] >= 0) & (selected["trial_idx"] < number_of_trials)
+    ]
+
+    selected["bout_category"] = selected["category"].map(category_code_to_name)
+
+    selected = selected.loc[
+        selected["bout_category"].notna()
+        & ~selected["bout_category"].isin(EXCLUDED_BOUT_CATEGORIES)
+    ]
+
+    selected["sign_group"] = map_sign(selected["sign"])
+    selected = selected.loc[selected["sign_group"].notna()]
 
     counts = (
-        epoch_bouts
-        .groupby(["trial_idx", "bout_category", "epoch_name", "sign_group"])
+        selected.groupby(
+            [
+                "trial_idx",
+                "bout_category",
+                "epoch_name",
+                "sign_group",
+            ]
+        )
         .size()
         .rename("bout_counts")
-        .reset_index()
     )
 
     full_index = pd.MultiIndex.from_product(
-        [range(valid_n_trials), BOUT_CATEGORIES, epoch_name_labels, SIGN_LABELS],
-        names=["trial_idx", "bout_category", "epoch_name", "sign_group"],
+        [
+            range(number_of_trials),
+            BOUT_CATEGORIES,
+            epoch_names,
+            SIGN_LABELS,
+        ],
+        names=[
+            "trial_idx",
+            "bout_category",
+            "epoch_name",
+            "sign_group",
+        ],
     )
-    counts = (
-        counts
-        .set_index(["trial_idx", "bout_category", "epoch_name", "sign_group"])
-        .reindex(full_index, fill_value=0)
-        .reset_index()
-    )
-    counts["bout_frequency"] = counts["bout_counts"] / duration
 
-    return counts
+    result = counts.reindex(full_index, fill_value=0).reset_index()
+
+    result["time_bin_duration"] = duration
+    result["bout_frequency"] = result["bout_counts"] / duration
+
+    return result
 
 
 def compute_bout_frequency_table(
-        quality_control: Path,
-        input_csv: Path,
-        valid_trials: pd.DataFrame,
-        config_yaml: Path,
-        exclude_unusable_trials: bool = True,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Returns two tidy per-fish tables, built from the same fish/epoch loop:
+    quality_control: Path,
+    input_csv: Path,
+    valid_trials: pd.DataFrame,
+    config_yaml: Path,
+    exclude_unusable: bool = True,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Construct direction-pooled and classic bout-frequency tables."""
+    config = load_yaml_config(config_yaml)
+    specifications = list(read_stim_specs(config))
 
-      - per_fish          : split by laterality_group (direction-pooled),
-                             used for the 4 main heatmap variants.
-      - per_fish_classic  : split by raw epoch_name (direction NOT pooled)
-                             x sign_group, used only for the classic plot.
-
-    Presence/trial-count bookkeeping (stim_presented / get_epoch_trial_counts)
-    now comes from valid_trials.csv (BehaviorScreen.qc.quality_control), not
-    from re-loading each fish's raw BehaviorData.
-
-    NEW behavior vs. the pre-valid_trials version: if
-    exclude_unusable_trials=True (default), bouts recorded during a trial
-    NOT usable per valid_trials.csv (i.e. not presented -- e.g. logged with
-    mismatched stimulus parameters -- or not tracking_ok) are dropped
-    entirely, for every fish, BEFORE any per-spec counting. Previously,
-    presented/tracking_ok only affected the trial GRID (which trial_idx
-    slots exist / how wide the grid is) -- a bout detected during an
-    untracked or mismatched-parameter trial would still silently be
-    counted. Since bout DETECTIONS during such trials can't be trusted,
-    they're now excluded from the numerator too, not just used to size the
-    grid -- set exclude_unusable_trials=False to restore the old behavior.
-    """
-
-    cfg = load_yaml_config(config_yaml)
-    stim_specs = list(read_stim_specs(cfg))
     bouts = load_bouts(input_csv)
-    filtered_bouts = filter_bouts(quality_control, bouts, cfg)
+
+    required_columns = {
+        "file",
+        "stim",
+        "epoch_name",
+        "trial_num",
+        "trial_time",
+        "category",
+        "sign",
+    }
+    missing_columns = required_columns.difference(bouts.columns)
+
+    if missing_columns:
+        raise ValueError(
+            f"{input_csv} is missing columns: " f"{sorted(missing_columns)}"
+        )
+
+    print(f"Total number of bouts: {len(bouts):,}")
+
+    bouts = exclude_qc_fish(
+        dataframe=bouts,
+        quality_control_path=quality_control,
+        file_column="file",
+    )
+    valid_trials = exclude_qc_fish(
+        dataframe=valid_trials,
+        quality_control_path=quality_control,
+        file_column="file",
+    )
+
+    # Resolve stimulus membership before event-level filtering. This avoids
+    # losing an epoch name merely because all its events fail a QC filter.
+    epoch_names = {
+        id(specification): get_matching_epoch_names(
+            bouts,
+            specification,
+        )
+        for specification in specifications
+    }
+
+    bouts = apply_event_filters(
+        dataframe=bouts,
+        config=config,
+        event_type="bout",
+    )
 
     laterality_labels = {
-        id(spec): get_laterality_labels(filtered_bouts, spec) for spec in stim_specs
+        id(specification): get_laterality_labels(
+            bouts,
+            specification,
+        )
+        for specification in specifications
     }
-    epoch_name_labels = {
-        id(spec): get_epoch_name_labels(filtered_bouts, spec) for spec in stim_specs
-    }
 
-    tables = []
-    tables_classic = []
-    fish_groups = filtered_bouts.groupby("file")
+    if exclude_unusable:
+        bouts = exclude_unusable_trials(
+            events=bouts,
+            valid_trials=valid_trials,
+        )
 
-    for fish, fish_bouts in tqdm(fish_groups):
+    tables: list[pd.DataFrame] = []
+    classic_tables: list[pd.DataFrame] = []
 
-        fish_info = parse_fish(fish)
-        time_cos, time_sin = encode_time_of_day(fish_info)
+    # Preserve the existing bout behavior: only fish with surviving bouts
+    # contribute to the bout-frequency average.
+    for fish, fish_bouts in tqdm(
+        bouts.groupby("file", sort=False),
+        desc="Bout frequencies",
+    ):
+        fish = str(fish)
 
-        if exclude_unusable_trials:
-            fish_valid_trials = valid_trials[valid_trials.file == fish]
-            bad_trials = fish_valid_trials.loc[~fish_valid_trials.usable, ["epoch_name", "trial_num"]]
-            if not bad_trials.empty:
-                fish_bouts = fish_bouts.merge(
-                    bad_trials.assign(_unusable=True),
-                    on=["epoch_name", "trial_num"],
-                    how="left",
-                )
-                fish_bouts = fish_bouts[fish_bouts["_unusable"].isna()].drop(columns="_unusable")
+        for specification in specifications:
+            if specification.time_range is None:
+                raise RuntimeError("Bout heatmaps require time ranges.")
 
-        for spec in stim_specs:
+            matched_epoch_names = epoch_names[id(specification)]
 
-            if spec.time_range is None:
-                raise RuntimeError('time range should not be None')
+            number_of_trials = get_epoch_trial_count(
+                valid_trials=valid_trials,
+                fish=fish,
+                epoch_names=matched_epoch_names,
+            )
 
-            matched_names = epoch_name_labels[id(spec)]
-
-            valid_n_trials = get_epoch_trial_counts(valid_trials, fish, matched_names)
-            if valid_n_trials == 0:
-                print(f"{fish} - {spec} not presented, skipping")
+            if number_of_trials == 0:
+                print(f"{fish} - {specification} was not presented; " "skipping.")
                 continue
+
+            start, stop = specification.time_range
 
             common_fields = {
                 "file": fish,
-                "dpf": fish_info.age,
-                "day": f"{fish_info.day}.{fish_info.month}.{fish_info.year}",
-                "time_of_day_cos": time_cos,
-                "time_of_day_sin": time_sin,
-                "stim_name": spec.name,
-                "time_bin_start": spec.time_range[0],
-                "time_bin_stop": spec.time_range[1],
-                "time_bin_duration": spec.time_range[1] - spec.time_range[0],
+                "dpf": get_single_value(
+                    fish_bouts,
+                    "dpf",
+                    fish,
+                ),
+                "day": get_single_value(
+                    fish_bouts,
+                    "day",
+                    fish,
+                ),
+                "cos_daytime": get_single_value(
+                    fish_bouts,
+                    "cos_daytime",
+                    fish,
+                ),
+                "sin_daytime": get_single_value(
+                    fish_bouts,
+                    "sin_daytime",
+                    fish,
+                ),
+                "stim_name": specification.name,
+                "time_bin_start": start,
+                "time_bin_stop": stop,
+                "time_bin_duration": stop - start,
             }
 
             counts = compute_epoch_bout_counts(
-                fish_bouts, spec, valid_n_trials, laterality_labels[id(spec)]
+                fish_bouts=fish_bouts,
+                specification=specification,
+                number_of_trials=number_of_trials,
+                laterality_labels=laterality_labels[id(specification)],
             )
-            for key, value in common_fields.items():
-                counts[key] = value
+            counts = counts.assign(**common_fields)
             tables.append(counts)
 
-            counts_classic = compute_epoch_bout_counts_classic(
-                fish_bouts, spec, valid_n_trials, epoch_name_labels[id(spec)]
+            classic_counts = compute_epoch_bout_counts_classic(
+                fish_bouts=fish_bouts,
+                specification=specification,
+                number_of_trials=number_of_trials,
+                epoch_names=matched_epoch_names,
             )
-            for key, value in common_fields.items():
-                counts_classic[key] = value
-            tables_classic.append(counts_classic)
+            classic_counts = classic_counts.assign(**common_fields)
+            classic_tables.append(classic_counts)
 
-    base_cols = [
-        "trial_idx", "bout_category", "bout_counts", "bout_frequency",
-        "file", "dpf", "day", "time_of_day_cos", "time_of_day_sin",
-        "stim_name", "time_bin_start", "time_bin_stop", "time_bin_duration",
+    base_columns = [
+        "trial_idx",
+        "bout_category",
+        "bout_counts",
+        "bout_frequency",
+        "file",
+        "dpf",
+        "day",
+        "cos_daytime",
+        "sin_daytime",
+        "stim_name",
+        "time_bin_start",
+        "time_bin_stop",
+        "time_bin_duration",
     ]
 
     per_fish = (
-        pd.concat(tables, ignore_index=True) if tables
-        else pd.DataFrame(columns=base_cols + ["laterality_group"])
+        pd.concat(tables, ignore_index=True)
+        if tables
+        else pd.DataFrame(columns=base_columns + ["laterality_group"])
     )
+
     per_fish_classic = (
-        pd.concat(tables_classic, ignore_index=True) if tables_classic
-        else pd.DataFrame(columns=base_cols + ["epoch_name", "sign_group"])
+        pd.concat(classic_tables, ignore_index=True)
+        if classic_tables
+        else pd.DataFrame(columns=base_columns + ["epoch_name", "sign_group"])
     )
 
     return per_fish, per_fish_classic
 
 
 def aggregate_bout_frequency(
-        per_fish: pd.DataFrame,
-        average_trial: bool,
-        average_time_bin: bool,
-        split_columns: Tuple[str, ...] = ("laterality_group",),
-    ) -> pd.DataFrame:
+    per_fish: pd.DataFrame,
+    average_trial: bool,
+    average_time_bin: bool,
+    split_columns: tuple[str, ...] = ("laterality_group",),
+) -> pd.DataFrame:
     """
-    Aggregate a tidy per-fish bout frequency table, optionally collapsing
-    the trial and/or time-bin dimensions. bout_category and every column in
-    `split_columns` are never collapsed.
-
-    Two-step aggregation, to stay statistically correct:
-      1. WITHIN each fish, sum bout_counts and duration across whichever
-         dimension(s) are being collapsed, then recompute
-         bout_frequency = counts / duration. This correctly weights
-         unequal time-bin durations (a naive mean of per-bin frequencies
-         would overweight short bins), and reduces to a plain mean when
-         durations are equal (e.g. across trials, which share the same
-         duration for a given time bin).
-      2. ACROSS fish, take a plain mean of the (possibly collapsed)
-         per-fish bout_frequency -- each fish counts as one sample.
+    Collapse selected dimensions within fish and then average across fish.
     """
-
-    split_columns = list(split_columns)
-    working = per_fish
+    split_columns_list = list(split_columns)
+    working = per_fish.copy()
 
     if average_trial or average_time_bin:
-        keep_cols = ["file", "stim_name", "bout_category"] + split_columns
+        within_fish_columns = [
+            "file",
+            "stim_name",
+            "bout_category",
+            *split_columns_list,
+        ]
+
         if not average_time_bin:
-            keep_cols += ["time_bin_start", "time_bin_stop", "time_bin_duration"]
+            within_fish_columns.extend(
+                [
+                    "time_bin_start",
+                    "time_bin_stop",
+                ]
+            )
+
         if not average_trial:
-            keep_cols += ["trial_idx"]
+            within_fish_columns.append("trial_idx")
 
-        working = (
-            per_fish
-            .groupby(keep_cols, as_index=False)[["bout_counts", "time_bin_duration"]]
-            .sum()
+        working = working.groupby(
+            within_fish_columns,
+            as_index=False,
+            dropna=False,
+        )[["bout_counts", "time_bin_duration"]].sum()
+
+        working["bout_frequency"] = np.where(
+            working["time_bin_duration"] > 0,
+            working["bout_counts"] / working["time_bin_duration"],
+            np.nan,
         )
-        working["bout_frequency"] = working["bout_counts"] / working["time_bin_duration"]
 
-    group_cols = ["stim_name", "bout_category"] + split_columns
+    across_fish_columns = [
+        "stim_name",
+        "bout_category",
+        *split_columns_list,
+    ]
+
     if not average_time_bin:
-        group_cols += ["time_bin_start", "time_bin_stop", "time_bin_duration"]
-    if not average_trial:
-        group_cols += ["trial_idx"]
+        across_fish_columns.extend(
+            [
+                "time_bin_start",
+                "time_bin_stop",
+            ]
+        )
 
-    avg = working.groupby(group_cols, as_index=False)["bout_frequency"].mean()
-    return avg
+    if not average_trial:
+        across_fish_columns.append("trial_idx")
+
+    return working.groupby(
+        across_fish_columns,
+        as_index=False,
+        dropna=False,
+    )["bout_frequency"].mean()
 
 
 def build_bout_heatmap_matrix(
-        avg: pd.DataFrame,
-        category_order: List[str],
-        stim_order: List[str],
-    ) -> Tuple[pd.DataFrame, List[Tuple[int, int, str]], List[Tuple[int, int, str]], List[str], int]:
-    """
-    Assemble an aggregated bout-frequency table (split by laterality_group)
-    into a single 2D matrix ready to be passed to imshow.
+    averaged: pd.DataFrame,
+    category_order: list[str],
+    stimulus_order: list[str],
+) -> tuple[
+    pd.DataFrame,
+    list[tuple[int, int, str]],
+    list[tuple[int, int, str]],
+    list[str],
+    int,
+]:
+    """Build the matrix used by the grouped bout heatmap."""
+    has_trial = "trial_idx" in averaged.columns
+    has_time_bin = "time_bin_start" in averaged.columns
 
-    Whether `trial_idx` / `time_bin_start` are still present as columns in
-    `avg` (i.e. whether that dimension was averaged out) determines whether
-    rows are split by trial and whether columns are split by time bin.
+    number_of_trials = (
+        int(averaged["trial_idx"].max()) + 1 if has_trial and not averaged.empty else 1
+    )
 
-    Rows:    bout_category, optionally x trial_idx.
-    Columns: stim_name x laterality_group, optionally x time_bin_start.
-    """
+    columns = []
+    column_groups = []
+    column_subgroups = []
+    time_bin_labels = []
 
-    has_trial = "trial_idx" in avg.columns
-    has_time_bin = "time_bin_start" in avg.columns
+    for stimulus in stimulus_order:
+        stimulus_rows = averaged.loc[averaged["stim_name"] == stimulus]
 
-    n_trials = int(avg.trial_idx.max()) + 1 if has_trial else 1
-
-    columns: list = []
-    col_groups: List[Tuple[int, int, str]] = []      # stim-level blocks
-    col_subgroups: List[Tuple[int, int, str]] = []   # (stim, laterality) blocks
-    time_bin_labels: List[str] = []
-
-    for stim in stim_order:
-        stim_rows = avg[avg.stim_name == stim]
-        if stim_rows.empty:
+        if stimulus_rows.empty:
             continue
 
-        stim_start = len(columns)
-        lateralities = _order_lateralities(stim_rows.laterality_group.unique())
+        stimulus_start = len(columns)
 
-        for later in lateralities:
-            sub_rows = stim_rows[stim_rows.laterality_group == later]
-            sub_start = len(columns)
+        lateralities = order_lateralities(
+            stimulus_rows["laterality_group"].dropna().unique()
+        )
+
+        for laterality in lateralities:
+            subgroup_rows = stimulus_rows.loc[
+                stimulus_rows["laterality_group"] == laterality
+            ]
+            subgroup_start = len(columns)
 
             if has_time_bin:
                 bins = (
-                    sub_rows[["time_bin_start", "time_bin_stop"]]
+                    subgroup_rows[["time_bin_start", "time_bin_stop"]]
                     .drop_duplicates()
                     .sort_values("time_bin_start")
                 )
-                for t_start, t_stop in bins.itertuples(index=False):
-                    columns.append((stim, later, t_start))
-                    time_bin_labels.append(f"{t_start:g}-{t_stop:g}s")
+
+                for start, stop in bins.itertuples(index=False):
+                    columns.append((stimulus, laterality, start))
+                    time_bin_labels.append(f"{start:g}-{stop:g}s")
             else:
-                columns.append((stim, later))
+                columns.append((stimulus, laterality))
                 time_bin_labels.append("avg")
 
-            col_subgroups.append((sub_start, len(columns), later))
+            column_subgroups.append(
+                (
+                    subgroup_start,
+                    len(columns),
+                    laterality,
+                )
+            )
 
-        col_groups.append((stim_start, len(columns), stim))
+        column_groups.append(
+            (
+                stimulus_start,
+                len(columns),
+                stimulus,
+            )
+        )
 
     if has_trial:
-        row_index = pd.MultiIndex.from_tuples(
-            [(cat, t) for cat in category_order for t in range(n_trials)],
+        row_index = pd.MultiIndex.from_product(
+            [
+                category_order,
+                range(number_of_trials),
+            ],
             names=["bout_category", "trial_idx"],
         )
-        index_cols = ["bout_category", "trial_idx"]
+        index_columns = ["bout_category", "trial_idx"]
     else:
-        row_index = pd.Index(category_order, name="bout_category")
-        index_cols = ["bout_category"]
+        row_index = pd.Index(
+            category_order,
+            name="bout_category",
+        )
+        index_columns = ["bout_category"]
 
-    col_names = (
-        ["stim_name", "laterality_group", "time_bin_start"] if has_time_bin
-        else ["stim_name", "laterality_group"]
+    if has_time_bin:
+        column_names = [
+            "stim_name",
+            "laterality_group",
+            "time_bin_start",
+        ]
+    else:
+        column_names = [
+            "stim_name",
+            "laterality_group",
+        ]
+
+    column_index = pd.MultiIndex.from_tuples(
+        columns,
+        names=column_names,
     )
-    col_index = pd.MultiIndex.from_tuples(columns, names=col_names)
 
-    pivot = avg.pivot_table(index=index_cols, columns=col_names, values="bout_frequency")
-    pivot = pivot.reindex(index=row_index, columns=col_index)
+    pivot = averaged.pivot_table(
+        index=index_columns,
+        columns=column_names,
+        values="bout_frequency",
+    )
 
-    return pivot, col_groups, col_subgroups, time_bin_labels, n_trials
+    pivot = pivot.reindex(
+        index=row_index,
+        columns=column_index,
+    )
+
+    return (
+        pivot,
+        column_groups,
+        column_subgroups,
+        time_bin_labels,
+        number_of_trials,
+    )
 
 
 def plot_bout_heatmap(
-        fig: plt.Figure,
-        ax: plt.Axes,
-        pivot: pd.DataFrame,
-        category_order: List[str],
-        col_groups: List[Tuple[int, int, str]],
-        col_subgroups: List[Tuple[int, int, str]],
-        time_bin_labels: List[str],
-        n_trials: int,
-        title: str | None = None,
-        cmap: str = 'inferno',
-        clim: Tuple[float, float] = (0, MAX_COLORBAR),
-    ) -> None:
-
+    figure: plt.Figure,
+    axis: plt.Axes,
+    pivot: pd.DataFrame,
+    category_order: list[str],
+    column_groups: list[tuple[int, int, str]],
+    column_subgroups: list[tuple[int, int, str]],
+    time_bin_labels: list[str],
+    number_of_trials: int,
+    title: str,
+    color_limit: tuple[float, float],
+) -> None:
+    """Draw a grouped bout-frequency heatmap."""
     data = pivot.to_numpy(dtype=float)
-    n_rows, n_cols = data.shape
+    number_of_rows, number_of_columns = data.shape
 
-    im = ax.imshow(data, aspect='auto', cmap=cmap, vmin=clim[0], vmax=clim[1])
-    fig.colorbar(im, ax=ax, label='bout frequency', fraction=0.015, pad=0.01)
+    image = axis.imshow(
+        data,
+        aspect="auto",
+        cmap="inferno",
+        vmin=color_limit[0],
+        vmax=color_limit[1],
+    )
 
-    # x ticks: time bin label per column -- skip entirely when there's no
-    # real time-bin information (all columns would just say "avg", which
-    # adds no information and only clutters the plot)
-    show_time_bin_ticks = any(lbl != "avg" for lbl in time_bin_labels)
-    if show_time_bin_ticks:
-        ax.set_xticks(range(n_cols))
-        ax.set_xticklabels(time_bin_labels, rotation=90, fontsize=7)
+    figure.colorbar(
+        image,
+        ax=axis,
+        label="bout frequency (s⁻¹)",
+        fraction=0.015,
+        pad=0.01,
+    )
+
+    if any(label != "avg" for label in time_bin_labels):
+        axis.set_xticks(range(number_of_columns))
+        axis.set_xticklabels(
+            time_bin_labels,
+            rotation=90,
+            fontsize=7,
+        )
     else:
-        ax.set_xticks([])
+        axis.set_xticks([])
 
-    # y ticks: trial number per row, if trials weren't averaged out
-    has_trial_rows = isinstance(pivot.index, pd.MultiIndex)
-    if has_trial_rows:
-        ax.set_yticks(range(n_rows))
-        ax.set_yticklabels([t for _, t in pivot.index], fontsize=7)
+    if isinstance(pivot.index, pd.MultiIndex):
+        axis.set_yticks(range(number_of_rows))
+        axis.set_yticklabels(
+            [trial_index for _, trial_index in pivot.index],
+            fontsize=7,
+        )
     else:
-        ax.set_yticks([])
+        axis.set_yticks([])
 
-    # Labels below use FIXED POINT offsets (via annotate + offset points),
-    # not fractions of the data range -- this keeps them legible and
-    # non-overlapping regardless of how many rows/columns the heatmap has
-    # (unlike e.g. `-0.05 * n_rows`, which shrinks to nothing for small,
-    # heavily-averaged heatmaps and causes labels to collide with each
-    # other / the title).
-
-    # stim-level separators + labels (well above the axes)
-    for start, end, label in col_groups:
+    for start, stop, label in column_groups:
         if start > 0:
-            ax.axvline(start - 0.5, color='white', lw=1.6)
-        ax.annotate(
+            axis.axvline(
+                start - 0.5,
+                color="white",
+                linewidth=1.6,
+            )
+
+        axis.annotate(
             label,
-            xy=((start + end - 1) / 2, 1), xycoords=("data", "axes fraction"),
-            xytext=(0, 38), textcoords="offset points",
-            ha='center', va='bottom', fontsize=10, annotation_clip=False,
+            xy=((start + stop - 1) / 2, 1),
+            xycoords=("data", "axes fraction"),
+            xytext=(0, 38),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=10,
+            annotation_clip=False,
         )
 
-    # (stim, laterality) separators + labels (just above the axes)
-    for start, end, label in col_subgroups:
+    for start, stop, label in column_subgroups:
         if start > 0:
-            ax.axvline(start - 0.5, color='white', lw=0.6, alpha=0.7)
-        ax.annotate(
+            axis.axvline(
+                start - 0.5,
+                color="white",
+                linewidth=0.6,
+                alpha=0.7,
+            )
+
+        axis.annotate(
             label,
-            xy=((start + end - 1) / 2, 1), xycoords=("data", "axes fraction"),
-            xytext=(0, 16), textcoords="offset points",
-            ha='center', va='bottom', fontsize=8, annotation_clip=False,
+            xy=((start + stop - 1) / 2, 1),
+            xycoords=("data", "axes fraction"),
+            xytext=(0, 16),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            annotation_clip=False,
         )
 
-    # bout category separators + labels (left of the axes)
-    for idx, cat in enumerate(category_order):
-        row_start = idx * n_trials
-        row_end = row_start + n_trials
+    for category_index, category in enumerate(category_order):
+        row_start = category_index * number_of_trials
+        row_stop = row_start + number_of_trials
+
         if row_start > 0:
-            ax.axhline(row_start - 0.5, color='white', lw=1.6)
-        ax.annotate(
-            cat,
-            xy=(0, (row_start + row_end - 1) / 2), xycoords=("axes fraction", "data"),
-            xytext=(-10, 0), textcoords="offset points",
-            ha='right', va='center', fontsize=9, annotation_clip=False,
+            axis.axhline(
+                row_start - 0.5,
+                color="white",
+                linewidth=1.6,
+            )
+
+        axis.annotate(
+            category,
+            xy=(
+                0,
+                (row_start + row_stop - 1) / 2,
+            ),
+            xycoords=("axes fraction", "data"),
+            xytext=(-10, 0),
+            textcoords="offset points",
+            ha="right",
+            va="center",
+            fontsize=9,
+            annotation_clip=False,
         )
 
-    # title pad (points) is large enough to clear the stim-level group
-    # labels above (offset 38 pts + their own text height)
-    if title:
-        ax.set_title(title, fontsize=12, pad=62)
-
-    ax.set_xlabel("")
-    ax.set_ylabel("")
-
-
-# (average_trial, average_time_bin, filename_suffix, title)
-HEATMAP_VARIANTS: List[Tuple[bool, bool, str, str]] = [
-    (False, False, "", "trial x time bin"),
-    (True, False, "_trial_avg", "averaged over trials"),
-    (False, True, "_timebin_avg", "averaged over time bins"),
-    (True, True, "_full_avg", "averaged over trials and time bins"),
-]
+    axis.set_title(title, fontsize=12, pad=62)
+    axis.set_xlabel("")
+    axis.set_ylabel("")
 
 
 def build_classic_bout_heatmap_matrix(
-        avg: pd.DataFrame,
-        category_order: List[str],
-        stim_order: List[str],
-    ) -> Tuple[pd.DataFrame, List[str], List[str]]:
-    """
-    Build the "classic" heatmap matrix, matching the layout of the
-    original (pre-refactor) heatmap:
-      - rows:    flat list of (bout_category, sign_group) -- every bout
-                 category always gets both LEFT and RIGHT rows, since every
-                 bout has a sign regardless of stimulus.
-      - columns: for each stim, TIME BIN is the outer loop and raw
-                 epoch_name (stimulus direction, e.g. "grating right" vs
-                 "grating left") is the inner loop -- i.e. directions are
-                 INTERLEAVED per time bin (bin1_left, bin1_right,
-                 bin2_left, bin2_right, ...), matching the original
-                 pre-refactor code's `product(time_ranges, parameters)`
-                 column ordering (time bin outer, parameter/direction
-                 inner).
-      - no group separators.
+    averaged: pd.DataFrame,
+    category_order: list[str],
+    stimulus_order: list[str],
+) -> tuple[pd.DataFrame, list[str], list[str]]:
+    """Build the original direction-separated bout heatmap matrix."""
+    if "trial_idx" in averaged.columns:
+        raise ValueError("The classic heatmap requires trial-averaged data.")
 
-    `avg` must be the classic-specific table (epoch_name + sign_group
-    columns), trial-averaged already (no `trial_idx`), with time bins still
-    present.
-    """
+    if "time_bin_start" not in averaged.columns:
+        raise ValueError("The classic heatmap requires retained time bins.")
 
-    if "trial_idx" in avg.columns:
-        raise ValueError("classic heatmap expects trial-averaged data (no trial_idx column)")
-    if "time_bin_start" not in avg.columns:
-        raise ValueError("classic heatmap expects time bins to be preserved")
-    if "epoch_name" not in avg.columns or "sign_group" not in avg.columns:
-        raise ValueError("classic heatmap expects epoch_name and sign_group columns")
+    required_columns = {
+        "epoch_name",
+        "sign_group",
+    }
+    missing_columns = required_columns.difference(averaged.columns)
 
-    signs = _order_signs(avg.sign_group.unique())
+    if missing_columns:
+        raise ValueError(
+            "Classic heatmap data are missing columns: " f"{sorted(missing_columns)}"
+        )
 
-    row_index = pd.MultiIndex.from_tuples(
-        [(cat, sign) for cat in category_order for sign in signs],
+    signs = order_signs(averaged["sign_group"].dropna().unique())
+
+    row_index = pd.MultiIndex.from_product(
+        [category_order, signs],
         names=["bout_category", "sign_group"],
     )
 
-    col_tuples = []
-    col_labels = []
-    for stim in stim_order:
-        stim_rows = avg[avg.stim_name == stim]
-        if stim_rows.empty:
+    column_tuples = []
+    column_labels = []
+
+    for stimulus in stimulus_order:
+        stimulus_rows = averaged.loc[averaged["stim_name"] == stimulus]
+
+        if stimulus_rows.empty:
             continue
 
-        # time bin OUTER, epoch_name (direction) INNER -- interleaves
-        # e.g. "grating left"/"grating right" per bin, matching the
-        # original plot's product(time_ranges, parameters) column order.
         bins = (
-            stim_rows[["time_bin_start", "time_bin_stop"]]
+            stimulus_rows[["time_bin_start", "time_bin_stop"]]
             .drop_duplicates()
             .sort_values("time_bin_start")
         )
-        epoch_names = sorted(stim_rows.epoch_name.unique())
+        epoch_names = sorted(stimulus_rows["epoch_name"].dropna().unique())
 
-        for t_start, t_stop in bins.itertuples(index=False):
+        for start, stop in bins.itertuples(index=False):
             for epoch_name in epoch_names:
                 has_data = (
-                    (stim_rows.epoch_name == epoch_name) &
-                    (stim_rows.time_bin_start == t_start)
+                    (stimulus_rows["epoch_name"] == epoch_name)
+                    & (stimulus_rows["time_bin_start"] == start)
                 ).any()
+
                 if not has_data:
                     continue
-                col_tuples.append((epoch_name, t_start))
-                col_labels.append(f"{epoch_name} | {t_start:g}-{t_stop:g}s")
 
-    col_index = pd.MultiIndex.from_tuples(col_tuples, names=["epoch_name", "time_bin_start"])
+                column_tuples.append((epoch_name, start))
+                column_labels.append(f"{epoch_name} | {start:g}-{stop:g}s")
 
-    pivot = avg.pivot_table(
+    column_index = pd.MultiIndex.from_tuples(
+        column_tuples,
+        names=["epoch_name", "time_bin_start"],
+    )
+
+    pivot = averaged.pivot_table(
         index=["bout_category", "sign_group"],
         columns=["epoch_name", "time_bin_start"],
         values="bout_frequency",
     )
-    pivot = pivot.reindex(index=row_index, columns=col_index)
 
-    row_labels = [f"{cat}_{sign}" for cat, sign in pivot.index]
+    pivot = pivot.reindex(
+        index=row_index,
+        columns=column_index,
+    )
 
-    return pivot, col_labels, row_labels
+    row_labels = [f"{category}_{sign}" for category, sign in pivot.index]
+
+    return pivot, column_labels, row_labels
 
 
 def plot_bout_heatmap_classic(
-        fig: plt.Figure,
-        ax: plt.Axes,
-        pivot: pd.DataFrame,
-        col_labels: List[str],
-        row_labels: List[str],
-        cmap: str = 'inferno',
-        clim: Tuple[float, float] = (0, MAX_COLORBAR),
-    ) -> None:
-    """Simple, flat heatmap -- same style as the original pre-refactor plot."""
-
+    figure: plt.Figure,
+    axis: plt.Axes,
+    pivot: pd.DataFrame,
+    column_labels: list[str],
+    row_labels: list[str],
+    color_limit: tuple[float, float],
+) -> None:
+    """Draw the original flat bout-frequency heatmap."""
     data = pivot.to_numpy(dtype=float)
 
-    im = ax.imshow(data, aspect='auto', cmap=cmap)
-    im.set_clim(*clim)
-    fig.colorbar(im, ax=ax, label='bout frequency')
-    ax.set_xticks(range(data.shape[1]))
-    ax.set_xticklabels(col_labels, rotation=90, ha='center', fontsize=8)
-    ax.set_yticks(range(data.shape[0]))
-    ax.set_yticklabels(row_labels, fontsize=8)
-    ax.set_xlabel("epoch")
-    ax.set_ylabel("bout category")
+    image = axis.imshow(
+        data,
+        aspect="auto",
+        cmap="inferno",
+        vmin=color_limit[0],
+        vmax=color_limit[1],
+    )
 
+    figure.colorbar(
+        image,
+        ax=axis,
+        label="bout frequency (s⁻¹)",
+    )
 
-# ---------------------------------------------------------------------------
-# Fish-count heatmap (new).
-#
-# Built directly from valid_trials.csv, INDEPENDENT of the YAML config's
-# stim_specs -- shows every epoch declared in PROTOCOL_SPEC, not just the
-# ones referenced in screen.yaml, since it's a general protocol-attrition
-# diagnostic ("how many fish do I actually have left, per epoch x trial")
-# rather than an analysis-specific view.
-# ---------------------------------------------------------------------------
+    axis.set_xticks(range(data.shape[1]))
+    axis.set_xticklabels(
+        column_labels,
+        rotation=90,
+        ha="center",
+        fontsize=8,
+    )
+    axis.set_yticks(range(data.shape[0]))
+    axis.set_yticklabels(
+        row_labels,
+        fontsize=8,
+    )
+    axis.set_xlabel("epoch")
+    axis.set_ylabel("bout category")
+
 
 def compute_fish_count_table(
-        quality_control: Path,
-        valid_trials: pd.DataFrame,
-    ) -> Tuple[pd.DataFrame, int]:
-    """
-    Per (epoch_name, trial_num), number of fish with a USABLE trial
-    (presented AND tracking_ok), after also excluding fish flagged by
-    qc.csv -- the same fish-level veto filter_bouts already applies to
-    bouts.csv, applied here to valid_trials.csv so the two stay consistent.
+    quality_control: Path,
+    valid_trials: pd.DataFrame,
+) -> tuple[pd.DataFrame, int]:
+    """Count fish with a usable trial for each epoch and trial number."""
+    trials = exclude_qc_fish(
+        dataframe=valid_trials,
+        quality_control_path=quality_control,
+        file_column="file",
+    )
 
-    Returns (counts, n_total_fish) where n_total_fish is the number of
-    fish considered at all (post qc.csv exclusion) -- used as the
-    heatmap's colorbar reference maximum.
-    """
-    trials = valid_trials.copy()
-
-    if quality_control.exists():
-        qc = pd.read_csv(quality_control)
-        trials = trials[~trials.file.isin(qc.file)]
-
-    n_total_fish = trials.file.nunique()
+    number_of_fish = trials["file"].nunique()
 
     if trials.empty:
-        return pd.DataFrame(columns=["epoch_name", "trial_num", "n_fish"]), n_total_fish
+        return (
+            pd.DataFrame(
+                columns=[
+                    "epoch_name",
+                    "trial_num",
+                    "n_fish",
+                ]
+            ),
+            number_of_fish,
+        )
 
     all_pairs = trials[["epoch_name", "trial_num"]].drop_duplicates()
 
     counts = (
-        trials[trials.usable]
+        trials.loc[trials["usable"]]
         .groupby(["epoch_name", "trial_num"])
         .size()
         .rename("n_fish")
         .reset_index()
     )
+
+    full_index = pd.MultiIndex.from_frame(all_pairs)
+
     counts = (
-        counts
-        .set_index(["epoch_name", "trial_num"])
-        .reindex(pd.MultiIndex.from_frame(all_pairs), fill_value=0)
+        counts.set_index(["epoch_name", "trial_num"])
+        .reindex(full_index, fill_value=0)
         .reset_index()
     )
 
-    return counts, n_total_fish
+    return counts, number_of_fish
 
 
-def build_fish_count_matrix(counts: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
-    """
-    (trial_num x epoch_name) matrix of usable-fish counts. Column order
-    follows first-appearance order in `counts` -- since valid_trials.csv is
-    built by iterating PROTOCOL_SPEC in declared order (BehaviorScreen.qc),
-    this matches the protocol's own epoch ordering.
-    """
+def build_fish_count_matrix(
+    counts: pd.DataFrame,
+) -> tuple[pd.DataFrame, list[str]]:
+    """Build trial × epoch usable-fish matrix."""
     epoch_order = list(dict.fromkeys(counts["epoch_name"]))
-    n_trials = int(counts["trial_num"].max()) + 1 if not counts.empty else 0
 
-    pivot = counts.pivot_table(index="trial_num", columns="epoch_name", values="n_fish")
-    pivot = pivot.reindex(index=range(n_trials), columns=epoch_order)
+    number_of_trials = int(counts["trial_num"].max()) + 1 if not counts.empty else 0
+
+    pivot = counts.pivot_table(
+        index="trial_num",
+        columns="epoch_name",
+        values="n_fish",
+    )
+
+    pivot = pivot.reindex(
+        index=range(number_of_trials),
+        columns=epoch_order,
+    )
+
     return pivot, epoch_order
 
 
 def plot_fish_count_heatmap(
-        fig: plt.Figure,
-        ax: plt.Axes,
-        pivot: pd.DataFrame,
-        epoch_order: List[str],
-        n_total_fish: int,
-        cmap: str = 'viridis',
-    ) -> None:
-
+    figure: plt.Figure,
+    axis: plt.Axes,
+    pivot: pd.DataFrame,
+    epoch_order: list[str],
+    number_of_fish: int,
+) -> None:
+    """Plot usable fish count by epoch and trial."""
     data = pivot.to_numpy(dtype=float)
-    n_rows, n_cols = data.shape
 
-    im = ax.imshow(data, aspect='auto', cmap=cmap, vmin=0, vmax=max(n_total_fish, 1))
-    fig.colorbar(im, ax=ax, label='# fish usable', fraction=0.02, pad=0.01)
+    image = axis.imshow(
+        data,
+        aspect="auto",
+        cmap="viridis",
+        vmin=0,
+        vmax=max(number_of_fish, 1),
+    )
 
-    ax.set_xticks(range(n_cols))
-    ax.set_xticklabels(epoch_order, rotation=90, fontsize=7)
-    ax.set_yticks(range(n_rows))
-    ax.set_yticklabels(range(n_rows), fontsize=7)
-    ax.set_xlabel("epoch_name")
-    ax.set_ylabel("trial_num")
-    ax.set_title(
-        f"Fish remaining per epoch x trial (usable = presented & tracking_ok) "
-        f"-- {n_total_fish} fish total",
-        fontsize=11, fontweight='bold',
+    figure.colorbar(
+        image,
+        ax=axis,
+        label="number of usable fish",
+        fraction=0.02,
+        pad=0.01,
+    )
+
+    axis.set_xticks(range(data.shape[1]))
+    axis.set_xticklabels(
+        epoch_order,
+        rotation=90,
+        fontsize=7,
+    )
+    axis.set_yticks(range(data.shape[0]))
+    axis.set_yticklabels(
+        range(data.shape[0]),
+        fontsize=7,
+    )
+    axis.set_xlabel("epoch name")
+    axis.set_ylabel("trial number")
+    axis.set_title(
+        "Fish remaining per epoch × trial " f"({number_of_fish} fish total)",
+        fontsize=11,
+        fontweight="bold",
     )
 
 
-def plot_heatmap(
-        quality_control: Path,
-        input_csv: Path,
-        valid_trials_csv: Path,
-        config_yaml: Path,
-        output_png: Path,
-        exclude_unusable_trials: bool = True,
-        interactive: bool = True
-    ) -> None:
+def plot_heatmaps(
+    quality_control: Path,
+    input_csv: Path,
+    valid_trials_csv: Path,
+    config_yaml: Path,
+    output_png: Path,
+    exclude_unusable: bool = True,
+    interactive: bool = False,
+    maximum_frequency: float = MAX_COLORBAR,
+) -> None:
+    """Calculate bout frequencies and create all output plots."""
+    output_png.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
-    output_csv = output_png.parent / 'bout_frequency.csv'
-    output_csv_classic = output_png.parent / 'bout_frequency_classic.csv'
-    output_fish_count_csv = output_png.parent / 'fish_count.csv'
-
-    cfg = load_yaml_config(config_yaml)
+    config = load_yaml_config(config_yaml)
     valid_trials = load_valid_trials(valid_trials_csv)
 
     per_fish, per_fish_classic = compute_bout_frequency_table(
-        quality_control, input_csv, valid_trials, config_yaml,
-        exclude_unusable_trials=exclude_unusable_trials,
+        quality_control=quality_control,
+        input_csv=input_csv,
+        valid_trials=valid_trials,
+        config_yaml=config_yaml,
+        exclude_unusable=exclude_unusable,
     )
-    per_fish.to_csv(output_csv, index=False)
-    per_fish_classic.to_csv(output_csv_classic, index=False)
 
-    # fish-count heatmap: independent of stim_specs, full-protocol view
-    fish_count, n_total_fish = compute_fish_count_table(quality_control, valid_trials)
-    fish_count.to_csv(output_fish_count_csv, index=False)
+    per_fish.to_csv(
+        output_png.parent / "bout_frequency.csv",
+        index=False,
+    )
+    per_fish_classic.to_csv(
+        output_png.parent / "bout_frequency_classic.csv",
+        index=False,
+    )
 
-    if not fish_count.empty:
-        fish_count_pivot, epoch_order = build_fish_count_matrix(fish_count)
-        fig_w = max(16, 0.25 * len(epoch_order))
-        fig_h = max(6, 0.28 * fish_count_pivot.shape[0])
-        fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout='constrained')
-        plot_fish_count_heatmap(fig, ax, fish_count_pivot, epoch_order, n_total_fish)
-        fish_count_png = output_png.parent / f"{output_png.stem}_fish_count{output_png.suffix}"
-        fig.savefig(fish_count_png, bbox_inches='tight')
-    else:
-        print("No valid_trials data found, skipping fish-count heatmap")
+    fish_counts, number_of_fish = compute_fish_count_table(
+        quality_control=quality_control,
+        valid_trials=valid_trials,
+    )
+    fish_counts.to_csv(
+        output_png.parent / "fish_count.csv",
+        index=False,
+    )
+
+    if not fish_counts.empty:
+        fish_count_matrix, epoch_order = build_fish_count_matrix(fish_counts)
+
+        figure_width = max(
+            16,
+            0.25 * len(epoch_order),
+        )
+        figure_height = max(
+            6,
+            0.28 * fish_count_matrix.shape[0],
+        )
+
+        figure, axis = plt.subplots(
+            figsize=(figure_width, figure_height),
+            layout="constrained",
+        )
+
+        plot_fish_count_heatmap(
+            figure=figure,
+            axis=axis,
+            pivot=fish_count_matrix,
+            epoch_order=epoch_order,
+            number_of_fish=number_of_fish,
+        )
+
+        fish_count_path = (
+            output_png.parent / f"{output_png.stem}_fish_count" f"{output_png.suffix}"
+        )
+        figure.savefig(
+            fish_count_path,
+            dpi=180,
+            bbox_inches="tight",
+        )
+
+        if not interactive:
+            plt.close(figure)
 
     if per_fish.empty:
-        print("No bouts found, skipping bout heatmap plots")
+        print("No bouts remain after filtering.")
+
         if interactive:
             plt.show()
+
         return
 
     category_order = BOUT_CATEGORIES
-    stim_order = stimulus_name_order(cfg)
+    stim_order = stimulus_name_order(config)
 
-    for average_trial, average_time_bin, suffix, title in HEATMAP_VARIANTS:
-
-        avg = aggregate_bout_frequency(
-            per_fish, average_trial, average_time_bin, split_columns=("laterality_group",)
+    for (
+        average_trial,
+        average_time_bin,
+        suffix,
+        title,
+    ) in HEATMAP_VARIANTS:
+        averaged = aggregate_bout_frequency(
+            per_fish=per_fish,
+            average_trial=average_trial,
+            average_time_bin=average_time_bin,
+            split_columns=("laterality_group",),
         )
-        avg.to_csv(output_png.parent / f'bout_frequency_avg{suffix}.csv', index=False)
 
-        pivot, col_groups, col_subgroups, time_bin_labels, n_trials = build_bout_heatmap_matrix(
-            avg, category_order, stim_order
+        averaged.to_csv(
+            output_png.parent / f"bout_frequency_avg{suffix}.csv",
+            index=False,
         )
 
-        n_rows, n_cols = pivot.shape
-        fig_w = max(16, 0.22 * n_cols)
-        fig_h = max(6, 0.28 * n_rows)
+        (
+            pivot,
+            column_groups,
+            column_subgroups,
+            time_labels,
+            number_of_trials,
+        ) = build_bout_heatmap_matrix(
+            averaged=averaged,
+            category_order=category_order,
+            stimulus_order=stim_order,
+        )
 
-        fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout='constrained')
+        figure_width = max(
+            16,
+            0.22 * pivot.shape[1],
+        )
+        figure_height = max(
+            6,
+            0.28 * pivot.shape[0],
+        )
+
+        figure, axis = plt.subplots(
+            figsize=(figure_width, figure_height),
+            layout="constrained",
+        )
+
         plot_bout_heatmap(
-            fig, ax, pivot, category_order, col_groups, col_subgroups, time_bin_labels, n_trials,
+            figure=figure,
+            axis=axis,
+            pivot=pivot,
+            category_order=category_order,
+            column_groups=column_groups,
+            column_subgroups=column_subgroups,
+            time_bin_labels=time_labels,
+            number_of_trials=number_of_trials,
             title=title,
+            color_limit=(0.0, maximum_frequency),
         )
 
-        variant_png = output_png.parent / f"{output_png.stem}{suffix}{output_png.suffix}"
-        fig.savefig(variant_png, bbox_inches='tight')
+        variant_path = (
+            output_png.parent / f"{output_png.stem}{suffix}" f"{output_png.suffix}"
+        )
 
-    # classic heatmap: same layout as the original pre-refactor plot
-    # (trial-averaged, flat category x LEFT/RIGHT rows, flat epoch_name x
-    # time-bin columns -- stimulus direction NOT pooled -- no separator
-    # lines).
-    classic_avg = aggregate_bout_frequency(
-        per_fish_classic, average_trial=True, average_time_bin=False,
-        split_columns=("epoch_name", "sign_group"),
-    )
-    classic_pivot, classic_col_labels, classic_row_labels = build_classic_bout_heatmap_matrix(
-        classic_avg, category_order, stim_order
-    )
-    classic_avg.to_csv(output_png.parent / 'bout_frequency_avg_classic.csv', index=False)
+        figure.savefig(
+            variant_path,
+            dpi=180,
+            bbox_inches="tight",
+        )
 
-    fig_w = max(20, 0.35 * len(classic_col_labels))
-    fig_h = max(10, 0.32 * len(classic_row_labels))
-    fig, ax = plt.subplots(figsize=(fig_w, fig_h), layout='constrained')
-    plot_bout_heatmap_classic(fig, ax, classic_pivot, classic_col_labels, classic_row_labels)
+        if not interactive:
+            plt.close(figure)
 
-    classic_png = output_png.parent / f"{output_png.stem}_classic{output_png.suffix}"
-    fig.savefig(classic_png, bbox_inches='tight')
+        print(f"Saved {variant_path}")
+
+    if not per_fish_classic.empty:
+        classic_average = aggregate_bout_frequency(
+            per_fish=per_fish_classic,
+            average_trial=True,
+            average_time_bin=False,
+            split_columns=("epoch_name", "sign_group"),
+        )
+
+        classic_average.to_csv(
+            output_png.parent / "bout_frequency_avg_classic.csv",
+            index=False,
+        )
+
+        (
+            classic_pivot,
+            classic_column_labels,
+            classic_row_labels,
+        ) = build_classic_bout_heatmap_matrix(
+            averaged=classic_average,
+            category_order=category_order,
+            stimulus_order=stim_order,
+        )
+
+        figure_width = max(
+            20,
+            0.35 * len(classic_column_labels),
+        )
+        figure_height = max(
+            10,
+            0.32 * len(classic_row_labels),
+        )
+
+        figure, axis = plt.subplots(
+            figsize=(figure_width, figure_height),
+            layout="constrained",
+        )
+
+        plot_bout_heatmap_classic(
+            figure=figure,
+            axis=axis,
+            pivot=classic_pivot,
+            column_labels=classic_column_labels,
+            row_labels=classic_row_labels,
+            color_limit=(0.0, maximum_frequency),
+        )
+
+        classic_path = (
+            output_png.parent / f"{output_png.stem}_classic" f"{output_png.suffix}"
+        )
+
+        figure.savefig(
+            classic_path,
+            dpi=180,
+            bbox_inches="tight",
+        )
+
+        if not interactive:
+            plt.close(figure)
+
+        print(f"Saved {classic_path}")
 
     if interactive:
         plt.show()
 
 
 def build_parser() -> argparse.ArgumentParser:
-
-    parser = argparse.ArgumentParser(
-        description="Collect bout.csv and plot results"
-    )
+    """Create the command-line parser."""
+    parser = argparse.ArgumentParser(description="Calculate and plot bout frequencies.")
 
     parser.add_argument(
         "root",
         type=Path,
-        help="Root experiment folder (e.g. WT_oct_2025)",
+        help="Root experiment directory.",
     )
-
     parser.add_argument(
         "yaml",
         type=Path,
-        help="plot config file",
+        help="YAML analysis configuration.",
     )
-
     parser.add_argument(
         "--qc-csv",
-        default='qc.csv',
-        help="quality control: fish not moving and tracking issues",
+        default="qc.csv",
     )
-
     parser.add_argument(
         "--bouts-csv",
-        default='bouts.csv',
-        help="input CSV file",
+        default="bouts.csv",
     )
-
     parser.add_argument(
         "--valid-trials-csv",
-        default='valid_trials.csv',
-        help="per-trial presentation + tracking quality record (BehaviorScreen.qc)",
+        default="valid_trials.csv",
     )
-
     parser.add_argument(
         "--bouts-png",
-        default='bouts.png',
-        help="output bout PNG file (variants are saved alongside with suffixes)",
+        default="bouts.png",
     )
-
     parser.add_argument(
         "--include-unusable-trials",
-        action='store_true',
-        help="don't exclude bouts recorded during a trial not marked usable "
-             "(presented & tracking_ok) in valid_trials.csv (default: excluded)",
+        action="store_true",
     )
-
+    parser.add_argument(
+        "--vmax",
+        type=float,
+        default=MAX_COLORBAR,
+    )
     parser.add_argument(
         "--interactive",
-        action='store_true'
+        action="store_true",
     )
 
     return parser
 
 
-def run_plot(
-        qc_csv: str,
-        bouts_csv: str,
-        valid_trials_csv: str,
-        bouts_png: str,
-        config_yaml: Path,
-        root: Path,
-        exclude_unusable_trials: bool,
-        interactive: bool
-    ) -> None:
+def main() -> None:
+    """Run bout heatmap generation."""
+    args = build_parser().parse_args()
 
-    quality_control = root / qc_csv
-    input_csv = root / bouts_csv
-    valid_trials_path = root / valid_trials_csv
-    output_bouts_png = root / bouts_png
-
-    plot_heatmap(
-        quality_control,
-        input_csv,
-        valid_trials_path,
-        config_yaml,
-        output_bouts_png,
-        exclude_unusable_trials,
-        interactive
-    )
-
-
-def main(args: argparse.Namespace) -> None:
-
-    run_plot(
-        qc_csv=args.qc_csv,
-        bouts_csv=args.bouts_csv,
-        valid_trials_csv=args.valid_trials_csv,
-        bouts_png=args.bouts_png,
+    plot_heatmaps(
+        quality_control=args.root / args.qc_csv,
+        input_csv=args.root / args.bouts_csv,
+        valid_trials_csv=(args.root / args.valid_trials_csv),
         config_yaml=args.yaml,
-        root=args.root,
-        exclude_unusable_trials=not args.include_unusable_trials,
-        interactive=args.interactive
+        output_png=args.root / args.bouts_png,
+        exclude_unusable=(not args.include_unusable_trials),
+        interactive=args.interactive,
+        maximum_frequency=args.vmax,
     )
 
 
 if __name__ == "__main__":
-
-    main(build_parser().parse_args())
+    main()
