@@ -1,121 +1,29 @@
-from typing import List, Tuple, Generator, Any
+from typing import List, Tuple
 import argparse
 from pathlib import Path
-from dataclasses import dataclass
-import operator
 
-import yaml
 import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 from megabouts.utils import bouts_category_name_short
 
-from BehaviorScreen.core import Stim, Laterality, BoutSign
+from BehaviorScreen.core import Laterality, BoutSign
 from BehaviorScreen.load import parse_fish, encode_time_of_day
+from BehaviorScreen.stimulus_specs import (
+    StimSpec,
+    load_valid_trials,
+    load_yaml_config,
+    parse_rules,
+    read_stim_specs,
+    stimulus_name_order,
+)
 
 
 MAX_COLORBAR = 0.6
 
 
-def pd_series_in(s: pd.Series, v: Any) -> pd.Series:
-    return s.isin(v)
-
-
-def pd_series_not_in(s: pd.Series, v: Any) -> pd.Series:
-    return ~s.isin(v)
-
-
-_OPS = {
-    "<": operator.lt,
-    "<=": operator.le,
-    ">": operator.gt,
-    ">=": operator.ge,
-    "==": operator.eq,
-    "!=": operator.ne,
-    "in": pd_series_in,
-    "not_in": pd_series_not_in,
-}
-
-
-@dataclass
-class Rule:
-    column: str
-    operator: str
-    value: Any
-
-    def get_mask(self, df: pd.DataFrame) -> pd.Series:
-        op_func = _OPS[self.operator]
-        return op_func(df[self.column], self.value)
-
-
-@dataclass
-class RuleSet:
-    rules: tuple[Rule, ...]
-
-    def get_mask(self, df: pd.DataFrame) -> pd.Series:
-        mask = pd.Series(True, index=df.index)
-        for rule in self.rules:
-            mask &= rule.get_mask(df)
-        return mask
-
-    def __repr__(self):
-        if not self.rules:
-            return "all"
-        return "_".join([f"{r.column}{r.operator}{r.value}" for r in self.rules])
-
-
-@dataclass
-class StimSpec:
-    """
-    A stimulus epoch to analyze.
-
-    Trials/bouts are matched by `stim` + `parameters`. `parameters` is a
-    list of RuleSets combined with OR: a row counts for this spec if it
-    matches ANY of the rulesets. Each ruleset should normally include an
-    `epoch_name` rule to disambiguate sub-conditions that share the same
-    `Stim` enum value (e.g. "OMR lateral" vs "OMR forward", both Stim.OMR;
-    or "dark" vs "bright -> dark", both Stim.DARK) -- when a ruleset pools
-    several raw epoch_name values (e.g. left+right), that's how ipsi/contra
-    trials end up grouped under one display name; the actual side is
-    resolved later via the per-bout `laterality` column.
-
-    `stim` is technically redundant with a sufficiently specific
-    `epoch_name` rule, but is kept as a cheap consistency guard (and for
-    readability in the YAML) rather than an active filter dependency.
-
-    There is no separate trial range/count: `trial_num` in the bouts table
-    is already a 0-based, contiguous index local to each raw epoch_name
-    value (assigned upstream by the megabouts step), so it's used directly.
-    """
-    stim: Stim
-    name: str
-    time_range: Tuple[float, float] | None
-    parameters: List[RuleSet]
-
-    def get_mask(self, df: pd.DataFrame) -> pd.Series:
-        if not self.parameters:
-            return pd.Series(True, index=df.index)
-        mask = pd.Series(False, index=df.index)
-        for ruleset in self.parameters:
-            mask |= ruleset.get_mask(df)
-        return mask
-
-    def __repr__(self) -> str:
-        params = " | ".join(str(p) for p in self.parameters)
-        return f"{self.name}[{params}]"
-
-
 def load_bouts(bout_csv: Path) -> pd.DataFrame:
     return pd.read_csv(bout_csv)
-
-
-def parse_rules(cfg: dict) -> RuleSet:
-    rules = []
-    for column, rule_dict in (cfg or {}).items():
-        for op_name, value in rule_dict.items():
-            rules.append(Rule(column, op_name, value))
-    return RuleSet(tuple(rules))
 
 
 def filter_bouts(quality_control: Path, bouts: pd.DataFrame, cfg: dict) -> pd.DataFrame:
@@ -148,55 +56,6 @@ def filter_bouts(quality_control: Path, bouts: pd.DataFrame, cfg: dict) -> pd.Da
     return filtered
 
 
-def load_yaml_config(path: Path) -> dict:
-    """Load YAML config from file"""
-    with open(path, 'r') as f:
-        cfg = yaml.safe_load(f)
-    return cfg
-
-
-def read_stim_specs(
-        cfg: dict,
-        ignore_time_bins: bool = False
-    ) -> Generator[StimSpec, None, None]:
-
-    global_time_bins = cfg.get("time_bins", [])
-
-    for entry in cfg["stimuli"]:
-
-        try:
-            stim = Stim[entry["stim"]]
-        except KeyError:
-            raise ValueError(f"Unknown stimulus: {entry['stim']}")
-
-        name = entry["name"]
-
-        bins = entry.get("time_bins", global_time_bins)
-        if not bins:
-            raise ValueError(f"No time_bins defined for stimulus '{name}'")
-
-        parameters = [parse_rules(p) for p in entry.get("parameters", [{}])]
-        time_ranges = [None] if ignore_time_bins else bins
-
-        for time_range in time_ranges:
-            yield StimSpec(
-                stim=stim,
-                name=name,
-                time_range=time_range,
-                parameters=parameters,
-            )
-
-
-def stim_name_order(cfg: dict) -> List[str]:
-    """Order of stimulus names as they appear in the yaml config."""
-    seen: List[str] = []
-    for entry in cfg["stimuli"]:
-        name = entry["name"]
-        if name not in seen:
-            seen.append(name)
-    return seen
-
-
 # ---------------------------------------------------------------------------
 # Per-trial presence/tracking-quality lookup.
 #
@@ -209,13 +68,6 @@ def stim_name_order(cfg: dict) -> List[str]:
 #   - an epoch logged but with mismatched stimulus parameters -> presented=False
 #   - per-trial online/offline tracking mismatch -> tracking_ok=False
 # ---------------------------------------------------------------------------
-
-def load_valid_trials(valid_trials_csv: Path) -> pd.DataFrame:
-    df = pd.read_csv(valid_trials_csv)
-    df["presented"] = df["presented"].astype(bool)
-    df["tracking_ok"] = df["tracking_ok"].astype(bool)
-    df["usable"] = df["presented"] & df["tracking_ok"]
-    return df
 
 
 def get_epoch_trial_counts(
@@ -1092,7 +944,7 @@ def plot_heatmap(
         return
 
     category_order = BOUT_CATEGORIES
-    stim_order = stim_name_order(cfg)
+    stim_order = stimulus_name_order(cfg)
 
     for average_trial, average_time_bin, suffix, title in HEATMAP_VARIANTS:
 
