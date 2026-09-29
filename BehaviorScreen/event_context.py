@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -45,7 +45,9 @@ def scalar_for_csv(value: Any) -> Any:
         return value
 
     try:
-        if pd.isna(value):
+        missing = pd.isna(value)
+
+        if np.isscalar(missing) and missing:
             return np.nan
     except (TypeError, ValueError):
         pass
@@ -62,25 +64,25 @@ def prepare_trial_table(
     """
     Prepare stimulus trials with epoch-local trial numbering.
 
-    ``trial_num`` is zero-based and restarts independently within each
-    raw ``epoch_name``. This matches the convention used by the bout
-    and saccade analysis tables.
+    ``trial_num`` is zero-based and restarts within each raw
+    ``epoch_name``. This matches the convention used in the bout and
+    saccade analysis tables.
     """
     trials = get_trials(behavior_data)
 
     if trials.empty:
         return trials.copy()
 
-    records = []
+    records: list[dict[str, Any]] = []
 
     for epoch_name, epoch_trials in trials.groupby(
         "epoch_name",
         sort=False,
     ):
-        for trial_num, (epoch_index, row) in enumerate(
+        for trial_num, (epoch_index, trial) in enumerate(
             epoch_trials.iterrows()
         ):
-            record = row.to_dict()
+            record = trial.to_dict()
             record["epoch_name"] = epoch_name
             record["epoch_idx"] = epoch_index
             record["trial_num"] = trial_num
@@ -101,7 +103,7 @@ def find_trial_indices(
     """
     Find the trial containing each event timestamp.
 
-    Trial intervals are interpreted as:
+    Trial intervals are treated as:
 
         start_timestamp <= event_timestamp < stop_timestamp
 
@@ -120,11 +122,21 @@ def find_trial_indices(
         dtype=np.int64,
     )
 
+    if trial_starts.shape != trial_stops.shape:
+        raise ValueError(
+            "trial_starts and trial_stops must have the same shape."
+        )
+
     if len(trial_starts) == 0:
         return np.full(
             len(event_timestamps),
             -1,
             dtype=int,
+        )
+
+    if np.any(np.diff(trial_starts) < 0):
+        raise ValueError(
+            "Trial start timestamps must be sorted in ascending order."
         )
 
     indices = np.searchsorted(
@@ -154,57 +166,11 @@ def find_trial_indices(
     return indices
 
 
-def calculate_stimulus_values(
-    trial: pd.Series,
-    trial_time_s: float,
-    rollover_time_s: int,
-) -> dict[str, float]:
-    """Calculate time-dependent stimulus values at an event timestamp."""
-    result = {
-        "stim_phase": np.nan,
-        "looming_radius": np.nan,
-    }
-
-    stimulus = trial.get("stim_select", None)
-
-    try:
-        if stimulus == Stim.PREY_CAPTURE:
-            result["stim_phase"] = (
-                prey_capture_arc_stimulus_cosine(
-                    trial.start_time_sec,
-                    trial_time_s,
-                    rollover_time_s,
-                    trial.prey_arc_start_deg,
-                    trial.prey_arc_stop_deg,
-                    trial.prey_speed_deg_s,
-                )
-            )
-
-        elif stimulus == Stim.LOOMING:
-            result["looming_radius"] = (
-                looming_constant_velocity_approach(
-                    trial.start_time_sec,
-                    trial_time_s,
-                    rollover_time_s,
-                    trial.looming_angle_start_deg,
-                    trial.looming_angle_stop_deg,
-                    trial.looming_size_to_speed_ratio_ms,
-                    trial.looming_distance_to_screen_mm,
-                )
-            )
-    except (AttributeError, TypeError, ValueError):
-        pass
-
-    return result
-
-
 def nearest_indices(
     reference: np.ndarray,
     targets: np.ndarray,
 ) -> np.ndarray:
-    """
-    Find the nearest index in an ascending reference vector for each target.
-    """
+    """Find the nearest ascending reference value for every target."""
     reference = np.asarray(reference)
     targets = np.asarray(targets)
 
@@ -213,6 +179,11 @@ def nearest_indices(
 
     if len(reference) == 0:
         raise ValueError("reference cannot be empty.")
+
+    if np.any(np.diff(reference) < 0):
+        raise ValueError(
+            "reference must be sorted in ascending order."
+        )
 
     insertion_indices = np.searchsorted(
         reference,
@@ -244,6 +215,55 @@ def nearest_indices(
     )
 
 
+def calculate_stimulus_values(
+    trial: pd.Series,
+    trial_time_s: float,
+    rollover_time_s: int,
+) -> dict[str, float]:
+    """Calculate time-dependent stimulus values at an event."""
+    result = {
+        "stim_phase": np.nan,
+        "looming_radius": np.nan,
+    }
+
+    stimulus = trial.get("stim_select", None)
+
+    try:
+        if stimulus == Stim.PREY_CAPTURE:
+            result["stim_phase"] = float(
+                prey_capture_arc_stimulus_cosine(
+                    trial.start_time_sec,
+                    trial_time_s,
+                    rollover_time_s,
+                    trial.prey_arc_start_deg,
+                    trial.prey_arc_stop_deg,
+                    trial.prey_speed_deg_s,
+                )
+            )
+
+        elif stimulus == Stim.LOOMING:
+            result["looming_radius"] = float(
+                looming_constant_velocity_approach(
+                    trial.start_time_sec,
+                    trial_time_s,
+                    rollover_time_s,
+                    trial.looming_angle_start_deg,
+                    trial.looming_angle_stop_deg,
+                    trial.looming_size_to_speed_ratio_ms,
+                    trial.looming_distance_to_screen_mm,
+                )
+            )
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ):
+        pass
+
+    return result
+
+
 @dataclass
 class RecordingContext:
     """Reusable recording-level context for behavioral events."""
@@ -253,16 +273,39 @@ class RecordingContext:
     behavior_data: BehaviorData
     rollover_time_s: int = 3600
 
+    file: str = field(init=False)
+    file_info: Any = field(init=False)
+    cos_daytime: float = field(init=False)
+    sin_daytime: float = field(init=False)
+    trials: pd.DataFrame = field(init=False)
+    trial_starts: np.ndarray = field(init=False)
+    trial_stops: np.ndarray = field(init=False)
+    first_trial_start: int | None = field(init=False)
+    recording_start_timestamp: int = field(init=False)
+    well_center_x_mm: float = field(init=False)
+    well_center_y_mm: float = field(init=False)
+
     def __post_init__(self) -> None:
         self.file = self.behavior_files.metadata.stem
         self.file_info = parse_fish(self.file)
-        self.cos_daytime, self.sin_daytime = encode_time_of_day(self.file_info)
 
-        self.trials = prepare_trial_table(self.behavior_data)
+        daytime = encode_time_of_day(self.file_info)
+        self.cos_daytime = float(daytime[0])
+        self.sin_daytime = float(daytime[1])
+
+        self.trials = prepare_trial_table(
+            self.behavior_data
+        )
 
         if self.trials.empty:
-            self.trial_starts = np.array([],dtype=np.int64)
-            self.trial_stops = np.array([],dtype=np.int64)
+            self.trial_starts = np.array(
+                [],
+                dtype=np.int64,
+            )
+            self.trial_stops = np.array(
+                [],
+                dtype=np.int64,
+            )
             self.first_trial_start = None
         else:
             self.trial_starts = self.trials[
@@ -274,6 +317,21 @@ class RecordingContext:
             self.first_trial_start = int(
                 self.trial_starts.min()
             )
+
+        video_timestamps = (
+            self.behavior_data.video_timestamps
+            .timestamp
+            .to_numpy()
+        )
+
+        if len(video_timestamps) == 0:
+            raise ValueError(
+                f"No video timestamps were found for {self.file}."
+            )
+
+        self.recording_start_timestamp = int(
+            video_timestamps[0]
+        )
 
         try:
             (
@@ -294,7 +352,7 @@ class RecordingContext:
             self.well_center_y_mm = np.nan
 
     def recording_metadata(self) -> dict[str, Any]:
-        """Return metadata that are constant within one recording."""
+        """Return metadata constant within one recording."""
         return {
             "file": self.file,
             "dpf": self.file_info.age,
@@ -303,15 +361,39 @@ class RecordingContext:
                 f"{self.file_info.month}."
                 f"{self.file_info.year}"
             ),
-            "cos_daytime": float(self.cos_daytime),
-            "sin_daytime": float(self.sin_daytime),
+            "cos_daytime": self.cos_daytime,
+            "sin_daytime": self.sin_daytime,
         }
+
+    def relative_seconds_to_timestamps(
+        self,
+        relative_seconds: np.ndarray,
+    ) -> np.ndarray:
+        """Convert seconds from recording start to absolute nanoseconds."""
+        relative_seconds = np.asarray(
+            relative_seconds,
+            dtype=float,
+        )
+
+        if not np.isfinite(relative_seconds).all():
+            raise ValueError(
+                "Relative event times contain NaN or infinity."
+            )
+
+        offsets_ns = np.rint(
+            relative_seconds * 1e9
+        ).astype(np.int64)
+
+        return (
+            self.recording_start_timestamp
+            + offsets_ns
+        )
 
     def trial_indices(
         self,
         event_timestamps: np.ndarray,
     ) -> np.ndarray:
-        """Find the trial containing each event."""
+        """Find the containing trial for each event."""
         return find_trial_indices(
             event_timestamps=event_timestamps,
             trial_starts=self.trial_starts,
@@ -324,17 +406,9 @@ class RecordingContext:
         y_mm: float,
         heading: float = np.nan,
     ) -> dict[str, float]:
-        """
-        Express an event position relative to the well center.
-
-        The input position must already be in millimeters.
-        """
-        x_start = (
-            x_mm - self.well_center_x_mm
-        )
-        y_start = (
-            y_mm - self.well_center_y_mm
-        )
+        """Express an event position relative to the well center."""
+        x_start = x_mm - self.well_center_x_mm
+        y_start = y_mm - self.well_center_y_mm
 
         return {
             "x_start": float(x_start),
@@ -350,7 +424,7 @@ class RecordingContext:
         event_timestamp: int,
         trial_index: int,
     ) -> dict[str, Any]:
-        """Return the trial and stimulus context for one event."""
+        """Return trial and stimulus context for one event."""
         context: dict[str, Any] = {
             "event_timestamp": int(event_timestamp),
             "in_stimulus_trial": trial_index >= 0,
@@ -426,7 +500,7 @@ class RecordingContext:
         y_mm: float,
         heading: float = np.nan,
     ) -> dict[str, Any]:
-        """Return complete common context for one behavioral event."""
+        """Return recording, trial, stimulus, and position context."""
         context = self.recording_metadata()
 
         context.update(
@@ -451,13 +525,10 @@ class RecordingContext:
         event_timestamps: np.ndarray,
     ) -> dict[str, np.ndarray]:
         """
-        Get post-hoc fish position and heading nearest each event timestamp.
+        Get post-hoc position and heading nearest each event timestamp.
 
-        Position comes from the Lightning Pose Swim_Bladder keypoint.
-        Heading is the vector from Swim_Bladder to Head.
-
-        The heading convention should be checked against the Megabouts yaw
-        convention before directly comparing the two.
+        Position is taken from the Lightning Pose ``Swim_Bladder``
+        keypoint. Heading is calculated from ``Swim_Bladder`` to ``Head``.
         """
         event_timestamps = np.asarray(
             event_timestamps,
@@ -499,9 +570,9 @@ class RecordingContext:
             return result
 
         try:
-            tracking_timestamps = tracking[
+            tracking_timestamps_raw = tracking[
                 "timestamp"
-            ].to_numpy(dtype=np.int64)
+            ].to_numpy()
 
             swim_bladder_px = full_tracking.Swim_Bladder[
                 ["x", "y"]
@@ -514,7 +585,7 @@ class RecordingContext:
             return result
 
         number_of_frames = min(
-            len(tracking_timestamps),
+            len(tracking_timestamps_raw),
             len(swim_bladder_px),
             len(head_px),
         )
@@ -522,7 +593,7 @@ class RecordingContext:
         if number_of_frames == 0:
             return result
 
-        tracking_timestamps = tracking_timestamps[
+        tracking_timestamps_raw = tracking_timestamps_raw[
             :number_of_frames
         ]
         swim_bladder_px = swim_bladder_px[
@@ -531,7 +602,7 @@ class RecordingContext:
         head_px = head_px[:number_of_frames]
 
         finite = (
-            np.isfinite(tracking_timestamps)
+            np.isfinite(tracking_timestamps_raw)
             & np.isfinite(swim_bladder_px).all(axis=1)
             & np.isfinite(head_px).all(axis=1)
         )
@@ -540,7 +611,9 @@ class RecordingContext:
             return result
 
         valid_frame_indices = np.flatnonzero(finite)
-        valid_timestamps = tracking_timestamps[finite]
+        valid_timestamps = tracking_timestamps_raw[
+            finite
+        ].astype(np.int64)
 
         order = np.argsort(valid_timestamps)
         valid_timestamps = valid_timestamps[order]
@@ -550,6 +623,7 @@ class RecordingContext:
             reference=valid_timestamps,
             targets=event_timestamps,
         )
+
         nearest_frames = valid_frame_indices[
             nearest_local_indices
         ]
@@ -575,10 +649,14 @@ class RecordingContext:
             heading_vectors[:, 0],
         )
 
+        selected_timestamps = (
+            tracking_timestamps_raw[nearest_frames]
+            .astype(np.int64)
+        )
+
         result["tracking_frame"] = nearest_frames
         result["tracking_time_error_ms"] = (
-            tracking_timestamps[nearest_frames]
-            - event_timestamps
+            selected_timestamps - event_timestamps
         ) * 1e-6
         result["x_mm"] = positions_mm[:, 0]
         result["y_mm"] = positions_mm[:, 1]
