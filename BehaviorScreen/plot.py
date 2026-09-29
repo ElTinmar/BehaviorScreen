@@ -1,7 +1,6 @@
-from typing import List, Tuple, Generator, Any, Dict
+from typing import List, Tuple, Generator, Any
 import argparse
 from pathlib import Path
-import re
 from dataclasses import dataclass
 import operator
 
@@ -13,7 +12,7 @@ from tqdm import tqdm
 from megabouts.utils import bouts_category_name_short
 
 from BehaviorScreen.core import Stim, Laterality, BoutSign
-from BehaviorScreen.load import base_regexp, FileNameInfo
+from BehaviorScreen.load import parse_fish, encode_time_of_day
 
 
 MAX_COLORBAR = 0.6
@@ -196,35 +195,6 @@ def stim_name_order(cfg: dict) -> List[str]:
         if name not in seen:
             seen.append(name)
     return seen
-
-
-def parse_fish(fish: str) -> FileNameInfo:
-
-    fish_regexp = re.compile(base_regexp)
-    m = fish_regexp.match(fish)
-    if m is None:
-        raise RuntimeError(f"failed to parse: {fish}")
-    g = m.groupdict()
-
-    return FileNameInfo(
-        fish_id = int(g["fish_id"]),
-        age = int(g["age"]),
-        line = g["line"],
-        weekday = g["weekday"],
-        day = int(g["day"]),
-        month = g["month"],
-        year = int(g["year"]),
-        hour = int(g["hour"]),
-        minute = int(g["minute"]),
-        second = int(g["second"]),
-        extra = g["extra"]
-    )
-
-
-def encode_time_of_day(info: FileNameInfo) -> Tuple[float, float]:
-    seconds = info.hour*3600 + info.minute*60 + info.second
-    theta = 2 * np.pi * (seconds / (24 * 3600))
-    return (np.cos(theta), np.sin(theta))
 
 
 # ---------------------------------------------------------------------------

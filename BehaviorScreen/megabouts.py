@@ -1,11 +1,10 @@
 import numpy as np
 import pandas as pd
-from typing import NamedTuple, Dict, List, Tuple
+from typing import NamedTuple, Dict, List
 import argparse
 from pathlib import Path
 import pickle
 from tqdm import tqdm
-import re
 
 from megabouts.tracking_data import TrackingConfig, FullTrackingData
 from megabouts.pipeline import FullTrackingPipeline
@@ -18,8 +17,8 @@ from megabouts.preprocessing.traj_preprocessing import TrajPreprocessingResult
 from BehaviorScreen.core import Stim
 from BehaviorScreen.protocol import EPOCH_LATERALITY
 from BehaviorScreen.load import (
-    base_regexp, 
-    FileNameInfo,
+    parse_fish,
+    encode_time_of_day,
     Directories, 
     BehaviorData, 
     BehaviorFiles,
@@ -92,32 +91,6 @@ def megabout_fulltracking_pipeline(
 
     return megabout_results
 
-def parse_fish(fish: str) -> FileNameInfo:
-
-    fish_regexp = re.compile(base_regexp)
-    m = fish_regexp.match(fish)
-    if m is None:
-        raise RuntimeError(f"failed to parse: {fish}")
-    g = m.groupdict()
-
-    return FileNameInfo(
-        fish_id = int(g["fish_id"]),
-        age = int(g["age"]),
-        line = g["line"],
-        weekday = g["weekday"],
-        day = int(g["day"]),
-        month = g["month"],
-        year = int(g["year"]),
-        hour = int(g["hour"]),
-        minute = int(g["minute"]),
-        second = int(g["second"]),
-        extra = g["extra"]
-    )
-
-def encode_time_of_day(info: FileNameInfo) -> Tuple[float, float]:
-    seconds = info.hour*3600 + info.minute*60 + info.second
-    theta = 2 * np.pi * (seconds / (24 * 3600))
-    return (np.cos(theta), np.sin(theta))
 
 def get_bout_metrics(
         directories: Directories,

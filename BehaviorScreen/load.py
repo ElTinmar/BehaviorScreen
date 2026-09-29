@@ -1,7 +1,8 @@
 import json
 import pandas as pd
+import numpy as np
 from pathlib import Path
-from typing import List, Dict, NamedTuple, Optional
+from typing import List, Dict, NamedTuple, Optional, Tuple
 import re
 from re import Pattern
 from video_tools import OpenCV_VideoReader
@@ -277,3 +278,30 @@ def find_files(dir: Directories) -> List[BehaviorFiles]:
         )
         experiments.append(exp)
     return experiments
+
+def parse_fish(fish: str) -> FileNameInfo:
+
+    fish_regexp = re.compile(base_regexp)
+    m = fish_regexp.match(fish)
+    if m is None:
+        raise RuntimeError(f"failed to parse: {fish}")
+    g = m.groupdict()
+
+    return FileNameInfo(
+        fish_id = int(g["fish_id"]),
+        age = int(g["age"]),
+        line = g["line"],
+        weekday = g["weekday"],
+        day = int(g["day"]),
+        month = g["month"],
+        year = int(g["year"]),
+        hour = int(g["hour"]),
+        minute = int(g["minute"]),
+        second = int(g["second"]),
+        extra = g["extra"]
+    )
+
+def encode_time_of_day(info: FileNameInfo) -> Tuple[float, float]:
+    seconds = info.hour*3600 + info.minute*60 + info.second
+    theta = 2 * np.pi * (seconds / (24 * 3600))
+    return (np.cos(theta), np.sin(theta))
