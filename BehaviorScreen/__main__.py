@@ -6,13 +6,6 @@ from BehaviorScreen.megabouts import run_megabouts
 from BehaviorScreen.pose_estimation import estimate_pose, export_cropped_eyes_video
 from BehaviorScreen.plot import run_plot
 from BehaviorScreen.qc import quality_control
-from BehaviorScreen.filter_bouts import filter
-
-# TODO separate analysis and plotting
-# TODO linear mixed effects analysis to get within and between individual variability
-# TODO indentify the main source of variability within/between individuals
-# TODO permutation tests with DARK? 
-# TODO plot trajectories loomings 
 
 def build_parser() -> argparse.ArgumentParser:
 
@@ -227,16 +220,9 @@ def main(args: argparse.Namespace) -> None:
         video_timestamp=args.results,
         results=args.results,
         plots=args.plots,
-        cpu=args.cpu
+        cpu=args.cpu,
+        rollover_time_s=3600
     )
-
-    # print("5. filter bouts", flush=True)
-    # filter(
-    #     input_csv = args.root / args.bouts_csv,
-    #     config_yaml = args.yaml,
-    #     quality_control = args.root / args.qc_csv,
-    #     output_csv = args.root / args.filtered_bouts_csv
-    # )
 
     print("5. extract eye metrics", flush=True)
     # TODO

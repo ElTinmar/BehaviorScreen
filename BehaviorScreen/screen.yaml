@@ -1,11 +1,11 @@
 common_filters:
-  distance_center: {"<=": 10}
   file: {'not_in': [
     "02_07dpf_GR_Wed_18_Mar_2026_15h30min46sec_fish_1", # went out of arena
     "02_07dpf_GR_Wed_18_Mar_2026_15h30min46sec_fish_3"  # went out of arena
   ]}
 
 bout_filters:
+  distance_center: {"<=": 10}
   proba: {'>=': 0.5}
   distance: {'<=': 100}
   peak_axial_speed: {'<=': 300}
@@ -13,6 +13,7 @@ bout_filters:
   centroid_mismatch_max: {'<=': 1000} # this might inadvertently remove O-bends
 
 saccade_filters:
+  distance_center: {"<=": 9.5}
   features_valid: {"==": true}
   assignment_rejected: {"==": false}
   assignment_confidence: {'>=': 0.5}
