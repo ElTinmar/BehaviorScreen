@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from BehaviorScreen.analysis.stimulus_specs import (
+from BehaviorScreen.stim_specs import (
     StimSpec,
     apply_table_filters,
     get_matching_epoch_names,
