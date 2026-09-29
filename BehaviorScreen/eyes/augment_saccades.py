@@ -301,7 +301,6 @@ def augment_fish_events(
 
 
 def augment_saccades(
-    root: Path,
     input_csv: Path,
     output_csv: Path,
     directories: Directories,
@@ -413,14 +412,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("root", type=Path)
     parser.add_argument(
         "--input",
-        type=Path,
-        required=True,
+        default="classified_saccades.csv",
         help="Classified saccade CSV.",
     )
     parser.add_argument(
         "--output",
-        type=Path,
-        default=None,
+        default="augmented_saccades.csv",
     )
     parser.add_argument(
         "--rollover-time-s",
@@ -431,17 +428,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--metadata", default="results")
     parser.add_argument("--stimuli", default="results")
     parser.add_argument("--tracking", default="results")
-    parser.add_argument(
-        "--lightning-pose",
-        default="lightning_pose",
-    )
+    parser.add_argument("--lightning-pose",default="lightning_pose")
     parser.add_argument("--temperature", default="results")
     parser.add_argument("--video", default="results")
-    parser.add_argument(
-
-        "--video-timestamp",
-        default="results",
-    )
+    parser.add_argument("--video-timestamp", default="results")
     parser.add_argument("--results", default="results")
     parser.add_argument("--plots", default="plots")
 
@@ -452,11 +442,13 @@ def main() -> None:
     """Run saccade augmentation."""
     args = build_parser().parse_args()
 
-    output = (
-        args.output
-        if args.output is not None
-        else args.root / "augmented_saccades.csv"
-    )
+    input_csv = args.root / args.input
+    output_csv = args.root / args.output
+
+    if not input_csv.exists():
+        raise FileNotFoundError(
+            f"Classified saccade CSV does not exist: {input_csv}"
+        )
 
     directories = Directories(
         args.root,
@@ -473,9 +465,8 @@ def main() -> None:
     )
 
     augment_saccades(
-        root=args.root,
-        input_csv=args.input,
-        output_csv=output,
+        input_csv=input_csv,
+        output_csv=output_csv,
         directories=directories,
         rollover_time_s=args.rollover_time_s,
     )
