@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import numpy as np
 from tqdm import tqdm
 
 from BehaviorScreen.event_context import RecordingContext
@@ -18,6 +19,8 @@ from BehaviorScreen.load import (
     find_files,
     load_data,
 )
+from BehaviorScreen.protocol import saccade_laterality
+
 
 
 def augment_fish_events(
@@ -211,6 +214,28 @@ def augment_saccades(
             raise ValueError(
                 "Duplicate event_id values were found."
             )
+
+    # Assign ipsi/contra/none only to events in a recognised stimulus trial.
+    # Events outside trials retain NaN laterality.
+    augmented["laterality"] = np.nan
+
+    laterality_mask = (
+        augmented["in_stimulus_trial"]
+        .fillna(False)
+        .astype(bool)
+        & augmented["epoch_name"].notna()
+    )
+
+    augmented.loc[laterality_mask, "laterality"] = [
+        saccade_laterality(
+            epoch_name=epoch_name,
+            cluster=cluster,
+        )
+        for epoch_name, cluster in augmented.loc[
+            laterality_mask,
+            ["epoch_name", "cluster"],
+        ].itertuples(index=False, name=None)
+    ]
 
     output_csv.parent.mkdir(
         parents=True,
