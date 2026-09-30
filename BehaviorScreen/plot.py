@@ -31,8 +31,9 @@ from BehaviorScreen.plot_utils import (
     order_lateralities,
     order_signs,
     map_laterality,
+    get_laterality_labels,
     SIGN_LABELS,
-    HEATMAP_VARIANTS
+    HEATMAP_VARIANTS,
 )
 
 MAX_COLORBAR = 0.6
@@ -62,24 +63,6 @@ def map_sign(series: pd.Series) -> pd.Series:
     """Map raw bout-sign codes to LEFT and RIGHT."""
     numeric = pd.to_numeric(series, errors="coerce")
     return numeric.map(BOUT_SIGN_LABELS)
-
-
-def get_laterality_labels(
-    bouts: pd.DataFrame,
-    specification: StimSpec,
-) -> list[str]:
-    """Find laterality groups represented by a stimulus specification."""
-    if "laterality" not in bouts.columns:
-        return ["none"]
-
-    mask = specification.get_mask(bouts)
-
-    if "stim" in bouts.columns:
-        mask &= bouts["stim"] == specification.stim
-
-    values = map_laterality(bouts.loc[mask, "laterality"]).dropna().unique().tolist()
-
-    return order_lateralities(values) if values else ["none"]
 
 
 def category_code_to_name(code: Any) -> str | None:

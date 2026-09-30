@@ -16,6 +16,7 @@ from BehaviorScreen.plot_utils import (
     HEATMAP_VARIANTS,
     map_laterality,
     order_lateralities,
+    get_laterality_labels,
 )
 from BehaviorScreen.stim_specs import (
     StimSpec,
@@ -32,6 +33,7 @@ from BehaviorScreen.stim_specs import (
 from BehaviorScreen.core import SACCADE_CLASS_NAMES
 
 DEFAULT_CLASS_ORDER = list(range(9))
+
 
 def get_exposure_by_trial(
     valid_trials: pd.DataFrame,
@@ -65,29 +67,6 @@ def get_exposure_by_trial(
     exposure = trials.groupby("trial_num").size().astype(float) * duration
 
     return exposure, number_of_trials
-
-
-def get_laterality_labels(
-    events: pd.DataFrame,
-    specification: StimSpec,
-) -> list[str]:
-    """
-    Find laterality groups represented by a stimulus specification.
-
-    Missing or invalid laterality values are mapped to ``none`` by
-    ``map_laterality``. This matches the bout heatmap behavior.
-    """
-    if "laterality" not in events.columns:
-        return ["none"]
-
-    mask = specification.get_mask(events)
-
-    if "stim" in events.columns:
-        mask &= events["stim"] == specification.stim
-
-    labels = map_laterality(events.loc[mask, "laterality"]).dropna().unique().tolist()
-
-    return order_lateralities(labels) if labels else ["none"]
 
 
 def compute_spec_counts(

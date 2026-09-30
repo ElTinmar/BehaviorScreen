@@ -1,4 +1,5 @@
 from BehaviorScreen.core import Laterality
+from BehaviorScreen.stim_specs import StimSpec
 from typing import Any
 import pandas as pd
 
@@ -32,6 +33,7 @@ HEATMAP_VARIANTS = [
     ),
 ]
 
+
 def order_lateralities(values: Any) -> list[str]:
     """Sort laterality labels in a stable display order."""
     return sorted(
@@ -39,12 +41,14 @@ def order_lateralities(values: Any) -> list[str]:
         key=lambda value: LATERALITY_ORDER.get(value, 99),
     )
 
+
 def order_signs(values: Any) -> list[str]:
     """Sort left/right labels in a stable display order."""
     return sorted(
         values,
         key=lambda value: SIGN_ORDER.get(value, 99),
     )
+
 
 def map_laterality(series: pd.Series) -> pd.Series:
     """
@@ -57,3 +61,20 @@ def map_laterality(series: pd.Series) -> pd.Series:
     mapped = numeric.map(LATERALITY_CODE_LABELS)
 
     return mapped.where(mapped.notna(), "none")
+
+
+def get_laterality_labels(
+    events: pd.DataFrame,
+    specification: StimSpec,
+) -> list[str]:
+    if "laterality" not in events.columns:
+        return ["none"]
+
+    mask = specification.get_mask(events)
+
+    if "stim" in events.columns:
+        mask &= events["stim"] == specification.stim
+
+    labels = map_laterality(events.loc[mask, "laterality"]).dropna().unique().tolist()
+
+    return order_lateralities(labels) if labels else ["none"]
