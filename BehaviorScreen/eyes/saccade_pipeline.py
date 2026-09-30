@@ -82,7 +82,7 @@ def interp_to_rate(t, x, fs, t_end=None, pad_seconds=0.5):
 # ----------------------------------------------------------------------
 
 def coarse_detect_events(t, L, R, fs=100.0, lp_cutoff=1.0,
-                          step_width_ms=160, min_prominence=0.8):
+                          step_width_ms=160, min_prominence=1.1):
     """
     Reproduces the first (100 Hz) stage of CDSacDetect.m for one trial's
     left/right eye position traces.
