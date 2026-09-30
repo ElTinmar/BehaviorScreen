@@ -39,7 +39,7 @@ from BehaviorScreen.load import (
     find_files,
     load_data,
 )
-from BehaviorScreen.protocol import EPOCH_LATERALITY
+from BehaviorScreen.protocol import bout_laterality
 
 
 class MegaboutResults(NamedTuple):
@@ -389,11 +389,10 @@ def get_bout_metrics(
 
         sign = bout_signs[bout_index]
         trial = recording.trials.iloc[trial_index]
-
-        try:
-            laterality = EPOCH_LATERALITY[(trial.epoch_name, sign)]
-        except KeyError:
-            laterality = np.nan
+        laterality = bout_laterality(
+            epoch_name=trial.epoch_name,
+            sign=sign,
+        )
 
         bout_specific = {
             "bout_index": bout_index,
