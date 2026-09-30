@@ -6,7 +6,6 @@ from scipy.ndimage import convolve1d
 from sklearn.cluster import DBSCAN
 from sklearn.neighbors import NearestNeighbors
 import umap
-from statsmodels.nonparametric.smoothers_lowess import lowess as sm_lowess
 
 
 # ----------------------------------------------------------------------
