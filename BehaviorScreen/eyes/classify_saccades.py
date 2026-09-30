@@ -48,9 +48,7 @@ def winsorize_zscore_per_fish(
         raise ValueError("features must be two-dimensional.")
 
     if len(features) != len(fish_ids):
-        raise ValueError(
-            "features and fish_ids must have the same length."
-        )
+        raise ValueError("features and fish_ids must have the same length.")
 
     result = np.full_like(
         features,
@@ -86,15 +84,10 @@ def winsorize_zscore_per_fish(
             ddof=0,
         )
 
-        invalid_scale = (
-            ~np.isfinite(standard_deviation)
-            | (standard_deviation == 0)
-        )
+        invalid_scale = ~np.isfinite(standard_deviation) | (standard_deviation == 0)
         standard_deviation[invalid_scale] = 1.0
 
-        result[mask] = (
-            fish_features - mean
-        ) / standard_deviation
+        result[mask] = (fish_features - mean) / standard_deviation
 
     return result
 
@@ -119,9 +112,7 @@ def assign_clusters(
     )
     nearest_neighbors.fit(reference_embedding)
 
-    distances, neighbor_indices = (
-        nearest_neighbors.kneighbors(transformed)
-    )
+    distances, neighbor_indices = nearest_neighbors.kneighbors(transformed)
 
     median_distances = np.median(
         distances,
@@ -146,9 +137,7 @@ def assign_clusters(
         ):
             continue
 
-        neighbor_labels = reference_labels[
-            neighbor_indices[row_index]
-        ]
+        neighbor_labels = reference_labels[neighbor_indices[row_index]]
 
         values, counts = np.unique(
             neighbor_labels,
@@ -156,12 +145,8 @@ def assign_clusters(
         )
         winning_index = int(np.argmax(counts))
 
-        assigned_labels[row_index] = int(
-            values[winning_index]
-        )
-        confidence[row_index] = (
-            counts[winning_index] / k_neighbors
-        )
+        assigned_labels[row_index] = int(values[winning_index])
+        confidence[row_index] = counts[winning_index] / k_neighbors
 
     return assigned_labels, median_distances, confidence
 
@@ -184,36 +169,18 @@ def apply_bconv_reassignment(
     }
 
     if not required_columns.issubset(events.columns):
-        print(
-            "[warn] BConv columns are absent; skipping "
-            "BConv reassignment."
-        )
+        print("[warn] BConv columns are absent; skipping " "BConv reassignment.")
         return labels
 
     result = labels.copy()
 
-    flags = (
-        events["bconv_flag"]
-        .fillna(False)
-        .astype(bool)
-        .to_numpy()
-    )
-    sides = (
-        events["bconv_side"]
-        .fillna("")
-        .astype(str)
-        .str.upper()
-        .to_numpy()
-    )
+    flags = events["bconv_flag"].fillna(False).astype(bool).to_numpy()
+    sides = events["bconv_side"].fillna("").astype(str).str.upper().to_numpy()
 
     convergent = result == 4
 
-    result[
-        convergent & flags & (sides == "L")
-    ] = 8
-    result[
-        convergent & flags & (sides == "R")
-    ] = 7
+    result[convergent & flags & (sides == "L")] = 8
+    result[convergent & flags & (sides == "R")] = 7
 
     return result
 
@@ -221,9 +188,7 @@ def apply_bconv_reassignment(
 def build_parser() -> argparse.ArgumentParser:
     """Create the command-line parser."""
     parser = argparse.ArgumentParser(
-        description=(
-            "Classify detected saccades using the paper reference."
-        )
+        description=("Classify detected saccades using the paper reference.")
     )
 
     parser.add_argument(
@@ -274,52 +239,53 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main() -> None:
-    """Classify the input event table."""
-    args = build_parser().parse_args()
+def classify_saccades(
+    model_path: Path,
+    events_path: Path,
+    output_path: Path,
+    fish_column: str = "fish",
+    k_neighbors: int | None = None,
+    distance_cutoff: float | None = None,
+    distance_rejection: bool = True,
+    bconv_reassignment: bool = True,
+) -> pd.DataFrame:
+    """Classify detected saccades and save the resulting table."""
+    model_path = Path(model_path)
+    events_path = Path(events_path)
+    output_path = Path(output_path)
 
-    if not args.model.exists():
-        raise FileNotFoundError(args.model)
+    if not model_path.is_file():
+        raise FileNotFoundError(model_path)
 
-    if not args.events.exists():
-        raise FileNotFoundError(args.events)
+    if not events_path.is_file():
+        raise FileNotFoundError(events_path)
 
-    model = joblib.load(args.model)
-    events = pd.read_csv(args.events)
+    model = joblib.load(model_path)
+    events = pd.read_csv(events_path)
 
     feature_names = model["feature_names"]
+
     required_columns = {
-        args.fish_column,
+        fish_column,
         *feature_names,
     }
-    missing_columns = required_columns.difference(
-        events.columns
-    )
+    missing_columns = required_columns.difference(events.columns)
 
     if missing_columns:
         raise ValueError(
-            f"{args.events} is missing columns: "
-            f"{sorted(missing_columns)}"
+            f"{events_path} is missing columns: " f"{sorted(missing_columns)}"
         )
 
-    raw_features = events[
-        feature_names
-    ].to_numpy(dtype=float)
+    raw_features = events[feature_names].to_numpy(dtype=float)
 
-    fish_ids = events[
-        args.fish_column
-    ].to_numpy()
+    fish_ids = events[fish_column].to_numpy()
 
-    standardized_features = (
-        winsorize_zscore_per_fish(
-            raw_features,
-            fish_ids,
-        )
+    standardized_features = winsorize_zscore_per_fish(
+        raw_features,
+        fish_ids,
     )
 
-    valid = np.isfinite(
-        standardized_features
-    ).all(axis=1)
+    valid = np.isfinite(standardized_features).all(axis=1)
 
     embedding = np.full(
         (len(events), 2),
@@ -342,30 +308,30 @@ def main() -> None:
         dtype=float,
     )
 
+    if k_neighbors is None:
+        k_neighbors = int(model["k_neighbors"])
+
+    if k_neighbors < 1:
+        raise ValueError("k_neighbors must be at least 1.")
+
+    if not distance_rejection:
+        selected_distance_cutoff = None
+    elif distance_cutoff is not None:
+        selected_distance_cutoff = distance_cutoff
+    else:
+        selected_distance_cutoff = model["distance_cutoff"]
+
+    if selected_distance_cutoff is not None and selected_distance_cutoff < 0:
+        raise ValueError("distance_cutoff must be non-negative.")
+
     if valid.any():
-        print(
-            f"Transforming {valid.sum():,} valid events..."
-        )
+        print(f"Transforming {valid.sum():,} valid events...")
 
         transformed = model["reducer"].transform(
-            standardized_features[valid].astype(
-                np.float32
-            )
+            standardized_features[valid].astype(np.float32)
         )
+
         embedding[valid] = transformed
-
-        k_neighbors = (
-            args.k_neighbors
-            if args.k_neighbors is not None
-            else model["k_neighbors"]
-        )
-
-        if args.no_distance_rejection:
-            distance_cutoff = None
-        elif args.distance_cutoff is not None:
-            distance_cutoff = args.distance_cutoff
-        else:
-            distance_cutoff = model["distance_cutoff"]
 
         (
             local_labels,
@@ -373,14 +339,10 @@ def main() -> None:
             local_confidence,
         ) = assign_clusters(
             transformed=transformed,
-            reference_embedding=model[
-                "reference_embedding"
-            ],
-            reference_labels=model[
-                "reference_labels"
-            ],
+            reference_embedding=model["reference_embedding"],
+            reference_labels=model["reference_labels"],
             k_neighbors=k_neighbors,
-            distance_cutoff=distance_cutoff,
+            distance_cutoff=(selected_distance_cutoff),
         )
 
         valid_indices = np.flatnonzero(valid)
@@ -389,13 +351,13 @@ def main() -> None:
         median_distances[valid_indices] = local_distances
         confidence[valid_indices] = local_confidence
 
-    if args.no_bconv_reassignment:
-        final_labels = knn_labels.copy()
-    else:
+    if bconv_reassignment:
         final_labels = apply_bconv_reassignment(
             events=events,
             labels=knn_labels,
         )
+    else:
+        final_labels = knn_labels.copy()
 
     label_names = model["label_names"]
 
@@ -415,39 +377,56 @@ def main() -> None:
         )
         for label in final_labels
     ]
-    result["assignment_median_distance"] = (
-        median_distances
-    )
+    result["assignment_median_distance"] = median_distances
     result["assignment_confidence"] = confidence
-    result["assignment_rejected"] = (
-        knn_labels == -1
-    )
+    result["assignment_rejected"] = knn_labels == -1
     result["features_valid"] = valid
 
-    args.output.parent.mkdir(
+    output_path.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
     result.to_csv(
-        args.output,
+        output_path,
         index=False,
         float_format="%.10g",
     )
 
-    print(f"Saved classified events to {args.output}")
+    print(f"Saved classified events to {output_path}")
     print("\nClass distribution:")
 
     distribution = (
-        result[["cluster", "cluster_name"]]
+        result[
+            [
+                "cluster",
+                "cluster_name",
+            ]
+        ]
         .value_counts(dropna=False)
         .sort_index()
     )
     print(distribution)
 
-    rejected_fraction = np.mean(
-        result["assignment_rejected"]
-    )
+    rejected_fraction = float(result["assignment_rejected"].mean())
     print(f"\nRejected: {rejected_fraction:.1%}")
+
+    return result
+
+
+def main() -> None:
+    """Run classification from the command line."""
+    args = build_parser().parse_args()
+
+    classify_saccades(
+        model_path=args.model,
+        events_path=args.events,
+        output_path=args.output,
+        fish_column=args.fish_column,
+        k_neighbors=args.k_neighbors,
+        distance_cutoff=args.distance_cutoff,
+        distance_rejection=(not args.no_distance_rejection),
+        bconv_reassignment=(not args.no_bconv_reassignment),
+    )
 
 
 if __name__ == "__main__":
