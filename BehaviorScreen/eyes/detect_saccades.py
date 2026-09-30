@@ -173,14 +173,15 @@ def extract_raw_eye_angles(
 
     reference_vector = np.array([0.0, 1.0], dtype=float)
 
-    left_angle = np.rad2deg(
+    # NOTE minus sign to match Dowell CW rotation = increased angle, CCW rotation = decreased angle
+    left_angle = -np.rad2deg(
         compute_angle_between_vectors(
             left_vector,
             reference_vector,
         )
     )
 
-    right_angle = np.rad2deg(
+    right_angle = -np.rad2deg(
         compute_angle_between_vectors(
             right_vector,
             reference_vector,
