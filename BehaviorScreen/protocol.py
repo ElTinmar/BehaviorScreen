@@ -1,6 +1,7 @@
-from BehaviorScreen.core import EventDirection, Laterality, Stim
+from BehaviorScreen.core import EventDirection, Laterality, Stim, SACCADE_CLASS_DIRECTIONS
 from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass
+import numpy as np
 
 EpochName = str
 
@@ -192,3 +193,50 @@ def _build_epoch_specs(protocol_entries: List[Epoch]) -> List[EpochSpec]:
 
 
 PROTOCOL_SPEC: List[EpochSpec] = _build_epoch_specs(protocol)
+
+
+def bout_laterality(
+    epoch_name: object,
+    sign: object,
+) -> float:
+    """Return bout laterality from epoch identity and bout direction."""
+    try:
+        direction = EventDirection(int(sign))
+    except (TypeError, ValueError):
+        return np.nan
+
+    return EPOCH_LATERALITY.get(
+        (str(epoch_name), direction),
+        np.nan,
+    )
+
+def saccade_laterality(
+    epoch_name: object,
+    cluster: object,
+) -> float:
+    """
+    Return laterality for a classified saccade.
+
+    Directionless saccade classes are NONDIRECTIONAL. Events without a
+    valid epoch/class, or a directional event in an undeclared epoch,
+    receive NaN.
+    """
+    if epoch_name is None:
+        return np.nan
+
+    try:
+        cluster = int(cluster)
+    except (TypeError, ValueError):
+        return np.nan
+
+    direction = SACCADE_CLASS_DIRECTIONS.get(cluster)
+
+    # Classes such as convergent/divergent do not have a left/right
+    # direction and therefore stay in their own "none" group.
+    if direction is None:
+        return int(Laterality.NONDIRECTIONAL)
+
+    return EPOCH_LATERALITY.get(
+        (str(epoch_name), direction),
+        np.nan,
+    )
