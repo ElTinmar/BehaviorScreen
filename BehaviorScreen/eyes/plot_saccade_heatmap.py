@@ -918,7 +918,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--vmax",
         type=float,
-        default=0.4,
+        default=0.2,
         help="Maximum heatmap frequency in saccades per second.",
     )
     parser.add_argument(
