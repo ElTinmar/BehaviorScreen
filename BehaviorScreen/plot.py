@@ -13,7 +13,7 @@ import pandas as pd
 from megabouts.utils import bouts_category_name_short
 from tqdm import tqdm
 
-from BehaviorScreen.core import EventDirection, Laterality
+from BehaviorScreen.core import EventDirection
 from BehaviorScreen.stim_specs import (
     StimSpec,
     apply_event_filters,
@@ -27,6 +27,13 @@ from BehaviorScreen.stim_specs import (
     read_stim_specs,
     stimulus_name_order,
 )
+from BehaviorScreen.plot_utils import (
+    order_lateralities,
+    order_signs,
+    map_laterality,
+    SIGN_LABELS,
+    HEATMAP_VARIANTS
+)
 
 MAX_COLORBAR = 0.6
 
@@ -37,40 +44,10 @@ BOUT_CATEGORIES = [
     for category in ALL_BOUT_CATEGORIES
     if category not in EXCLUDED_BOUT_CATEGORIES
 ]
-
-LATERALITY_CODE_LABELS = {
-    int(Laterality.IPSILATERAL): "ipsi",
-    int(Laterality.CONTRALATERAL): "contra",
-    int(Laterality.NONDIRECTIONAL): "none",
-}
-LATERALITY_ORDER = {
-    "ipsi": 0,
-    "contra": 1,
-    "none": 2,
-}
-
 BOUT_SIGN_LABELS = {
     int(EventDirection.LEFT): "LEFT",
     int(EventDirection.RIGHT): "RIGHT",
 }
-SIGN_ORDER = {
-    "LEFT": 0,
-    "RIGHT": 1,
-}
-SIGN_LABELS = ["LEFT", "RIGHT"]
-
-# average_trial, average_time_bin, filename suffix, title
-HEATMAP_VARIANTS = [
-    (False, False, "", "trial × time bin"),
-    (True, False, "_trial_avg", "averaged over trials"),
-    (False, True, "_timebin_avg", "averaged over time bins"),
-    (
-        True,
-        True,
-        "_full_avg",
-        "averaged over trials and time bins",
-    ),
-]
 
 
 def load_bouts(path: Path) -> pd.DataFrame:
@@ -79,35 +56,6 @@ def load_bouts(path: Path) -> pd.DataFrame:
         raise FileNotFoundError(path)
 
     return pd.read_csv(path)
-
-
-def order_lateralities(values: Any) -> list[str]:
-    """Sort laterality labels in a stable display order."""
-    return sorted(
-        values,
-        key=lambda value: LATERALITY_ORDER.get(value, 99),
-    )
-
-
-def order_signs(values: Any) -> list[str]:
-    """Sort left/right labels in a stable display order."""
-    return sorted(
-        values,
-        key=lambda value: SIGN_ORDER.get(value, 99),
-    )
-
-
-def map_laterality(series: pd.Series) -> pd.Series:
-    """
-    Map raw laterality codes to display labels.
-
-    Both explicit non-directional values and missing laterality values are
-    placed in the ``none`` group.
-    """
-    numeric = pd.to_numeric(series, errors="coerce")
-    mapped = numeric.map(LATERALITY_CODE_LABELS)
-
-    return mapped.where(mapped.notna(), "none")
 
 
 def map_sign(series: pd.Series) -> pd.Series:
