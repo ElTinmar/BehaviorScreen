@@ -32,7 +32,18 @@ from BehaviorScreen.stim_specs import (
 )
 from BehaviorScreen.core import SACCADE_CLASS_NAMES
 
-DEFAULT_CLASS_ORDER = list(range(9))
+
+EXCLUDED_SACCADE_CLASSES = {
+    0,  # Unclassified
+    5,  # Non-saccadic
+}
+
+DEFAULT_CLASS_ORDER = [
+    cluster
+    for cluster in sorted(SACCADE_CLASS_NAMES)
+    if cluster >= 0
+    and cluster not in EXCLUDED_SACCADE_CLASSES
+]
 
 
 def get_exposure_by_trial(
