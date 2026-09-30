@@ -1,44 +1,34 @@
 #!/usr/bin/env python3
 """
-Interactively inspect a Lightning Pose labeled video synchronized with
+Interactively display a Lightning Pose labeled video synchronized with
 long eye-position traces and classified saccades.
+
+The classified event CSV must contain:
+    fish
+    onset_time_s
+    a classification column, such as class_label or cluster_id
 
 Display
 -------
-Video panel
-    Lightning Pose labeled video.
-
-Faint blue/red traces
-    Valid native camera-rate left/right eye-position data.
-
-Gray traces
-    Native samples below the Lightning Pose likelihood threshold.
-
-Medium blue/red traces
-    Likelihood-masked, short-gap-interpolated 500 Hz traces.
-
-Strong blue/red traces
-    Full custom-LOWESS-smoothed 500 Hz traces.
-
-Category-colored trace segments
-    Smoothed snippets surrounding classified saccades.
-
-Category-colored dashed lines
-    Classified event onset times.
-
-Black vertical line
-    Current video-frame time.
+- Labeled video
+- Native camera-rate eye traces
+- Low-likelihood raw samples in gray
+- Likelihood-filtered/resampled 500 Hz traces
+- Full 500 Hz smoothed traces
+- Smoothed event snippets colored by saccade category
+- Category labels and onset markers
+- A black cursor showing the current video time
 
 Controls
 --------
 Space
-    Play/pause.
+    Play or pause.
 
 J or ,
-    Previous video frame.
+    Previous frame.
 
 L or .
-    Next video frame.
+    Next frame.
 
 Shift+J
     Move backward 10 frames.
@@ -47,10 +37,10 @@ Shift+L
     Move forward 10 frames.
 
 Left or A
-    Pan the trace window backward by half a window.
+    Pan the trace backward by half a window.
 
 Right or D
-    Pan the trace window forward by half a window.
+    Pan the trace forward by half a window.
 
 + or =
     Zoom in.
@@ -77,10 +67,10 @@ End
     Playback at 2x.
 
 Mouse wheel
-    Pan horizontally.
+    Pan the trace horizontally.
 
-Single-click on either trace
-    Seek the video to the clicked time.
+Click on either trace
+    Seek the video to the selected time.
 
 Double-click on either trace
     Seek and print information about the nearest classified event.
@@ -92,7 +82,7 @@ Example
 -------
 python -m BehaviorScreen.eyes.view_saccade_trace \
     /media/martin/DATA_18TB/Screen/WT/vehicle \
-    /media/martin/DATA_18TB/Screen/WT/vehicle/saccades.csv \
+    /path/to/classified_saccades.csv \
     --fish EXPERIMENT_NAME \
     --label-column class_label \
     --labeled-video /path/to/EXPERIMENT_NAME_labeled.mp4 \
@@ -143,11 +133,11 @@ INVALID_RAW_COLOR = np.array([0.65, 0.65, 0.65])
 
 
 # ============================================================================
-# Saccade-category color scheme
+# Saccade-category colors
 # ============================================================================
 
-# Reconstructed from charlieColours('sactype6') and the class ordering
-# appearing in the MATLAB analysis scripts.
+# Reconstructed from charlieColours('sactype6') and the category ordering
+# used by the MATLAB plotting scripts.
 CLASS_COLORS = {
     "LConj": np.array([0, 190, 65]) / 255.0,
     "RConj": np.array([204, 136, 197]) / 255.0,
@@ -249,21 +239,24 @@ def normalize_label(label: Any) -> str:
 
 
 def class_color(label: Any) -> np.ndarray:
-    """Return the existing category color for a class label."""
+    """Return the category color associated with a class label."""
     class_name = normalize_label(label)
 
     if class_name in CLASS_COLORS:
         return CLASS_COLORS[class_name]
 
-    # Stable fallback for unknown classes.
+    # Stable fallback color for unknown labels.
     colors = plt.get_cmap("tab20").colors
     color_index = abs(hash(class_name)) % len(colors)
 
-    return np.asarray(colors[color_index], dtype=float)
+    return np.asarray(
+        colors[color_index],
+        dtype=float,
+    )
 
 
 def infer_label_column(events: pd.DataFrame) -> str:
-    """Infer the classification-label column."""
+    """Infer the classification column from common names."""
     candidates = (
         "class_label",
         "classified_label",
@@ -283,13 +276,13 @@ def infer_label_column(events: pd.DataFrame) -> str:
 
     raise KeyError(
         "Could not infer the classification column. "
-        "Use --label-column.\n"
+        "Specify it with --label-column.\n"
         f"Available columns: {list(events.columns)}"
     )
 
 
 # ============================================================================
-# Eye-angle and likelihood extraction
+# Eye angle and likelihood extraction
 # ============================================================================
 
 
@@ -297,15 +290,15 @@ def extract_landmark_likelihood(
     landmark: pd.DataFrame,
     landmark_name: str,
 ) -> np.ndarray:
-    """Extract a Lightning Pose confidence/likelihood column."""
-    candidates = (
+    """Extract a Lightning Pose confidence column."""
+    candidate_columns = (
         "likelihood",
         "confidence",
         "score",
         "probability",
     )
 
-    for column in candidates:
+    for column in candidate_columns:
         if column in landmark.columns:
             return landmark[column].to_numpy(dtype=float)
 
@@ -327,8 +320,8 @@ def extract_eye_data(
     """
     Extract native timestamps, eye angles, and eye-level likelihoods.
 
-    Each eye angle requires front and back landmarks. The confidence for
-    the derived angle is therefore the minimum of those two likelihoods.
+    The angle for each eye requires a front and back landmark. Therefore,
+    the eye-level likelihood is the minimum likelihood of the two points.
     """
     left_front = behavior_data.eyes_tracking.eye_left_front
     left_back = behavior_data.eyes_tracking.eye_left_back
@@ -343,7 +336,10 @@ def extract_eye_data(
         ["x", "y"]
     ].to_numpy(dtype=float)
 
-    reference_vector = np.array([0.0, 1.0], dtype=float)
+    reference_vector = np.array(
+        [0.0, 1.0],
+        dtype=float,
+    )
 
     left_angle = np.rad2deg(
         compute_angle_between_vectors(
@@ -418,7 +414,7 @@ def extract_eye_data(
     finite_timestamp_indices = np.flatnonzero(np.isfinite(timestamps_ns))
 
     if finite_timestamp_indices.size < 2:
-        raise ValueError("Not enough finite timestamps")
+        raise ValueError("Not enough finite video timestamps")
 
     first_timestamp_ns = timestamps_ns[finite_timestamp_indices[0]]
 
@@ -434,104 +430,59 @@ def extract_eye_data(
 
 
 # ============================================================================
-# Classified-event loading
+# Classified event loading
 # ============================================================================
 
 
 def load_classified_events(
-    events_path: Path,
+    classified_events_path: Path,
     fish_label: str,
     label_column: str | None,
-    classifications_path: Path | None = None,
-    classification_label_column: str | None = None,
 ) -> tuple[pd.DataFrame, str]:
     """
-    Load classified events for one experiment.
+    Load a complete classified event table for one experiment.
 
-    If classifications are stored separately, they are joined using
-    event_id.
+    Required columns
+    ----------------
+    fish
+    onset_time_s
+    classification column
     """
-    events_path = events_path.expanduser().resolve()
+    classified_events_path = classified_events_path.expanduser().resolve()
 
-    if not events_path.exists():
-        raise FileNotFoundError(f"Event CSV not found: {events_path}")
+    if not classified_events_path.is_file():
+        raise FileNotFoundError(
+            "Classified event CSV not found: " f"{classified_events_path}"
+        )
 
-    events = pd.read_csv(events_path)
+    events = pd.read_csv(classified_events_path)
 
-    if "fish" not in events.columns:
-        raise KeyError("The event table must contain a 'fish' column")
+    required_columns = {
+        "fish",
+        "onset_time_s",
+    }
+
+    missing_columns = required_columns.difference(events.columns)
+
+    if missing_columns:
+        raise KeyError(
+            "The classified event table is missing required "
+            f"columns: {sorted(missing_columns)}"
+        )
+
+    if label_column is None:
+        label_column = infer_label_column(events)
+
+    if label_column not in events.columns:
+        raise KeyError(
+            f"Label column {label_column!r} was not found. "
+            f"Available columns: {list(events.columns)}"
+        )
 
     events = events.loc[events["fish"].astype(str) == str(fish_label)].copy()
 
     if events.empty:
-        raise ValueError(f"No events were found for fish {fish_label!r}")
-
-    if classifications_path is not None:
-        classifications_path = classifications_path.expanduser().resolve()
-
-        if not classifications_path.exists():
-            raise FileNotFoundError(
-                "Classification CSV not found: " f"{classifications_path}"
-            )
-
-        classifications = pd.read_csv(classifications_path)
-
-        if "event_id" not in events.columns:
-            raise KeyError(
-                "The event table must contain event_id when "
-                "classifications are stored separately"
-            )
-
-        if "event_id" not in classifications.columns:
-            raise KeyError("The classification table must contain event_id")
-
-        if classification_label_column is None:
-            if label_column is not None and label_column in classifications.columns:
-                classification_label_column = label_column
-            else:
-                classification_label_column = infer_label_column(classifications)
-
-        output_label_column = label_column or "class_label"
-
-        classifications = classifications[
-            [
-                "event_id",
-                classification_label_column,
-            ]
-        ].copy()
-
-        classifications = classifications.rename(
-            columns={
-                classification_label_column: output_label_column,
-            }
-        )
-
-        if classifications["event_id"].duplicated().any():
-            raise ValueError(
-                "The classification table contains " "duplicate event_id values"
-            )
-
-        if output_label_column in events.columns:
-            events = events.drop(columns=[output_label_column])
-
-        events = events.merge(
-            classifications,
-            on="event_id",
-            how="left",
-            validate="one_to_one",
-            sort=False,
-        )
-
-        label_column = output_label_column
-
-    elif label_column is None:
-        label_column = infer_label_column(events)
-
-    if label_column not in events.columns:
-        raise KeyError(f"Label column {label_column!r} was not found")
-
-    if "onset_time_s" not in events.columns:
-        raise KeyError("The event table must contain onset_time_s")
+        raise ValueError(f"No classified events were found for fish " f"{fish_label!r}")
 
     events["onset_time_s"] = pd.to_numeric(
         events["onset_time_s"],
@@ -539,6 +490,9 @@ def load_classified_events(
     )
 
     events = events.loc[np.isfinite(events["onset_time_s"])].copy()
+
+    if events.empty:
+        raise ValueError(f"No events for {fish_label!r} have a finite " "onset_time_s")
 
     events["_class_name"] = events[label_column].map(normalize_label)
 
@@ -631,7 +585,7 @@ def find_behavior_file(
     directories: Directories,
     fish_label: str,
 ):
-    """Find the BehaviorScreen experiment matching the requested fish."""
+    """Find the experiment matching the requested fish label."""
     all_files = find_files(directories)
 
     exact_matches = [files for files in all_files if files.metadata.stem == fish_label]
@@ -640,7 +594,7 @@ def find_behavior_file(
         return exact_matches[0]
 
     if len(exact_matches) > 1:
-        raise RuntimeError(f"Multiple experiments matched fish {fish_label!r}")
+        raise RuntimeError(f"Multiple experiments matched fish " f"{fish_label!r}")
 
     available = [files.metadata.stem for files in all_files]
 
@@ -659,8 +613,8 @@ class TimestampedVideo:
     """
     Read a video using externally recorded frame timestamps.
 
-    Frame times are represented in seconds relative to the first finite
-    timestamp, matching the eye-trace and event time bases.
+    Frame times are expressed relative to the first finite timestamp,
+    matching the eye trace and event time bases.
     """
 
     def __init__(
@@ -705,15 +659,15 @@ class TimestampedVideo:
         if self.frame_count < 1:
             self.close()
             raise ValueError(
-                "Video and timestamp sequence have no " "overlapping frames"
+                "The video and timestamp sequence have no " "overlapping frames"
             )
 
         if self.video_frame_count != len(relative_times):
             print(
                 "[warning] Video/timestamp length mismatch: "
-                f"{self.video_frame_count:,} video frames and "
+                f"{self.video_frame_count:,} video frames, "
                 f"{len(relative_times):,} timestamps. "
-                f"Using the first {self.frame_count:,} entries."
+                f"Using the first {self.frame_count:,}."
             )
 
         self.frame_times = relative_times[: self.frame_count]
@@ -722,11 +676,11 @@ class TimestampedVideo:
 
         if self.valid_frame_indices.size == 0:
             self.close()
-            raise ValueError("No finite video-frame timestamps are available")
+            raise ValueError("No finite frame timestamps are available")
 
         self.valid_frame_times = self.frame_times[self.valid_frame_indices]
 
-        # Ensure searchsorted receives a monotonically ordered sequence.
+        # searchsorted requires a monotonic sequence.
         order = np.argsort(
             self.valid_frame_times,
             kind="stable",
@@ -739,19 +693,19 @@ class TimestampedVideo:
 
     @property
     def start_time(self) -> float:
-        """Time of the first valid video frame."""
+        """Time of the first valid frame."""
         return float(self.valid_frame_times[0])
 
     @property
     def end_time(self) -> float:
-        """Time of the last valid video frame."""
+        """Time of the last valid frame."""
         return float(self.valid_frame_times[-1])
 
     def frame_index_at_time(
         self,
         target_time: float,
     ) -> int:
-        """Return the frame index nearest to target_time."""
+        """Return the video frame nearest to target_time."""
         insertion = int(
             np.searchsorted(
                 self.valid_frame_times,
@@ -781,7 +735,7 @@ class TimestampedVideo:
         self,
         frame_index: int,
     ) -> float:
-        """Return the relative time associated with a video frame."""
+        """Return the relative timestamp for a video frame."""
         frame_index = int(
             np.clip(
                 frame_index,
@@ -805,7 +759,7 @@ class TimestampedVideo:
         self,
         frame_index: int,
     ) -> np.ndarray:
-        """Read a frame and convert it from OpenCV BGR to RGB."""
+        """Read a video frame and return it as RGB."""
         frame_index = int(
             np.clip(
                 frame_index,
@@ -825,7 +779,7 @@ class TimestampedVideo:
         success, frame = self.capture.read()
 
         if not success or frame is None:
-            # Retry after an explicit seek.
+            # Retry after explicitly seeking.
             self.capture.set(
                 cv2.CAP_PROP_POS_FRAMES,
                 frame_index,
@@ -944,9 +898,9 @@ class LongTraceViewer:
         self.likelihood_threshold = float(likelihood_threshold)
         self.fish_label = fish_label
 
-        self.show_invalid_raw = show_invalid_raw
-        self.show_event_lines = show_event_lines
-        self.show_event_labels = show_event_labels
+        self.show_invalid_raw = bool(show_invalid_raw)
+        self.show_event_lines = bool(show_event_lines)
+        self.show_event_labels = bool(show_event_labels)
 
         self.category_snippet_pre_s = category_snippet_pre_ms / 1000.0
         self.category_snippet_post_s = category_snippet_post_ms / 1000.0
@@ -958,9 +912,9 @@ class LongTraceViewer:
         finite_trace_times = self.time_500[np.isfinite(self.time_500)]
 
         if finite_trace_times.size < 2:
-            raise ValueError("The 500 Hz trace time base is empty")
+            raise ValueError("The 500 Hz time base is empty")
 
-        # Use only the overlapping period between video and traces.
+        # Display only the period shared by the video and eye traces.
         self.recording_start = max(
             float(np.min(finite_trace_times)),
             self.video.start_time,
@@ -1072,7 +1026,7 @@ class LongTraceViewer:
         )
 
     def _initialize_trace_lines(self) -> None:
-        """Create persistent eye-trace artists."""
+        """Create persistent trace-line artists."""
         (self.left_invalid_line,) = self.left_axis.plot(
             [],
             [],
@@ -1180,7 +1134,7 @@ class LongTraceViewer:
         )
 
     def _initialize_cursor(self) -> None:
-        """Create the synchronized current-video-time cursor."""
+        """Create a cursor marking the current video time."""
         for axis in self.trace_axes:
             cursor = axis.axvline(
                 self.current_time,
@@ -1201,7 +1155,7 @@ class LongTraceViewer:
         return np.isfinite(time_values) & (time_values >= start) & (time_values <= stop)
 
     def _clear_event_artists(self) -> None:
-        """Remove category overlays from the previous trace window."""
+        """Remove category overlays from the previous window."""
         for artist in self.event_artists:
             try:
                 artist.remove()
@@ -1215,12 +1169,13 @@ class LongTraceViewer:
         start: float,
         stop: float,
     ) -> None:
-        """Update all trace lines for the visible time interval."""
+        """Update trace lines for the currently visible interval."""
         native_mask = self._time_mask(
             self.native_time,
             start,
             stop,
         )
+
         mask_500 = self._time_mask(
             self.time_500,
             start,
@@ -1293,6 +1248,7 @@ class LongTraceViewer:
             visible_time_500,
             self.left_500[mask_500],
         )
+
         self.right_resampled_line.set_data(
             visible_time_500,
             self.right_500[mask_500],
@@ -1302,6 +1258,7 @@ class LongTraceViewer:
             visible_time_500,
             self.left_smooth[mask_500],
         )
+
         self.right_smooth_line.set_data(
             visible_time_500,
             self.right_smooth[mask_500],
@@ -1313,7 +1270,7 @@ class LongTraceViewer:
         stop: float,
     ) -> None:
         """
-        Draw category-colored smoothed snippets, event lines, and labels.
+        Draw category-colored smoothed snippets, onset lines, and labels.
         """
         relevant_events = self.events.loc[
             (self.events["onset_time_s"] + self.category_snippet_post_s >= start)
@@ -1374,7 +1331,6 @@ class LongTraceViewer:
                     ]
                 )
 
-            # Draw lines and labels only if onset is visible.
             if not start <= event_time <= stop:
                 continue
 
@@ -1388,6 +1344,7 @@ class LongTraceViewer:
                         alpha=0.8,
                         zorder=7,
                     )
+
                     self.event_artists.append(onset_line)
 
             if self.show_event_labels:
@@ -1416,7 +1373,7 @@ class LongTraceViewer:
         start: float,
         stop: float,
     ) -> None:
-        """Set robust independent y-limits for the left and right eyes."""
+        """Set robust y-limits for the visible trace interval."""
         mask_500 = self._time_mask(
             self.time_500,
             start,
@@ -1472,7 +1429,7 @@ class LongTraceViewer:
         self,
         time_seconds: float,
     ) -> None:
-        """Move the current-time cursor."""
+        """Move the current-video-time cursor."""
         for cursor in self.cursor_artists:
             cursor.set_xdata([time_seconds, time_seconds])
 
@@ -1481,9 +1438,9 @@ class LongTraceViewer:
         target_time: float,
     ) -> bool:
         """
-        Scroll the trace window if the current video time approaches an edge.
+        Scroll the trace window when video time approaches either edge.
 
-        Returns True when the window start was changed.
+        Returns True if the window was changed.
         """
         left_margin = self.window_start + 0.15 * self.window_s
         right_margin = self.window_start + 0.85 * self.window_s
@@ -1495,7 +1452,7 @@ class LongTraceViewer:
         return False
 
     def update_window(self) -> None:
-        """Redraw the visible eye-trace interval."""
+        """Redraw the visible trace interval."""
         maximum_start = max(
             self.recording_start,
             self.recording_end - self.window_s,
@@ -1552,14 +1509,14 @@ class LongTraceViewer:
             f"{window_stop:.2f} s — "
             f"{visible_event_count} classified events\n"
             "Space play/pause | J/L frame | "
-            "Shift+J/L 10 frames | ←/→ pan | "
-            "+/- zoom | 1–4 speed | click trace to seek"
+            "Shift+J/L 10 frames | Left/Right pan | "
+            "+/- zoom | 1-4 speed | click trace to seek"
         )
 
         self.figure.canvas.draw_idle()
 
     def _update_video_title(self) -> None:
-        """Update video-frame and playback status text."""
+        """Update the video panel title."""
         state = "PLAYING" if self.playing else "PAUSED"
 
         self.video_title.set_text(
@@ -1575,9 +1532,7 @@ class LongTraceViewer:
         frame_index: int,
         scroll_window: bool = True,
     ) -> None:
-        """
-        Display a video frame and synchronize the trace cursor.
-        """
+        """Display a frame and synchronize the trace cursor."""
         frame_index = int(
             np.clip(
                 frame_index,
@@ -1611,7 +1566,7 @@ class LongTraceViewer:
         target_time: float,
         scroll_window: bool = True,
     ) -> None:
-        """Seek to the frame nearest a trace time."""
+        """Seek to the video frame nearest a trace time."""
         target_time = float(
             np.clip(
                 target_time,
@@ -1628,12 +1583,7 @@ class LongTraceViewer:
         )
 
     def _reset_playback_anchor(self) -> None:
-        """
-        Reset real-time playback anchoring.
-
-        Using a wall-clock anchor prevents playback from stalling when the
-        GUI timer interval is shorter than the video frame interval.
-        """
+        """Reset wall-clock anchoring for playback."""
         self.playback_anchor_wall = time.perf_counter()
         self.playback_anchor_time = self.current_time
 
@@ -1654,14 +1604,14 @@ class LongTraceViewer:
         self.figure.canvas.draw_idle()
 
     def _toggle_playback(self) -> None:
-        """Toggle playback state."""
+        """Toggle playback."""
         self._set_playing(not self.playing)
 
     def _set_playback_speed(
         self,
         speed: float,
     ) -> None:
-        """Change playback speed while preserving the current position."""
+        """Set playback speed."""
         self.playback_speed = float(speed)
 
         if self.playing:
@@ -1671,7 +1621,7 @@ class LongTraceViewer:
         self.figure.canvas.draw_idle()
 
     def _on_timer(self) -> None:
-        """Advance video according to wall-clock time."""
+        """Advance playback using elapsed wall-clock time."""
         if not self.playing:
             return
 
@@ -1690,7 +1640,6 @@ class LongTraceViewer:
 
         target_frame = self.video.frame_index_at_time(target_time)
 
-        # Avoid decoding the same frame repeatedly.
         if target_frame != self.current_frame_index:
             self.seek_frame(target_frame)
 
@@ -1787,7 +1736,7 @@ class LongTraceViewer:
         self,
         event: Any,
     ) -> None:
-        """Use the mouse wheel to pan the trace window."""
+        """Use the mouse wheel to pan the trace."""
         if event.button == "up":
             self._pan_window(-0.20)
 
@@ -1798,7 +1747,7 @@ class LongTraceViewer:
         self,
         selected_time: float,
     ) -> None:
-        """Print the classified event nearest to selected_time."""
+        """Print the classified event nearest selected_time."""
         if self.events.empty:
             return
 
@@ -1858,11 +1807,7 @@ class LongTraceViewer:
         self,
         event: Any,
     ) -> None:
-        """
-        Seek the video when either eye trace is clicked.
-
-        Double-clicking also prints the nearest event.
-        """
+        """Seek the video when either eye trace is clicked."""
         if event.inaxes not in self.trace_axes or event.xdata is None:
             return
 
@@ -1878,7 +1823,7 @@ class LongTraceViewer:
         self,
         _event: Any,
     ) -> None:
-        """Release resources when the viewer closes."""
+        """Release resources when the figure closes."""
         self.playing = False
 
         if hasattr(self, "timer"):
@@ -1900,9 +1845,9 @@ def build_parser() -> argparse.ArgumentParser:
     """Construct the command-line parser."""
     parser = argparse.ArgumentParser(
         description=(
-            "Interactively plot a synchronized Lightning Pose "
-            "labeled video, raw eye traces, smoothed 500 Hz "
-            "traces, and category-colored saccade snippets."
+            "Display a synchronized Lightning Pose labeled video, "
+            "raw eye traces, smoothed 500 Hz traces, and "
+            "category-colored classified saccade snippets."
         )
     )
 
@@ -1913,17 +1858,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "events",
+        "classified_events",
         type=Path,
-        help="Event CSV produced by detect_saccades.py.",
+        help=(
+            "Complete classified-event CSV containing fish, "
+            "onset_time_s, and a classification column."
+        ),
     )
 
     parser.add_argument(
         "--fish",
         required=True,
         help=(
-            "Fish/experiment label matching the event-table "
-            "fish column and metadata filename stem."
+            "Experiment/fish label matching both the CSV fish "
+            "column and metadata filename stem."
         ),
     )
 
@@ -1938,27 +1886,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
-        "--classifications",
-        type=Path,
-        default=None,
-        help=(
-            "Optional separate classification CSV containing "
-            "event_id and a classification column."
-        ),
-    )
-
-    parser.add_argument(
         "--label-column",
         default=None,
         help=(
-            "Classification column in the event table. " "If omitted, it is inferred."
+            "Classification column in the classified-event CSV. "
+            "If omitted, it is inferred."
         ),
-    )
-
-    parser.add_argument(
-        "--classification-label-column",
-        default=None,
-        help=("Classification column in a separate " "classification CSV."),
     )
 
     parser.add_argument(
@@ -2007,8 +1940,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=50,
         help=(
-            "Custom LOWESS annealing distance in 500 Hz "
-            "samples. Default: %(default)s"
+            "Custom LOWESS annealing distance in 500 Hz samples. "
+            "Default: %(default)s"
         ),
     )
 
@@ -2059,8 +1992,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--hide-invalid-raw",
         action="store_true",
         help=(
-            "Hide native samples below the likelihood "
-            "threshold. They are shown in gray by default."
+            "Hide native samples below the likelihood threshold. "
+            "They are shown in gray by default."
         ),
     )
 
@@ -2073,46 +2006,29 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--hide-event-labels",
         action="store_true",
-        help="Hide event-category labels above the traces.",
+        help="Hide event category labels above the traces.",
     )
 
-    # BehaviorScreen directory configuration.
-    parser.add_argument(
-        "--metadata",
-        default="results",
-    )
-    parser.add_argument(
-        "--stimuli",
-        default="results",
-    )
-    parser.add_argument(
-        "--tracking",
-        default="results",
-    )
+    # BehaviorScreen directory settings.
+    parser.add_argument("--metadata", default="results")
+    parser.add_argument("--stimuli", default="results")
+    parser.add_argument("--tracking", default="results")
+
     parser.add_argument(
         "--lightning-pose",
         default="lightning_pose",
     )
-    parser.add_argument(
-        "--temperature",
-        default="results",
-    )
-    parser.add_argument(
-        "--video",
-        default="results",
-    )
+
+    parser.add_argument("--temperature", default="results")
+    parser.add_argument("--video", default="results")
+
     parser.add_argument(
         "--video-timestamp",
         default="results",
     )
-    parser.add_argument(
-        "--results",
-        default="results",
-    )
-    parser.add_argument(
-        "--plots",
-        default="plots",
-    )
+
+    parser.add_argument("--results", default="results")
+    parser.add_argument("--plots", default="plots")
 
     return parser
 
@@ -2120,7 +2036,7 @@ def build_parser() -> argparse.ArgumentParser:
 def validate_arguments(
     args: argparse.Namespace,
 ) -> None:
-    """Validate command-line values."""
+    """Validate command-line arguments."""
     if not 0.0 <= args.likelihood_threshold <= 1.0:
         raise ValueError("--likelihood-threshold must be between 0 and 1")
 
@@ -2150,6 +2066,11 @@ def validate_arguments(
 
     if args.timer_interval_ms < 1:
         raise ValueError("--timer-interval-ms must be at least 1")
+
+    if not args.classified_events.expanduser().is_file():
+        raise FileNotFoundError(
+            "Classified event CSV not found: " f"{args.classified_events}"
+        )
 
     if not args.labeled_video.expanduser().is_file():
         raise FileNotFoundError(f"Labeled video not found: " f"{args.labeled_video}")
@@ -2191,16 +2112,16 @@ def main() -> None:
     ) = extract_eye_data(behavior_data)
 
     events, label_column = load_classified_events(
-        events_path=args.events,
+        classified_events_path=args.classified_events,
         fish_label=args.fish,
         label_column=args.label_column,
-        classifications_path=args.classifications,
-        classification_label_column=(args.classification_label_column),
     )
 
     print(f"Loaded {len(events):,} classified events " f"for {args.fish}")
 
+    print(f"Using label column: {label_column}")
     print("Classes:")
+
     for class_name, count in events["_class_name"].value_counts().sort_index().items():
         print(f"  {class_name}: {count:,}")
 
@@ -2223,7 +2144,7 @@ def main() -> None:
         lowess_anneal_samples=(args.lowess_anneal_samples),
     )
 
-    # Use the complete timestamp array for video-frame synchronization.
+    # The labeled video is synchronized to these frame timestamps.
     frame_timestamps_ns = behavior_data.video_timestamps.timestamp.to_numpy(
         dtype=np.float64
     )
