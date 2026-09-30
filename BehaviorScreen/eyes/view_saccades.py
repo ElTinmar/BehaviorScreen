@@ -82,7 +82,7 @@ Example
 -------
 python -m BehaviorScreen.eyes.view_saccade_trace \
     /media/martin/DATA_18TB/Screen/WT/vehicle \
-    /path/to/classified_saccades.csv \
+    /path/to/saccades_classified.csv \
     --fish EXPERIMENT_NAME \
     --label-column class_label \
     --labeled-video /path/to/EXPERIMENT_NAME_labeled.mp4 \

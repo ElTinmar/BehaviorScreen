@@ -893,7 +893,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--saccades-csv",
-        default="augmented_saccades.csv",
+        default="saccades_augmented.csv",
     )
     parser.add_argument(
         "--valid-trials-csv",

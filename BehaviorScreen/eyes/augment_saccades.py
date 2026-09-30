@@ -278,18 +278,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--input",
-        default="classified_saccades.csv",
+        default="saccades_classified.csv",
         help=(
             "Input classified-saccade CSV relative to root. "
-            "Default: classified_saccades.csv."
+            "Default: saccades_classified.csv."
         ),
     )
     parser.add_argument(
         "--output",
-        default="augmented_saccades.csv",
+        default="saccades_augmented.csv",
         help=(
             "Output augmented-saccade CSV relative to root. "
-            "Default: augmented_saccades.csv."
+            "Default: saccades_augmented.csv."
         ),
     )
     parser.add_argument(
