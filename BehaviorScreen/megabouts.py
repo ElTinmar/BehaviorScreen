@@ -58,30 +58,13 @@ def full_tracking_data_from_lp(
     millimeters_per_pixel: float,
 ) -> FullTrackingData:
     """Convert Lightning Pose keypoints to Megabouts tracking data."""
-    head_x = (
-        dataframe.Head.x.to_numpy()
-        * millimeters_per_pixel
-    )
-    head_y = (
-        dataframe.Head.y.to_numpy()
-        * millimeters_per_pixel
-    )
+    head_x = dataframe.Head.x.to_numpy() * millimeters_per_pixel
+    head_y = dataframe.Head.y.to_numpy() * millimeters_per_pixel
 
-    tail_parts = [
-        f"Tail_{index}"
-        for index in range(9)
-    ]
+    tail_parts = [f"Tail_{index}" for index in range(9)]
 
-    tail_x = (
-        dataframe.loc[:, (tail_parts, "x")]
-        .to_numpy()
-        * millimeters_per_pixel
-    )
-    tail_y = (
-        dataframe.loc[:, (tail_parts, "y")]
-        .to_numpy()
-        * millimeters_per_pixel
-    )
+    tail_x = dataframe.loc[:, (tail_parts, "x")].to_numpy() * millimeters_per_pixel
+    tail_y = dataframe.loc[:, (tail_parts, "y")].to_numpy() * millimeters_per_pixel
 
     return FullTrackingData.from_keypoints(
         head_x=head_x,
@@ -99,22 +82,12 @@ def megabout_fulltracking_pipeline(
     savgol_window_ms: int = 20,
 ) -> MegaboutResults:
     """Run the Megabouts full-tracking pipeline."""
-    pixels_per_mm = float(
-        behavior_data.metadata[
-            "calibration"
-        ]["pix_per_mm"]
-    )
+    pixels_per_mm = float(behavior_data.metadata["calibration"]["pix_per_mm"])
     millimeters_per_pixel = 1.0 / pixels_per_mm
 
-    frames_per_second = float(
-        behavior_data.metadata[
-            "camera"
-        ]["framerate_value"]
-    )
+    frames_per_second = float(behavior_data.metadata["camera"]["framerate_value"])
 
-    timestamps = behavior_data.tracking[
-        "timestamp"
-    ].to_numpy()
+    timestamps = behavior_data.tracking["timestamp"].to_numpy()
 
     tracking_config = TrackingConfig(
         fps=frames_per_second,
@@ -126,18 +99,12 @@ def megabout_fulltracking_pipeline(
         exclude_CS=True,
     )
 
-    pipeline.segmentation_cfg.min_bout_duration_ms = (
-        min_bout_duration_ms
-    )
-    pipeline.segmentation_cfg.threshold = (
-        segmentation_threshold
-    )
+    pipeline.segmentation_cfg.min_bout_duration_ms = min_bout_duration_ms
+    pipeline.segmentation_cfg.threshold = segmentation_threshold
     pipeline.tail_preprocessing_cfg.tail_speed_boxcar_filter_ms = (
         tail_speed_boxcar_filter_ms
     )
-    pipeline.tail_preprocessing_cfg.savgol_window_ms = (
-        savgol_window_ms
-    )
+    pipeline.tail_preprocessing_cfg.savgol_window_ms = savgol_window_ms
 
     tracking_data = full_tracking_data_from_lp(
         behavior_data.full_tracking,
@@ -210,14 +177,12 @@ def calculate_tracking_quality(
         }
 
     centroid_distance = np.linalg.norm(
-        online_centroid[start:stop]
-        - posthoc_centroid[start:stop],
+        online_centroid[start:stop] - posthoc_centroid[start:stop],
         axis=1,
     )
 
     dot_product = np.sum(
-        online_heading[start:stop]
-        * posthoc_heading[start:stop],
+        online_heading[start:stop] * posthoc_heading[start:stop],
         axis=1,
     )
     dot_product = np.clip(
@@ -226,26 +191,14 @@ def calculate_tracking_quality(
         1.0,
     )
 
-    angular_distance = np.rad2deg(
-        np.arccos(dot_product)
-    )
+    angular_distance = np.rad2deg(np.arccos(dot_product))
 
     return {
-        "centroid_mismatch_avg": float(
-            np.nanmean(centroid_distance)
-        ),
-        "centroid_mismatch_max": float(
-            np.nanmax(centroid_distance)
-        ),
-        "heading_mismatch_avg": float(
-            np.nanmean(angular_distance)
-        ),
-        "heading_mismatch_max": float(
-            np.nanmax(angular_distance)
-        ),
-        "heading_flip": bool(
-            np.any(angular_distance > 160.0)
-        ),
+        "centroid_mismatch_avg": float(np.nanmean(centroid_distance)),
+        "centroid_mismatch_max": float(np.nanmax(centroid_distance)),
+        "heading_mismatch_avg": float(np.nanmean(angular_distance)),
+        "heading_mismatch_max": float(np.nanmax(angular_distance)),
+        "heading_flip": bool(np.any(angular_distance > 160.0)),
     }
 
 
@@ -258,16 +211,10 @@ def get_peak_signed_value(
     if len(values) == 0 or not np.isfinite(values).any():
         return np.nan
 
-    finite_indices = np.flatnonzero(
-        np.isfinite(values)
-    )
-    local_index = np.argmax(
-        np.abs(values[finite_indices])
-    )
+    finite_indices = np.flatnonzero(np.isfinite(values))
+    local_index = np.argmax(np.abs(values[finite_indices]))
 
-    return float(
-        values[finite_indices[local_index]]
-    )
+    return float(values[finite_indices[local_index]])
 
 
 def get_bout_metrics(
@@ -285,11 +232,7 @@ def get_bout_metrics(
         rollover_time_s=rollover_time_s,
     )
 
-    frames_per_second = float(
-        behavior_data.metadata[
-            "camera"
-        ]["framerate_value"]
-    )
+    frames_per_second = float(behavior_data.metadata["camera"]["framerate_value"])
 
     bout_onsets = np.asarray(
         megabout.bouts.onset,
@@ -321,9 +264,7 @@ def get_bout_metrics(
     bout_offsets = bout_offsets[:number_of_bouts]
     bout_categories = bout_categories[:number_of_bouts]
     bout_signs = bout_signs[:number_of_bouts]
-    bout_probabilities = bout_probabilities[
-        :number_of_bouts
-    ]
+    bout_probabilities = bout_probabilities[:number_of_bouts]
 
     valid_bout_indices = (
         (bout_onsets >= 0)
@@ -343,53 +284,37 @@ def get_bout_metrics(
         dtype=np.int64,
     )
 
-    bout_start_timestamps[valid_bout_indices] = (
-        np.asarray(megabout.timestamp)[
-            bout_onsets[valid_bout_indices]
-        ].astype(np.int64)
-    )
-    bout_stop_timestamps[valid_bout_indices] = (
-        np.asarray(megabout.timestamp)[
-            bout_offsets[valid_bout_indices]
-        ].astype(np.int64)
-    )
+    bout_start_timestamps[valid_bout_indices] = np.asarray(megabout.timestamp)[
+        bout_onsets[valid_bout_indices]
+    ].astype(np.int64)
+    bout_stop_timestamps[valid_bout_indices] = np.asarray(megabout.timestamp)[
+        bout_offsets[valid_bout_indices]
+    ].astype(np.int64)
 
     trial_indices = np.full(
         number_of_bouts,
         -1,
         dtype=int,
     )
-    trial_indices[valid_bout_indices] = (
-        recording.trial_indices(
-            bout_start_timestamps[
-                valid_bout_indices
-            ]
-        )
+    trial_indices[valid_bout_indices] = recording.trial_indices(
+        bout_start_timestamps[valid_bout_indices]
     )
 
-    online_centroid = behavior_data.tracking[
-        ["centroid_x", "centroid_y"]
-    ].to_numpy(dtype=float)
-
-    posthoc_centroid = (
-        behavior_data.full_tracking.Swim_Bladder[
-            ["x", "y"]
-        ].to_numpy(dtype=float)
+    online_centroid = behavior_data.tracking[["centroid_x", "centroid_y"]].to_numpy(
+        dtype=float
     )
 
-    online_heading = behavior_data.tracking[
-        ["pc1_x", "pc1_y"]
-    ].to_numpy(dtype=float)
+    posthoc_centroid = behavior_data.full_tracking.Swim_Bladder[["x", "y"]].to_numpy(
+        dtype=float
+    )
+
+    online_heading = behavior_data.tracking[["pc1_x", "pc1_y"]].to_numpy(dtype=float)
 
     posthoc_heading_vector = (
-        behavior_data.full_tracking.Head[
-            ["x", "y"]
-        ].to_numpy(dtype=float)
+        behavior_data.full_tracking.Head[["x", "y"]].to_numpy(dtype=float)
         - posthoc_centroid
     )
-    posthoc_heading = normalize_rows(
-        posthoc_heading_vector
-    )
+    posthoc_heading = normalize_rows(posthoc_heading_vector)
 
     rows: list[dict[str, Any]] = []
 
@@ -403,33 +328,20 @@ def get_bout_metrics(
 
         onset = int(bout_onsets[bout_index])
         offset = int(bout_offsets[bout_index])
-        trial_index = int(
-            trial_indices[bout_index]
-        )
+        trial_index = int(trial_indices[bout_index])
 
         if trial_index < 0:
             continue
 
         # Require the complete bout to be contained in the trial.
-        if (
-            bout_stop_timestamps[bout_index]
-            >= recording.trial_stops[trial_index]
-        ):
+        if bout_stop_timestamps[bout_index] >= recording.trial_stops[trial_index]:
             continue
 
-        event_timestamp = int(
-            bout_start_timestamps[bout_index]
-        )
+        event_timestamp = int(bout_start_timestamps[bout_index])
 
-        x_mm = float(
-            megabout.traj.x_smooth[onset]
-        )
-        y_mm = float(
-            megabout.traj.y_smooth[onset]
-        )
-        heading = float(
-            megabout.traj.yaw_smooth[onset]
-        )
+        x_mm = float(megabout.traj.x_smooth[onset])
+        y_mm = float(megabout.traj.y_smooth[onset])
+        heading = float(megabout.traj.yaw_smooth[onset])
 
         common_context = recording.event_context(
             event_timestamp=event_timestamp,
@@ -440,51 +352,30 @@ def get_bout_metrics(
         )
 
         heading_change = float(
-            megabout.traj.yaw_smooth[offset]
-            - megabout.traj.yaw_smooth[onset]
+            megabout.traj.yaw_smooth[offset] - megabout.traj.yaw_smooth[onset]
         )
 
-        delta_x = np.diff(
-            megabout.traj.x_smooth[onset:offset]
-        )
-        delta_y = np.diff(
-            megabout.traj.y_smooth[onset:offset]
-        )
-        distance = float(
-            np.sum(np.hypot(delta_x, delta_y))
-        )
+        delta_x = np.diff(megabout.traj.x_smooth[onset:offset])
+        delta_y = np.diff(megabout.traj.y_smooth[onset:offset])
+        distance = float(np.sum(np.hypot(delta_x, delta_y)))
 
-        bout_duration = (
-            offset - onset
-        ) / frames_per_second
+        bout_duration = (offset - onset) / frames_per_second
 
         previous_offset = previous_offset_by_trial.get(
             trial_index,
             0,
         )
-        interbout_duration = (
-            onset - previous_offset
-        ) / frames_per_second
+        interbout_duration = (onset - previous_offset) / frames_per_second
         previous_offset_by_trial[trial_index] = offset
 
         peak_axial_speed = get_peak_signed_value(
-            megabout.traj.axial_speed[
-                onset:offset
-            ]
+            megabout.traj.axial_speed[onset:offset]
         )
-        peak_yaw_speed = get_peak_signed_value(
-            megabout.traj.yaw_speed[
-                onset:offset
-            ]
-        )
+        peak_yaw_speed = get_peak_signed_value(megabout.traj.yaw_speed[onset:offset])
 
-        start_time = (
-            event_timestamp
-            - int(megabout.timestamp[0])
-        ) * 1e-9
+        start_time = (event_timestamp - int(megabout.timestamp[0])) * 1e-9
         stop_time = (
-            int(bout_stop_timestamps[bout_index])
-            - int(megabout.timestamp[0])
+            int(bout_stop_timestamps[bout_index]) - int(megabout.timestamp[0])
         ) * 1e-9
 
         quality = calculate_tracking_quality(
@@ -500,9 +391,7 @@ def get_bout_metrics(
         trial = recording.trials.iloc[trial_index]
 
         try:
-            laterality = EPOCH_LATERALITY[
-                (trial.epoch_name, sign)
-            ]
+            laterality = EPOCH_LATERALITY[(trial.epoch_name, sign)]
         except KeyError:
             laterality = np.nan
 
@@ -515,18 +404,12 @@ def get_bout_metrics(
             "heading_change": heading_change,
             "distance": distance,
             "bout_duration": float(bout_duration),
-            "interbout_duration": float(
-                interbout_duration
-            ),
+            "interbout_duration": float(interbout_duration),
             "peak_axial_speed": peak_axial_speed,
             "peak_yaw_speed": peak_yaw_speed,
-            "category": int(
-                bout_categories[bout_index]
-            ),
+            "category": int(bout_categories[bout_index]),
             "sign": int(sign),
-            "proba": float(
-                bout_probabilities[bout_index]
-            ),
+            "proba": float(bout_probabilities[bout_index]),
             "laterality": laterality,
         }
 
@@ -545,8 +428,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Create the command-line parser."""
     parser = argparse.ArgumentParser(
         description=(
-            "Run the Megabouts pipeline and create an augmented "
-            "bout table."
+            "Run the Megabouts pipeline and create an augmented " "bout table."
         )
     )
 
@@ -558,10 +440,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bouts-csv",
         default="bouts.csv",
-        help=(
-            "Output CSV filename relative to root. "
-            "Default: bouts.csv."
-        ),
+        help=("Output CSV filename relative to root. " "Default: bouts.csv."),
     )
     parser.add_argument(
         "--rollover-time-s",
@@ -638,19 +517,12 @@ def run_megabouts(
         behavior_data = load_data(behavior_file)
 
         if behavior_data.full_tracking.empty:
-            print(
-                f"[skip] {behavior_file.metadata.stem}: "
-                "no full tracking"
-            )
+            print(f"[skip] {behavior_file.metadata.stem}: " "no full tracking")
             continue
 
-        megabout = megabout_fulltracking_pipeline(
-            behavior_data
-        )
+        megabout = megabout_fulltracking_pipeline(behavior_data)
 
-        pickle_path = (
-            behavior_file.metadata.with_suffix(".pkl")
-        )
+        pickle_path = behavior_file.metadata.with_suffix(".pkl")
 
         with pickle_path.open("wb") as output_file:
             pickle.dump(megabout, output_file)
@@ -665,10 +537,7 @@ def run_megabouts(
 
         bout_rows.extend(fish_rows)
 
-        print(
-            f"[ok] {behavior_file.metadata.stem}: "
-            f"{len(fish_rows):,} bouts"
-        )
+        print(f"[ok] {behavior_file.metadata.stem}: " f"{len(fish_rows):,} bouts")
 
     bouts = pd.DataFrame.from_records(bout_rows)
     output_path = root / output_csv
