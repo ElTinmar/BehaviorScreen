@@ -41,7 +41,7 @@ import BehaviorScreen.eyes.saccade_pipeline as sp
 
 
 SAMPLING_RATE = 500.0
-MIN_PROMINENCE = 0.8
+MIN_PROMINENCE_FREESWIM = 1.1
 
 def extract_raw_eye_angles(
     behavior_data: BehaviorData,
@@ -188,7 +188,7 @@ def process_fish(
         left_raw,
         right_raw,
         fs=100.0,
-        min_prominence= MIN_PROMINENCE
+        min_prominence= MIN_PROMINENCE_FREESWIM
     )
 
     event_times, has_left, has_right = (
