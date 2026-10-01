@@ -220,7 +220,7 @@ def main(args: argparse.Namespace) -> None:
         plots=args.plots,
     )
     
-    print("4. extract bout metrics", flush=True)
+    print("4. bout analysis", flush=True)
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
@@ -236,6 +236,14 @@ def main(args: argparse.Namespace) -> None:
         cpu=args.cpu,
         rollover_time_s=3600
     )
+    plot_heatmaps(
+        quality_control=args.qc_csv,
+        input_csv=args.bouts_csv,
+        valid_trials_csv=args.valid_trials_csv,
+        config_yaml = args.yaml,
+        output_png = args.bouts_png,
+    )
+    
 
     print("5. saccade analysis", flush=True)
     run_analysis(
@@ -244,16 +252,8 @@ def main(args: argparse.Namespace) -> None:
         model_path=args.saccade_model,
     )
 
-    print("6. plot", flush=True)
-    plot_heatmaps(
-        quality_control=args.qc_csv,
-        input_csv=args.bouts_csv,
-        valid_trials_csv=args.valid_trials_csv,
-        config_yaml = args.yaml,
-        output_png = args.bouts_png,
-    )
-
-    print("7. overlay")
+    
+    print("6. overlay")
     # TODO
 
 if __name__ == '__main__':
