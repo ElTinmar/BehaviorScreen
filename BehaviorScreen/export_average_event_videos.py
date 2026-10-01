@@ -1155,7 +1155,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-pixels-per-mm",
         type=float,
-        default=None,
+        default=40.0,
         help=(
             "Optional common spatial scale. When provided, each recording "
             "is rescaled from its metadata pix_per_mm calibration."
