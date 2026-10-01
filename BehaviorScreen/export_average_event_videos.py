@@ -3,12 +3,31 @@
 Export fish-centered, heading-aligned average videos for bout and saccade
 categories.
 
+Frame rates
+-----------
+--output-fps
+    Temporal sampling rate used to construct the aggregate frames. For
+    recordings captured at 120 FPS, use --output-fps 120 to retain the
+    native temporal resolution.
+
+--playback-fps
+    Frame rate written into the output MP4 metadata. This affects only
+    playback speed, not source-frame selection or the event-relative time
+    axis.
+
+For example:
+
+    --output-fps 120 --playback-fps 5
+
+retains 120 temporal samples per second of source time and plays the result
+24 times slower than real time.
+
 Default grouping
 ----------------
 Bouts:
-    category: category
+    category:  category
     direction: sign
-    onset:    frame_start
+    onset:     frame_start
 
 Saccades:
     category:  saccade_category_name
@@ -23,7 +42,7 @@ For every source frame, the image is translated and rotated so that:
 Aggregation
 -----------
 mean
-    Streaming, memory-efficient, and normally the recommended option.
+    Streaming, memory-efficient, and normally recommended.
 
 median / mode
     Exact uint8 median or mode. Transformed clips are temporarily written
@@ -32,7 +51,7 @@ median / mode
 
 Example
 -------
-python export_average_event_videos.py \
+python -m BehaviorScreen.export_average_event_videos \
     /media/martin/DATA_18TB/Screen/WT/vehicle \
     --bouts-csv bouts.csv \
     --saccades-csv saccades_augmented.csv \
@@ -40,16 +59,10 @@ python export_average_event_videos.py \
     --statistic mean \
     --pre-ms 300 \
     --post-ms 600 \
-    --output-fps 100 \
-    --crop-width 320 \
+    --output-fps 120 \
+    --playback-fps 5 \
+    --crop-width 240 \
     --crop-height 320
-
-Grouping by category and direction
-----------------------------------
-python export_average_event_videos.py ROOT \
-    --bout-group-cols category,sign \
-    --saccade-group-cols \
-        saccade_category_name,event_direction_name
 """
 
 from __future__ import annotations
@@ -78,9 +91,7 @@ from BehaviorScreen.load import (
 # ============================================================================
 
 
-def parse_columns(
-    value: str,
-) -> list[str]:
+def parse_columns(value: str) -> list[str]:
     """Parse a comma-separated list of column names."""
     columns = [column.strip() for column in value.split(",") if column.strip()]
 
@@ -90,16 +101,10 @@ def parse_columns(
     return columns
 
 
-def safe_filename(
-    value: object,
-) -> str:
+def safe_filename(value: object) -> str:
     """Convert a category label to a filesystem-safe string."""
     text = str(value).strip()
-    text = re.sub(
-        r"[^A-Za-z0-9._=-]+",
-        "_",
-        text,
-    )
+    text = re.sub(r"[^A-Za-z0-9._=-]+", "_", text)
     text = text.strip("._")
 
     return text or "unnamed"
@@ -115,30 +120,19 @@ def group_label(
     else:
         values = tuple(group_key)  # type: ignore[arg-type]
 
-    metadata = dict(
-        zip(
-            group_columns,
-            values,
-        )
-    )
+    metadata = dict(zip(group_columns, values))
 
     label = "__".join(
-        (f"{safe_filename(column)}-" f"{safe_filename(value)}")
+        f"{safe_filename(column)}-{safe_filename(value)}"
         for column, value in metadata.items()
     )
 
     return label, metadata
 
 
-def find_recording_column(
-    events: pd.DataFrame,
-) -> str:
+def find_recording_column(events: pd.DataFrame) -> str:
     """Find the column identifying the source recording."""
-    for column in (
-        "file",
-        "fish",
-        "recording",
-    ):
+    for column in ("file", "fish", "recording"):
         if column in events.columns:
             return column
 
@@ -148,9 +142,7 @@ def find_recording_column(
     )
 
 
-def normalize_recording_name(
-    value: object,
-) -> str:
+def normalize_recording_name(value: object) -> str:
     """Normalize a recording identifier."""
     if pd.isna(value):
         return ""
@@ -158,9 +150,7 @@ def normalize_recording_name(
     return Path(str(value)).stem
 
 
-def read_pixels_per_mm(
-    metadata_path: Path,
-) -> float:
+def read_pixels_per_mm(metadata_path: Path) -> float:
     """Read spatial calibration from a metadata file."""
     with metadata_path.open("r") as input_file:
         metadata = json.load(input_file)
@@ -175,15 +165,17 @@ def read_pixels_per_mm(
 
 class VideoReader:
     """
-    Small OpenCV reader with sequential-frame optimization.
+    OpenCV video reader with sequential-frame optimization.
 
-    Random access is used at the beginning of each discontinuous segment;
-    consecutive frame requests are then read sequentially.
+    Consecutive frames are read normally. Small forward gaps are traversed
+    with grab(), avoiding an expensive random seek for every requested
+    frame. Backward and large forward jumps use CAP_PROP_POS_FRAMES.
     """
 
     def __init__(
         self,
         path: Path,
+        maximum_grab_gap: int = 120,
     ):
         self.path = Path(path)
         self.capture = cv2.VideoCapture(str(path))
@@ -197,21 +189,43 @@ class VideoReader:
         self.fps = float(self.capture.get(cv2.CAP_PROP_FPS))
 
         if not np.isfinite(self.fps) or self.fps <= 0:
-            raise ValueError(f"Invalid frame rate for {path}: " f"{self.fps}")
+            raise ValueError(f"Invalid frame rate for {path}: {self.fps}")
 
+        self.maximum_grab_gap = int(maximum_grab_gap)
         self.next_frame_index: int | None = None
 
-    def read(
-        self,
-        frame_index: int,
-    ) -> np.ndarray | None:
+        self.cached_frame_index: int | None = None
+        self.cached_frame: np.ndarray | None = None
+
+    def read(self, frame_index: int) -> np.ndarray | None:
         """Read one BGR frame."""
         frame_index = int(frame_index)
 
         if frame_index < 0 or frame_index >= self.frame_count:
             return None
 
-        if self.next_frame_index != frame_index:
+        # Reuse a frame when multiple output times map to the same source
+        # frame.
+        if self.cached_frame_index == frame_index and self.cached_frame is not None:
+            return self.cached_frame
+
+        if self.next_frame_index is None:
+            use_forward_decode = False
+        else:
+            gap = frame_index - self.next_frame_index
+            use_forward_decode = gap >= 0 and gap <= self.maximum_grab_gap
+
+        if use_forward_decode:
+            frames_to_skip = frame_index - self.next_frame_index
+
+            for _ in range(frames_to_skip):
+                if not self.capture.grab():
+                    self.next_frame_index = None
+                    self.cached_frame_index = None
+                    self.cached_frame = None
+                    return None
+
+        elif self.next_frame_index != frame_index:
             self.capture.set(
                 cv2.CAP_PROP_POS_FRAMES,
                 frame_index,
@@ -221,6 +235,8 @@ class VideoReader:
 
         if not success or frame is None:
             self.next_frame_index = None
+            self.cached_frame_index = None
+            self.cached_frame = None
             return None
 
         self.next_frame_index = frame_index + 1
@@ -237,21 +253,19 @@ class VideoReader:
                 cv2.COLOR_BGRA2BGR,
             )
 
+        self.cached_frame_index = frame_index
+        self.cached_frame = frame
+
         return frame
 
     def close(self) -> None:
         """Close the video."""
         self.capture.release()
 
-    def __enter__(
-        self,
-    ) -> "VideoReader":
+    def __enter__(self) -> "VideoReader":
         return self
 
-    def __exit__(
-        self,
-        *args: object,
-    ) -> None:
+    def __exit__(self, *args: object) -> None:
         self.close()
 
 
@@ -266,8 +280,10 @@ def extract_pose_point(
     likelihood_threshold: float,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Extract xy coordinates and a validity mask for one pose point."""
-    if point_name not in tracking.columns.get_level_values(0):
-        available = sorted(set(tracking.columns.get_level_values(0)))
+    available_points = tracking.columns.get_level_values(0)
+
+    if point_name not in available_points:
+        available = sorted(set(available_points))
 
         raise KeyError(
             f"Pose point {point_name!r} was not found. "
@@ -277,7 +293,7 @@ def extract_pose_point(
     point = tracking[point_name]
 
     if "x" not in point or "y" not in point:
-        raise KeyError(f"Pose point {point_name!r} does not " "contain x and y.")
+        raise KeyError(f"Pose point {point_name!r} does not contain x and y.")
 
     xy = point[["x", "y"]].to_numpy(dtype=np.float32)
 
@@ -324,8 +340,8 @@ def fish_aligned_frame(
     """
     Center and rotate a video frame around the fish.
 
-    The Swim_Bladder -> Head vector is transformed to point toward the top
-    of the output image.
+    The center point is moved to the center of the output image. The
+    center-to-head vector is rotated to point toward the top of the image.
     """
     center_x = float(center_xy[0])
     center_y = float(center_xy[1])
@@ -333,28 +349,18 @@ def fish_aligned_frame(
     delta_x = float(head_xy[0] - center_x)
     delta_y = float(head_xy[1] - center_y)
 
-    length = np.hypot(
-        delta_x,
-        delta_y,
-    )
+    length = np.hypot(delta_x, delta_y)
 
     if not np.isfinite(length) or length < 1e-6:
         return None
 
-    # Positive image y points down. This rotates the heading toward -y.
-    heading_degrees = np.degrees(
-        np.arctan2(
-            delta_y,
-            delta_x,
-        )
-    )
+    # Image y coordinates increase downward. This rotation moves the
+    # center-to-head direction toward negative y.
+    heading_degrees = np.degrees(np.arctan2(delta_y, delta_x))
     rotation_degrees = heading_degrees + 90.0
 
     matrix = cv2.getRotationMatrix2D(
-        center=(
-            center_x,
-            center_y,
-        ),
+        center=(center_x, center_y),
         angle=rotation_degrees,
         scale=scale,
     )
@@ -368,10 +374,7 @@ def fish_aligned_frame(
     transformed = cv2.warpAffine(
         frame,
         matrix,
-        dsize=(
-            output_width,
-            output_height,
-        ),
+        dsize=(output_width, output_height),
         flags=cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=(0, 0, 0),
@@ -385,10 +388,7 @@ def fish_aligned_frame(
     valid_mask = cv2.warpAffine(
         source_mask,
         matrix,
-        dsize=(
-            output_width,
-            output_height,
-        ),
+        dsize=(output_width, output_height),
         flags=cv2.INTER_NEAREST,
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=0,
@@ -414,7 +414,7 @@ def extract_aligned_clip(
     Extract one onset-aligned, fish-centered video clip.
 
     stabilization="frame"
-        Recenter and rerotate each frame using that frame's pose.
+        Recenter and rerotate every frame using that frame's pose.
 
     stabilization="onset"
         Use the onset-frame center and heading for the complete clip.
@@ -457,9 +457,13 @@ def extract_aligned_clip(
         fixed_center = None
         fixed_head = None
 
-    source_frames = np.rint(event_frame + time_offsets_s * reader.fps).astype(int)
+    # time_offsets_s is defined by --output-fps. reader.fps is the actual
+    # source-video frame rate.
+    source_frames = np.rint(event_frame + time_offsets_s * reader.fps).astype(np.int64)
 
-    for output_index, source_frame in enumerate(source_frames):
+    for output_index, source_frame_value in enumerate(source_frames):
+        source_frame = int(source_frame_value)
+
         if (
             source_frame < 0
             or source_frame >= reader.frame_count
@@ -476,6 +480,9 @@ def extract_aligned_clip(
             current_head = head_xy[source_frame]
 
         else:
+            if fixed_center is None or fixed_head is None:
+                continue
+
             current_center = fixed_center
             current_head = fixed_head
 
@@ -530,26 +537,27 @@ def transformed_clips(
     """
     Yield transformed clips for all events in one category.
 
-    The optional progress bar is advanced once for every candidate event,
-    including events that cannot produce a usable clip.
+    The progress bar is advanced for every candidate event, including
+    events that cannot produce a usable clip.
     """
 
-    def advance_progress(
-        number: int = 1,
-    ) -> None:
+    def advance_progress(number: int = 1) -> None:
         if progress_bar is not None:
             progress_bar.update(number)
 
-    for (
-        recording_value,
-        recording_events,
-    ) in events.groupby(
+    for recording_value, recording_events in events.groupby(
         recording_column,
         sort=False,
         dropna=False,
     ):
-        recording_name = normalize_recording_name(recording_value)
+        # Processing events in onset order generally reduces backward and
+        # random video seeks.
+        recording_events = recording_events.sort_values(
+            frame_column,
+            kind="stable",
+        )
 
+        recording_name = normalize_recording_name(recording_value)
         number_of_recording_events = len(recording_events)
 
         behavior_files = files_by_name.get(recording_name)
@@ -577,27 +585,25 @@ def transformed_clips(
             tracking = load_lightning_pose(behavior_files.full_tracking)
 
             center_xy, center_valid = extract_pose_point(
-                tracking,
-                center_point,
-                likelihood_threshold,
+                tracking=tracking,
+                point_name=center_point,
+                likelihood_threshold=likelihood_threshold,
             )
 
             head_xy, head_valid = extract_pose_point(
-                tracking,
-                head_point,
-                likelihood_threshold,
+                tracking=tracking,
+                point_name=head_point,
+                likelihood_threshold=likelihood_threshold,
             )
 
             if output_pixels_per_mm is None:
                 scale = 1.0
-
             else:
                 source_pixels_per_mm = read_pixels_per_mm(behavior_files.metadata)
-
                 scale = output_pixels_per_mm / source_pixels_per_mm
 
             with VideoReader(behavior_files.video) as reader:
-                for event in recording_events.itertuples():
+                for event in recording_events.itertuples(index=False):
                     result = None
 
                     try:
@@ -616,16 +622,14 @@ def transformed_clips(
                                 head_xy=head_xy,
                                 center_valid=center_valid,
                                 head_valid=head_valid,
-                                time_offsets_s=(time_offsets_s),
-                                output_width=(output_width),
-                                output_height=(output_height),
+                                time_offsets_s=time_offsets_s,
+                                output_width=output_width,
+                                output_height=output_height,
                                 scale=scale,
-                                stabilization=(stabilization),
+                                stabilization=stabilization,
                             )
 
                     finally:
-                        # Update once for every attempted event, including
-                        # events rejected because of missing frames or pose.
                         processed_events += 1
                         advance_progress()
 
@@ -633,10 +637,8 @@ def transformed_clips(
                         yield result
 
         except Exception as error:
-            tqdm.write(f"[skip] {recording_name}: " f"{error}")
+            tqdm.write(f"[skip] {recording_name}: {error}")
 
-            # Complete progress for events that were not reached because
-            # loading or processing this recording failed.
             remaining_events = number_of_recording_events - processed_events
 
             if remaining_events > 0:
@@ -650,60 +652,49 @@ def transformed_clips(
 
 def aggregate_mean(
     clips: Iterator[tuple[np.ndarray, np.ndarray]],
-    output_shape: tuple[
-        int,
-        int,
-        int,
-        int,
-    ],
-) -> tuple[
-    np.ndarray,
-    np.ndarray,
-    int,
-]:
+    output_shape: tuple[int, int, int, int],
+) -> tuple[np.ndarray, np.ndarray, int]:
     """Calculate a streaming pixel-wise mean."""
+    # float32 reduces memory use and memory bandwidth compared with
+    # float64 and is sufficient for ordinary event counts.
     sums = np.zeros(
         output_shape,
-        dtype=np.float64,
+        dtype=np.float32,
     )
 
     counts = np.zeros(
-        output_shape[:-1] + (1,),
+        output_shape[:-1],
         dtype=np.uint32,
     )
 
     number_of_instances = 0
 
     for clip, valid in clips:
-        expanded_valid = valid[..., None]
+        np.add(
+            sums,
+            clip,
+            out=sums,
+            where=valid[..., None],
+            casting="unsafe",
+        )
 
-        sums += clip.astype(np.float64) * expanded_valid
-        counts += expanded_valid
+        counts += valid
         number_of_instances += 1
-
-    average = np.zeros(
-        output_shape,
-        dtype=np.uint8,
-    )
 
     np.divide(
         sums,
-        counts,
+        counts[..., None],
         out=sums,
-        where=counts > 0,
+        where=counts[..., None] > 0,
     )
 
-    average[:] = np.clip(
+    average = np.clip(
         np.rint(sums),
         0,
         255,
     ).astype(np.uint8)
 
-    return (
-        average,
-        counts[..., 0],
-        number_of_instances,
-    )
+    return average, counts, number_of_instances
 
 
 def histogram_reduce_memmaps(
@@ -712,10 +703,7 @@ def histogram_reduce_memmaps(
     number_of_instances: int,
     statistic: str,
     chunk_pixels: int,
-) -> tuple[
-    np.ndarray,
-    np.ndarray,
-]:
+) -> tuple[np.ndarray, np.ndarray]:
     """
     Calculate exact uint8 median or mode from temporary memmaps.
 
@@ -746,11 +734,7 @@ def histogram_reduce_memmaps(
     )
 
     for start in tqdm(
-        range(
-            0,
-            flattened_size,
-            chunk_pixels,
-        ),
+        range(0, flattened_size, chunk_pixels),
         desc=f"Reducing {statistic}",
         unit="chunk",
         leave=False,
@@ -768,10 +752,7 @@ def histogram_reduce_memmaps(
         mask_indices = color_indices // 3
 
         histogram = np.zeros(
-            (
-                256,
-                size,
-            ),
+            (256, size),
             dtype=np.uint32,
         )
 
@@ -816,7 +797,7 @@ def histogram_reduce_memmaps(
                 dtype=np.uint32,
             )
 
-            # Lower median for even sample counts.
+            # Lower median for even observation counts.
             target = (observation_count - 1) // 2
 
             reduced = np.argmax(
@@ -825,11 +806,11 @@ def histogram_reduce_memmaps(
             ).astype(np.uint8)
 
         else:
-            raise ValueError("Unsupported histogram statistic: " f"{statistic}")
+            raise ValueError(f"Unsupported histogram statistic: {statistic}")
 
         result[start:stop][has_data] = reduced[has_data]
 
-        # All three channels use the same geometric validity mask.
+        # All three color channels use the same geometric validity mask.
         if start % 3 == 0 and stop % 3 == 0:
             counts[start // 3 : stop // 3] = observation_count[::3]
 
@@ -841,24 +822,13 @@ def histogram_reduce_memmaps(
 
 def aggregate_median_or_mode(
     clips: Iterator[tuple[np.ndarray, np.ndarray]],
-    output_shape: tuple[
-        int,
-        int,
-        int,
-        int,
-    ],
+    output_shape: tuple[int, int, int, int],
     maximum_instances: int,
     statistic: str,
     temporary_directory: Path | None,
     chunk_pixels: int,
-) -> tuple[
-    np.ndarray,
-    np.ndarray,
-    int,
-]:
-    """
-    Calculate an exact median or mode using temporary disk-backed arrays.
-    """
+) -> tuple[np.ndarray, np.ndarray, int]:
+    """Calculate an exact median or mode using disk-backed arrays."""
     mask_shape = output_shape[:-1]
 
     with tempfile.TemporaryDirectory(dir=temporary_directory) as temp_name:
@@ -888,15 +858,16 @@ def aggregate_median_or_mode(
 
         for clip, valid in clips:
             clip_memmap[number_of_instances] = clip
-
             mask_memmap[number_of_instances] = valid
-
             number_of_instances += 1
 
         clip_memmap.flush()
         mask_memmap.flush()
 
         if number_of_instances == 0:
+            del clip_memmap
+            del mask_memmap
+
             return (
                 np.zeros(
                     output_shape,
@@ -912,7 +883,7 @@ def aggregate_median_or_mode(
         result, counts = histogram_reduce_memmaps(
             clips=clip_memmap,
             masks=mask_memmap,
-            number_of_instances=(number_of_instances),
+            number_of_instances=number_of_instances,
             statistic=statistic,
             chunk_pixels=chunk_pixels,
         )
@@ -920,11 +891,7 @@ def aggregate_median_or_mode(
         del clip_memmap
         del mask_memmap
 
-    return (
-        result,
-        counts,
-        number_of_instances,
-    )
+    return result, counts, number_of_instances
 
 
 # ============================================================================
@@ -935,10 +902,15 @@ def aggregate_median_or_mode(
 def write_video(
     path: Path,
     frames: np.ndarray,
-    fps: float,
+    playback_fps: float,
     codec: str,
 ) -> None:
-    """Write a BGR video using OpenCV."""
+    """
+    Write a BGR video using OpenCV.
+
+    playback_fps affects only MP4 playback speed. It does not affect the
+    temporal sampling used to generate frames.
+    """
     path.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -950,11 +922,8 @@ def write_video(
     writer = cv2.VideoWriter(
         str(path),
         cv2.VideoWriter_fourcc(*codec),
-        fps,
-        (
-            width,
-            height,
-        ),
+        float(playback_fps),
+        (width, height),
         isColor=True,
     )
 
@@ -966,7 +935,6 @@ def write_video(
     try:
         for frame in frames:
             writer.write(np.ascontiguousarray(frame))
-
     finally:
         writer.release()
 
@@ -994,14 +962,12 @@ def process_event_table(
     table_name: str,
     csv_path: Path,
     output_directory: Path,
-    files_by_name: dict[
-        str,
-        BehaviorFiles,
-    ],
+    files_by_name: dict[str, BehaviorFiles],
     group_columns: Sequence[str],
     frame_column: str,
     time_offsets_s: np.ndarray,
-    output_fps: float,
+    sampling_fps: float,
+    playback_fps: float,
     output_width: int,
     output_height: int,
     likelihood_threshold: float,
@@ -1015,7 +981,7 @@ def process_event_table(
     codec: str,
     save_numpy: bool,
 ) -> list[dict[str, Any]]:
-    """Export one aggregate video for every category in one event table."""
+    """Export one aggregate video for every event category."""
     if not csv_path.exists():
         print("[skip] Event table does not exist: " f"{csv_path}")
         return []
@@ -1033,7 +999,6 @@ def process_event_table(
         frame_column=frame_column,
     )
 
-    # Events without a category or onset frame cannot be processed.
     events = events.dropna(
         subset=[
             *group_columns,
@@ -1041,6 +1006,10 @@ def process_event_table(
             recording_column,
         ]
     ).copy()
+
+    if events.empty:
+        print("[skip] No valid categorized events in: " f"{csv_path}")
+        return []
 
     output_shape = (
         len(time_offsets_s),
@@ -1063,25 +1032,19 @@ def process_event_table(
         dropna=False,
     )
 
-    for (
-        group_key,
-        category_events,
-    ) in tqdm(
+    for group_key, category_events in tqdm(
         grouped,
         total=grouped.ngroups,
         desc=f"{table_name} groups",
         unit="group",
     ):
-        (
-            label,
-            category_metadata,
-        ) = group_label(
-            group_columns,
-            group_key,
+        label, category_metadata = group_label(
+            group_columns=group_columns,
+            group_key=group_key,
         )
 
         tqdm.write(
-            f"[{table_name}] {label}: " f"{len(category_events):,} " "candidate events"
+            f"[{table_name}] {label}: " f"{len(category_events):,} candidate events"
         )
 
         with tqdm(
@@ -1093,25 +1056,21 @@ def process_event_table(
             clip_iterator = transformed_clips(
                 events=category_events,
                 files_by_name=files_by_name,
-                recording_column=(recording_column),
+                recording_column=recording_column,
                 frame_column=frame_column,
                 time_offsets_s=time_offsets_s,
                 output_width=output_width,
                 output_height=output_height,
-                likelihood_threshold=(likelihood_threshold),
+                likelihood_threshold=likelihood_threshold,
                 center_point=center_point,
                 head_point=head_point,
                 stabilization=stabilization,
-                output_pixels_per_mm=(output_pixels_per_mm),
+                output_pixels_per_mm=output_pixels_per_mm,
                 progress_bar=event_progress,
             )
 
             if statistic == "mean":
-                (
-                    aggregate,
-                    counts,
-                    number_used,
-                ) = aggregate_mean(
+                aggregate, counts, number_used = aggregate_mean(
                     clips=clip_iterator,
                     output_shape=output_shape,
                 )
@@ -1126,8 +1085,8 @@ def process_event_table(
                     output_shape=output_shape,
                     maximum_instances=len(category_events),
                     statistic=statistic,
-                    temporary_directory=(temporary_directory),
-                    chunk_pixels=(histogram_chunk_pixels),
+                    temporary_directory=temporary_directory,
+                    chunk_pixels=histogram_chunk_pixels,
                 )
 
             event_progress.set_postfix(
@@ -1136,7 +1095,7 @@ def process_event_table(
             )
 
         if number_used == 0:
-            tqdm.write(f"[skip] {label}: " "no usable clips")
+            tqdm.write(f"[skip] {label}: no usable clips")
             continue
 
         video_path = table_output / f"{label}__{statistic}.mp4"
@@ -1144,22 +1103,36 @@ def process_event_table(
         write_video(
             path=video_path,
             frames=aggregate,
-            fps=output_fps,
+            playback_fps=playback_fps,
             codec=codec,
         )
 
         if save_numpy:
+            numpy_path = table_output / f"{label}__{statistic}.npz"
+
             np.savez_compressed(
-                (table_output / f"{label}__{statistic}.npz"),
+                numpy_path,
                 frames=aggregate,
                 valid_pixel_counts=counts,
                 time_axis_ms=(time_offsets_s * 1000.0).astype(np.float32),
+                sampling_fps=np.float32(sampling_fps),
+                playback_fps=np.float32(playback_fps),
+                slowdown_factor=np.float32(sampling_fps / playback_fps),
             )
+
+        source_duration_s = len(time_offsets_s) / sampling_fps
+        playback_duration_s = len(time_offsets_s) / playback_fps
 
         summary = {
             "table": table_name,
             **category_metadata,
             "statistic": statistic,
+            "sampling_fps": float(sampling_fps),
+            "playback_fps": float(playback_fps),
+            "slowdown_factor": float(sampling_fps / playback_fps),
+            "output_frames": int(len(time_offsets_s)),
+            "source_duration_s": float(source_duration_s),
+            "playback_duration_s": float(playback_duration_s),
             "candidate_events": int(len(category_events)),
             "used_events": int(number_used),
             "recordings": int(category_events[recording_column].nunique()),
@@ -1173,8 +1146,9 @@ def process_event_table(
         tqdm.write(
             f"[saved] {video_path} "
             f"({number_used:,}/"
-            f"{len(category_events):,} "
-            "usable instances)"
+            f"{len(category_events):,} usable instances; "
+            f"{sampling_fps:g} Hz sampling, "
+            f"{playback_fps:g} FPS playback)"
         )
 
     return summaries
@@ -1208,6 +1182,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Default: bouts.csv"
         ),
     )
+
     parser.add_argument(
         "--saccades-csv",
         default="saccades_augmented.csv",
@@ -1216,20 +1191,17 @@ def build_parser() -> argparse.ArgumentParser:
             "saccades. Default: saccades_augmented.csv"
         ),
     )
+
     parser.add_argument(
         "--output-dir",
         default="average_event_videos",
         help=("Output directory relative to root. " "Default: average_event_videos"),
     )
 
-    # Export names and grouping defaults are unchanged.
     parser.add_argument(
         "--bout-group-cols",
         type=parse_columns,
-        default=[
-            "category",
-            "sign",
-        ],
+        default=["category", "sign"],
         help=("Comma-separated bout grouping columns. " "Default: category,sign"),
     )
 
@@ -1252,6 +1224,7 @@ def build_parser() -> argparse.ArgumentParser:
         default="frame_start",
         help=("Bout onset-frame column. " "Default: frame_start"),
     )
+
     parser.add_argument(
         "--saccade-frame-column",
         default="tracking_frame",
@@ -1262,32 +1235,53 @@ def build_parser() -> argparse.ArgumentParser:
         "--pre-ms",
         type=float,
         default=300.0,
-        help=("Time before event onset. " "Default: 300 ms"),
+        help=("Source time before event onset. " "Default: 300 ms"),
     )
+
     parser.add_argument(
         "--post-ms",
         type=float,
         default=600.0,
-        help=("Time after event onset. " "Default: 600 ms"),
+        help=("Source time after event onset. " "Default: 600 ms"),
     )
+
     parser.add_argument(
         "--output-fps",
+        "--sampling-fps",
+        dest="output_fps",
+        type=float,
+        default=120.0,
+        help=(
+            "Temporal sampling rate used to construct aggregate "
+            "frames. This determines source-frame selection and the "
+            "event-relative time grid, but not MP4 playback speed. "
+            "Default: 120"
+        ),
+    )
+
+    parser.add_argument(
+        "--playback-fps",
         type=float,
         default=5.0,
-        help=("Frame rate of aggregate videos. " "Default: 5"),
+        help=(
+            "Frame rate written into the output MP4. Use a value "
+            "lower than --output-fps for slow motion. If omitted, "
+            "defaults to --output-fps."
+        ),
     )
 
     parser.add_argument(
         "--crop-width",
         type=int,
         default=240,
-        help=("Output crop width in pixels. " "Default: 160"),
+        help=("Output crop width in pixels. " "Default: 240"),
     )
+
     parser.add_argument(
         "--crop-height",
         type=int,
         default=320,
-        help=("Output crop height in pixels. " "Default: 160"),
+        help=("Output crop height in pixels. " "Default: 320"),
     )
 
     parser.add_argument(
@@ -1295,9 +1289,18 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=40.0,
         help=(
-            "Optional common spatial scale. When provided, each "
-            "recording is rescaled from its metadata pix_per_mm "
-            "calibration. Default: 40."
+            "Common output spatial scale. Each recording is "
+            "rescaled from its metadata pix_per_mm calibration. "
+            "Default: 40"
+        ),
+    )
+
+    parser.add_argument(
+        "--no-spatial-rescaling",
+        action="store_true",
+        help=(
+            "Disable metadata-based spatial rescaling and use a "
+            "scale factor of 1 for every recording."
         ),
     )
 
@@ -1308,23 +1311,23 @@ def build_parser() -> argparse.ArgumentParser:
             "Lightning Pose point placed at the output center. " "Default: Swim_Bladder"
         ),
     )
+
     parser.add_argument(
         "--head-point",
         default="Head",
-        help=("Lightning Pose point defining the heading direction. " "Default: Head"),
+        help=("Lightning Pose point defining heading. " "Default: Head"),
     )
+
     parser.add_argument(
         "--likelihood-threshold",
         type=float,
         default=0.9,
         help=("Minimum pose likelihood for center/head points. " "Default: 0.9"),
     )
+
     parser.add_argument(
         "--stabilization",
-        choices=(
-            "frame",
-            "onset",
-        ),
+        choices=("frame", "onset"),
         default="frame",
         help=(
             "'frame' recenters and rerotates every frame; "
@@ -1335,17 +1338,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--statistic",
-        choices=(
-            "mean",
-            "median",
-            "mode",
-        ),
+        choices=("mean", "median", "mode"),
         default="mean",
         help=(
-            "Pixel-wise aggregation statistic. Mean is substantially "
-            "faster and uses less temporary disk space. Default: mean"
+            "Pixel-wise aggregation statistic. Mean is faster and "
+            "uses less temporary disk space. Default: mean"
         ),
     )
+
     parser.add_argument(
         "--temporary-directory",
         type=Path,
@@ -1355,6 +1355,7 @@ def build_parser() -> argparse.ArgumentParser:
             "Use a disk with sufficient free space."
         ),
     )
+
     parser.add_argument(
         "--histogram-chunk-pixels",
         type=int,
@@ -1370,12 +1371,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="mp4v",
         help=("Four-character OpenCV video codec. " "Default: mp4v"),
     )
+
     parser.add_argument(
         "--save-numpy",
         action="store_true",
         help=(
-            "Also save aggregate frames, time axis, and valid-pixel "
-            "counts as compressed NPZ files."
+            "Also save aggregate frames, time axis, frame rates, "
+            "and valid-pixel counts as compressed NPZ files."
         ),
     )
 
@@ -1420,9 +1422,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def validate_arguments(
-    args: argparse.Namespace,
-) -> None:
+def validate_arguments(args: argparse.Namespace) -> None:
     """Validate CLI arguments."""
     if args.pre_ms < 0:
         raise ValueError("--pre-ms must be non-negative")
@@ -1433,11 +1433,14 @@ def validate_arguments(
     if args.output_fps <= 0:
         raise ValueError("--output-fps must be positive")
 
+    if args.playback_fps is not None and args.playback_fps <= 0:
+        raise ValueError("--playback-fps must be positive")
+
     if args.crop_width <= 0 or args.crop_height <= 0:
         raise ValueError("Crop dimensions must be positive")
 
-    if not (0 <= args.likelihood_threshold <= 1):
-        raise ValueError("--likelihood-threshold must be " "between 0 and 1")
+    if not 0 <= args.likelihood_threshold <= 1:
+        raise ValueError("--likelihood-threshold must be between 0 and 1")
 
     if args.output_pixels_per_mm is not None and args.output_pixels_per_mm <= 0:
         raise ValueError("--output-pixels-per-mm must be positive")
@@ -1474,6 +1477,16 @@ def main() -> None:
     """Run aggregate-video export."""
     args = build_parser().parse_args()
     validate_arguments(args)
+
+    sampling_fps = float(args.output_fps)
+
+    playback_fps = (
+        sampling_fps if args.playback_fps is None else float(args.playback_fps)
+    )
+
+    output_pixels_per_mm = (
+        None if args.no_spatial_rescaling else args.output_pixels_per_mm
+    )
 
     root = args.root.resolve()
 
@@ -1513,8 +1526,11 @@ def main() -> None:
 
     print(f"Found {len(files_by_name):,} recordings")
 
-    pre_frames = int(round(args.pre_ms / 1000.0 * args.output_fps))
-    post_frames = int(round(args.post_ms / 1000.0 * args.output_fps))
+    # These frames describe source/event time and are therefore based on
+    # sampling_fps, not playback_fps.
+    pre_frames = int(round(args.pre_ms / 1000.0 * sampling_fps))
+
+    post_frames = int(round(args.post_ms / 1000.0 * sampling_fps))
 
     time_offsets_s = (
         np.arange(
@@ -1522,16 +1538,30 @@ def main() -> None:
             post_frames,
             dtype=np.float64,
         )
-        / args.output_fps
+        / sampling_fps
     )
+
+    output_frame_count = len(time_offsets_s)
+    source_duration_s = output_frame_count / sampling_fps
+    playback_duration_s = output_frame_count / playback_fps
+    slowdown_factor = sampling_fps / playback_fps
 
     print("Aggregate-video configuration")
     print(f"  statistic: {args.statistic}")
-    print(f"  output frames: " f"{len(time_offsets_s)}")
-    print(f"  output FPS: {args.output_fps}")
-    print(f"  crop: {args.crop_width} x " f"{args.crop_height}")
-    print(f"  stabilization: " f"{args.stabilization}")
-    print(f"  center/head: " f"{args.center_point} -> " f"{args.head_point}")
+    print(f"  output frames: {output_frame_count}")
+    print(f"  sampling FPS: {sampling_fps:g}")
+    print(f"  playback FPS: {playback_fps:g}")
+    print(f"  slowdown factor: {slowdown_factor:g}x")
+    print(f"  represented source duration: " f"{source_duration_s:g} s")
+    print(f"  MP4 playback duration: " f"{playback_duration_s:g} s")
+    print(f"  crop: " f"{args.crop_width} x {args.crop_height}")
+    print(f"  stabilization: {args.stabilization}")
+    print(f"  center/head: " f"{args.center_point} -> {args.head_point}")
+
+    if output_pixels_per_mm is None:
+        print("  spatial rescaling: disabled")
+    else:
+        print("  output spatial scale: " f"{output_pixels_per_mm:g} pixels/mm")
 
     summaries: list[dict[str, Any]] = []
 
@@ -1545,19 +1575,20 @@ def main() -> None:
             process_event_table(
                 table_name="bouts",
                 csv_path=bouts_csv,
-                output_directory=(output_directory),
+                output_directory=output_directory,
                 files_by_name=files_by_name,
-                group_columns=(args.bout_group_cols),
-                frame_column=(args.bout_frame_column),
+                group_columns=args.bout_group_cols,
+                frame_column=args.bout_frame_column,
                 time_offsets_s=time_offsets_s,
-                output_fps=args.output_fps,
+                sampling_fps=sampling_fps,
+                playback_fps=playback_fps,
                 output_width=args.crop_width,
                 output_height=args.crop_height,
                 likelihood_threshold=(args.likelihood_threshold),
                 center_point=args.center_point,
                 head_point=args.head_point,
-                stabilization=(args.stabilization),
-                output_pixels_per_mm=(args.output_pixels_per_mm),
+                stabilization=args.stabilization,
+                output_pixels_per_mm=(output_pixels_per_mm),
                 statistic=args.statistic,
                 temporary_directory=(args.temporary_directory),
                 histogram_chunk_pixels=(args.histogram_chunk_pixels),
@@ -1576,19 +1607,20 @@ def main() -> None:
             process_event_table(
                 table_name="saccades",
                 csv_path=saccades_csv,
-                output_directory=(output_directory),
+                output_directory=output_directory,
                 files_by_name=files_by_name,
                 group_columns=(args.saccade_group_cols),
                 frame_column=(args.saccade_frame_column),
                 time_offsets_s=time_offsets_s,
-                output_fps=args.output_fps,
+                sampling_fps=sampling_fps,
+                playback_fps=playback_fps,
                 output_width=args.crop_width,
                 output_height=args.crop_height,
                 likelihood_threshold=(args.likelihood_threshold),
                 center_point=args.center_point,
                 head_point=args.head_point,
-                stabilization=(args.stabilization),
-                output_pixels_per_mm=(args.output_pixels_per_mm),
+                stabilization=args.stabilization,
+                output_pixels_per_mm=(output_pixels_per_mm),
                 statistic=args.statistic,
                 temporary_directory=(args.temporary_directory),
                 histogram_chunk_pixels=(args.histogram_chunk_pixels),
@@ -1605,7 +1637,7 @@ def main() -> None:
     )
 
     print()
-    print(f"Exported {len(summaries):,} " "aggregate videos")
+    print(f"Exported {len(summaries):,} aggregate videos")
     print(f"Summary: {summary_path}")
 
 
