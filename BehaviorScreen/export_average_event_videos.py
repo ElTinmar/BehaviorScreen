@@ -45,8 +45,8 @@ python export_average_event_videos.py \
 Grouping by category and laterality
 -----------------------------------
 python export_average_event_videos.py ROOT \
-    --bout-group-cols category,laterality \
-    --saccade-group-cols cluster,laterality
+    --bout-group-cols category,sign \
+    --saccade-group-cols saccade_category_name,event_direction_name
 """
 
 from __future__ import annotations
@@ -1090,15 +1090,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bout-group-cols",
         type=parse_columns,
-        default=["category"],
-        help=("Comma-separated bout grouping columns. " "Example: category,laterality"),
+        default=["category", "sign"],
+        help=("Comma-separated bout grouping columns. " "Default: category,sign"),
     )
+
     parser.add_argument(
         "--saccade-group-cols",
         type=parse_columns,
-        default=["cluster"],
+        default=[
+            "saccade_category_name",
+            "event_direction_name",
+        ],
         help=(
-            "Comma-separated saccade grouping columns. " "Example: cluster,laterality"
+            "Comma-separated saccade grouping columns. "
+            "Default: saccade_category_name,event_direction_name"
         ),
     )
 
