@@ -106,10 +106,9 @@ def run_analysis(
         plot_cluster_traces(
             csv_path=classified_csv,
             npz_path=detected_npz,
-            trace_type="smooth",
+            max_per_cluster=500,
             baseline_correct=True,
             output_path=root / "saccade_clusters.png",
-            interactive=False,
         )
 
         make_saccade_heatmaps(
