@@ -11,6 +11,7 @@ def process_folder(folder):
         root=folder,
         config_yaml=CONFIG_YAML,
         model_path=SACCADE_MODEL,
+        start_stage='detect'
     )
 
 if __name__ == "__main__":
