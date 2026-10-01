@@ -32,11 +32,6 @@ from BehaviorScreen.stim_specs import (
 )
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES
 
-EXCLUDED_SACCADE_CATEGORIES = {
-    0,  # Unclassified
-    5,  # Non-saccadic
-}
-
 DEFAULT_CLASS_ORDER = [
     1,  # Conjugate
     3,  # Miniature convergent
