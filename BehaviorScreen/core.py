@@ -94,3 +94,33 @@ SACCADE_CLASS_DIRECTIONS = {
     7: EventDirection.RIGHT,
     8: EventDirection.LEFT
 }
+
+SACCADE_NONDIRECTIONAL_CLASSES = {
+    3,  # Miniature convergent
+    4,  # Convergent
+    6,  # Divergent
+}
+
+SACCADE_CATEGORY_BY_CLUSTER = {
+    -1: -1,  # Unassigned
+    0: 0,    # Unclassified
+    1: 1,    # Conjugate left  -> Conjugate
+    2: 1,    # Conjugate right -> Conjugate
+    3: 3,    # Miniature convergent
+    4: 4,    # Convergent
+    5: 5,    # Non-saccadic
+    6: 6,    # Divergent
+    7: 7,    # Biphasic convergent right -> Biphasic convergent
+    8: 7,    # Biphasic convergent left  -> Biphasic convergent
+}
+
+SACCADE_CATEGORY_NAMES = {
+    -1: "Unassigned",
+    0: "Unclassified",
+    1: "Conjugate",
+    3: "Miniature convergent",
+    4: "Convergent",
+    5: "Non-saccadic",
+    6: "Divergent",
+    7: "Biphasic convergent",
+}

@@ -30,19 +30,20 @@ from BehaviorScreen.stim_specs import (
     read_stim_specs,
     stimulus_name_order,
 )
-from BehaviorScreen.core import SACCADE_CLASS_NAMES
+from BehaviorScreen.core import SACCADE_CATEGORY_NAMES
 
 
-EXCLUDED_SACCADE_CLASSES = {
+EXCLUDED_SACCADE_CATEGORIES = {
     0,  # Unclassified
     5,  # Non-saccadic
 }
 
 DEFAULT_CLASS_ORDER = [
-    cluster
-    for cluster in sorted(SACCADE_CLASS_NAMES)
-    if cluster >= 0
-    and cluster not in EXCLUDED_SACCADE_CLASSES
+    1,  # Conjugate
+    3,  # Miniature convergent
+    4,  # Convergent
+    6,  # Divergent
+    7,  # Biphasic convergent
 ]
 
 
@@ -118,7 +119,7 @@ def compute_spec_counts(
     selected = selected.dropna(
         subset=[
             "trial_num",
-            "cluster",
+            "saccade_category",
         ]
     )
 
@@ -126,25 +127,27 @@ def compute_spec_counts(
         selected["trial_num"],
         errors="coerce",
     )
-    selected["cluster"] = pd.to_numeric(
-        selected["cluster"],
+    selected["saccade_category"] = pd.to_numeric(
+        selected["saccade_category"],
         errors="coerce",
     )
 
     selected = selected.dropna(
         subset=[
             "trial_idx",
-            "cluster",
+            "saccade_category",
         ]
     )
 
     selected["trial_idx"] = selected["trial_idx"].astype(int)
-    selected["cluster"] = selected["cluster"].astype(int)
+    selected["saccade_category"] = (
+        selected["saccade_category"].astype(int)
+    )
 
     selected = selected.loc[
         (selected["trial_idx"] >= 0)
         & (selected["trial_idx"] < number_of_trials)
-        & selected["cluster"].isin(class_order)
+        & selected["saccade_category"].isin(class_order)
     ].copy()
 
     selected["laterality_group"] = map_laterality(selected["laterality"])
@@ -153,7 +156,7 @@ def compute_spec_counts(
         selected.groupby(
             [
                 "trial_idx",
-                "cluster",
+                "saccade_category",
                 "laterality_group",
             ]
         )
@@ -169,7 +172,7 @@ def compute_spec_counts(
         ],
         names=[
             "trial_idx",
-            "cluster",
+            "saccade_category",
             "laterality_group",
         ],
     )
@@ -213,7 +216,8 @@ def compute_saccade_frequency_table(
         "epoch_name",
         "trial_num",
         "trial_time",
-        "cluster",
+        "saccade_category",
+        "saccade_category_name",
         "laterality",
     }
     missing_columns = required_columns.difference(events.columns)
@@ -319,7 +323,10 @@ def compute_saccade_frequency_table(
             counts["stim_name"] = specification.name
             counts["time_bin_start"] = start
             counts["time_bin_stop"] = stop
-            counts["cluster_name"] = counts["cluster"].map(SACCADE_CLASS_NAMES)
+            counts["saccade_category_name"] = (
+                counts["saccade_category"]
+                .map(SACCADE_CATEGORY_NAMES)
+            )
 
             for column in (
                 "dpf",
@@ -363,8 +370,8 @@ def aggregate_saccade_frequency(
         within_fish_columns = [
             "file",
             "stim_name",
-            "cluster",
-            "cluster_name",
+            "saccade_category",
+            "saccade_category_name",
             *split_columns_list,
         ]
 
@@ -393,8 +400,8 @@ def aggregate_saccade_frequency(
 
     across_fish_columns = [
         "stim_name",
-        "cluster",
-        "cluster_name",
+        "saccade_category",
+        "saccade_category_name",
         *split_columns_list,
     ]
 
@@ -445,7 +452,7 @@ def build_heatmap_matrix(
 
     required_columns = {
         "stim_name",
-        "cluster",
+        "saccade_category",
         "laterality_group",
         "saccade_frequency",
     }
@@ -540,20 +547,20 @@ def build_heatmap_matrix(
                 range(number_of_trials),
             ],
             names=[
-                "cluster",
+                "saccade_category",
                 "trial_idx",
             ],
         )
         pivot_index: str | list[str] = [
-            "cluster",
+            "saccade_category",
             "trial_idx",
         ]
     else:
         row_index = pd.Index(
             class_order,
-            name="cluster",
+            name="saccade_category",
         )
-        pivot_index = "cluster"
+        pivot_index = "saccade_category"
 
     if has_time_bin:
         column_index: pd.Index = pd.MultiIndex.from_tuples(
@@ -723,7 +730,7 @@ def plot_heatmap_matrix(
             )
 
         axis.annotate(
-            SACCADE_CLASS_NAMES.get(
+            SACCADE_CATEGORY_NAMES.get(
                 cluster,
                 str(cluster),
             ),

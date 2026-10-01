@@ -1,4 +1,10 @@
-from BehaviorScreen.core import EventDirection, Laterality, Stim, SACCADE_CLASS_DIRECTIONS
+from BehaviorScreen.core import (
+    EventDirection,
+    Laterality,
+    Stim,
+    SACCADE_CLASS_DIRECTIONS,
+    SACCADE_NONDIRECTIONAL_CLASSES,
+)
 from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass
 import numpy as np
@@ -215,11 +221,15 @@ def saccade_laterality(
     cluster: object,
 ) -> float:
     """
-    Return laterality for a classified saccade.
+    Return stimulus-relative laterality for a classified saccade.
 
-    Directionless saccade classes are NONDIRECTIONAL. Events without a
-    valid epoch/class, or a directional event in an undeclared epoch,
-    receive NaN.
+    Directional classes are mapped to ipsilateral or contralateral from
+    their event direction and the stimulus epoch.
+
+    Genuine directionless saccade classes are NONDIRECTIONAL.
+
+    Unassigned, unclassified, non-saccadic, and unknown classes receive
+    NaN because laterality is not defined for them.
     """
     if epoch_name is None:
         return np.nan
@@ -231,12 +241,13 @@ def saccade_laterality(
 
     direction = SACCADE_CLASS_DIRECTIONS.get(cluster)
 
-    # Classes such as convergent/divergent do not have a left/right
-    # direction and therefore stay in their own "none" group.
-    if direction is None:
+    if direction is not None:
+        return EPOCH_LATERALITY.get(
+            (str(epoch_name), direction),
+            np.nan,
+        )
+
+    if cluster in SACCADE_NONDIRECTIONAL_CLASSES:
         return int(Laterality.NONDIRECTIONAL)
 
-    return EPOCH_LATERALITY.get(
-        (str(epoch_name), direction),
-        np.nan,
-    )
+    return np.nan

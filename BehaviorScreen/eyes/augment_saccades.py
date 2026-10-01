@@ -20,7 +20,12 @@ from BehaviorScreen.load import (
     load_data,
 )
 from BehaviorScreen.protocol import saccade_laterality
-
+from BehaviorScreen.core import (
+    SACCADE_CATEGORY_BY_CLUSTER,
+    SACCADE_CATEGORY_NAMES,
+    SACCADE_CLASS_DIRECTIONS,
+    SACCADE_NONDIRECTIONAL_CLASSES,
+)
 
 
 def augment_fish_events(
@@ -38,53 +43,33 @@ def augment_fish_events(
         rollover_time_s=rollover_time_s,
     )
 
-    event_timestamps = (
-        recording.relative_seconds_to_timestamps(
-            events["onset_time_s"].to_numpy(dtype=float)
-        )
+    event_timestamps = recording.relative_seconds_to_timestamps(
+        events["onset_time_s"].to_numpy(dtype=float)
     )
 
-    trial_indices = recording.trial_indices(
-        event_timestamps
-    )
+    trial_indices = recording.trial_indices(event_timestamps)
 
-    tracking_context = recording.posthoc_positions_at(
-        event_timestamps
-    )
+    tracking_context = recording.posthoc_positions_at(event_timestamps)
 
     contexts: list[dict[str, Any]] = []
 
     for event_index, (
         event_timestamp,
         trial_index,
-    ) in enumerate(
-        zip(event_timestamps, trial_indices)
-    ):
+    ) in enumerate(zip(event_timestamps, trial_indices)):
         context = recording.event_context(
             event_timestamp=int(event_timestamp),
             trial_index=int(trial_index),
-            x_mm=float(
-                tracking_context["x_mm"][event_index]
-            ),
-            y_mm=float(
-                tracking_context["y_mm"][event_index]
-            ),
-            heading=float(
-                tracking_context["heading"][event_index]
-            ),
+            x_mm=float(tracking_context["x_mm"][event_index]),
+            y_mm=float(tracking_context["y_mm"][event_index]),
+            heading=float(tracking_context["heading"][event_index]),
         )
 
         context.update(
             {
-                "tracking_frame": int(
-                    tracking_context[
-                        "tracking_frame"
-                    ][event_index]
-                ),
+                "tracking_frame": int(tracking_context["tracking_frame"][event_index]),
                 "tracking_time_error_ms": float(
-                    tracking_context[
-                        "tracking_time_error_ms"
-                    ][event_index]
+                    tracking_context["tracking_time_error_ms"][event_index]
                 ),
             }
         )
@@ -108,20 +93,14 @@ def augment_saccades(
         "onset_time_s",
         "cluster",
     }
-    missing_columns = required_columns.difference(
-        saccades.columns
-    )
+    missing_columns = required_columns.difference(saccades.columns)
 
     if missing_columns:
         raise ValueError(
-            f"{input_csv} is missing columns: "
-            f"{sorted(missing_columns)}"
+            f"{input_csv} is missing columns: " f"{sorted(missing_columns)}"
         )
 
-    files_by_name = {
-        files.metadata.stem: files
-        for files in find_files(directories)
-    }
+    files_by_name = {files.metadata.stem: files for files in find_files(directories)}
 
     contexts_by_index: dict[int, dict[str, Any]] = {}
 
@@ -132,9 +111,7 @@ def augment_saccades(
         fish = str(fish)
 
         if fish not in files_by_name:
-            raise FileNotFoundError(
-                f"No BehaviorFiles were found for {fish}."
-            )
+            raise FileNotFoundError(f"No BehaviorFiles were found for {fish}.")
 
         behavior_files = files_by_name[fish]
         behavior_data = load_data(behavior_files)
@@ -165,20 +142,13 @@ def augment_saccades(
     ).reindex(saccades.index)
 
     if len(context_table) != len(saccades):
-        raise RuntimeError(
-            "The context table does not match the saccade table."
-        )
+        raise RuntimeError("The context table does not match the saccade table.")
 
-    overlapping_columns = set(
-        context_table.columns
-    ).intersection(saccades.columns)
+    overlapping_columns = set(context_table.columns).intersection(saccades.columns)
 
     if overlapping_columns:
         context_table = context_table.rename(
-            columns={
-                column: f"context_{column}"
-                for column in overlapping_columns
-            }
+            columns={column: f"context_{column}" for column in overlapping_columns}
         )
 
     augmented = pd.concat(
@@ -193,10 +163,7 @@ def augment_saccades(
         "fish",
         "file",
     }.issubset(augmented.columns):
-        mismatch = (
-            augmented["fish"].astype(str)
-            != augmented["file"].astype(str)
-        )
+        mismatch = augmented["fish"].astype(str) != augmented["file"].astype(str)
 
         if mismatch.any():
             examples = augmented.loc[
@@ -205,24 +172,65 @@ def augment_saccades(
             ].head()
 
             raise ValueError(
-                "Saccade fish labels do not match recording files:\n"
-                f"{examples}"
+                "Saccade fish labels do not match recording files:\n" f"{examples}"
             )
 
     if "event_id" in augmented.columns:
         if augmented["event_id"].duplicated().any():
-            raise ValueError(
-                "Duplicate event_id values were found."
-            )
+            raise ValueError("Duplicate event_id values were found.")
+
+    cluster_numeric = pd.to_numeric(
+        augmented["cluster"],
+        errors="coerce",
+    )
+
+    direction_by_cluster = {
+        int(cluster): int(direction)
+        for cluster, direction in SACCADE_CLASS_DIRECTIONS.items()
+    }
+
+    augmented["saccade_category"] = cluster_numeric.map(
+        SACCADE_CATEGORY_BY_CLUSTER
+    ).astype("Int64")
+
+    augmented["saccade_category_name"] = (
+        augmented["saccade_category"].map(SACCADE_CATEGORY_NAMES).astype("string")
+    )
+
+    # Numeric EventDirection code:
+    #   -1 = LEFT
+    #   +1 = RIGHT
+    #   NA = no defined left/right direction
+    augmented["event_direction"] = cluster_numeric.map(direction_by_cluster).astype(
+        "Int64"
+    )
+
+    # Readable direction. Genuine directionless saccades are explicitly
+    # marked NONDIRECTIONAL. Invalid/excluded classifications remain NA.
+    augmented["event_direction_name"] = (
+        augmented["event_direction"]
+        .map(
+            {
+                -1: "LEFT",
+                1: "RIGHT",
+            }
+        )
+        .astype("string")
+    )
+
+    nondirectional_mask = cluster_numeric.isin(SACCADE_NONDIRECTIONAL_CLASSES)
+
+    augmented.loc[
+        nondirectional_mask,
+        "event_direction_name",
+    ] = "NONDIRECTIONAL"
 
     # Assign ipsi/contra/none only to events in a recognised stimulus trial.
     # Events outside trials retain NaN laterality.
     augmented["laterality"] = np.nan
 
     laterality_mask = (
-        augmented["in_stimulus_trial"]
-        .fillna(False)
-        .astype(bool)
+        augmented["in_stimulus_trial"].fillna(False).astype(bool)
         & augmented["epoch_name"].notna()
     )
 
@@ -237,6 +245,21 @@ def augment_saccades(
         ].itertuples(index=False, name=None)
     ]
 
+    augmented["laterality_name"] = (
+        pd.to_numeric(
+            augmented["laterality"],
+            errors="coerce",
+        )
+        .map(
+            {
+                -1: "CONTRALATERAL",
+                0: "NONDIRECTIONAL",
+                1: "IPSILATERAL",
+            }
+        )
+        .astype("string")
+    )
+    
     output_csv.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -326,9 +349,7 @@ def main() -> None:
     output_csv = root / args.output
 
     if not input_csv.exists():
-        raise FileNotFoundError(
-            f"Classified saccade CSV does not exist: {input_csv}"
-        )
+        raise FileNotFoundError(f"Classified saccade CSV does not exist: {input_csv}")
 
     directories = Directories(
         root,
