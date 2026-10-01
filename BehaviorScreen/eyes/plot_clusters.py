@@ -172,6 +172,7 @@ def plot_cluster_traces(
     baseline_window_ms: tuple[float, float] = (-200.0, 0.0),
     xlim: tuple[float, float] | None = (-100.0, 300.0),
     ylim: tuple[float, float] | None = (-50.0, 50.0),
+    interactive: bool = False,
 ) -> None:
     """
     Plot individual and median eye-position traces for each cluster.
@@ -202,6 +203,9 @@ def plot_cluster_traces(
     ylim
         Displayed eye-angle limits in degrees. Use ``None`` for automatic
         limits.
+    interactive
+        If true, display the figure after saving it. By default, the
+        figure is saved and closed without opening an interactive window.
     """
     if max_per_cluster < 0:
         raise ValueError("max_per_cluster must be non-negative.")
@@ -377,19 +381,26 @@ def plot_cluster_traces(
     )
     figure.tight_layout()
 
-    if output_path is not None:
-        output_path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
+    if output_path is None:
+        output_path = csv_path.with_name(
+            f"{csv_path.stem}_clusters.png"
         )
-        figure.savefig(
-            output_path,
-            dpi=180,
-            bbox_inches="tight",
-        )
-        print(f"Saved figure to {output_path}")
 
-    plt.show()
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    figure.savefig(
+        output_path,
+        dpi=180,
+        bbox_inches="tight",
+    )
+    print(f"Saved figure to {output_path}")
+
+    if interactive:
+        plt.show()
+    else:
+        plt.close(figure)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -478,7 +489,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--output",
         type=Path,
         default=None,
-        help="Optional output image path.",
+        help=(
+            "Output image path. Defaults to "
+            "<csv_stem>_clusters.png beside the input CSV."
+        ),
+    )
+    parser.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Display the figure after saving it.",
     )
 
     return parser
@@ -504,6 +523,7 @@ def main() -> None:
         baseline_window_ms=tuple(args.baseline_window_ms),
         xlim=tuple(args.xlim),
         ylim=tuple(args.ylim),
+        interactive=args.interactive,
     )
 
 
