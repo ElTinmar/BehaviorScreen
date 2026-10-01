@@ -6,6 +6,8 @@ from BehaviorScreen.megabouts import run_megabouts
 from BehaviorScreen.pose_estimation import estimate_pose, export_cropped_eyes_video
 from BehaviorScreen.plot import run_plot
 from BehaviorScreen.qc import quality_control
+from BehaviorScreen.eyes.run_analysis import run_analysis
+
 
 def build_parser() -> argparse.ArgumentParser:
 
@@ -34,8 +36,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     parser.add_argument(
+        "--saccade-model",
+        type=Path,
+        default=Path('BehaviorScreen/eyes/paper_data/paper_reference.joblib'),
+        help=(
+            "Path to the Dowell saccade classification model. "
+            "Required when starting from detect or classify."
+        ),
+    )
+
+    parser.add_argument(
         "--yaml",
-        default = 'BehaviorScreen/screen.yaml',
+        type=Path,
+        default=Path("BehaviorScreen/screen.yaml"),
         help="Plot config file",
     )
 
@@ -224,8 +237,12 @@ def main(args: argparse.Namespace) -> None:
         rollover_time_s=3600
     )
 
-    print("5. extract eye metrics", flush=True)
-    # TODO
+    print("5. saccade analysis", flush=True)
+    run_analysis(
+        root=args.root,
+        config_yaml=args.yaml,
+        model_path=args.saccade_model,
+    )
 
     print("6. plot", flush=True)
     run_plot(
