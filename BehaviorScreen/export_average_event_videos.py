@@ -3,15 +3,17 @@
 Export fish-centered, heading-aligned average videos for bout and saccade
 categories.
 
-Default event alignment
------------------------
+Default grouping
+----------------
 Bouts:
-    category column: category
-    onset frame:     frame_start
+    category: category
+    direction: sign
+    onset:    frame_start
 
 Saccades:
-    category column: cluster
-    onset frame:     tracking_frame
+    category:  saccade_category_name
+    direction: event_direction_name
+    onset:     tracking_frame
 
 For every source frame, the image is translated and rotated so that:
 
