@@ -32,7 +32,6 @@ from BehaviorScreen.stim_specs import (
 )
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES
 
-
 EXCLUDED_SACCADE_CATEGORIES = {
     0,  # Unclassified
     5,  # Non-saccadic
@@ -140,9 +139,7 @@ def compute_spec_counts(
     )
 
     selected["trial_idx"] = selected["trial_idx"].astype(int)
-    selected["saccade_category"] = (
-        selected["saccade_category"].astype(int)
-    )
+    selected["saccade_category"] = selected["saccade_category"].astype(int)
 
     selected = selected.loc[
         (selected["trial_idx"] >= 0)
@@ -323,9 +320,8 @@ def compute_saccade_frequency_table(
             counts["stim_name"] = specification.name
             counts["time_bin_start"] = start
             counts["time_bin_stop"] = stop
-            counts["saccade_category_name"] = (
-                counts["saccade_category"]
-                .map(SACCADE_CATEGORY_NAMES)
+            counts["saccade_category_name"] = counts["saccade_category"].map(
+                SACCADE_CATEGORY_NAMES
             )
 
             for column in (
