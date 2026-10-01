@@ -1273,8 +1273,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-fps",
         type=float,
-        default=100.0,
-        help=("Frame rate of aggregate videos. " "Default: 100"),
+        default=5.0,
+        help=("Frame rate of aggregate videos. " "Default: 5"),
     )
 
     parser.add_argument(
