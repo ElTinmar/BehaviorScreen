@@ -4,7 +4,7 @@ from pathlib import Path
 from BehaviorScreen.export import export_single_animals
 from BehaviorScreen.megabouts import run_megabouts
 from BehaviorScreen.pose_estimation import estimate_pose, export_cropped_eyes_video
-from BehaviorScreen.plot import run_plot
+from BehaviorScreen.plot import plot_heatmaps
 from BehaviorScreen.qc import quality_control
 from BehaviorScreen.eyes.run_analysis import run_analysis
 
@@ -245,15 +245,12 @@ def main(args: argparse.Namespace) -> None:
     )
 
     print("6. plot", flush=True)
-    run_plot(
-        qc_csv=args.qc_csv,
-        bouts_csv=args.bouts_csv,
+    plot_heatmaps(
+        quality_control=args.qc_csv,
+        input_csv=args.bouts_csv,
         valid_trials_csv=args.valid_trials_csv,
-        bouts_png = args.bouts_png,
         config_yaml = args.yaml,
-        root = args.root,
-        exclude_unusable_trials=True,
-        interactive=False,
+        output_png = args.bouts_png,
     )
 
     print("7. overlay")
