@@ -251,7 +251,7 @@ def run_analysis(
             output_png=(root / "saccades.png"),
             exclude_unusable=True,
             include_unassigned=False,
-            maximum_frequency=0.2,
+            maximum_frequency=0.3,
             interactive=False,
         )
 
