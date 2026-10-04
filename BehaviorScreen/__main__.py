@@ -237,11 +237,11 @@ def main(args: argparse.Namespace) -> None:
         rollover_time_s=3600
     )
     plot_heatmaps(
-        quality_control=args.qc_csv,
-        input_csv=args.bouts_csv,
-        valid_trials_csv=args.valid_trials_csv,
-        config_yaml = args.yaml,
-        output_png = args.bouts_png,
+        quality_control=args.root / args.qc_csv,
+        input_csv=args.root / args.bouts_csv,
+        valid_trials_csv=args.root / args.valid_trials_csv,
+        config_yaml=args.yaml,
+        output_png=args.root / args.bouts_png,
     )
     
 
