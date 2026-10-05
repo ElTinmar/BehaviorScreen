@@ -44,7 +44,7 @@ stimuli:
     name: "prey"
     parameters: 
       - epoch_name: {'in': ["prey capture right", "prey capture left"]}
-    time_bins: [0, 25, 0.25]
+    #time_bins: [0, 25, 0.25]
 
   - stim: PHOTOTAXIS
     name: "dark | bright"
