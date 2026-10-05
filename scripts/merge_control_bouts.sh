@@ -1,4 +1,6 @@
-python -m BehaviorScreen.merge_csv /media/martin/DATA_18TB/Screen \
+DATA_ROOT=/media/martin/DATA_18TB/Screen
+
+python -m BehaviorScreen.merge_csv $DATA_ROOT \
 -o bouts_control.csv \
 ccka/vehicle/bouts.csv \
 lhx9/vehicle/bouts.csv \
@@ -40,7 +42,7 @@ lhx2b/vehicle/bouts.csv \
 mpn318/vehicle/bouts.csv --no-header-check
 
 
-python -m BehaviorScreen.merge_csv /media/martin/DATA_18TB/Screen \
+python -m BehaviorScreen.merge_csv $DATA_ROOT \
 -o qc.csv \
 ccka/vehicle/qc.csv \
 lhx9/vehicle/qc.csv \
@@ -81,7 +83,7 @@ cort/vehicle/qc.csv \
 lhx2b/vehicle/qc.csv \
 mpn318/vehicle/qc.csv 
 
-python -m BehaviorScreen.merge_csv /media/martin/DATA_18TB/Screen \
+python -m BehaviorScreen.merge_csv $DATA_ROOT \
 -o valid_trials.csv \
 ccka/vehicle/valid_trials.csv \
 lhx9/vehicle/valid_trials.csv \
