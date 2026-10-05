@@ -18,6 +18,7 @@ saccade_filters:
   assignment_rejected: {"==": false}
   assignment_confidence: {'>=': 0.5}
 
+# time bins can also be specified as [start, stop, step]
 time_bins:
   - [0, 2.5]
   - [2.5, 5]
@@ -43,6 +44,7 @@ stimuli:
     name: "prey"
     parameters: 
       - epoch_name: {'in': ["prey capture right", "prey capture left"]}
+    time_bins: [0, 25, 0.25]
 
   - stim: PHOTOTAXIS
     name: "dark | bright"

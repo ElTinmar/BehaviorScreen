@@ -12,7 +12,6 @@ import yaml
 
 from BehaviorScreen.core import Stim
 
-
 FILTER_SECTIONS = {
     "bout": ("common_filters", "bout_filters"),
     "saccade": ("common_filters", "saccade_filters"),
@@ -94,8 +93,7 @@ class RuleSet:
             return "all"
 
         return "_".join(
-            f"{rule.column}{rule.operator}{rule.value}"
-            for rule in self.rules
+            f"{rule.column}{rule.operator}{rule.value}" for rule in self.rules
         )
 
 
@@ -121,9 +119,7 @@ class StimSpec:
         return mask
 
     def __repr__(self) -> str:
-        parameters = " | ".join(
-            str(parameter) for parameter in self.parameters
-        )
+        parameters = " | ".join(str(parameter) for parameter in self.parameters)
         return f"{self.name}[{parameters}]"
 
 
@@ -133,15 +129,12 @@ def parse_rules(config: dict | None) -> RuleSet:
 
     for column, rule_config in (config or {}).items():
         if not isinstance(rule_config, dict):
-            raise ValueError(
-                f"Rules for column {column!r} must be a mapping."
-            )
+            raise ValueError(f"Rules for column {column!r} must be a mapping.")
 
         for operator_name, value in rule_config.items():
             if operator_name not in OPERATORS:
                 raise ValueError(
-                    f"Unknown operator {operator_name!r} for "
-                    f"column {column!r}."
+                    f"Unknown operator {operator_name!r} for " f"column {column!r}."
                 )
 
             rules.append(
@@ -161,11 +154,34 @@ def load_yaml_config(path: Path) -> dict:
         config = yaml.safe_load(input_file)
 
     if not isinstance(config, dict):
-        raise ValueError(
-            f"{path} does not contain a YAML mapping."
-        )
+        raise ValueError(f"{path} does not contain a YAML mapping.")
 
     return config
+
+
+Number = int | float
+TimeBins = list[Number] | list[list[Number]]
+
+
+def parse_time_bins(bins: TimeBins) -> list[tuple[Number, Number]]:
+    """Parse [[start, stop], ...] or [start, stop, step]."""
+    if not bins:
+        return []
+
+    if len(bins) == 3 and not isinstance(bins[0], list):
+        start, stop, step = bins
+
+        if stop <= start or step <= 0:
+            raise ValueError("Time bins require stop > start and step > 0.")
+
+        result = []
+        while start < stop:
+            end = min(start + step, stop)
+            result.append((start, end))
+            start = end
+        return result
+
+    return [tuple(bin_) for bin_ in bins]
 
 
 def read_stim_specs(
@@ -176,28 +192,25 @@ def read_stim_specs(
     global_time_bins = config.get("time_bins", [])
 
     if "stimuli" not in config:
-        raise ValueError(
-            "The YAML configuration has no 'stimuli' section."
-        )
+        raise ValueError("The YAML configuration has no 'stimuli' section.")
 
     for entry in config["stimuli"]:
         try:
             stimulus = Stim[entry["stim"]]
         except KeyError as error:
-            raise ValueError(
-                f"Unknown stimulus: {entry['stim']}"
-            ) from error
+            raise ValueError(f"Unknown stimulus: {entry['stim']}") from error
 
         name = entry["name"]
-        time_bins = entry.get(
+
+        raw_time_bins = entry.get(
             "time_bins",
             global_time_bins,
         )
-
+        time_bins = parse_time_bins(
+            raw_time_bins,
+        )
         if not time_bins:
-            raise ValueError(
-                f"No time bins are defined for stimulus {name!r}."
-            )
+            raise ValueError(f"No time bins are defined for stimulus {name!r}.")
 
         parameters = tuple(
             parse_rules(parameter_config)
@@ -213,11 +226,7 @@ def read_stim_specs(
             yield StimSpec(
                 stim=stimulus,
                 name=name,
-                time_range=(
-                    None
-                    if time_range is None
-                    else tuple(time_range)
-                ),
+                time_range=(None if time_range is None else tuple(time_range)),
                 parameters=parameters,
             )
 
@@ -240,11 +249,7 @@ def parse_boolean_series(series: pd.Series) -> pd.Series:
     if pd.api.types.is_bool_dtype(series):
         return series.astype(bool)
 
-    normalized = (
-        series.astype(str)
-        .str.strip()
-        .str.lower()
-    )
+    normalized = series.astype(str).str.strip().str.lower()
 
     allowed = {
         "true",
@@ -252,14 +257,10 @@ def parse_boolean_series(series: pd.Series) -> pd.Series:
         "1",
         "0",
     }
-    unexpected = set(
-        normalized.dropna().unique()
-    ).difference(allowed)
+    unexpected = set(normalized.dropna().unique()).difference(allowed)
 
     if unexpected:
-        raise ValueError(
-            f"Could not parse boolean values: {sorted(unexpected)}"
-        )
+        raise ValueError(f"Could not parse boolean values: {sorted(unexpected)}")
 
     return normalized.isin({"true", "1"})
 
@@ -275,15 +276,10 @@ def load_valid_trials(path: Path) -> pd.DataFrame:
         "presented",
         "tracking_ok",
     }
-    missing_columns = required_columns.difference(
-        trials.columns
-    )
+    missing_columns = required_columns.difference(trials.columns)
 
     if missing_columns:
-        raise ValueError(
-            f"{path} is missing columns: "
-            f"{sorted(missing_columns)}"
-        )
+        raise ValueError(f"{path} is missing columns: " f"{sorted(missing_columns)}")
 
     trials["file"] = trials["file"].astype(str)
     trials["epoch_name"] = trials["epoch_name"].astype(str)
@@ -292,16 +288,9 @@ def load_valid_trials(path: Path) -> pd.DataFrame:
         errors="raise",
     ).astype(int)
 
-    trials["presented"] = parse_boolean_series(
-        trials["presented"]
-    )
-    trials["tracking_ok"] = parse_boolean_series(
-        trials["tracking_ok"]
-    )
-    trials["usable"] = (
-        trials["presented"]
-        & trials["tracking_ok"]
-    )
+    trials["presented"] = parse_boolean_series(trials["presented"])
+    trials["tracking_ok"] = parse_boolean_series(trials["tracking_ok"])
+    trials["usable"] = trials["presented"] & trials["tracking_ok"]
 
     return trials
 
@@ -319,10 +308,7 @@ def get_explicit_epoch_names(specification: StimSpec) -> list[str]:
                 names.append(str(rule.value))
 
             elif rule.operator == "in":
-                names.extend(
-                    str(value)
-                    for value in rule.value
-                )
+                names.extend(str(value) for value in rule.value)
 
     return list(dict.fromkeys(names))
 
@@ -332,9 +318,7 @@ def get_matching_epoch_names(
     specification: StimSpec,
 ) -> list[str]:
     """Determine raw epoch names represented by a stimulus spec."""
-    explicit_names = get_explicit_epoch_names(
-        specification
-    )
+    explicit_names = get_explicit_epoch_names(specification)
 
     if explicit_names:
         return explicit_names
@@ -351,13 +335,7 @@ def get_matching_epoch_names(
     if "stim" in events.columns:
         mask &= events["stim"] == specification.stim
 
-    names = (
-        events.loc[mask, "epoch_name"]
-        .dropna()
-        .astype(str)
-        .unique()
-        .tolist()
-    )
+    names = events.loc[mask, "epoch_name"].dropna().astype(str).unique().tolist()
 
     if not names:
         raise ValueError(
@@ -391,9 +369,7 @@ def get_epoch_trial_count(
     if rows.empty:
         return 0
 
-    return int(
-        rows.groupby("epoch_name").size().max()
-    )
+    return int(rows.groupby("epoch_name").size().max())
 
 
 def exclude_qc_fish(
@@ -405,39 +381,22 @@ def exclude_qc_fish(
     result = dataframe.copy()
 
     if not quality_control_path.exists():
-        print(
-            f"[qc] File does not exist; no fish excluded: "
-            f"{quality_control_path}"
-        )
+        print(f"[qc] File does not exist; no fish excluded: " f"{quality_control_path}")
         return result
 
     if file_column not in result.columns:
-        raise ValueError(
-            f"The input table has no {file_column!r} column."
-        )
+        raise ValueError(f"The input table has no {file_column!r} column.")
 
-    quality_control = pd.read_csv(
-        quality_control_path
-    )
+    quality_control = pd.read_csv(quality_control_path)
 
     if "file" not in quality_control.columns:
-        raise ValueError(
-            f"{quality_control_path} has no 'file' column."
-        )
+        raise ValueError(f"{quality_control_path} has no 'file' column.")
 
-    excluded_files = set(
-        quality_control["file"]
-        .dropna()
-        .astype(str)
-    )
+    excluded_files = set(quality_control["file"].dropna().astype(str))
 
     before = len(result)
 
-    result = result.loc[
-        ~result[file_column]
-        .astype(str)
-        .isin(excluded_files)
-    ].copy()
+    result = result.loc[~result[file_column].astype(str).isin(excluded_files)].copy()
 
     removed = before - len(result)
     fraction = removed / before if before else 0.0
@@ -472,9 +431,7 @@ def apply_table_filters(
             continue
 
         if not isinstance(section_config, dict):
-            raise ValueError(
-                f"YAML section {section!r} must be a mapping."
-            )
+            raise ValueError(f"YAML section {section!r} must be a mapping.")
 
         rule_set = parse_rules(section_config)
 
@@ -487,20 +444,12 @@ def apply_table_filters(
 
             before = len(filtered)
 
-            mask = (
-                rule.get_mask(filtered)
-                .fillna(False)
-                .astype(bool)
-            )
+            mask = rule.get_mask(filtered).fillna(False).astype(bool)
 
             filtered = filtered.loc[mask].copy()
 
             removed = before - len(filtered)
-            fraction_total = (
-                removed / initial_count
-                if initial_count
-                else 0.0
-            )
+            fraction_total = removed / initial_count if initial_count else 0.0
 
             print(
                 f"[{section}] "
@@ -566,12 +515,8 @@ def exclude_unusable_trials(
         "trial_num",
     }
 
-    missing_event_columns = join_columns.difference(
-        events.columns
-    )
-    missing_trial_columns = join_columns.difference(
-        valid_trials.columns
-    )
+    missing_event_columns = join_columns.difference(events.columns)
+    missing_trial_columns = join_columns.difference(valid_trials.columns)
 
     if missing_event_columns:
         raise ValueError(
@@ -605,9 +550,7 @@ def exclude_unusable_trials(
     )
 
     result = (
-        result.loc[
-            result["_usable_trial"].fillna(False)
-        ]
+        result.loc[result["_usable_trial"].fillna(False)]
         .drop(columns="_usable_trial")
         .copy()
     )
@@ -615,10 +558,7 @@ def exclude_unusable_trials(
     removed = before - len(result)
     fraction = removed / before if before else 0.0
 
-    print(
-        f"[trial QC] Removed {removed:,}/{before:,} events "
-        f"({fraction:.2%})."
-    )
+    print(f"[trial QC] Removed {removed:,}/{before:,} events " f"({fraction:.2%}).")
 
     return result
 
