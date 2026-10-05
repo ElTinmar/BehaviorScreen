@@ -88,6 +88,14 @@ SACCADE_CLASS_NAMES = {
     8: "Biphasic convergent left",
 }
 
+# TODO maybe for my dataset
+# SACCADE_CLASS_DIRECTIONS = {
+#     1: EventDirection.RIGHT,
+#     2: EventDirection.LEFT,
+#     7: EventDirection.LEFT,
+#     8: EventDirection.RIGHT
+# }
+
 SACCADE_CLASS_DIRECTIONS = {
     1: EventDirection.LEFT,
     2: EventDirection.RIGHT,
