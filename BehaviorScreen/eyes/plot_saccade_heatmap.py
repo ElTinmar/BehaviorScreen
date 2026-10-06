@@ -349,7 +349,7 @@ def aggregate_saccade_frequency(
     average_trial: bool,
     average_time_bin: bool,
     split_columns: tuple[str, ...] = ("laterality_group",),
-) -> pd.DataFrame:
+) -> pd.Series:
     """
     Collapse selected dimensions within each fish, then average across fish.
 
