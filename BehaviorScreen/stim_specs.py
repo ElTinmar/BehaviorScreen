@@ -187,9 +187,10 @@ def parse_time_bins(bins: TimeBins) -> list[tuple[Number, Number]]:
 def read_stim_specs(
     config: dict,
     ignore_time_bins: bool = False,
+    time_bins_key: str = "time_bins",
 ) -> Generator[StimSpec, None, None]:
     """Generate configured stimulus specifications."""
-    global_time_bins = config.get("time_bins", [])
+    global_time_bins = config.get(time_bins_key, [])
 
     if "stimuli" not in config:
         raise ValueError("The YAML configuration has no 'stimuli' section.")
@@ -203,7 +204,7 @@ def read_stim_specs(
         name = entry["name"]
 
         raw_time_bins = entry.get(
-            "time_bins",
+            time_bins_key,
             global_time_bins,
         )
         time_bins = parse_time_bins(

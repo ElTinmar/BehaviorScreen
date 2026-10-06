@@ -27,6 +27,8 @@ time_bins:
   - [10, 15]
   - [15, 25]
 
+fine_time_bins: [0, 25, 0.1]
+
 stimuli:
   - stim: DARK
     name: "dark"
@@ -44,7 +46,7 @@ stimuli:
     name: "prey"
     parameters: 
       - epoch_name: {'in': ["prey capture right", "prey capture left"]}
-    #time_bins: [0, 25, 0.25]
+    fine_time_bins: [0, 25, 0.1]
 
   - stim: PHOTOTAXIS
     name: "dark | bright"
@@ -60,6 +62,7 @@ stimuli:
       - [5, 10]
       - [10, 15]
       - [15, 25]
+    fine_time_bins: [0, 25, 0.1]
 
   - stim: OMR
     name: "grating lateral"
@@ -70,6 +73,7 @@ stimuli:
       - [2.5, 5]
       - [5, 7.5]
       - [7.5, 10]
+    fine_time_bins: [0, 10, 0.1]
 
   - stim: OMR
     name: "grating forward"
@@ -80,6 +84,7 @@ stimuli:
       - [2.5, 5]
       - [5, 7.5]
       - [7.5, 10]
+    fine_time_bins: [0, 10, 0.1]
 
   - stim: OKR
     name: "pinwheel"
@@ -90,6 +95,7 @@ stimuli:
       - [2.5, 5]
       - [5, 7.5]
       - [7.5, 10]
+    fine_time_bins: [0, 10, 0.1]
 
   - stim: LOOMING
     name: "looming"
@@ -99,6 +105,7 @@ stimuli:
       - [0, 4]
       - [4, 6]
       - [6, 10]
+    fine_time_bins: [0, 10, 0.1]
 
   - stim: BRIGHT
     name: "looming break"
@@ -110,6 +117,7 @@ stimuli:
       - [5, 10]
       - [10, 20]
       - [20, 50]
+    fine_time_bins: [0, 50, 0.2]
 
   - stim: DARK
     name: "bright -> dark"
@@ -120,4 +128,5 @@ stimuli:
       - [0.5, 1]
       - [1, 2]
       - [2, 5]
+    fine_time_bins: [0, 5, 0.1]
 

@@ -32,6 +32,7 @@ from BehaviorScreen.plot_utils import (
     order_signs,
     map_laterality,
     get_laterality_labels,
+    filename_safe,
     SIGN_LABELS,
     HEATMAP_VARIANTS,
 )
@@ -280,10 +281,11 @@ def compute_bout_frequency_table(
     valid_trials: pd.DataFrame,
     config_yaml: Path,
     exclude_unusable: bool = True,
+    time_bins_key: str = "time_bins",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Construct direction-pooled and classic bout-frequency tables."""
     config = load_yaml_config(config_yaml)
-    specifications = list(read_stim_specs(config))
+    specifications = list(read_stim_specs(config, time_bins_key=time_bins_key))
 
     bouts = load_bouts(input_csv)
 
@@ -1227,6 +1229,70 @@ def plot_heatmaps(
             plt.close(figure)
 
         print(f"Saved {classic_path}")
+
+    # plot separate heatmaps with fine time grid 
+
+    fine, _ = compute_bout_frequency_table(
+        quality_control=quality_control,
+        input_csv=input_csv,
+        valid_trials=valid_trials,
+        config_yaml=config_yaml,
+        exclude_unusable=exclude_unusable,
+        time_bins_key="fine_time_bins",
+    )
+
+    fine_average = aggregate_bout_frequency(
+        per_fish=fine,
+        average_trial=True,
+        average_time_bin=False,
+    )
+
+    fine_average.to_csv(
+        output_png.parent / "bout_frequency_fine.csv",
+        index=False,
+    )
+
+    for stimulus in stim_order:
+        data = fine_average.loc[fine_average["stim_name"] == stimulus]
+
+        if data.empty:
+            continue
+
+        pivot, groups, subgroups, labels, n_trials = build_bout_heatmap_matrix(
+            averaged=data,
+            category_order=category_order,
+            stimulus_order=[stimulus],
+        )
+
+        figure, axis = plt.subplots(
+            figsize=(max(12, 0.22 * pivot.shape[1]), 6),
+            layout="constrained",
+        )
+
+        plot_bout_heatmap(
+            figure=figure,
+            axis=axis,
+            pivot=pivot,
+            category_order=category_order,
+            column_groups=groups,
+            column_subgroups=subgroups,
+            time_bin_labels=labels,
+            number_of_trials=n_trials,
+            title=f"{stimulus}: fine time bins, averaged over trials",
+            color_limit=(0.0, maximum_frequency),
+        )
+
+        path = (
+            output_png.parent
+            / f"{output_png.stem}_fine_{filename_safe(stimulus)}"
+            f"{output_png.suffix}"
+        )
+        figure.savefig(path, dpi=180, bbox_inches="tight")
+
+        if not interactive:
+            plt.close(figure)
+
+        print(f"Saved {path}")
 
     if interactive:
         plt.show()
