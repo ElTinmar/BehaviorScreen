@@ -3,7 +3,7 @@ import time
 import pickle
 from typing import Dict
 from pathlib import Path
-import argparse 
+import argparse
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -12,14 +12,9 @@ import cv2
 from megabouts.utils import bouts_category_name
 from megabouts.pipeline.freely_swimming_pipeline import EthogramFullTracking
 
-from BehaviorScreen.load import (
-    Directories, 
-    BehaviorFiles,
-    find_files, 
-    load_data
-)
+from BehaviorScreen.load import Directories, BehaviorFiles, find_files, load_data
 from BehaviorScreen.core import Stim, EventDirection
-from BehaviorScreen.megabouts import MegaboutResults 
+from BehaviorScreen.megabouts import MegaboutResults
 
 from video_tools import FFMPEG_VideoWriter_CPU
 
@@ -50,11 +45,12 @@ MAX_PREY = 64
 # TODO save this in ZebVR metadata
 rollover_time_sec = 3600
 
+
 @dataclass
 class Param:
     u_time_s: float = 0
     u_start_time_sec: float = 0
-    u_pix_per_mm_proj: float = 0 # TODO check that 
+    u_pix_per_mm_proj: float = 0  # TODO check that
 
     # Colors
     u_foreground_color: np.ndarray = field(
@@ -116,7 +112,9 @@ class Param:
     u_prey_arc_stop_deg: float = 360.0
     u_prey_arc_phase_deg: float = 0.0
     u_prey_position: np.ndarray = field(default_factory=lambda: np.zeros((MAX_PREY, 2)))
-    u_prey_trajectory_angle: np.ndarray = field(default_factory=lambda: np.zeros(MAX_PREY))
+    u_prey_trajectory_angle: np.ndarray = field(
+        default_factory=lambda: np.zeros(MAX_PREY)
+    )
 
     # Image stimulus
     u_image_texture: int = 0
@@ -129,36 +127,45 @@ class Param:
     u_ramp_powerlaw_exponent: float = 1.0
     u_ramp_type: int = 0
 
+
 def mod(a, b):
     return a - b * np.floor(a / b)
+
 
 def mix(a, b, t):
     return a * (1 - t)[..., None] + b * t[..., None]
 
+
 def hash1(x):
     return np.mod(np.sin(x * 127.1) * 43758.5453, 1.0)
 
-def alpha_blend(bg, fg, alpha = 128):
+
+def alpha_blend(bg, fg, alpha=128):
     bg16 = bg.astype(np.uint16)
     fg16 = fg.astype(np.uint16)
     alpha16 = np.uint16(alpha)
     out16 = bg16 + ((fg16 - bg16) * alpha16 >> 8)
     return out16.astype(np.uint8)
 
+
 def sum_blend(bg, fg, gain=1.0):
     out = bg.astype(np.uint16) + (fg.astype(np.uint16) * gain)
     return np.clip(out, 0, 255).astype(np.uint8)
+
 
 def egocentric_coords_mm(coords, centroid, pc1, pc2, mm_per_pixel):
     transform = np.stack([pc2, pc1], axis=1) * mm_per_pixel
     return (coords - centroid) @ transform
 
+
 # TODO handle different coordinate system
 def fish_centered():
     pass
 
+
 def bbox_centered():
     pass
+
 
 def image_coord_grid(height_px, width_px, downsample: int = 1):
     xs = np.arange(0, width_px, downsample)
@@ -167,17 +174,21 @@ def image_coord_grid(height_px, width_px, downsample: int = 1):
     coords = np.stack([X, Y], axis=-1).astype(np.float32)
     return coords
 
+
 def dark_overlay(X, Y, p):
     H, W = X.shape
     return np.broadcast_to(p.u_background_color, (H, W, 3))
+
 
 def bright_overlay(X, Y, p):
     H, W = X.shape
     return np.broadcast_to(p.u_foreground_color, (H, W, 3))
 
+
 def phototaxis_overlay(X, Y, p):
     mask = (p.u_phototaxis_polarity * X) > 0
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
+
 
 def omr_overlay(X, Y, p):
     angle_rad = np.deg2rad(p.u_omr_angle_deg)
@@ -192,10 +203,12 @@ def omr_overlay(X, Y, p):
     mask = np.sin(2 * PI * (angle - phase)) > 0
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
+
 def dot_overlay(X, Y, p):
-    dist = np.sqrt((X - p.u_dot_center_mm[0])**2 + (Y - p.u_dot_center_mm[1])**2)
+    dist = np.sqrt((X - p.u_dot_center_mm[0]) ** 2 + (Y - p.u_dot_center_mm[1]) ** 2)
     mask = dist <= p.u_dot_radius_mm
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
+
 
 def concentric_grating_overlay(X, Y, p):
     spatial_freq = 1.0 / p.u_concentric_spatial_period_mm
@@ -207,15 +220,22 @@ def concentric_grating_overlay(X, Y, p):
     mask = np.sin(2 * PI * (angle + phase)) > 0
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
+
 def looming_overlay(X, Y, p):
     relative_time = mod(p.u_time_s - p.u_start_time_sec, p.u_looming_period_sec)
     looming_on = float(relative_time <= p.u_looming_expansion_time_sec)
 
     if p.u_looming_type == LINEAR_RADIUS:
-        looming_radius = p.u_looming_expansion_speed_mm_per_sec * relative_time * looming_on
+        looming_radius = (
+            p.u_looming_expansion_speed_mm_per_sec * relative_time * looming_on
+        )
 
     elif p.u_looming_type == LINEAR_ANGLE:
-        visual_angle = np.deg2rad(p.u_looming_expansion_speed_deg_per_sec) * relative_time * looming_on
+        visual_angle = (
+            np.deg2rad(p.u_looming_expansion_speed_deg_per_sec)
+            * relative_time
+            * looming_on
+        )
         looming_radius = p.u_looming_distance_to_screen_mm * np.tan(visual_angle / 2)
 
     elif p.u_looming_type == CONSTANT_VELOCITY:
@@ -233,9 +253,12 @@ def looming_overlay(X, Y, p):
     else:
         looming_radius = 0.0
 
-    dist = np.sqrt((X - p.u_looming_center_mm[0])**2 + (Y - p.u_looming_center_mm[1])**2)
+    dist = np.sqrt(
+        (X - p.u_looming_center_mm[0]) ** 2 + (Y - p.u_looming_center_mm[1]) ** 2
+    )
     mask = dist <= looming_radius
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
+
 
 def ramp_overlay(X, Y, p):
     relative_time = np.mod(p.u_time_s - p.u_start_time_sec, p.u_ramp_duration_sec)
@@ -251,9 +274,12 @@ def ramp_overlay(X, Y, p):
     ramp_value = np.full(X.shape[:2], ramp_value, dtype=np.float32)
     return mix(p.u_background_color, p.u_foreground_color, ramp_value)
 
+
 def turing_overlay(X, Y, p):
     angle_rad = np.deg2rad(p.u_turing_angle_deg)
-    velocity = p.u_turing_speed_mm_per_sec * np.array([-np.sin(angle_rad), np.cos(angle_rad)])
+    velocity = p.u_turing_speed_mm_per_sec * np.array(
+        [-np.sin(angle_rad), np.cos(angle_rad)]
+    )
     Xp = X - velocity[0] * p.u_time_s
     Yp = Y - velocity[1] * p.u_time_s
     k0 = 4 * PI / p.u_turing_spatial_period_mm
@@ -269,6 +295,7 @@ def turing_overlay(X, Y, p):
     mask = wave_sum > 0
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
+
 def okr_overlay(X, Y, p):
     angular_spatial_freq = np.deg2rad(p.u_okr_spatial_frequency_deg)
     angular_temporal_freq = np.deg2rad(p.u_okr_speed_deg_per_sec)
@@ -277,7 +304,8 @@ def okr_overlay(X, Y, p):
     mask = mod(angle - phase, angular_spatial_freq) > angular_spatial_freq / 2
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
-# TODO fix this 
+
+# TODO fix this
 def image_overlay(X, Y, p):
     H, W = X.shape
     overlay = np.broadcast_to(p.u_background_color, (H, W, 3)).copy()
@@ -301,6 +329,7 @@ def image_overlay(X, Y, p):
 
     return overlay
 
+
 # TODO fix that (bbox argument should not be here)
 def prey_capture_overlay(X, Y, p):
     H, W = X.shape
@@ -310,11 +339,10 @@ def prey_capture_overlay(X, Y, p):
         phase = np.deg2rad(p.u_prey_speed_deg_s) * p.u_time_s
         for i in range(int(p.u_n_preys)):
             angle = i * 2 * PI / p.u_n_preys
-            prey_offset = p.u_prey_trajectory_radius_mm * np.array([
-                np.cos(angle + phase),
-                np.sin(angle + phase)
-            ])
-            dist = np.sqrt((X - prey_offset[0])**2 + (Y - prey_offset[1])**2)
+            prey_offset = p.u_prey_trajectory_radius_mm * np.array(
+                [np.cos(angle + phase), np.sin(angle + phase)]
+            )
+            dist = np.sqrt((X - prey_offset[0]) ** 2 + (Y - prey_offset[1]) ** 2)
             result |= dist <= p.u_prey_radius_mm
 
     elif p.u_prey_capture_type == ARC:
@@ -327,16 +355,20 @@ def prey_capture_overlay(X, Y, p):
         angle_rad = arc_start_rad
         if p.u_prey_periodic_function == COSINE:
             freq = np.deg2rad(p.u_prey_speed_deg_s) / (2 * abs(angle_range_rad))
-            angle_rad += angle_range_rad * ((1 - np.cos(2 * PI * freq * relative_time_s + arc_phase_rad)) / 2)
+            angle_rad += angle_range_rad * (
+                (1 - np.cos(2 * PI * freq * relative_time_s + arc_phase_rad)) / 2
+            )
         elif p.u_prey_periodic_function == MODULO:
             period = abs(angle_range_rad) / np.deg2rad(p.u_prey_speed_deg_s)
             angle_rad += angle_range_rad * mod(relative_time_s, period) / period
 
-        prey_pos = np.array([
-            -p.u_prey_trajectory_radius_mm * np.sin(angle_rad),
-             p.u_prey_trajectory_radius_mm * np.cos(angle_rad)
-        ])
-        dist = np.sqrt((X - prey_pos[0])**2 + (Y - prey_pos[1])**2)
+        prey_pos = np.array(
+            [
+                -p.u_prey_trajectory_radius_mm * np.sin(angle_rad),
+                p.u_prey_trajectory_radius_mm * np.cos(angle_rad),
+            ]
+        )
+        dist = np.sqrt((X - prey_pos[0]) ** 2 + (Y - prey_pos[1]) ** 2)
         result = dist <= p.u_prey_radius_mm
 
     # elif p.u_prey_capture_type == RANDOM_CLOUD:
@@ -352,15 +384,17 @@ def prey_capture_overlay(X, Y, p):
 
     return np.where(result[..., None], p.u_foreground_color, p.u_background_color)
 
+
 def get_active_stimulus(stimuli, timestamp):
-    stimuli_sorted = sorted(stimuli, key=lambda s: s['timestamp'])
+    stimuli_sorted = sorted(stimuli, key=lambda s: s["timestamp"])
     active_stim = None
     for stim in stimuli_sorted:
-        if stim['timestamp'] <= timestamp:
+        if stim["timestamp"] <= timestamp:
             active_stim = stim
         else:
             break
     return active_stim
+
 
 overlay_funcs = {
     Stim.DARK: dark_overlay,
@@ -368,7 +402,7 @@ overlay_funcs = {
     Stim.PHOTOTAXIS: phototaxis_overlay,
     Stim.OMR: omr_overlay,
     Stim.OKR: okr_overlay,
-    Stim.LOOMING: looming_overlay,    
+    Stim.LOOMING: looming_overlay,
     Stim.PREY_CAPTURE: prey_capture_overlay,
     Stim.CONCENTRIC_GRATING: concentric_grating_overlay,
     Stim.DOT: dot_overlay,
@@ -376,6 +410,7 @@ overlay_funcs = {
     Stim.RAMP: ramp_overlay,
     Stim.TURING: turing_overlay,
 }
+
 
 def stim_to_param(stim: dict, time_sec: float) -> Param:
     """Convert stimulus dict to Param dataclass using Stim enum."""
@@ -386,137 +421,188 @@ def stim_to_param(stim: dict, time_sec: float) -> Param:
 
     # Convert stim_select to Stim enum
     try:
-        stim_enum = Stim(int(stim.get('stim_select', 0)))
+        stim_enum = Stim(int(stim.get("stim_select", 0)))
     except ValueError:
-        stim_enum = Stim.DARK  
+        stim_enum = Stim.DARK
 
     p.u_stim_select = stim_enum
-    p.u_start_time_sec = stim.get('start_time_sec', p.u_start_time_sec)
-    p.u_foreground_color = (255*np.asarray(stim.get('foreground_color', p.u_foreground_color))[:3]).astype(np.uint8)
-    p.u_background_color = (255*np.asarray(stim.get('background_color', p.u_background_color))[:3]).astype(np.uint8)
-    p.u_coordinate_system = stim.get('coordinate_system', p.u_coordinate_system)
+    p.u_start_time_sec = stim.get("start_time_sec", p.u_start_time_sec)
+    p.u_foreground_color = (
+        255 * np.asarray(stim.get("foreground_color", p.u_foreground_color))[:3]
+    ).astype(np.uint8)
+    p.u_background_color = (
+        255 * np.asarray(stim.get("background_color", p.u_background_color))[:3]
+    ).astype(np.uint8)
+    p.u_coordinate_system = stim.get("coordinate_system", p.u_coordinate_system)
 
     if stim_enum == Stim.DOT:
-        p.u_dot_center_mm = stim.get('dot_center_mm', p.u_dot_center_mm)
-        p.u_dot_radius_mm = stim.get('dot_radius_mm', p.u_dot_radius_mm)
+        p.u_dot_center_mm = stim.get("dot_center_mm", p.u_dot_center_mm)
+        p.u_dot_radius_mm = stim.get("dot_radius_mm", p.u_dot_radius_mm)
 
     elif stim_enum == Stim.OMR:
-        p.u_omr_spatial_period_mm = stim.get('omr_spatial_period_mm', p.u_omr_spatial_period_mm)
-        p.u_omr_angle_deg = stim.get('omr_angle_deg', p.u_omr_angle_deg)
-        p.u_omr_speed_mm_per_sec = stim.get('omr_speed_mm_per_sec', p.u_omr_speed_mm_per_sec)
+        p.u_omr_spatial_period_mm = stim.get(
+            "omr_spatial_period_mm", p.u_omr_spatial_period_mm
+        )
+        p.u_omr_angle_deg = stim.get("omr_angle_deg", p.u_omr_angle_deg)
+        p.u_omr_speed_mm_per_sec = stim.get(
+            "omr_speed_mm_per_sec", p.u_omr_speed_mm_per_sec
+        )
 
     elif stim_enum == Stim.TURING:
-        p.u_turing_spatial_period_mm = stim.get('turing_spatial_period_mm', p.u_turing_spatial_period_mm)
-        p.u_turing_angle_deg = stim.get('turing_angle_deg', p.u_turing_angle_deg)
-        p.u_turing_speed_mm_per_sec = stim.get('turing_speed_mm_per_sec', p.u_turing_speed_mm_per_sec)
-        p.u_turing_n_waves = stim.get('turing_n_waves', p.u_turing_n_waves)
+        p.u_turing_spatial_period_mm = stim.get(
+            "turing_spatial_period_mm", p.u_turing_spatial_period_mm
+        )
+        p.u_turing_angle_deg = stim.get("turing_angle_deg", p.u_turing_angle_deg)
+        p.u_turing_speed_mm_per_sec = stim.get(
+            "turing_speed_mm_per_sec", p.u_turing_speed_mm_per_sec
+        )
+        p.u_turing_n_waves = stim.get("turing_n_waves", p.u_turing_n_waves)
 
     elif stim_enum == Stim.CONCENTRIC_GRATING:
-        p.u_concentric_spatial_period_mm = stim.get('concentric_spatial_period_mm', p.u_concentric_spatial_period_mm)
-        p.u_concentric_speed_mm_per_sec = stim.get('concentric_speed_mm_per_sec', p.u_concentric_speed_mm_per_sec)
+        p.u_concentric_spatial_period_mm = stim.get(
+            "concentric_spatial_period_mm", p.u_concentric_spatial_period_mm
+        )
+        p.u_concentric_speed_mm_per_sec = stim.get(
+            "concentric_speed_mm_per_sec", p.u_concentric_speed_mm_per_sec
+        )
 
     elif stim_enum == Stim.LOOMING:
-        p.u_looming_type = stim.get('looming_type', p.u_looming_type)
-        p.u_looming_center_mm = stim.get('looming_center_mm', p.u_looming_center_mm)
-        p.u_looming_period_sec = stim.get('looming_period_sec', p.u_looming_period_sec)
-        p.u_looming_expansion_time_sec = stim.get('looming_expansion_time_sec', p.u_looming_expansion_time_sec)
-        p.u_looming_expansion_speed_mm_per_sec = stim.get('looming_expansion_speed_mm_per_sec', p.u_looming_expansion_speed_mm_per_sec)
-        p.u_looming_expansion_speed_deg_per_sec = stim.get('looming_expansion_speed_deg_per_sec', p.u_looming_expansion_speed_deg_per_sec)
-        p.u_looming_angle_start_deg = stim.get('looming_angle_start_deg', p.u_looming_angle_start_deg)
-        p.u_looming_angle_stop_deg = stim.get('looming_angle_stop_deg', p.u_looming_angle_stop_deg)
-        p.u_looming_size_to_speed_ratio_ms = stim.get('looming_size_to_speed_ratio_ms', p.u_looming_size_to_speed_ratio_ms)
-        p.u_looming_distance_to_screen_mm = stim.get('looming_distance_to_screen_mm', p.u_looming_distance_to_screen_mm)
+        p.u_looming_type = stim.get("looming_type", p.u_looming_type)
+        p.u_looming_center_mm = stim.get("looming_center_mm", p.u_looming_center_mm)
+        p.u_looming_period_sec = stim.get("looming_period_sec", p.u_looming_period_sec)
+        p.u_looming_expansion_time_sec = stim.get(
+            "looming_expansion_time_sec", p.u_looming_expansion_time_sec
+        )
+        p.u_looming_expansion_speed_mm_per_sec = stim.get(
+            "looming_expansion_speed_mm_per_sec", p.u_looming_expansion_speed_mm_per_sec
+        )
+        p.u_looming_expansion_speed_deg_per_sec = stim.get(
+            "looming_expansion_speed_deg_per_sec",
+            p.u_looming_expansion_speed_deg_per_sec,
+        )
+        p.u_looming_angle_start_deg = stim.get(
+            "looming_angle_start_deg", p.u_looming_angle_start_deg
+        )
+        p.u_looming_angle_stop_deg = stim.get(
+            "looming_angle_stop_deg", p.u_looming_angle_stop_deg
+        )
+        p.u_looming_size_to_speed_ratio_ms = stim.get(
+            "looming_size_to_speed_ratio_ms", p.u_looming_size_to_speed_ratio_ms
+        )
+        p.u_looming_distance_to_screen_mm = stim.get(
+            "looming_distance_to_screen_mm", p.u_looming_distance_to_screen_mm
+        )
 
     elif stim_enum == Stim.OKR:
-        p.u_okr_spatial_frequency_deg = stim.get('okr_spatial_frequency_deg', p.u_okr_spatial_frequency_deg)
-        p.u_okr_speed_deg_per_sec = stim.get('okr_speed_deg_per_sec', p.u_okr_speed_deg_per_sec)
+        p.u_okr_spatial_frequency_deg = stim.get(
+            "okr_spatial_frequency_deg", p.u_okr_spatial_frequency_deg
+        )
+        p.u_okr_speed_deg_per_sec = stim.get(
+            "okr_speed_deg_per_sec", p.u_okr_speed_deg_per_sec
+        )
 
     elif stim_enum == Stim.PREY_CAPTURE:
-        p.u_prey_capture_type = stim.get('prey_capture_type', p.u_prey_capture_type)
-        p.u_prey_periodic_function = stim.get('prey_periodic_function', p.u_prey_periodic_function)
-        p.u_n_preys = stim.get('n_preys', p.u_n_preys)
-        p.u_prey_radius_mm = stim.get('prey_radius_mm', p.u_prey_radius_mm)
-        p.u_prey_trajectory_radius_mm = stim.get('prey_trajectory_radius_mm', p.u_prey_trajectory_radius_mm)
-        p.u_prey_speed_mm_s = stim.get('prey_speed_mm_s', p.u_prey_speed_mm_s)
-        p.u_prey_speed_deg_s = stim.get('prey_speed_deg_s', p.u_prey_speed_deg_s)
-        p.u_prey_arc_start_deg = stim.get('prey_arc_start_deg', p.u_prey_arc_start_deg)
-        p.u_prey_arc_stop_deg = stim.get('prey_arc_stop_deg', p.u_prey_arc_stop_deg)
-        p.u_prey_arc_phase_deg = stim.get('prey_arc_phase_deg', p.u_prey_arc_phase_deg)
-        p.u_prey_position = stim.get('prey_position', p.u_prey_position)
-        p.u_prey_trajectory_angle = stim.get('prey_trajectory_angle', p.u_prey_trajectory_angle)
-        p.u_pix_per_mm_proj = stim.get('pix_per_mm_proj', 1.0)  # Needed for RANDOM_CLOUD
+        p.u_prey_capture_type = stim.get("prey_capture_type", p.u_prey_capture_type)
+        p.u_prey_periodic_function = stim.get(
+            "prey_periodic_function", p.u_prey_periodic_function
+        )
+        p.u_n_preys = stim.get("n_preys", p.u_n_preys)
+        p.u_prey_radius_mm = stim.get("prey_radius_mm", p.u_prey_radius_mm)
+        p.u_prey_trajectory_radius_mm = stim.get(
+            "prey_trajectory_radius_mm", p.u_prey_trajectory_radius_mm
+        )
+        p.u_prey_speed_mm_s = stim.get("prey_speed_mm_s", p.u_prey_speed_mm_s)
+        p.u_prey_speed_deg_s = stim.get("prey_speed_deg_s", p.u_prey_speed_deg_s)
+        p.u_prey_arc_start_deg = stim.get("prey_arc_start_deg", p.u_prey_arc_start_deg)
+        p.u_prey_arc_stop_deg = stim.get("prey_arc_stop_deg", p.u_prey_arc_stop_deg)
+        p.u_prey_arc_phase_deg = stim.get("prey_arc_phase_deg", p.u_prey_arc_phase_deg)
+        p.u_prey_position = stim.get("prey_position", p.u_prey_position)
+        p.u_prey_trajectory_angle = stim.get(
+            "prey_trajectory_angle", p.u_prey_trajectory_angle
+        )
+        p.u_pix_per_mm_proj = stim.get(
+            "pix_per_mm_proj", 1.0
+        )  # Needed for RANDOM_CLOUD
 
     elif stim_enum == Stim.IMAGE:
-        p.u_image_texture = stim.get('image_texture', p.u_image_texture)
-        p.u_image_size = stim.get('image_size', p.u_image_size)
-        p.u_image_res_px_per_mm = stim.get('image_res_px_per_mm', p.u_image_res_px_per_mm)
-        p.u_image_offset_mm = stim.get('image_offset_mm', p.u_image_offset_mm)
+        p.u_image_texture = stim.get("image_texture", p.u_image_texture)
+        p.u_image_size = stim.get("image_size", p.u_image_size)
+        p.u_image_res_px_per_mm = stim.get(
+            "image_res_px_per_mm", p.u_image_res_px_per_mm
+        )
+        p.u_image_offset_mm = stim.get("image_offset_mm", p.u_image_offset_mm)
 
     elif stim_enum == Stim.RAMP:
-        p.u_ramp_duration_sec = stim.get('ramp_duration_sec', p.u_ramp_duration_sec)
-        p.u_ramp_powerlaw_exponent = stim.get('ramp_powerlaw_exponent', p.u_ramp_powerlaw_exponent)
-        p.u_ramp_type = stim.get('ramp_type', p.u_ramp_type)
+        p.u_ramp_duration_sec = stim.get("ramp_duration_sec", p.u_ramp_duration_sec)
+        p.u_ramp_powerlaw_exponent = stim.get(
+            "ramp_powerlaw_exponent", p.u_ramp_powerlaw_exponent
+        )
+        p.u_ramp_type = stim.get("ramp_type", p.u_ramp_type)
 
     elif stim_enum == Stim.PHOTOTAXIS:
-        p.u_phototaxis_polarity = stim.get('phototaxis_polarity', p.u_phototaxis_polarity)
+        p.u_phototaxis_polarity = stim.get(
+            "phototaxis_polarity", p.u_phototaxis_polarity
+        )
 
     return p
 
-def overlay_stimulus(X,Y,p):
+
+def overlay_stimulus(X, Y, p):
 
     fn = overlay_funcs.get(p.u_stim_select, None)
     if fn is not None:
-        return fn(X,Y,p)
+        return fn(X, Y, p)
+
 
 def add_label(
-        image: np.ndarray,
-        label: str,
-        font: int = cv2.FONT_HERSHEY_SIMPLEX,
-        font_scale = 1,
-        color = (255, 255, 255),
-        thickness = 2,
-        position = (10,30),
-    ) -> None:
+    image: np.ndarray,
+    label: str,
+    font: int = cv2.FONT_HERSHEY_SIMPLEX,
+    font_scale=1,
+    color=(255, 255, 255),
+    thickness=2,
+    position=(10, 30),
+) -> None:
 
     cv2.putText(image, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
 
 
 def do_overlay(
-        output_dir: Path, 
-        behavior_file: BehaviorFiles, 
-        downsample: int = 4,
-        overwrite: bool = False
-    ) -> None:
+    output_dir: Path,
+    behavior_file: BehaviorFiles,
+    downsample: int = 4,
+    overwrite: bool = False,
+) -> None:
 
     output_video = output_dir / behavior_file.video.name
     progress_file = output_dir / f"{behavior_file.video.stem}.progress"
 
     if output_video.exists() and not progress_file.exists():
         if not overwrite:
-            print(f'{output_video} already exists, skipping ...', flush=True)
-            return 
+            print(f"{output_video} already exists, skipping ...", flush=True)
+            return
 
-    with open(behavior_file.metadata.with_suffix('.pkl') , 'rb') as fp:
+    with open(behavior_file.metadata.with_suffix(".pkl"), "rb") as fp:
         megabout: MegaboutResults = pickle.load(fp)
 
     behavior_data = load_data(behavior_file)
 
-    mm_per_pixel = 1/behavior_data.metadata['calibration']['pix_per_mm']
-    timestamp_start = behavior_data.video_timestamps.loc[0, 'timestamp']
+    mm_per_pixel = 1 / behavior_data.metadata["calibration"]["pix_per_mm"]
+    timestamp_start = behavior_data.video_timestamps.loc[0, "timestamp"]
 
     height_px = behavior_data.video.get_height()
     width_px = behavior_data.video.get_width()
     fps = behavior_data.video.get_fps()
     num_frames = behavior_data.tracking.shape[0]
-    
+
     grid = image_coord_grid(height_px, width_px, downsample=downsample)
 
     writer = FFMPEG_VideoWriter_CPU(
-        filename = output_video,
-        height = height_px, 
-        width = width_px, 
-        fps = fps, 
-        q = 18,
+        filename=output_video,
+        height=height_px,
+        width=width_px,
+        fps=fps,
+        q=18,
     )
     file = open(progress_file, "w")
 
@@ -528,59 +614,63 @@ def do_overlay(
 
             if idx % 500 == 0:
                 elapsed = time.time() - start_time
-                speed = idx/elapsed
-                time_left = (num_frames - idx)/speed if speed > 0 else 0
-                file.write(f"frame: {idx}, total: {num_frames}, frame/sec: {speed}, time_left: {time_left}\n")
+                speed = idx / elapsed
+                time_left = (num_frames - idx) / speed if speed > 0 else 0
+                file.write(
+                    f"frame: {idx}, total: {num_frames}, frame/sec: {speed}, time_left: {time_left}\n"
+                )
                 file.flush()
 
             ret, image = behavior_data.video.next_frame()
-            
+
             if not ret:
-                raise RuntimeError(f'failed to read image #{idx}')
+                raise RuntimeError(f"failed to read image #{idx}")
 
             # TODO write functions for the different coordinate systems
             coords_mm = egocentric_coords_mm(
                 grid,
-                centroid = row[['centroid_x', 'centroid_y']].to_numpy(),
-                pc1 = row[['pc1_x', 'pc1_y']].to_numpy(),
-                pc2 = row[['pc2_x', 'pc2_y']].to_numpy(), 
-                mm_per_pixel = mm_per_pixel
+                centroid=row[["centroid_x", "centroid_y"]].to_numpy(),
+                pc1=row[["pc1_x", "pc1_y"]].to_numpy(),
+                pc2=row[["pc2_x", "pc2_y"]].to_numpy(),
+                mm_per_pixel=mm_per_pixel,
             )
 
-            shader_time_sec = (1e-9*row.timestamp) % rollover_time_sec  
-            exp_time_sec = 1e-9*(row.timestamp-timestamp_start)
+            shader_time_sec = (1e-9 * row.timestamp) % rollover_time_sec
+            exp_time_sec = 1e-9 * (row.timestamp - timestamp_start)
             current_stim = get_active_stimulus(behavior_data.stimuli, row.timestamp)
-            
+
             if current_stim is None:
                 stim = image
-                label = f'{exp_time_sec:.2f}'
+                label = f"{exp_time_sec:.2f}"
             else:
                 parameters = stim_to_param(current_stim, shader_time_sec)
                 oly = overlay_stimulus(
-                    coords_mm[:,:,0],
-                    coords_mm[:,:,1],
-                    parameters
+                    coords_mm[:, :, 0], coords_mm[:, :, 1], parameters
                 )
                 dest_size = image.shape[:2]
-                oly = cv2.resize(oly, dsize=dest_size[::-1], interpolation=cv2.INTER_LINEAR)
-                
-                if current_stim['stim_select'] == Stim.PREY_CAPTURE:
+                oly = cv2.resize(
+                    oly, dsize=dest_size[::-1], interpolation=cv2.INTER_LINEAR
+                )
+
+                if current_stim["stim_select"] == Stim.PREY_CAPTURE:
                     stim = sum_blend(image, oly, 5.0)
                 else:
                     stim = sum_blend(image, oly, 1.0)
 
-                label = f'{exp_time_sec:.2f}-{parameters.u_stim_select.name}'
+                label = f"{exp_time_sec:.2f}-{parameters.u_stim_select.name}"
 
             add_label(stim, label)
 
             # overlay ethogram
-            bout_idx, bout_cat, bout_sign = megabout.ethogram.df.bout[['id', 'cat', 'sign']].values[idx] 
+            bout_idx, bout_cat, bout_sign = megabout.ethogram.df.bout[
+                ["id", "cat", "sign"]
+            ].values[idx]
             if bout_cat >= 0:
                 proba = megabout.bouts.proba[bout_idx]
-                bout_label = f"{bouts_category_name[bout_cat]}: {proba:.2f}, {EventDirection(bout_sign).name}" 
-                add_label(stim, bout_label, position=(10, height_px-30))
+                bout_label = f"{bouts_category_name[bout_cat]}: {proba:.2f}, {EventDirection(bout_sign).name}"
+                add_label(stim, bout_label, position=(10, height_px - 30))
 
-            writer.write_frame(stim)    
+            writer.write_frame(stim)
 
     finally:
 
@@ -588,18 +678,19 @@ def do_overlay(
         file.close()
         progress_file.unlink()
 
-def overlay(       
-        root: Path,
-        overlay_dir: str,
-        metadata: str,
-        stimuli: str,
-        tracking: str,
-        video: str,
-        video_timestamp: str,
-        multiprocessing: bool,
-        downsample: int = 4,
-        overwrite: bool = False,
-    ) -> None:
+
+def overlay(
+    root: Path,
+    overlay_dir: str,
+    metadata: str,
+    stimuli: str,
+    tracking: str,
+    video: str,
+    video_timestamp: str,
+    multiprocessing: bool,
+    downsample: int = 4,
+    overwrite: bool = False,
+) -> None:
 
     directories = Directories(
         root,
@@ -610,15 +701,19 @@ def overlay(
         video_timestamp=video_timestamp,
     )
     behavior_files = find_files(directories)
-    output_dir = root / overlay_dir 
+    output_dir = root / overlay_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     if multiprocessing:
-        with mp.Pool(mp.cpu_count()//4) as pool:
-            pool.starmap(do_overlay, [(output_dir, bf, downsample, overwrite) for bf in behavior_files])
+        with mp.Pool(mp.cpu_count() // 4) as pool:
+            pool.starmap(
+                do_overlay,
+                [(output_dir, bf, downsample, overwrite) for bf in behavior_files],
+            )
     else:
         for behavior_file in behavior_files:
             do_overlay(output_dir, behavior_file, downsample, overwrite)
+
 
 def main(args: argparse.Namespace) -> None:
     overlay(
@@ -631,8 +726,9 @@ def main(args: argparse.Namespace) -> None:
         video_timestamp=args.video_timestamp,
         multiprocessing=args.multiprocessing,
         downsample=args.downsample,
-        overwrite=args.overwrite
+        overwrite=args.overwrite,
     )
+
 
 def build_parser() -> argparse.ArgumentParser:
 
@@ -655,7 +751,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument(
         "--overlay-dir",
-        default='overlay',
+        default="overlay",
         help="Directory to store overlay videos",
     )
 
@@ -695,7 +791,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     return parser
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
 
     main(build_parser().parse_args())
-
