@@ -78,7 +78,7 @@ AGAROSE_WELL_DIMENSIONS: WellDimensions = {
 SACCADE_CLASS_NAMES = {
     -1: "Unassigned",
     0: "Unclassified",
-    1: "Conjugate left",
+    1: "Conjugate left", #NOTE left is probably right in my setup
     2: "Conjugate right",
     3: "Miniature convergent",
     4: "Convergent",
@@ -89,19 +89,19 @@ SACCADE_CLASS_NAMES = {
 }
 
 # TODO maybe for my dataset
-# SACCADE_CLASS_DIRECTIONS = {
-#     1: EventDirection.RIGHT,
-#     2: EventDirection.LEFT,
-#     7: EventDirection.LEFT,
-#     8: EventDirection.RIGHT
-# }
-
 SACCADE_CLASS_DIRECTIONS = {
-    1: EventDirection.LEFT,
-    2: EventDirection.RIGHT,
-    7: EventDirection.RIGHT,
-    8: EventDirection.LEFT
+    1: EventDirection.RIGHT,
+    2: EventDirection.LEFT,
+    7: EventDirection.LEFT,
+    8: EventDirection.RIGHT
 }
+
+# SACCADE_CLASS_DIRECTIONS = {
+#     1: EventDirection.LEFT,
+#     2: EventDirection.RIGHT,
+#     7: EventDirection.RIGHT,
+#     8: EventDirection.LEFT
+# }
 
 SACCADE_NONDIRECTIONAL_CLASSES = {
     3,  # Miniature convergent
