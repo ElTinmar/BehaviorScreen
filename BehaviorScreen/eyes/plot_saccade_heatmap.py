@@ -17,7 +17,7 @@ from BehaviorScreen.plot_utils import (
     map_laterality,
     order_lateralities,
     get_laterality_labels,
-    filename_safe
+    filename_safe,
 )
 from BehaviorScreen.stim_specs import (
     StimSpec,
@@ -923,8 +923,7 @@ def make_saccade_heatmaps(
         )
 
         path = (
-            output_png.parent
-            / f"{output_png.stem}_fine_{filename_safe(stimulus)}"
+            output_png.parent / f"{output_png.stem}_fine_{filename_safe(stimulus)}"
             f"{output_png.suffix}"
         )
         figure.savefig(path, dpi=180, bbox_inches="tight")
@@ -932,7 +931,7 @@ def make_saccade_heatmaps(
         if not interactive:
             plt.close(figure)
 
-        print(f"Saved {path}")    
+        print(f"Saved {path}")
 
     if interactive:
         plt.show()
