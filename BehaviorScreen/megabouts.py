@@ -38,6 +38,7 @@ from BehaviorScreen.load import (
     Directories,
     find_files,
     load_data,
+    file_younger_than
 )
 from BehaviorScreen.protocol import bout_laterality
 
@@ -477,12 +478,23 @@ def run_megabouts(
     plots: str,
     cpu: bool,
     rollover_time_s: int,
+    overwrite_mtime: int = 0
 ) -> None:
     """Run Megabouts for all experiments and write the bout table."""
     if cpu:
         import torch
 
         torch.cuda.is_available = lambda: False
+
+    output_path = root / output_csv
+    if file_younger_than(output_path, overwrite_mtime):
+        print(f"{output_path} is younger than {overwrite_mtime}h, skipping...")
+        return 
+
+    output_path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
 
     directories = Directories(
         root,
@@ -530,12 +542,6 @@ def run_megabouts(
         print(f"[ok] {behavior_file.metadata.stem}: " f"{len(fish_rows):,} bouts")
 
     bouts = pd.DataFrame.from_records(bout_rows)
-    output_path = root / output_csv
-
-    output_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
     bouts.to_csv(
         output_path,
         header=True,
