@@ -2,7 +2,7 @@ from .config import FOLDERS, CONFIG_YAML, SACCADE_MODEL
 from BehaviorScreen.eyes.run_analysis import run_analysis
 from multiprocessing import Pool
 
-N = 6
+N = 4
 
 def process_folder(folder):
     print(f"processing {folder}")
@@ -11,7 +11,7 @@ def process_folder(folder):
         root=folder,
         config_yaml=CONFIG_YAML,
         model_path=SACCADE_MODEL,
-        start_stage='plot'
+        start_stage='augment'
     )
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ from .config import FOLDERS
 from BehaviorScreen.qc import quality_control
 from multiprocessing import Pool
 
-N = 6
+N = 4
 
 def process_folder(folder):
     print(f"processing {folder}")
