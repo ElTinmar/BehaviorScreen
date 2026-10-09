@@ -1,6 +1,7 @@
 import json
 import pandas as pd
 import numpy as np
+import time
 from pathlib import Path
 from typing import List, Dict, NamedTuple, Optional, Tuple
 import re
@@ -338,3 +339,15 @@ def encode_time_of_day(info: FileNameInfo) -> Tuple[float, float]:
     seconds = info.hour * 3600 + info.minute * 60 + info.second
     theta = 2 * np.pi * (seconds / (24 * 3600))
     return (np.cos(theta), np.sin(theta))
+
+
+def file_younger_than(file_path: str | Path, hours: float) -> bool:
+    path = Path(file_path)
+
+    if not path.is_file():
+        return False
+        
+    age_in_seconds = time.time() - path.stat().st_mtime
+    target_seconds = hours * 3600
+    return age_in_seconds <= target_seconds
+
