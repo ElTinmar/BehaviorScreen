@@ -2,7 +2,7 @@ from .config import FOLDERS
 from BehaviorScreen.megabouts import run_megabouts
 from multiprocessing import Pool
 
-N = 6
+N = 4
 
 def process_folder(folder):
 
@@ -21,7 +21,8 @@ def process_folder(folder):
         results = "results",
         plots = "results",
         cpu = False,
-        rollover_time_s=3600
+        rollover_time_s=3600,
+        #overwrite_mtime=10
     )
     
 if __name__ == "__main__":
