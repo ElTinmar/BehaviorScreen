@@ -22,7 +22,6 @@ from BehaviorScreen.stimulus import (
     prey_capture_arc_stimulus_cosine,
 )
 
-
 TRIAL_COLUMNS_TO_EXCLUDE = {
     "start_timestamp",
     "stop_timestamp",
@@ -79,9 +78,7 @@ def prepare_trial_table(
         "epoch_name",
         sort=False,
     ):
-        for trial_num, (epoch_index, trial) in enumerate(
-            epoch_trials.iterrows()
-        ):
+        for trial_num, (epoch_index, trial) in enumerate(epoch_trials.iterrows()):
             record = trial.to_dict()
             record["epoch_name"] = epoch_name
             record["epoch_idx"] = epoch_index
@@ -123,9 +120,7 @@ def find_trial_indices(
     )
 
     if trial_starts.shape != trial_stops.shape:
-        raise ValueError(
-            "trial_starts and trial_stops must have the same shape."
-        )
+        raise ValueError("trial_starts and trial_stops must have the same shape.")
 
     if len(trial_starts) == 0:
         return np.full(
@@ -135,20 +130,18 @@ def find_trial_indices(
         )
 
     if np.any(np.diff(trial_starts) < 0):
-        raise ValueError(
-            "Trial start timestamps must be sorted in ascending order."
+        raise ValueError("Trial start timestamps must be sorted in ascending order.")
+
+    indices = (
+        np.searchsorted(
+            trial_starts,
+            event_timestamps,
+            side="right",
         )
-
-    indices = np.searchsorted(
-        trial_starts,
-        event_timestamps,
-        side="right",
-    ) - 1
-
-    valid = (
-        (indices >= 0)
-        & (indices < len(trial_starts))
+        - 1
     )
+
+    valid = (indices >= 0) & (indices < len(trial_starts))
 
     safe_indices = np.clip(
         indices,
@@ -156,10 +149,7 @@ def find_trial_indices(
         len(trial_starts) - 1,
     )
 
-    valid &= (
-        event_timestamps
-        < trial_stops[safe_indices]
-    )
+    valid &= event_timestamps < trial_stops[safe_indices]
 
     indices[~valid] = -1
 
@@ -181,9 +171,7 @@ def nearest_indices(
         raise ValueError("reference cannot be empty.")
 
     if np.any(np.diff(reference) < 0):
-        raise ValueError(
-            "reference must be sorted in ascending order."
-        )
+        raise ValueError("reference must be sorted in ascending order.")
 
     insertion_indices = np.searchsorted(
         reference,
@@ -201,12 +189,8 @@ def nearest_indices(
         len(reference) - 1,
     )
 
-    left_distances = np.abs(
-        targets - reference[left_indices]
-    )
-    right_distances = np.abs(
-        reference[right_indices] - targets
-    )
+    left_distances = np.abs(targets - reference[left_indices])
+    right_distances = np.abs(reference[right_indices] - targets)
 
     return np.where(
         right_distances < left_distances,
@@ -293,9 +277,7 @@ class RecordingContext:
         self.cos_daytime = float(daytime[0])
         self.sin_daytime = float(daytime[1])
 
-        self.trials = prepare_trial_table(
-            self.behavior_data
-        )
+        self.trials = prepare_trial_table(self.behavior_data)
 
         if self.trials.empty:
             self.trial_starts = np.array(
@@ -308,30 +290,16 @@ class RecordingContext:
             )
             self.first_trial_start = None
         else:
-            self.trial_starts = self.trials[
-                "start_timestamp"
-            ].to_numpy(dtype=np.int64)
-            self.trial_stops = self.trials[
-                "stop_timestamp"
-            ].to_numpy(dtype=np.int64)
-            self.first_trial_start = int(
-                self.trial_starts.min()
-            )
+            self.trial_starts = self.trials["start_timestamp"].to_numpy(dtype=np.int64)
+            self.trial_stops = self.trials["stop_timestamp"].to_numpy(dtype=np.int64)
+            self.first_trial_start = int(self.trial_starts.min())
 
-        video_timestamps = (
-            self.behavior_data.video_timestamps
-            .timestamp
-            .to_numpy()
-        )
+        video_timestamps = self.behavior_data.video_timestamps.timestamp.to_numpy()
 
         if len(video_timestamps) == 0:
-            raise ValueError(
-                f"No video timestamps were found for {self.file}."
-            )
+            raise ValueError(f"No video timestamps were found for {self.file}.")
 
-        self.recording_start_timestamp = int(
-            video_timestamps[0]
-        )
+        self.recording_start_timestamp = int(video_timestamps[0])
 
         try:
             (
@@ -345,8 +313,7 @@ class RecordingContext:
             )
         except Exception as error:
             print(
-                f"[warn] Could not determine well center for "
-                f"{self.file}: {error}"
+                f"[warn] Could not determine well center for " f"{self.file}: {error}"
             )
             self.well_center_x_mm = np.nan
             self.well_center_y_mm = np.nan
@@ -376,18 +343,11 @@ class RecordingContext:
         )
 
         if not np.isfinite(relative_seconds).all():
-            raise ValueError(
-                "Relative event times contain NaN or infinity."
-            )
+            raise ValueError("Relative event times contain NaN or infinity.")
 
-        offsets_ns = np.rint(
-            relative_seconds * 1e9
-        ).astype(np.int64)
+        offsets_ns = np.rint(relative_seconds * 1e9).astype(np.int64)
 
-        return (
-            self.recording_start_timestamp
-            + offsets_ns
-        )
+        return self.recording_start_timestamp + offsets_ns
 
     def trial_indices(
         self,
@@ -414,9 +374,7 @@ class RecordingContext:
             "x_start": float(x_start),
             "y_start": float(y_start),
             "heading_start": float(heading),
-            "distance_center": float(
-                np.hypot(x_start, y_start)
-            ),
+            "distance_center": float(np.hypot(x_start, y_start)),
         }
 
     def trial_context(
@@ -443,35 +401,23 @@ class RecordingContext:
 
         trial = self.trials.iloc[int(trial_index)]
 
-        trial_time_s = (
-            event_timestamp
-            - int(trial.start_timestamp)
-        ) * 1e-9
+        trial_time_s = (event_timestamp - int(trial.start_timestamp)) * 1e-9
 
         if self.first_trial_start is None:
             stimulus_start_time = np.nan
         else:
             stimulus_start_time = (
-                int(trial.start_timestamp)
-                - self.first_trial_start
+                int(trial.start_timestamp) - self.first_trial_start
             ) * 1e-9
 
         context.update(
             {
-                "stim": scalar_for_csv(
-                    trial.get("stim_select", np.nan)
-                ),
-                "epoch_name": scalar_for_csv(
-                    trial.epoch_name
-                ),
-                "epoch_idx": scalar_for_csv(
-                    trial.epoch_idx
-                ),
+                "stim": scalar_for_csv(trial.get("stim_select", np.nan)),
+                "epoch_name": scalar_for_csv(trial.epoch_name),
+                "epoch_idx": scalar_for_csv(trial.epoch_idx),
                 "trial_num": int(trial.trial_num),
                 "trial_time": float(trial_time_s),
-                "stim_start_time": float(
-                    stimulus_start_time
-                ),
+                "stim_start_time": float(stimulus_start_time),
             }
         )
 
@@ -570,17 +516,13 @@ class RecordingContext:
             return result
 
         try:
-            tracking_timestamps_raw = tracking[
-                "timestamp"
-            ].to_numpy()
+            tracking_timestamps_raw = tracking["timestamp"].to_numpy()
 
-            swim_bladder_px = full_tracking.Swim_Bladder[
-                ["x", "y"]
-            ].to_numpy(dtype=float)
+            swim_bladder_px = full_tracking.Swim_Bladder[["x", "y"]].to_numpy(
+                dtype=float
+            )
 
-            head_px = full_tracking.Head[
-                ["x", "y"]
-            ].to_numpy(dtype=float)
+            head_px = full_tracking.Head[["x", "y"]].to_numpy(dtype=float)
         except (AttributeError, KeyError):
             return result
 
@@ -593,12 +535,8 @@ class RecordingContext:
         if number_of_frames == 0:
             return result
 
-        tracking_timestamps_raw = tracking_timestamps_raw[
-            :number_of_frames
-        ]
-        swim_bladder_px = swim_bladder_px[
-            :number_of_frames
-        ]
+        tracking_timestamps_raw = tracking_timestamps_raw[:number_of_frames]
+        swim_bladder_px = swim_bladder_px[:number_of_frames]
         head_px = head_px[:number_of_frames]
 
         finite = (
@@ -611,9 +549,7 @@ class RecordingContext:
             return result
 
         valid_frame_indices = np.flatnonzero(finite)
-        valid_timestamps = tracking_timestamps_raw[
-            finite
-        ].astype(np.int64)
+        valid_timestamps = tracking_timestamps_raw[finite].astype(np.int64)
 
         order = np.argsort(valid_timestamps)
         valid_timestamps = valid_timestamps[order]
@@ -624,35 +560,20 @@ class RecordingContext:
             targets=event_timestamps,
         )
 
-        nearest_frames = valid_frame_indices[
-            nearest_local_indices
-        ]
+        nearest_frames = valid_frame_indices[nearest_local_indices]
 
-        pixels_per_mm = float(
-            self.behavior_data.metadata[
-                "calibration"
-            ]["pix_per_mm"]
-        )
+        pixels_per_mm = float(self.behavior_data.metadata["calibration"]["pix_per_mm"])
 
-        positions_mm = (
-            swim_bladder_px[nearest_frames]
-            / pixels_per_mm
-        )
+        positions_mm = swim_bladder_px[nearest_frames] / pixels_per_mm
 
-        heading_vectors = (
-            head_px[nearest_frames]
-            - swim_bladder_px[nearest_frames]
-        )
+        heading_vectors = head_px[nearest_frames] - swim_bladder_px[nearest_frames]
 
         headings = np.arctan2(
             heading_vectors[:, 1],
             heading_vectors[:, 0],
         )
 
-        selected_timestamps = (
-            tracking_timestamps_raw[nearest_frames]
-            .astype(np.int64)
-        )
+        selected_timestamps = tracking_timestamps_raw[nearest_frames].astype(np.int64)
 
         result["tracking_frame"] = nearest_frames
         result["tracking_time_error_ms"] = (

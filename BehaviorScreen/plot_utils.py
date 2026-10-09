@@ -78,3 +78,7 @@ def get_laterality_labels(
     labels = map_laterality(events.loc[mask, "laterality"]).dropna().unique().tolist()
 
     return order_lateralities(labels) if labels else ["none"]
+
+
+def filename_safe(text: str) -> str:
+    return "".join(c if c.isalnum() or c in "-_" else "_" for c in text)

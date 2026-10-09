@@ -17,6 +17,7 @@ from BehaviorScreen.plot_utils import (
     map_laterality,
     order_lateralities,
     get_laterality_labels,
+    filename_safe,
 )
 from BehaviorScreen.stim_specs import (
     StimSpec,
@@ -194,10 +195,11 @@ def compute_saccade_frequency_table(
     config_yaml: Path,
     exclude_unusable: bool = True,
     include_unassigned: bool = False,
+    time_bins_key: str = "time_bins",
 ) -> pd.DataFrame:
     """Construct the complete per-fish saccade-frequency table."""
     config = load_yaml_config(config_yaml)
-    specifications = list(read_stim_specs(config))
+    specifications = list(read_stim_specs(config, time_bins_key=time_bins_key))
 
     events = pd.read_csv(input_csv)
     valid_trials = load_valid_trials(valid_trials_csv)
@@ -347,7 +349,7 @@ def aggregate_saccade_frequency(
     average_trial: bool,
     average_time_bin: bool,
     split_columns: tuple[str, ...] = ("laterality_group",),
-) -> pd.DataFrame:
+) -> pd.Series:
     """
     Collapse selected dimensions within each fish, then average across fish.
 
@@ -866,6 +868,70 @@ def make_saccade_heatmaps(
             plt.close(figure)
 
         print(f"Saved {variant_path}")
+
+    # plot separate heatmaps with fine time grid
+
+    fine = compute_saccade_frequency_table(
+        input_csv=input_csv,
+        valid_trials_csv=valid_trials_csv,
+        quality_control=quality_control,
+        config_yaml=config_yaml,
+        exclude_unusable=exclude_unusable,
+        include_unassigned=include_unassigned,
+        time_bins_key="fine_time_bins",
+    )
+
+    fine_average = aggregate_saccade_frequency(
+        per_fish=fine,
+        average_trial=True,
+        average_time_bin=False,
+    )
+
+    fine_average.to_csv(
+        output_png.parent / "saccade_frequency_fine.csv",
+        index=False,
+    )
+
+    for stimulus in stimulus_order:
+        data = fine_average.loc[fine_average["stim_name"] == stimulus]
+
+        if data.empty:
+            continue
+
+        pivot, groups, subgroups, labels, n_trials = build_heatmap_matrix(
+            averaged=data,
+            class_order=class_order,
+            stimulus_order=[stimulus],
+        )
+
+        figure, axis = plt.subplots(
+            figsize=(max(12, 0.22 * pivot.shape[1]), 6),
+            layout="constrained",
+        )
+
+        plot_heatmap_matrix(
+            figure=figure,
+            axis=axis,
+            pivot=pivot,
+            class_order=class_order,
+            column_groups=groups,
+            column_subgroups=subgroups,
+            time_labels=labels,
+            number_of_trials=n_trials,
+            title=f"{stimulus}: fine time bins, averaged over trials",
+            color_limit=(0.0, maximum_frequency),
+        )
+
+        path = (
+            output_png.parent / f"{output_png.stem}_fine_{filename_safe(stimulus)}"
+            f"{output_png.suffix}"
+        )
+        figure.savefig(path, dpi=180, bbox_inches="tight")
+
+        if not interactive:
+            plt.close(figure)
+
+        print(f"Saved {path}")
 
     if interactive:
         plt.show()
