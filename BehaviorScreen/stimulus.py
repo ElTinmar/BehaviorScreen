@@ -76,7 +76,7 @@ def omr(
     shader_time = get_shader_time(start_time_sec, trial_time_sec, rollover_time_sec) 
     temporal_freq = omr_speed_mm_per_sec  / omr_spatial_period_mm
     phase = temporal_freq * shader_time
-    return phase % 2*np.pi
+    return 2 * np.pi * (phase % 1)
 
 
 def okr(
@@ -89,7 +89,7 @@ def okr(
     shader_time = get_shader_time(start_time_sec, trial_time_sec, rollover_time_sec) 
     angular_temporal_freq = np.deg2rad(okr_speed_deg_per_sec)
     phase = angular_temporal_freq * shader_time
-    return phase % 2*np.pi
+    return phase % (2 * np.pi)
 
 
 def looming_linear_radius(
@@ -180,7 +180,7 @@ def prey_capture_arc_stimulus_cosine(
     freq = np.deg2rad(prey_speed_deg_s) / (2*np.abs(angle_range_rad))
     phase = freq * shader_trial_time
     angle_rad += angle_range_rad * (1 - np.cos(2*np.pi*phase)/2)
-    return (2*phase) % 2*np.pi 
+    return 2 * np.pi * (phase % 1) 
 
 
 def prey_capture_arc_stimulus_modulo(

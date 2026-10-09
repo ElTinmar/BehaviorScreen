@@ -318,9 +318,7 @@ def get_bout_metrics(
 
     rows: list[dict[str, Any]] = []
 
-    # Preserve the previous behavior: interbout timing restarts within
-    # each trial.
-    previous_offset_by_trial: dict[int, int] = {}
+    previous_offset: int | None = None
 
     for bout_index in range(number_of_bouts):
         if not valid_bout_indices[bout_index]:
@@ -329,12 +327,9 @@ def get_bout_metrics(
         onset = int(bout_onsets[bout_index])
         offset = int(bout_offsets[bout_index])
         trial_index = int(trial_indices[bout_index])
+        last_offset, previous_offset = previous_offset, offset
 
         if trial_index < 0:
-            continue
-
-        # Require the complete bout to be contained in the trial.
-        if bout_stop_timestamps[bout_index] >= recording.trial_stops[trial_index]:
             continue
 
         event_timestamp = int(bout_start_timestamps[bout_index])
@@ -361,12 +356,7 @@ def get_bout_metrics(
 
         bout_duration = (offset - onset) / frames_per_second
 
-        previous_offset = previous_offset_by_trial.get(
-            trial_index,
-            0,
-        )
-        interbout_duration = (onset - previous_offset) / frames_per_second
-        previous_offset_by_trial[trial_index] = offset
+        interbout_duration = np.nan if last_offset is None else (onset - last_offset) / frames_per_second
 
         peak_axial_speed = get_peak_signed_value(
             megabout.traj.axial_speed[onset:offset]
@@ -383,7 +373,7 @@ def get_bout_metrics(
             posthoc_centroid=posthoc_centroid,
             online_heading=online_heading,
             posthoc_heading=posthoc_heading,
-            start=previous_offset,
+            start=onset if last_offset is None else last_offset,
             stop=offset,
         )
 
@@ -407,6 +397,7 @@ def get_bout_metrics(
             "peak_axial_speed": peak_axial_speed,
             "peak_yaw_speed": peak_yaw_speed,
             "category": int(bout_categories[bout_index]),
+            "within_trial": bool(bout_stop_timestamps[bout_index] < recording.trial_stops[trial_index]),
             "sign": int(sign),
             "proba": float(bout_probabilities[bout_index]),
             "laterality": laterality,

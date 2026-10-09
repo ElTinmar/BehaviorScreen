@@ -210,6 +210,8 @@ def get_epoch_trial_presentation(behavior_data: BehaviorData) -> pd.DataFrame:
                     "presented": matches_params,          
                     "matches_expected_parameters": matches_params,
                     "trial_duration_s": duration_s,
+                    "start_timestamp": trial_row.start_timestamp,
+                    "stop_timestamp": trial_row.stop_timestamp,
                 })
             else:
                 rows.append({
@@ -220,6 +222,8 @@ def get_epoch_trial_presentation(behavior_data: BehaviorData) -> pd.DataFrame:
                     "presented": False,
                     "matches_expected_parameters": np.nan,  # N/A: nothing to compare
                     "trial_duration_s": np.nan,
+                    "start_timestamp": np.nan,
+                    "stop_timestamp": np.nan,
                 })
 
     return pd.DataFrame(rows)
