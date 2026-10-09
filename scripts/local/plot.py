@@ -2,7 +2,7 @@ from .config import FOLDERS, CONFIG_YAML
 from BehaviorScreen.plot import plot_heatmaps
 from multiprocessing import Pool
 
-N = 8
+N = 6
 
 def process_folder(folder):
     print(f"processing {folder}")
