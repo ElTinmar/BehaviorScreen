@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 from pathlib import Path
 from typing import Any
 
@@ -12,12 +13,16 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
+from BehaviorScreen.core import SACCADE_CATEGORY_NAMES
+from BehaviorScreen.dataframe_utils import compact_dataframe
 from BehaviorScreen.plot_utils import (
     HEATMAP_VARIANTS,
+    build_grouped_heatmap_matrix,
+    filename_safe,
+    grouped_heatmap_figure_size,
     map_laterality,
     order_lateralities,
-    get_laterality_labels,
-    filename_safe,
+    plot_grouped_heatmap,
 )
 from BehaviorScreen.stim_specs import (
     StimSpec,
@@ -31,7 +36,6 @@ from BehaviorScreen.stim_specs import (
     read_stim_specs,
     stimulus_name_order,
 )
-from BehaviorScreen.core import SACCADE_CATEGORY_NAMES
 
 DEFAULT_CLASS_ORDER = [
     1,  # Conjugate
@@ -42,54 +46,189 @@ DEFAULT_CLASS_ORDER = [
 ]
 
 
-def get_exposure_by_trial(
-    valid_trials: pd.DataFrame,
-    fish: str,
+def compact_saccade_table(
+    dataframe: pd.DataFrame,
+) -> pd.DataFrame:
+    """Use compact dtypes for a saccade-frequency table."""
+    return compact_dataframe(
+        dataframe=dataframe,
+        categorical_columns=(
+            "file",
+            "stim_name",
+            "saccade_category_name",
+            "laterality_group",
+        ),
+        integer_columns=(
+            "trial_idx",
+            "saccade_category",
+            "saccade_counts",
+            "dpf",
+            "day",
+        ),
+        float_columns=(
+            "saccade_frequency",
+            "exposure_s",
+            "time_bin_start",
+            "time_bin_stop",
+            "time_bin_duration",
+            "cos_daytime",
+            "sin_daytime",
+        ),
+    )
+
+
+def preprocess_saccades(
+    events: pd.DataFrame,
+    class_order: list[int],
+) -> pd.DataFrame:
+    """
+    Prepare reusable numeric and mapped columns once.
+
+    Classes outside ``class_order`` are removed here rather than tested for
+    every fish, specification, and time bin.
+    """
+    events = events.copy()
+    events["file"] = events["file"].astype(str)
+
+    events["trial_idx"] = pd.to_numeric(
+        events["trial_num"],
+        errors="coerce",
+    )
+    events["saccade_category"] = pd.to_numeric(
+        events["saccade_category"],
+        errors="coerce",
+    )
+
+    events = events.dropna(
+        subset=[
+            "trial_idx",
+            "saccade_category",
+        ]
+    ).copy()
+
+    events["trial_idx"] = events["trial_idx"].astype(np.int32)
+    events["saccade_category"] = events["saccade_category"].astype(np.int16)
+
+    events = events.loc[events["saccade_category"].isin(class_order)].copy()
+
+    events["laterality_group"] = map_laterality(events["laterality"])
+
+    # Specification regex matching has already been completed.
+    for column in (
+        "file",
+        "stim",
+        "epoch_name",
+        "laterality_group",
+    ):
+        if column in events.columns:
+            events[column] = events[column].astype("category")
+
+    return events
+
+
+def specification_selection_key(
+    specification: StimSpec,
+    matched_epoch_names: list[str],
+) -> tuple[Any, tuple[str, ...]]:
+    """Create a reusable cache key for one stimulus/epoch selection."""
+    return (
+        specification.stim,
+        tuple(matched_epoch_names),
+    )
+
+
+def get_matched_laterality_labels(
+    events: pd.DataFrame,
+    specification: StimSpec,
+    matched_epoch_names: list[str],
+) -> list[str]:
+    """Determine laterality labels from resolved epoch names."""
+    if "laterality" not in events.columns:
+        return ["none"]
+
+    mask = (events["stim"] == specification.stim) & events["epoch_name"].isin(
+        matched_epoch_names
+    )
+
+    labels = map_laterality(events.loc[mask, "laterality"]).dropna().unique().tolist()
+
+    return order_lateralities(labels) if labels else ["none"]
+
+
+def get_trial_presentation_counts(
+    fish_trials: pd.DataFrame,
     epoch_names: list[str],
-    duration: float,
     exclude_unusable: bool,
 ) -> tuple[pd.Series, int]:
     """
-    Calculate observed seconds for each pooled trial index.
+    Return valid raw-presentation counts for each pooled trial.
 
-    When a stimulus specification pools multiple raw epoch names, each
-    presented epoch contributes its own duration. This is important for
-    pooled left/right stimuli: both presentations contribute to the
-    available ipsi and contra exposure.
+    Presentation counts do not depend on time-bin duration and can therefore
+    be cached across every time bin using the same epoch-name group.
     """
-    trials = valid_trials.loc[
-        (valid_trials["file"].astype(str) == str(fish))
-        & valid_trials["epoch_name"].isin(epoch_names)
-        & valid_trials["presented"]
-    ].copy()
+    trials = fish_trials.loc[
+        fish_trials["epoch_name"].isin(epoch_names) & fish_trials["presented"]
+    ]
 
     if trials.empty:
-        return pd.Series(dtype=float), 0
+        return (
+            pd.Series(dtype=np.float32),
+            0,
+        )
 
-    number_of_trials = int(trials["trial_num"].max()) + 1
+    trial_numbers = pd.to_numeric(
+        trials["trial_num"],
+        errors="coerce",
+    )
+    valid_trial_numbers = trial_numbers.dropna()
+
+    if valid_trial_numbers.empty:
+        return (
+            pd.Series(dtype=np.float32),
+            0,
+        )
+
+    number_of_trials = int(valid_trial_numbers.max()) + 1
 
     if exclude_unusable:
         trials = trials.loc[trials["usable"]]
 
-    exposure = trials.groupby("trial_num").size().astype(float) * duration
+    if trials.empty:
+        return (
+            pd.Series(dtype=np.float32),
+            number_of_trials,
+        )
 
-    return exposure, number_of_trials
+    presentation_counts = (
+        trials.groupby(
+            "trial_num",
+            sort=False,
+            observed=True,
+        )
+        .size()
+        .astype(np.float32)
+    )
+
+    return presentation_counts, number_of_trials
 
 
 def compute_spec_counts(
-    fish_events: pd.DataFrame,
+    fish_spec_events: pd.DataFrame,
     specification: StimSpec,
     number_of_trials: int,
     exposure_by_trial: pd.Series,
     class_order: list[int],
     laterality_labels: list[str],
+    average_trial: bool = False,
 ) -> pd.DataFrame:
     """
-    Count saccades on a complete trial × class × laterality grid.
+    Count saccades on a complete class/laterality grid.
 
-    Missing combinations are explicitly represented as zero counts. A
-    frequency remains NaN only when the corresponding trial has no valid
-    exposure.
+    ``fish_spec_events`` must already be restricted to the relevant fish,
+    stimulus, matching epoch names, and requested saccade classes.
+
+    When ``average_trial`` is true, trial counts and exposure are collapsed
+    during construction.
     """
     if specification.time_range is None:
         raise ValueError("Saccade heatmaps require time bins.")
@@ -103,79 +242,91 @@ def compute_spec_counts(
         )
 
     mask = (
-        specification.get_mask(fish_events)
-        & (fish_events["stim"] == specification.stim)
-        & (fish_events["trial_time"] >= start)
-        & (fish_events["trial_time"] < stop)
+        (fish_spec_events["trial_time"] >= start)
+        & (fish_spec_events["trial_time"] < stop)
+        & (fish_spec_events["trial_idx"] >= 0)
+        & (fish_spec_events["trial_idx"] < number_of_trials)
     )
 
-    selected = fish_events.loc[mask].copy()
-
-    selected = selected.dropna(
-        subset=[
-            "trial_num",
-            "saccade_category",
-        ]
-    )
-
-    selected["trial_idx"] = pd.to_numeric(
-        selected["trial_num"],
-        errors="coerce",
-    )
-    selected["saccade_category"] = pd.to_numeric(
-        selected["saccade_category"],
-        errors="coerce",
-    )
-
-    selected = selected.dropna(
-        subset=[
-            "trial_idx",
-            "saccade_category",
-        ]
-    )
-
-    selected["trial_idx"] = selected["trial_idx"].astype(int)
-    selected["saccade_category"] = selected["saccade_category"].astype(int)
-
-    selected = selected.loc[
-        (selected["trial_idx"] >= 0)
-        & (selected["trial_idx"] < number_of_trials)
-        & selected["saccade_category"].isin(class_order)
-    ].copy()
-
-    selected["laterality_group"] = map_laterality(selected["laterality"])
-
-    counts = (
-        selected.groupby(
-            [
-                "trial_idx",
-                "saccade_category",
-                "laterality_group",
-            ]
-        )
-        .size()
-        .rename("saccade_counts")
-    )
-
-    full_index = pd.MultiIndex.from_product(
+    selected = fish_spec_events.loc[
+        mask,
         [
-            range(number_of_trials),
-            class_order,
-            laterality_labels,
-        ],
-        names=[
             "trial_idx",
             "saccade_category",
             "laterality_group",
         ],
-    )
+    ]
 
-    result = counts.reindex(
-        full_index,
-        fill_value=0,
-    ).reset_index()
+    if average_trial:
+        counts = (
+            selected.groupby(
+                [
+                    "saccade_category",
+                    "laterality_group",
+                ],
+                sort=False,
+                observed=True,
+            )
+            .size()
+            .rename("saccade_counts")
+        )
 
-    result["exposure_s"] = result["trial_idx"].map(exposure_by_trial).fillna(0.0)
+        full_index = pd.MultiIndex.from_product(
+            [
+                class_order,
+                laterality_labels,
+            ],
+            names=[
+                "saccade_category",
+                "laterality_group",
+            ],
+        )
+
+        result = counts.reindex(
+            full_index,
+            fill_value=0,
+        ).reset_index()
+
+        result["exposure_s"] = float(
+            exposure_by_trial.reindex(
+                range(number_of_trials),
+                fill_value=0.0,
+            ).sum()
+        )
+    else:
+        counts = (
+            selected.groupby(
+                [
+                    "trial_idx",
+                    "saccade_category",
+                    "laterality_group",
+                ],
+                sort=False,
+                observed=True,
+            )
+            .size()
+            .rename("saccade_counts")
+        )
+
+        full_index = pd.MultiIndex.from_product(
+            [
+                range(number_of_trials),
+                class_order,
+                laterality_labels,
+            ],
+            names=[
+                "trial_idx",
+                "saccade_category",
+                "laterality_group",
+            ],
+        )
+
+        result = counts.reindex(
+            full_index,
+            fill_value=0,
+        ).reset_index()
+
+        result["exposure_s"] = result["trial_idx"].map(exposure_by_trial).fillna(0.0)
 
     result["saccade_frequency"] = np.where(
         result["exposure_s"] > 0,
@@ -196,10 +347,16 @@ def compute_saccade_frequency_table(
     exclude_unusable: bool = True,
     include_unassigned: bool = False,
     time_bins_key: str = "time_bins",
+    average_trial_during_compute: bool = False,
 ) -> pd.DataFrame:
-    """Construct the complete per-fish saccade-frequency table."""
+    """Construct the per-fish saccade-frequency table."""
     config = load_yaml_config(config_yaml)
-    specifications = list(read_stim_specs(config, time_bins_key=time_bins_key))
+    specifications = list(
+        read_stim_specs(
+            config,
+            time_bins_key=time_bins_key,
+        )
+    )
 
     events = pd.read_csv(input_csv)
     valid_trials = load_valid_trials(valid_trials_csv)
@@ -236,8 +393,13 @@ def compute_saccade_frequency_table(
         file_column="file",
     )
 
-    # Determine epoch membership before event-level filtering, so an epoch
-    # remains represented even if all events are removed by event QC.
+    events = events.copy()
+    valid_trials = valid_trials.copy()
+
+    events["file"] = events["file"].astype(str)
+    valid_trials["file"] = valid_trials["file"].astype(str)
+
+    # Resolve regex/specification membership once before event filtering.
     epoch_names = {
         id(specification): get_matching_epoch_names(
             events,
@@ -252,15 +414,28 @@ def compute_saccade_frequency_table(
         event_type="saccade",
     )
 
-    # Determine which laterality groups exist after event-level filtering,
-    # matching the bout heatmap pipeline.
-    laterality_labels = {
-        id(specification): get_laterality_labels(
-            events,
+    # Time bins commonly share the same stimulus/epoch selection.
+    laterality_cache: dict[
+        tuple[Any, tuple[str, ...]],
+        list[str],
+    ] = {}
+    laterality_labels: dict[int, list[str]] = {}
+
+    for specification in specifications:
+        matched_epoch_names = epoch_names[id(specification)]
+        selection_key = specification_selection_key(
             specification,
+            matched_epoch_names,
         )
-        for specification in specifications
-    }
+
+        if selection_key not in laterality_cache:
+            laterality_cache[selection_key] = get_matched_laterality_labels(
+                events=events,
+                specification=specification,
+                matched_epoch_names=matched_epoch_names,
+            )
+
+        laterality_labels[id(specification)] = laterality_cache[selection_key]
 
     if exclude_unusable:
         events = exclude_unusable_trials(
@@ -273,44 +448,115 @@ def compute_saccade_frequency_table(
     if include_unassigned:
         class_order.insert(0, -1)
 
+    events = preprocess_saccades(
+        events=events,
+        class_order=class_order,
+    )
+
+    events_by_fish = {
+        str(fish): group
+        for fish, group in events.groupby(
+            "file",
+            sort=False,
+            observed=True,
+        )
+    }
+
+    valid_trials_by_fish = {
+        str(fish): group
+        for fish, group in valid_trials.groupby(
+            "file",
+            sort=False,
+            observed=True,
+        )
+    }
+
+    empty_events = events.iloc[0:0]
     tables: list[pd.DataFrame] = []
 
-    # valid_trials defines the fish universe and exposure denominator.
-    # Therefore fish with no retained saccades still contribute zero rates
-    # for trial bins where they have valid exposure.
-    fish_names = valid_trials["file"].astype(str).unique()
-
-    for fish in tqdm(
-        fish_names,
+    for fish, fish_trials in tqdm(
+        valid_trials_by_fish.items(),
+        total=len(valid_trials_by_fish),
         desc="Saccade frequencies",
     ):
-        fish_events = events.loc[events["file"].astype(str) == fish]
+        fish_events = events_by_fish.get(
+            fish,
+            empty_events,
+        )
+
+        metadata = {
+            column: get_single_value(
+                fish_events,
+                column,
+                fish,
+            )
+            for column in (
+                "dpf",
+                "day",
+                "cos_daytime",
+                "sin_daytime",
+            )
+        }
+
+        # These caches are local to one fish.
+        event_selection_cache: dict[
+            tuple[Any, tuple[str, ...]],
+            pd.DataFrame,
+        ] = {}
+        presentation_cache: dict[
+            tuple[str, ...],
+            tuple[pd.Series, int],
+        ] = {}
 
         for specification in specifications:
             if specification.time_range is None:
-                raise ValueError(f"No time range is defined for {specification}.")
+                raise ValueError("No time range is defined for " f"{specification}.")
 
             start, stop = specification.time_range
             duration = stop - start
 
-            exposure, number_of_trials = get_exposure_by_trial(
-                valid_trials=valid_trials,
-                fish=fish,
-                epoch_names=epoch_names[id(specification)],
-                duration=duration,
-                exclude_unusable=exclude_unusable,
+            matched_epoch_names = epoch_names[id(specification)]
+            epoch_key = tuple(matched_epoch_names)
+            selection_key = specification_selection_key(
+                specification,
+                matched_epoch_names,
             )
+
+            if selection_key not in event_selection_cache:
+                selection_mask = (
+                    fish_events["stim"] == specification.stim
+                ) & fish_events["epoch_name"].isin(matched_epoch_names)
+
+                event_selection_cache[selection_key] = fish_events.loc[selection_mask]
+
+            fish_spec_events = event_selection_cache[selection_key]
+
+            if epoch_key not in presentation_cache:
+                presentation_cache[epoch_key] = get_trial_presentation_counts(
+                    fish_trials=fish_trials,
+                    epoch_names=matched_epoch_names,
+                    exclude_unusable=exclude_unusable,
+                )
+
+            (
+                presentation_counts,
+                number_of_trials,
+            ) = presentation_cache[epoch_key]
 
             if number_of_trials == 0:
                 continue
 
+            # Only exposure duration varies between time bins.
+            exposure = presentation_counts * duration
+
             counts = compute_spec_counts(
-                fish_events=fish_events,
+                fish_spec_events=fish_spec_events,
                 specification=specification,
                 number_of_trials=number_of_trials,
                 exposure_by_trial=exposure,
                 class_order=class_order,
                 laterality_labels=laterality_labels[id(specification)],
+                average_trial=average_trial_during_compute,
             )
 
             counts["file"] = fish
@@ -321,27 +567,21 @@ def compute_saccade_frequency_table(
                 SACCADE_CATEGORY_NAMES
             )
 
-            for column in (
-                "dpf",
-                "day",
-                "cos_daytime",
-                "sin_daytime",
-            ):
-                counts[column] = get_single_value(
-                    fish_events,
-                    column,
-                    fish,
-                )
+            for column, value in metadata.items():
+                counts[column] = value
 
             tables.append(counts)
 
     if not tables:
         return pd.DataFrame()
 
-    return pd.concat(
+    result = pd.concat(
         tables,
         ignore_index=True,
+        copy=False,
     )
+
+    return compact_saccade_table(result)
 
 
 def aggregate_saccade_frequency(
@@ -349,17 +589,13 @@ def aggregate_saccade_frequency(
     average_trial: bool,
     average_time_bin: bool,
     split_columns: tuple[str, ...] = ("laterality_group",),
-) -> pd.Series:
-    """
-    Collapse selected dimensions within each fish, then average across fish.
-
-    Counts and exposure are summed before rate calculation. This avoids
-    averaging rates from bins with unequal valid exposure.
-    """
-    working = per_fish.copy()
+) -> pd.DataFrame:
+    """Collapse dimensions within fish and average across fish."""
+    working = per_fish
     split_columns_list = list(split_columns)
+    has_trial = "trial_idx" in working.columns
 
-    if average_trial or average_time_bin:
+    if (average_trial and has_trial) or average_time_bin:
         within_fish_columns = [
             "file",
             "stim_name",
@@ -368,7 +604,7 @@ def aggregate_saccade_frequency(
             *split_columns_list,
         ]
 
-        if not average_trial:
+        if has_trial and not average_trial:
             within_fish_columns.append("trial_idx")
 
         if not average_time_bin:
@@ -383,7 +619,14 @@ def aggregate_saccade_frequency(
             within_fish_columns,
             as_index=False,
             dropna=False,
-        )[["saccade_counts", "exposure_s"]].sum()
+            sort=False,
+            observed=True,
+        )[
+            [
+                "saccade_counts",
+                "exposure_s",
+            ]
+        ].sum()
 
         working["saccade_frequency"] = np.where(
             working["exposure_s"] > 0,
@@ -398,7 +641,7 @@ def aggregate_saccade_frequency(
         *split_columns_list,
     ]
 
-    if not average_trial:
+    if has_trial and not average_trial:
         across_fish_columns.append("trial_idx")
 
     if not average_time_bin:
@@ -409,344 +652,15 @@ def aggregate_saccade_frequency(
             ]
         )
 
-    return working.groupby(
+    result = working.groupby(
         across_fish_columns,
         as_index=False,
         dropna=False,
+        sort=False,
+        observed=True,
     )["saccade_frequency"].mean()
 
-
-def build_heatmap_matrix(
-    averaged: pd.DataFrame,
-    class_order: list[int],
-    stimulus_order: list[str],
-) -> tuple[
-    pd.DataFrame,
-    list[tuple[int, int, str]],
-    list[tuple[int, int, str]],
-    list[str],
-    int,
-]:
-    """
-    Build a class × stimulus/laterality/time-bin heatmap matrix.
-
-    Columns are nested as:
-
-        stimulus → laterality → time bin
-
-    Rows are nested as:
-
-        saccade class → trial number
-
-    when trial averaging has not been requested.
-    """
-    if averaged.empty:
-        raise ValueError("Cannot build a heatmap matrix from an empty table.")
-
-    required_columns = {
-        "stim_name",
-        "saccade_category",
-        "laterality_group",
-        "saccade_frequency",
-    }
-    missing_columns = required_columns.difference(averaged.columns)
-
-    if missing_columns:
-        raise ValueError(
-            "Saccade frequency table is missing columns: " f"{sorted(missing_columns)}"
-        )
-
-    has_trial = "trial_idx" in averaged.columns
-    has_time_bin = "time_bin_start" in averaged.columns
-
-    number_of_trials = (
-        int(averaged["trial_idx"].max()) + 1 if has_trial and not averaged.empty else 1
-    )
-
-    columns: list[tuple[Any, ...]] = []
-    column_groups: list[tuple[int, int, str]] = []
-    column_subgroups: list[tuple[int, int, str]] = []
-    time_labels: list[str] = []
-
-    for stimulus_name in stimulus_order:
-        stimulus_rows = averaged.loc[averaged["stim_name"] == stimulus_name]
-
-        if stimulus_rows.empty:
-            continue
-
-        stimulus_start = len(columns)
-
-        lateralities = order_lateralities(
-            stimulus_rows["laterality_group"].dropna().unique().tolist()
-        )
-
-        for laterality in lateralities:
-            laterality_rows = stimulus_rows.loc[
-                stimulus_rows["laterality_group"] == laterality
-            ]
-
-            laterality_start = len(columns)
-
-            if has_time_bin:
-                bins = (
-                    laterality_rows[
-                        [
-                            "time_bin_start",
-                            "time_bin_stop",
-                        ]
-                    ]
-                    .drop_duplicates()
-                    .sort_values("time_bin_start")
-                )
-
-                for start, stop in bins.itertuples(index=False):
-                    columns.append(
-                        (
-                            stimulus_name,
-                            laterality,
-                            float(start),
-                        )
-                    )
-                    time_labels.append(f"{start:g}-{stop:g}s")
-            else:
-                columns.append(
-                    (
-                        stimulus_name,
-                        laterality,
-                    )
-                )
-                time_labels.append("avg")
-
-            column_subgroups.append(
-                (
-                    laterality_start,
-                    len(columns),
-                    laterality,
-                )
-            )
-
-        column_groups.append(
-            (
-                stimulus_start,
-                len(columns),
-                stimulus_name,
-            )
-        )
-
-    if has_trial:
-        row_index: pd.Index = pd.MultiIndex.from_product(
-            [
-                class_order,
-                range(number_of_trials),
-            ],
-            names=[
-                "saccade_category",
-                "trial_idx",
-            ],
-        )
-        pivot_index: str | list[str] = [
-            "saccade_category",
-            "trial_idx",
-        ]
-    else:
-        row_index = pd.Index(
-            class_order,
-            name="saccade_category",
-        )
-        pivot_index = "saccade_category"
-
-    if has_time_bin:
-        column_index: pd.Index = pd.MultiIndex.from_tuples(
-            columns,
-            names=[
-                "stim_name",
-                "laterality_group",
-                "time_bin_start",
-            ],
-        )
-        pivot_columns: str | list[str] = [
-            "stim_name",
-            "laterality_group",
-            "time_bin_start",
-        ]
-    else:
-        column_index = pd.MultiIndex.from_tuples(
-            columns,
-            names=[
-                "stim_name",
-                "laterality_group",
-            ],
-        )
-        pivot_columns = [
-            "stim_name",
-            "laterality_group",
-        ]
-
-    pivot = averaged.pivot_table(
-        index=pivot_index,
-        columns=pivot_columns,
-        values="saccade_frequency",
-        aggfunc="mean",
-        observed=False,
-    )
-
-    pivot = pivot.reindex(
-        index=row_index,
-        columns=column_index,
-    )
-
-    if pivot.shape[1] == 0:
-        raise ValueError(
-            "The heatmap matrix has no columns. Check the configured "
-            "stimulus names and the filtered frequency table."
-        )
-
-    if not np.isfinite(pivot.to_numpy(dtype=float)).any():
-        raise ValueError(
-            "The heatmap matrix contains only NaN values. This usually "
-            "indicates an index mismatch or zero valid exposure."
-        )
-
-    return (
-        pivot,
-        column_groups,
-        column_subgroups,
-        time_labels,
-        number_of_trials,
-    )
-
-
-def plot_heatmap_matrix(
-    figure: plt.Figure,
-    axis: plt.Axes,
-    pivot: pd.DataFrame,
-    class_order: list[int],
-    column_groups: list[tuple[int, int, str]],
-    column_subgroups: list[tuple[int, int, str]],
-    time_labels: list[str],
-    number_of_trials: int,
-    title: str,
-    color_limit: tuple[float, float],
-) -> None:
-    """Draw one stimulus/laterality-separated saccade-frequency heatmap."""
-    data = pivot.to_numpy(dtype=float)
-    number_of_rows, number_of_columns = data.shape
-
-    image = axis.imshow(
-        data,
-        aspect="auto",
-        cmap="inferno",
-        vmin=color_limit[0],
-        vmax=color_limit[1],
-    )
-
-    figure.colorbar(
-        image,
-        ax=axis,
-        label="saccade frequency (s⁻¹)",
-        fraction=0.015,
-        pad=0.01,
-    )
-
-    if any(label != "avg" for label in time_labels):
-        axis.set_xticks(range(number_of_columns))
-        axis.set_xticklabels(
-            time_labels,
-            rotation=90,
-            fontsize=7,
-        )
-    else:
-        axis.set_xticks([])
-
-    if isinstance(pivot.index, pd.MultiIndex):
-        axis.set_yticks(range(number_of_rows))
-        axis.set_yticklabels(
-            [trial_index for _, trial_index in pivot.index],
-            fontsize=7,
-        )
-    else:
-        axis.set_yticks([])
-
-    # Main column grouping: stimulus condition.
-    for start, stop, label in column_groups:
-        if start > 0:
-            axis.axvline(
-                start - 0.5,
-                color="white",
-                linewidth=1.6,
-            )
-
-        axis.annotate(
-            label,
-            xy=((start + stop - 1) / 2, 1),
-            xycoords=("data", "axes fraction"),
-            xytext=(0, 38),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
-            fontsize=10,
-            annotation_clip=False,
-        )
-
-    # Secondary column grouping: ipsi / contra / none.
-    for start, stop, label in column_subgroups:
-        if start > 0:
-            axis.axvline(
-                start - 0.5,
-                color="white",
-                linewidth=0.6,
-                alpha=0.7,
-            )
-
-        axis.annotate(
-            label,
-            xy=((start + stop - 1) / 2, 1),
-            xycoords=("data", "axes fraction"),
-            xytext=(0, 16),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
-            fontsize=8,
-            annotation_clip=False,
-        )
-
-    # Row grouping: saccade class.
-    for class_index, cluster in enumerate(class_order):
-        row_start = class_index * number_of_trials
-        row_stop = row_start + number_of_trials
-
-        if row_start > 0:
-            axis.axhline(
-                row_start - 0.5,
-                color="white",
-                linewidth=1.6,
-            )
-
-        axis.annotate(
-            SACCADE_CATEGORY_NAMES.get(
-                cluster,
-                str(cluster),
-            ),
-            xy=(
-                0,
-                (row_start + row_stop - 1) / 2,
-            ),
-            xycoords=("axes fraction", "data"),
-            xytext=(-10, 0),
-            textcoords="offset points",
-            ha="right",
-            va="center",
-            fontsize=9,
-            annotation_clip=False,
-        )
-
-    axis.set_title(
-        title,
-        fontsize=12,
-        pad=62,
-    )
-    axis.set_xlabel("")
-    axis.set_ylabel("")
+    return compact_saccade_table(result)
 
 
 def make_saccade_heatmaps(
@@ -760,7 +674,7 @@ def make_saccade_heatmaps(
     maximum_frequency: float,
     interactive: bool,
 ) -> None:
-    """Calculate saccade frequencies and create heatmap variants."""
+    """Calculate saccade frequencies and create heatmaps."""
     output_png.parent.mkdir(
         parents=True,
         exist_ok=True,
@@ -795,6 +709,14 @@ def make_saccade_heatmaps(
     if include_unassigned:
         class_order.insert(0, -1)
 
+    row_group_labels = [
+        SACCADE_CATEGORY_NAMES.get(
+            category,
+            str(category),
+        )
+        for category in class_order
+    ]
+
     stimulus_order = stimulus_name_order(config)
 
     for (
@@ -807,7 +729,6 @@ def make_saccade_heatmaps(
             per_fish=per_fish,
             average_trial=average_trial,
             average_time_bin=average_time_bin,
-            split_columns=("laterality_group",),
         )
 
         averaged.to_csv(
@@ -817,41 +738,38 @@ def make_saccade_heatmaps(
 
         (
             pivot,
-            column_groups,
-            column_subgroups,
-            time_labels,
+            groups,
+            subgroups,
+            labels,
             number_of_trials,
-        ) = build_heatmap_matrix(
+        ) = build_grouped_heatmap_matrix(
             averaged=averaged,
-            class_order=class_order,
+            row_column="saccade_category",
+            row_order=class_order,
+            value_column="saccade_frequency",
             stimulus_order=stimulus_order,
         )
 
-        figure_width = max(
-            16,
-            0.22 * pivot.shape[1],
-        )
-        figure_height = max(
-            6,
-            0.28 * pivot.shape[0],
-        )
+        if not np.isfinite(pivot.to_numpy(dtype=float)).any():
+            raise ValueError("The saccade heatmap matrix " "contains only NaN values.")
 
         figure, axis = plt.subplots(
-            figsize=(figure_width, figure_height),
+            figsize=grouped_heatmap_figure_size(pivot.shape),
             layout="constrained",
         )
 
-        plot_heatmap_matrix(
+        plot_grouped_heatmap(
             figure=figure,
             axis=axis,
             pivot=pivot,
-            class_order=class_order,
-            column_groups=column_groups,
-            column_subgroups=column_subgroups,
-            time_labels=time_labels,
+            row_group_labels=row_group_labels,
+            column_groups=groups,
+            column_subgroups=subgroups,
+            time_labels=labels,
             number_of_trials=number_of_trials,
             title=title,
             color_limit=(0.0, maximum_frequency),
+            colorbar_label="saccade frequency (s⁻¹)",
         )
 
         variant_path = (
@@ -869,8 +787,16 @@ def make_saccade_heatmaps(
 
         print(f"Saved {variant_path}")
 
-    # plot separate heatmaps with fine time grid
+    del per_fish
 
+    if "averaged" in locals():
+        del averaged
+    if "pivot" in locals():
+        del pivot
+
+    gc.collect()
+
+    # Fine-bin rows are collapsed over trials during construction.
     fine = compute_saccade_frequency_table(
         input_csv=input_csv,
         valid_trials_csv=valid_trials_csv,
@@ -879,11 +805,20 @@ def make_saccade_heatmaps(
         exclude_unusable=exclude_unusable,
         include_unassigned=include_unassigned,
         time_bins_key="fine_time_bins",
+        average_trial_during_compute=True,
     )
+
+    if fine.empty:
+        print("No fine-bin saccade-frequency data were generated.")
+
+        if interactive:
+            plt.show()
+
+        return
 
     fine_average = aggregate_saccade_frequency(
         per_fish=fine,
-        average_trial=True,
+        average_trial=False,
         average_time_bin=False,
     )
 
@@ -892,41 +827,68 @@ def make_saccade_heatmaps(
         index=False,
     )
 
+    del fine
+    gc.collect()
+
     for stimulus in stimulus_order:
         data = fine_average.loc[fine_average["stim_name"] == stimulus]
 
         if data.empty:
             continue
 
-        pivot, groups, subgroups, labels, n_trials = build_heatmap_matrix(
+        (
+            pivot,
+            groups,
+            subgroups,
+            labels,
+            number_of_trials,
+        ) = build_grouped_heatmap_matrix(
             averaged=data,
-            class_order=class_order,
+            row_column="saccade_category",
+            row_order=class_order,
+            value_column="saccade_frequency",
             stimulus_order=[stimulus],
         )
 
+        if not np.isfinite(pivot.to_numpy(dtype=float)).any():
+            print(f"Skipping {stimulus}: fine-bin matrix " "contains only NaN values.")
+            continue
+
         figure, axis = plt.subplots(
-            figsize=(max(12, 0.22 * pivot.shape[1]), 6),
+            figsize=grouped_heatmap_figure_size(
+                pivot.shape,
+                minimum_width=12,
+                minimum_height=6,
+                row_height=0,
+            ),
             layout="constrained",
         )
 
-        plot_heatmap_matrix(
+        plot_grouped_heatmap(
             figure=figure,
             axis=axis,
             pivot=pivot,
-            class_order=class_order,
+            row_group_labels=row_group_labels,
             column_groups=groups,
             column_subgroups=subgroups,
             time_labels=labels,
-            number_of_trials=n_trials,
-            title=f"{stimulus}: fine time bins, averaged over trials",
+            number_of_trials=number_of_trials,
+            title=(f"{stimulus}: fine time bins, " "averaged over trials"),
             color_limit=(0.0, maximum_frequency),
+            colorbar_label="saccade frequency (s⁻¹)",
         )
 
         path = (
-            output_png.parent / f"{output_png.stem}_fine_{filename_safe(stimulus)}"
+            output_png.parent / f"{output_png.stem}_fine_"
+            f"{filename_safe(stimulus)}"
             f"{output_png.suffix}"
         )
-        figure.savefig(path, dpi=180, bbox_inches="tight")
+
+        figure.savefig(
+            path,
+            dpi=180,
+            bbox_inches="tight",
+        )
 
         if not interactive:
             plt.close(figure)
@@ -983,7 +945,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--vmax",
         type=float,
         default=0.3,
-        help="Maximum heatmap frequency in saccades per second.",
+        help=("Maximum heatmap frequency " "in saccades per second."),
     )
     parser.add_argument(
         "--interactive",
