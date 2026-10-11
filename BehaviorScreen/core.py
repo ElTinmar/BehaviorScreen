@@ -2,10 +2,11 @@ from enum import IntEnum
 from typing import TypedDict
 
 TIME_TOLERANCE_S: float = 40
+ROLLOVER_TIME_S: int = 3600  # ZebVR shader clock period
 
 
 class MyIntEnum(IntEnum):
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
 
 

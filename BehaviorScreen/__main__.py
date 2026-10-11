@@ -234,7 +234,6 @@ def main(args: argparse.Namespace) -> None:
         results=args.results,
         plots=args.plots,
         cpu=args.cpu,
-        rollover_time_s=3600
     )
     plot_heatmaps(
         quality_control=args.root / args.qc_csv,
