@@ -34,60 +34,47 @@ import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 
 
+def winsorize_zscore(
+    features: np.ndarray,
+    reference: np.ndarray,
+    lower_percentile: float,
+    upper_percentile: float,
+) -> np.ndarray:
+    """Winsorize and standardize features with statistics from reference."""
+    lower, upper = np.nanpercentile(
+        reference, [lower_percentile, upper_percentile], axis=0
+    )
+    clipped_reference = np.clip(reference, lower, upper)
+    mean = np.nanmean(clipped_reference, axis=0)
+    standard_deviation = np.nanstd(clipped_reference, axis=0)
+    standard_deviation[~np.isfinite(standard_deviation) | (standard_deviation == 0)] = 1.0
+    return (np.clip(features, lower, upper) - mean) / standard_deviation
+
+
 def winsorize_zscore_per_fish(
     features: np.ndarray,
     fish_ids: np.ndarray,
+    min_events_per_fish: int = 100,
     lower_percentile: float = 0.5,
     upper_percentile: float = 99.5,
 ) -> np.ndarray:
-    """Winsorize and standardize each feature within each fish."""
+    """
+    Winsorize and standardize each feature within each fish.
+
+    Fish with fewer than min_events_per_fish events have unreliable
+    percentiles and moments, so they are standardized with statistics
+    pooled over all events instead.
+    """
     features = np.asarray(features, dtype=float)
     fish_ids = np.asarray(fish_ids)
-
-    if features.ndim != 2:
-        raise ValueError("features must be two-dimensional.")
-
-    if len(features) != len(fish_ids):
-        raise ValueError("features and fish_ids must have the same length.")
-
-    result = np.full_like(
-        features,
-        np.nan,
-        dtype=float,
-    )
+    result = np.full_like(features, np.nan)
 
     for fish_id in pd.unique(fish_ids):
         mask = fish_ids == fish_id
-        fish_features = features[mask].copy()
-
-        lower = np.nanpercentile(
-            fish_features,
-            lower_percentile,
-            axis=0,
+        reference = features[mask] if mask.sum() >= min_events_per_fish else features
+        result[mask] = winsorize_zscore(
+            features[mask], reference, lower_percentile, upper_percentile
         )
-        upper = np.nanpercentile(
-            fish_features,
-            upper_percentile,
-            axis=0,
-        )
-
-        fish_features = np.clip(
-            fish_features,
-            lower,
-            upper,
-        )
-
-        mean = np.nanmean(fish_features, axis=0)
-        standard_deviation = np.nanstd(
-            fish_features,
-            axis=0,
-            ddof=0,
-        )
-
-        invalid_scale = ~np.isfinite(standard_deviation) | (standard_deviation == 0)
-        standard_deviation[invalid_scale] = 1.0
-
-        result[mask] = (fish_features - mean) / standard_deviation
 
     return result
 
@@ -214,6 +201,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="fish",
     )
     parser.add_argument(
+        "--min-events-per-fish",
+        type=int,
+        default=100,
+        help="Fish with fewer events are standardized with pooled statistics.",
+    )
+    parser.add_argument(
         "--k-neighbors",
         type=int,
         default=None,
@@ -244,6 +237,7 @@ def classify_saccades(
     events_path: Path,
     output_path: Path,
     fish_column: str = "fish",
+    min_events_per_fish: int = 100,
     k_neighbors: int | None = None,
     distance_cutoff: float | None = None,
     distance_rejection: bool = True,
@@ -283,6 +277,7 @@ def classify_saccades(
     standardized_features = winsorize_zscore_per_fish(
         raw_features,
         fish_ids,
+        min_events_per_fish=min_events_per_fish,
     )
 
     valid = np.isfinite(standardized_features).all(axis=1)
@@ -422,6 +417,7 @@ def main() -> None:
         events_path=args.events,
         output_path=args.output,
         fish_column=args.fish_column,
+        min_events_per_fish=args.min_events_per_fish,
         k_neighbors=args.k_neighbors,
         distance_cutoff=args.distance_cutoff,
         distance_rejection=(not args.no_distance_rejection),
