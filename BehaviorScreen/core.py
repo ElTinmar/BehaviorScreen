@@ -96,7 +96,7 @@ SACCADE_CLASS_NAMES = {
     8: "Biphasic convergent left",
 }
 
-# TODO maybe for my dataset: Check on overlay video
+# NOTE flipped for my dataset
 SACCADE_CLASS_DIRECTIONS = {
     1: EventDirection.RIGHT,
     2: EventDirection.LEFT,
@@ -104,12 +104,6 @@ SACCADE_CLASS_DIRECTIONS = {
     8: EventDirection.RIGHT,
 }
 
-# SACCADE_CLASS_DIRECTIONS = {
-#     1: EventDirection.LEFT,
-#     2: EventDirection.RIGHT,
-#     7: EventDirection.RIGHT,
-#     8: EventDirection.LEFT
-# }
 
 SACCADE_NONDIRECTIONAL_CLASSES = {
     3,  # Miniature convergent
