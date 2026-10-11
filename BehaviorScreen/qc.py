@@ -5,11 +5,18 @@ from pathlib import Path
 import argparse
 from typing import Optional
 from tqdm import tqdm
-from BehaviorScreen.load import Directories, BehaviorData, find_files, load_data
+from BehaviorScreen.load import (
+    Directories,
+    BehaviorData,
+    BehaviorFiles,
+    find_files,
+    load_data,
+)
 from BehaviorScreen.process import (
     timestamp_to_frame,
     get_trials,
     get_epoch_trial_presentation,
+    get_well_coords_mm,
 )
 from BehaviorScreen.core import Stim
 import pandas as pd
@@ -280,6 +287,20 @@ def is_online_tracking_bad(
     )
 
 
+def is_well_not_found(
+    directories: Directories,
+    behavior_file: BehaviorFiles,
+    behavior_data: BehaviorData,
+) -> bool:
+    """Without a well center, distance_center is NaN and every event of the
+    fish would be filtered out downstream, so exclude the fish here instead."""
+    try:
+        get_well_coords_mm(directories, behavior_file, behavior_data)
+    except RuntimeError:
+        return True
+    return False
+
+
 def is_offline_tracking_bad(
     behavior_data: BehaviorData,
 ) -> bool:
@@ -443,9 +464,16 @@ def quality_control(
         centroid_issue, heading_issue = is_online_tracking_bad(
             behavior_data, per_frame_error=per_frame_error
         )
-        if not_moving | centroid_issue | heading_issue:
+        well_not_found = is_well_not_found(directories, behavior_file, behavior_data)
+        if not_moving | centroid_issue | heading_issue | well_not_found:
             bad_fish.append(
-                (behavior_file.metadata.stem, not_moving, centroid_issue, heading_issue)
+                (
+                    behavior_file.metadata.stem,
+                    not_moving,
+                    centroid_issue,
+                    heading_issue,
+                    well_not_found,
+                )
             )
 
         # per-trial epoch presentation (structural: was it expected & run)
@@ -476,7 +504,7 @@ def quality_control(
         merged["file"] = behavior_file.metadata.stem
         valid_trial_tables.append(merged)
 
-    header = ["file", "not_moving", "centroid_issue", "heading_issue"]
+    header = ["file", "not_moving", "centroid_issue", "heading_issue", "well_not_found"]
     pd.DataFrame(bad_fish, columns=header).to_csv(root / output_csv, index=False)
 
     valid_trials = (
