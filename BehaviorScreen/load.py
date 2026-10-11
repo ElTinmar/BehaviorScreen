@@ -242,13 +242,19 @@ def load_video(video_file: Optional[Path]) -> OpenCV_VideoReader:
 
 def load_video_timestamps(video_timestamp_file: Path) -> pd.DataFrame:
     """
-    One row per frame written to the video, in video order. `index` is the
-    camera frame counter and may skip values when frames were dropped, so a
-    video frame is always the row position, never the `index` value.
+    One row per frame written to the video, in video order: the acquisition
+    writes each frame and its row together. Frames can reach the writer out of
+    time order, so rows are not necessarily sorted (Recording sorts them).
+    `index` is the camera frame counter and may skip values when frames were
+    dropped.
     """
     df = pd.read_csv(video_timestamp_file)
     if not df["timestamp"].is_monotonic_increasing:
-        raise ValueError(f"Timestamps are not increasing in {video_timestamp_file}")
+        order = np.argsort(df["timestamp"].to_numpy(np.int64), kind="stable")
+        print(
+            f"[warn] {video_timestamp_file.name}: {np.sum(order != np.arange(len(df)))} "
+            "frames written out of time order"
+        )
     if not df["index"].is_unique:
         raise ValueError(f"Duplicate frame indices in {video_timestamp_file}")
     return df
