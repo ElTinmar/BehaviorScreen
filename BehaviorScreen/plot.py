@@ -189,32 +189,42 @@ def get_matched_laterality_labels(
     return order_lateralities(labels) if labels else ["none"]
 
 
+def get_exposure(
+    fish_trials: pd.DataFrame,
+    epoch_names: list[str],
+    time_range: tuple[float, float],
+    usable_only: bool,
+) -> pd.Series:
+    """Seconds of stimulus inside `time_range`, per (epoch_name, trial_num)."""
+    start, stop = time_range
+    rows = fish_trials.loc[
+        fish_trials["epoch_name"].isin(epoch_names)
+        & fish_trials["usable" if usable_only else "presented"]
+    ]
+    overlap = (rows["trial_duration_s"].clip(upper=stop) - start).clip(lower=0)
+    return overlap.groupby([rows["epoch_name"], rows["trial_num"]]).sum()
+
+
+def safe_frequency(counts: pd.Series, duration: pd.Series) -> pd.Series:
+    return counts / duration.where(duration > 0)
+
+
 def compute_epoch_bout_counts(
     fish_spec_bouts: pd.DataFrame,
     specification: StimSpec,
     number_of_trials: int,
     laterality_labels: list[str],
+    exposure: pd.Series,
     average_trial: bool = False,
 ) -> pd.DataFrame:
     """
     Count bouts on a complete category/laterality grid.
 
-    ``fish_spec_bouts`` must already be restricted to the relevant fish,
-    stimulus and matching epoch names.
-
-    When ``average_trial`` is true, counts and duration are collapsed over
-    trials during construction.
+    Duration is the summed exposure of every pooled epoch at that trial slot,
+    so pooled specs (e.g. left + right) and unusable trials are normalized correctly.
     """
-    if specification.time_range is None:
-        raise ValueError("Bout heatmaps require time bins.")
-
     start, stop = specification.time_range
-    duration = stop - start
-
-    if duration <= 0:
-        raise ValueError(
-            f"Invalid time interval for {specification}: " f"{specification.time_range}"
-        )
+    exposure_per_trial = exposure.groupby(level="trial_num").sum()
 
     mask = (
         (fish_spec_bouts["trial_time"] >= start)
@@ -262,7 +272,7 @@ def compute_epoch_bout_counts(
             fill_value=0,
         ).reset_index()
 
-        result["time_bin_duration"] = duration * number_of_trials
+        result["time_bin_duration"] = exposure_per_trial.sum()
     else:
         counts = (
             selected.groupby(
@@ -296,14 +306,13 @@ def compute_epoch_bout_counts(
             fill_value=0,
         ).reset_index()
 
-        result["time_bin_duration"] = duration
+        result["time_bin_duration"] = (
+            result["trial_idx"].map(exposure_per_trial).fillna(0.0)
+        )
 
-    result["bout_frequency"] = np.where(
-        result["time_bin_duration"] > 0,
-        result["bout_counts"] / result["time_bin_duration"],
-        np.nan,
+    result["bout_frequency"] = safe_frequency(
+        result["bout_counts"], result["time_bin_duration"]
     )
-
     return result
 
 
@@ -312,23 +321,10 @@ def compute_epoch_bout_counts_classic(
     specification: StimSpec,
     number_of_trials: int,
     epoch_names: list[str],
+    exposure: pd.Series,
 ) -> pd.DataFrame:
-    """
-    Count bouts by epoch name and LEFT/RIGHT bout sign.
-
-    ``fish_spec_bouts`` must already be restricted to the relevant fish,
-    stimulus and matching epoch names.
-    """
-    if specification.time_range is None:
-        raise ValueError("Bout heatmaps require time bins.")
-
+    """Count bouts by epoch name and LEFT/RIGHT bout sign."""
     start, stop = specification.time_range
-    duration = stop - start
-
-    if duration <= 0:
-        raise ValueError(
-            f"Invalid time interval for {specification}: " f"{specification.time_range}"
-        )
 
     mask = (
         (fish_spec_bouts["trial_time"] >= start)
@@ -384,9 +380,14 @@ def compute_epoch_bout_counts_classic(
         fill_value=0,
     ).reset_index()
 
-    result["time_bin_duration"] = duration
-    result["bout_frequency"] = result["bout_counts"] / duration
-
+    keys = pd.MultiIndex.from_arrays(
+        [result["epoch_name"].astype(str), result["trial_idx"]],
+        names=exposure.index.names,
+    )
+    result["time_bin_duration"] = exposure.reindex(keys).fillna(0.0).to_numpy()
+    result["bout_frequency"] = safe_frequency(
+        result["bout_counts"], result["time_bin_duration"]
+    )
     return result
 
 
@@ -585,6 +586,12 @@ def compute_bout_frequency_table(
                 continue
 
             start, stop = specification.time_range
+            exposure = get_exposure(
+                fish_trials,
+                matched_epoch_names,
+                specification.time_range,
+                usable_only=exclude_unusable,
+            )
 
             common_fields = {
                 "file": fish,
@@ -599,6 +606,7 @@ def compute_bout_frequency_table(
                 specification=specification,
                 number_of_trials=number_of_trials,
                 laterality_labels=laterality_labels[id(specification)],
+                exposure=exposure,
                 average_trial=average_trial_during_compute,
             )
             counts = counts.assign(**common_fields)
@@ -610,6 +618,7 @@ def compute_bout_frequency_table(
                     specification=specification,
                     number_of_trials=number_of_trials,
                     epoch_names=matched_epoch_names,
+                    exposure=exposure,
                 )
                 classic_counts = classic_counts.assign(**common_fields)
                 classic_tables.append(classic_counts)
