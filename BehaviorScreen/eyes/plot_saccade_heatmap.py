@@ -29,11 +29,14 @@ from BehaviorScreen.stim_specs import (
     apply_event_filters,
     exclude_qc_fish,
     exclude_unusable_trials,
+    get_epoch_trial_count,
+    get_exposure,
     get_matching_epoch_names,
     get_single_value,
     load_valid_trials,
     load_yaml_config,
     read_stim_specs,
+    restrict_trials_to_analysed_fish,
     stimulus_name_order,
 )
 
@@ -153,63 +156,6 @@ def get_matched_laterality_labels(
     labels = map_laterality(events.loc[mask, "laterality"]).dropna().unique().tolist()
 
     return order_lateralities(labels) if labels else ["none"]
-
-
-def get_trial_presentation_counts(
-    fish_trials: pd.DataFrame,
-    epoch_names: list[str],
-    exclude_unusable: bool,
-) -> tuple[pd.Series, int]:
-    """
-    Return valid raw-presentation counts for each pooled trial.
-
-    Presentation counts do not depend on time-bin duration and can therefore
-    be cached across every time bin using the same epoch-name group.
-    """
-    trials = fish_trials.loc[
-        fish_trials["epoch_name"].isin(epoch_names) & fish_trials["presented"]
-    ]
-
-    if trials.empty:
-        return (
-            pd.Series(dtype=np.float32),
-            0,
-        )
-
-    trial_numbers = pd.to_numeric(
-        trials["trial_num"],
-        errors="coerce",
-    )
-    valid_trial_numbers = trial_numbers.dropna()
-
-    if valid_trial_numbers.empty:
-        return (
-            pd.Series(dtype=np.float32),
-            0,
-        )
-
-    number_of_trials = int(valid_trial_numbers.max()) + 1
-
-    if exclude_unusable:
-        trials = trials.loc[trials["usable"]]
-
-    if trials.empty:
-        return (
-            pd.Series(dtype=np.float32),
-            number_of_trials,
-        )
-
-    presentation_counts = (
-        trials.groupby(
-            "trial_num",
-            sort=False,
-            observed=True,
-        )
-        .size()
-        .astype(np.float32)
-    )
-
-    return presentation_counts, number_of_trials
 
 
 def compute_spec_counts(
@@ -398,6 +344,7 @@ def compute_saccade_frequency_table(
 
     events["file"] = events["file"].astype(str)
     valid_trials["file"] = valid_trials["file"].astype(str)
+    valid_trials = restrict_trials_to_analysed_fish(valid_trials, events, config)
 
     # Resolve regex/specification membership once before event filtering.
     epoch_names = {
@@ -503,17 +450,13 @@ def compute_saccade_frequency_table(
             tuple[Any, tuple[str, ...]],
             pd.DataFrame,
         ] = {}
-        presentation_cache: dict[
-            tuple[str, ...],
-            tuple[pd.Series, int],
-        ] = {}
+        trial_count_cache: dict[tuple[str, ...], int] = {}
 
         for specification in specifications:
             if specification.time_range is None:
                 raise ValueError("No time range is defined for " f"{specification}.")
 
             start, stop = specification.time_range
-            duration = stop - start
 
             matched_epoch_names = epoch_names[id(specification)]
             epoch_key = tuple(matched_epoch_names)
@@ -531,23 +474,28 @@ def compute_saccade_frequency_table(
 
             fish_spec_events = event_selection_cache[selection_key]
 
-            if epoch_key not in presentation_cache:
-                presentation_cache[epoch_key] = get_trial_presentation_counts(
-                    fish_trials=fish_trials,
+            if epoch_key not in trial_count_cache:
+                trial_count_cache[epoch_key] = get_epoch_trial_count(
+                    valid_trials=fish_trials,
+                    fish=fish,
                     epoch_names=matched_epoch_names,
-                    exclude_unusable=exclude_unusable,
                 )
 
-            (
-                presentation_counts,
-                number_of_trials,
-            ) = presentation_cache[epoch_key]
+            number_of_trials = trial_count_cache[epoch_key]
 
             if number_of_trials == 0:
                 continue
 
-            # Only exposure duration varies between time bins.
-            exposure = presentation_counts * duration
+            exposure = (
+                get_exposure(
+                    fish_trials,
+                    matched_epoch_names,
+                    specification.time_range,
+                    usable_only=exclude_unusable,
+                )
+                .groupby(level="trial_num")
+                .sum()
+            )
 
             counts = compute_spec_counts(
                 fish_spec_events=fish_spec_events,

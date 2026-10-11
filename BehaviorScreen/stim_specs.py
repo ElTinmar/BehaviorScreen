@@ -355,24 +355,29 @@ def get_epoch_trial_count(
     fish: str,
     epoch_names: Iterable[str],
 ) -> int:
-    """
-    Return the number of presented trial slots for a stimulus spec.
-
-    For pooled raw epoch names, this is the largest number of trials
-    among the component epoch names.
-    """
-    epoch_names = list(epoch_names)
-
+    """Number of trial slots (highest presented trial_num + 1) for a stimulus spec."""
     rows = valid_trials.loc[
         (valid_trials["file"].astype(str) == str(fish))
-        & valid_trials["epoch_name"].isin(epoch_names)
+        & valid_trials["epoch_name"].isin(list(epoch_names))
         & valid_trials["presented"]
     ]
+    return 0 if rows.empty else int(rows["trial_num"].max()) + 1
 
-    if rows.empty:
-        return 0
 
-    return int(rows.groupby("epoch_name").size().max())
+def get_exposure(
+    fish_trials: pd.DataFrame,
+    epoch_names: list[str],
+    time_range: tuple[float, float],
+    usable_only: bool,
+) -> pd.Series:
+    """Seconds of stimulus inside `time_range`, per (epoch_name, trial_num)."""
+    start, stop = time_range
+    rows = fish_trials.loc[
+        fish_trials["epoch_name"].isin(epoch_names)
+        & fish_trials["usable" if usable_only else "presented"]
+    ]
+    overlap = (rows["trial_duration_s"].clip(upper=stop) - start).clip(lower=0)
+    return overlap.groupby([rows["epoch_name"], rows["trial_num"]]).sum()
 
 
 def exclude_qc_fish(
@@ -505,6 +510,19 @@ def apply_event_filters(
         config=config,
         sections=FILTER_SECTIONS[event_type],
     )
+
+
+def restrict_trials_to_analysed_fish(
+    valid_trials: pd.DataFrame,
+    events: pd.DataFrame,
+    config: dict,
+) -> pd.DataFrame:
+    """
+    Keep trials of fish that produced events and pass the recording-level
+    common_filters, so excluded or unprocessed fish don't count as zero-event fish.
+    """
+    trials = valid_trials.loc[valid_trials["file"].isin(events["file"].unique())]
+    return apply_table_filters(trials, config, ("common_filters",))
 
 
 def exclude_unusable_trials(

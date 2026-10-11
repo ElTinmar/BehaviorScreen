@@ -105,12 +105,11 @@ from matplotlib.gridspec import GridSpec
 from matplotlib.transforms import blended_transform_factory
 
 from BehaviorScreen.load import (
-    BehaviorData,
     Directories,
     find_files,
     load_data,
 )
-from BehaviorScreen.process import compute_angle_between_vectors
+from BehaviorScreen.eyes.detect_saccades import extract_raw_eye_angles
 
 import BehaviorScreen.eyes.saccade_pipeline as sp
 
@@ -278,154 +277,6 @@ def infer_label_column(events: pd.DataFrame) -> str:
         "Could not infer the classification column. "
         "Specify it with --label-column.\n"
         f"Available columns: {list(events.columns)}"
-    )
-
-
-# ============================================================================
-# Eye angle and likelihood extraction
-# ============================================================================
-
-
-def extract_landmark_likelihood(
-    landmark: pd.DataFrame,
-    landmark_name: str,
-) -> np.ndarray:
-    """Extract a Lightning Pose confidence column."""
-    candidate_columns = (
-        "likelihood",
-        "confidence",
-        "score",
-        "probability",
-    )
-
-    for column in candidate_columns:
-        if column in landmark.columns:
-            return landmark[column].to_numpy(dtype=float)
-
-    raise KeyError(
-        f"No likelihood column was found for {landmark_name}. "
-        f"Available columns: {list(landmark.columns)}"
-    )
-
-
-def extract_eye_data(
-    behavior_data: BehaviorData,
-) -> tuple[
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-    np.ndarray,
-]:
-    """
-    Extract native timestamps, eye angles, and eye-level likelihoods.
-
-    The angle for each eye requires a front and back landmark. Therefore,
-    the eye-level likelihood is the minimum likelihood of the two points.
-    """
-    left_front = behavior_data.eyes_tracking.eye_left_front
-    left_back = behavior_data.eyes_tracking.eye_left_back
-    right_front = behavior_data.eyes_tracking.eye_right_front
-    right_back = behavior_data.eyes_tracking.eye_right_back
-
-    left_vector = left_back[["x", "y"]].to_numpy(dtype=float) - left_front[
-        ["x", "y"]
-    ].to_numpy(dtype=float)
-
-    right_vector = right_back[["x", "y"]].to_numpy(dtype=float) - right_front[
-        ["x", "y"]
-    ].to_numpy(dtype=float)
-
-    reference_vector = np.array(
-        [0.0, 1.0],
-        dtype=float,
-    )
-
-    left_angle = np.rad2deg(
-        compute_angle_between_vectors(
-            left_vector,
-            reference_vector,
-        )
-    )
-
-    right_angle = np.rad2deg(
-        compute_angle_between_vectors(
-            right_vector,
-            reference_vector,
-        )
-    )
-
-    left_likelihood = sp.combine_likelihoods(
-        extract_landmark_likelihood(
-            left_front,
-            "eye_left_front",
-        ),
-        extract_landmark_likelihood(
-            left_back,
-            "eye_left_back",
-        ),
-        method="min",
-    )
-
-    right_likelihood = sp.combine_likelihoods(
-        extract_landmark_likelihood(
-            right_front,
-            "eye_right_front",
-        ),
-        extract_landmark_likelihood(
-            right_back,
-            "eye_right_back",
-        ),
-        method="min",
-    )
-
-    timestamps_ns = behavior_data.video_timestamps.timestamp.to_numpy(dtype=np.float64)
-
-    number_of_samples = min(
-        len(timestamps_ns),
-        len(left_angle),
-        len(right_angle),
-        len(left_likelihood),
-        len(right_likelihood),
-    )
-
-    if number_of_samples < 2:
-        raise ValueError("Not enough aligned eye-tracking samples")
-
-    timestamps_ns = timestamps_ns[:number_of_samples]
-
-    left_angle = np.asarray(
-        left_angle[:number_of_samples],
-        dtype=float,
-    )
-    right_angle = np.asarray(
-        right_angle[:number_of_samples],
-        dtype=float,
-    )
-    left_likelihood = np.asarray(
-        left_likelihood[:number_of_samples],
-        dtype=float,
-    )
-    right_likelihood = np.asarray(
-        right_likelihood[:number_of_samples],
-        dtype=float,
-    )
-
-    finite_timestamp_indices = np.flatnonzero(np.isfinite(timestamps_ns))
-
-    if finite_timestamp_indices.size < 2:
-        raise ValueError("Not enough finite video timestamps")
-
-    first_timestamp_ns = timestamps_ns[finite_timestamp_indices[0]]
-
-    time_seconds = (timestamps_ns - first_timestamp_ns) * 1e-9
-
-    return (
-        time_seconds,
-        left_angle,
-        right_angle,
-        left_likelihood,
-        right_likelihood,
     )
 
 
@@ -2109,7 +1960,7 @@ def main() -> None:
         right_raw,
         left_likelihood,
         right_likelihood,
-    ) = extract_eye_data(behavior_data)
+    ) = extract_raw_eye_angles(behavior_data)
 
     events, label_column = load_classified_events(
         classified_events_path=args.classified_events,

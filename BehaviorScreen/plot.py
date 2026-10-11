@@ -33,11 +33,13 @@ from BehaviorScreen.stim_specs import (
     exclude_qc_fish,
     exclude_unusable_trials,
     get_epoch_trial_count,
+    get_exposure,
     get_matching_epoch_names,
     get_single_value,
     load_valid_trials,
     load_yaml_config,
     read_stim_specs,
+    restrict_trials_to_analysed_fish,
     stimulus_name_order,
 )
 
@@ -187,22 +189,6 @@ def get_matched_laterality_labels(
     labels = map_laterality(events.loc[mask, "laterality"]).dropna().unique().tolist()
 
     return order_lateralities(labels) if labels else ["none"]
-
-
-def get_exposure(
-    fish_trials: pd.DataFrame,
-    epoch_names: list[str],
-    time_range: tuple[float, float],
-    usable_only: bool,
-) -> pd.Series:
-    """Seconds of stimulus inside `time_range`, per (epoch_name, trial_num)."""
-    start, stop = time_range
-    rows = fish_trials.loc[
-        fish_trials["epoch_name"].isin(epoch_names)
-        & fish_trials["usable" if usable_only else "presented"]
-    ]
-    overlap = (rows["trial_duration_s"].clip(upper=stop) - start).clip(lower=0)
-    return overlap.groupby([rows["epoch_name"], rows["trial_num"]]).sum()
 
 
 def safe_frequency(counts: pd.Series, duration: pd.Series) -> pd.Series:
@@ -446,6 +432,7 @@ def compute_bout_frequency_table(
 
     bouts["file"] = bouts["file"].astype(str)
     valid_trials["file"] = valid_trials["file"].astype(str)
+    valid_trials = restrict_trials_to_analysed_fish(valid_trials, bouts, config)
 
     # Resolve regex/specification membership once before event filtering.
     epoch_names = {
@@ -502,22 +489,22 @@ def compute_bout_frequency_table(
         )
     }
 
+    bouts_by_fish = {
+        str(fish): group
+        for fish, group in bouts.groupby("file", sort=False, observed=True)
+    }
+    empty_bouts = bouts.iloc[0:0]
+
     tables: list[pd.DataFrame] = []
     classic_tables: list[pd.DataFrame] = []
 
-    for fish, fish_bouts in tqdm(
-        bouts.groupby(
-            "file",
-            sort=False,
-            observed=True,
-        ),
+    # Iterate over fish with trials, not fish with bouts, so a fish with no
+    # remaining bouts contributes zeros instead of being dropped.
+    for fish, fish_trials in tqdm(
+        valid_trials_by_fish.items(),
         desc="Bout frequencies",
     ):
-        fish = str(fish)
-        fish_trials = valid_trials_by_fish.get(fish)
-
-        if fish_trials is None or fish_trials.empty:
-            continue
+        fish_bouts = bouts_by_fish.get(fish, empty_bouts)
 
         metadata = {
             "dpf": get_single_value(
