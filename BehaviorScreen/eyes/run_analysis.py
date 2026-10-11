@@ -41,6 +41,11 @@ def run_analysis(
     mode: str = "freeswim",
     start_stage: str = "detect",
     make_plots: bool = True,
+    results: str = "results",
+    lightning_pose: str = "lightning_pose",
+    plots: str = "plots",
+    qc_csv: str = "qc.csv",
+    valid_trials_csv: str = "valid_trials.csv",
 ) -> None:
     """
     Run the saccade analysis from a selected stage.
@@ -107,16 +112,16 @@ def run_analysis(
 
     directories = Directories(
         root,
-        metadata="results",
-        stimuli="results",
-        tracking="results",
-        full_tracking="lightning_pose",
-        eyes_tracking="lightning_pose",
-        temperature="results",
-        video="results",
-        video_timestamp="results",
-        results="results",
-        plots="plots",
+        metadata=results,
+        stimuli=results,
+        tracking=results,
+        full_tracking=lightning_pose,
+        eyes_tracking=lightning_pose,
+        temperature=results,
+        video=results,
+        video_timestamp=results,
+        results=results,
+        plots=plots,
     )
 
     detected_csv = root / "saccades.csv"
@@ -132,18 +137,7 @@ def run_analysis(
         print()
         print("=== Detecting saccades ===")
 
-        events, traces = collect_events(
-            directories=directories,
-            mode=mode,
-            snippet_pre_ms=300.0,
-            snippet_post_ms=600.0,
-            likelihood_threshold=0.9,
-            detection_max_gap_ms=40.0,
-            metric_max_gap_ms=20.0,
-            onset_threshold_fraction=0.5,
-            lowess_delta_threshold=0.5,
-            lowess_anneal_samples=50,
-        )
+        events, traces = collect_events(directories=directories, mode=mode)
 
         if events.empty or traces is None:
             raise RuntimeError("No valid saccades were detected.")
@@ -239,14 +233,14 @@ def run_analysis(
             "Augmented-saccade CSV",
         )
         require_file(
-            root / "valid_trials.csv",
+            root / valid_trials_csv,
             "Valid-trials CSV",
         )
 
         make_saccade_heatmaps(
             input_csv=augmented_csv,
-            valid_trials_csv=(root / "valid_trials.csv"),
-            quality_control=(root / "qc.csv"),
+            valid_trials_csv=(root / valid_trials_csv),
+            quality_control=(root / qc_csv),
             config_yaml=config_yaml,
             output_png=(root / "saccades.png"),
             exclude_unusable=True,
@@ -322,6 +316,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=("Do not create cluster-trace or frequency " "heatmap plots."),
     )
 
+    parser.add_argument("--results", default="results")
+    parser.add_argument("--lightning-pose", default="lightning_pose")
+    parser.add_argument("--plots", default="plots")
+    parser.add_argument("--qc-csv", default="qc.csv")
+    parser.add_argument("--valid-trials-csv", default="valid_trials.csv")
+
     return parser
 
 
@@ -336,6 +336,11 @@ def main() -> None:
         mode=args.mode,
         start_stage=args.from_stage,
         make_plots=not args.skip_plots,
+        results=args.results,
+        lightning_pose=args.lightning_pose,
+        plots=args.plots,
+        qc_csv=args.qc_csv,
+        valid_trials_csv=args.valid_trials_csv,
     )
 
 

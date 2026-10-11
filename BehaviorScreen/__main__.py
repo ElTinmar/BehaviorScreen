@@ -250,6 +250,11 @@ def main(args: argparse.Namespace) -> None:
         root=args.root,
         config_yaml=args.yaml,
         model_path=args.saccade_model,
+        results=args.results,
+        lightning_pose=args.lightning_pose,
+        plots=args.plots,
+        qc_csv=args.qc_csv,
+        valid_trials_csv=args.valid_trials_csv,
     )
 
     
