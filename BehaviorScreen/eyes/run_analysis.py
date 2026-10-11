@@ -196,7 +196,6 @@ def run_analysis(
             input_csv=classified_csv,
             output_csv=augmented_csv,
             directories=directories,
-            rollover_time_s=3600,
         )
 
     # ==================================================================
