@@ -2,7 +2,6 @@ from pathlib import Path
 from typing import List
 import subprocess
 import argparse
-import pandas as pd
 import numpy as np
 import cv2
 from video_tools import FFMPEG_VideoWriter_CPU
@@ -69,7 +68,7 @@ def crop_around_eyes(
     lightningpose_csv: Path,
     crop_size_mm: float = 1.0,
     px_per_mm: float = 40,
-):
+) -> None:
 
     crop_size = 2 * (int(crop_size_mm * px_per_mm) // 2)
 
@@ -216,7 +215,7 @@ def export_cropped_eyes_video(
         )
 
 
-def main(args: argparse.Namespace):
+def main(args: argparse.Namespace) -> None:
 
     estimate_pose(
         model_directory=args.full_model_dir,

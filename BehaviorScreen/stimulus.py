@@ -1,4 +1,3 @@
-from typing import Tuple
 import numpy as np
 
 
@@ -6,12 +5,16 @@ def clamp(value: float, lo: float, hi: float) -> float:
     return min(max(value, lo), hi)
 
 
-def get_shader_time(start_time_sec, trial_time_sec, rollover_time_sec) -> float:
+def get_shader_time(
+    start_time_sec: float, trial_time_sec: float, rollover_time_sec: float
+) -> float:
 
     return (trial_time_sec + start_time_sec) % rollover_time_sec
 
 
-def get_shader_trial_time(start_time_sec, trial_time_sec, rollover_time_sec) -> float:
+def get_shader_trial_time(
+    start_time_sec: float, trial_time_sec: float, rollover_time_sec: float
+) -> float:
 
     return (
         get_shader_time(start_time_sec, trial_time_sec, rollover_time_sec)

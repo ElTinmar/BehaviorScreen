@@ -12,7 +12,7 @@ EYES_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/l5xbLSfATCCydEx/download"
 def download_model(
     urls: list[str] = [TAIL_MODEL_URL_APRIL_26, EYES_MODEL_URL],
     destination: Path = Path(""),
-):
+) -> None:
 
     destination.mkdir(parents=True, exist_ok=True)
 
