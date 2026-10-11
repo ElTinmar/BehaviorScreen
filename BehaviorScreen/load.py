@@ -213,11 +213,24 @@ def load_tracking(tracking_file: Path) -> pd.DataFrame:
     return pd.read_csv(tracking_file)
 
 
-def load_lightning_pose(tracking_file: Optional[Path]) -> pd.DataFrame:
+def load_lightning_pose(
+    tracking_file: Optional[Path], n_frames: Optional[int] = None
+) -> pd.DataFrame:
+    """
+    Pose rows, one per video frame. With `n_frames` (the number of timestamped
+    frames), rows beyond it are dropped: the acquisition can keep writing video
+    after the timestamp file stops, and rows align from the first frame.
+    """
     if tracking_file is None:
         return pd.DataFrame()
-    df = pd.read_csv(tracking_file, header=[0, 1, 2])
-    return df["heatmap_tracker"]  # type: ignore
+    pose = pd.read_csv(tracking_file, header=[0, 1, 2])["heatmap_tracker"]
+    if n_frames is not None and len(pose) > n_frames:
+        print(
+            f"[warn] {tracking_file.name}: dropping {len(pose) - n_frames} "
+            "trailing rows without timestamp"
+        )
+        pose = pose.iloc[:n_frames]
+    return pose  # type: ignore
 
 
 def load_video(video_file: Optional[Path]) -> OpenCV_VideoReader:

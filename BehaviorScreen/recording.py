@@ -60,17 +60,11 @@ class Recording:
 
     @cached_property
     def pose(self) -> pd.DataFrame:
-        pose = load_lightning_pose(self.files.full_tracking)
-        if len(pose) > self.n_frames:
-            raise ValueError(f"{self.name}: {len(pose)} pose rows for {self.n_frames} frames")
-        return pose
+        return load_lightning_pose(self.files.full_tracking, self.n_frames)
 
     @cached_property
     def eyes(self) -> pd.DataFrame:
-        eyes = load_lightning_pose(self.files.eyes_tracking)
-        if len(eyes) > self.n_frames:
-            raise ValueError(f"{self.name}: {len(eyes)} eye rows for {self.n_frames} frames")
-        return eyes
+        return load_lightning_pose(self.files.eyes_tracking, self.n_frames)
 
     @cached_property
     def video(self) -> OpenCV_VideoReader:

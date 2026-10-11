@@ -210,7 +210,8 @@ def get_bout_metrics(rec: Recording, megabout: MegaboutResults) -> list[dict[str
     )
     onsets = np.asarray(bouts.onset, dtype=int)[:n_bouts]
     offsets = np.asarray(bouts.offset, dtype=int)[:n_bouts]
-    frame_time = np.asarray(megabout.timestamp, dtype=np.int64)
+    # rec's clock, not megabout.timestamp: a .pkl may predate trimming of untimed trailing frames
+    frame_time = rec.frame_time_ns[: len(rec.pose)]
 
     valid = (onsets >= 0) & (offsets > onsets) & (offsets < len(frame_time))
     start_ts = np.where(valid, frame_time[np.clip(onsets, 0, len(frame_time) - 1)], -1)
