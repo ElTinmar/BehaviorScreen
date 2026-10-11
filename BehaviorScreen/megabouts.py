@@ -298,8 +298,17 @@ def detect_bouts(rec: Recording) -> MegaboutResults:
 
 
 def load_megabout(rec: Recording) -> MegaboutResults:
+    """Saved Megabouts result; it must have been computed on the current frame order."""
     with megabout_path(rec).open("rb") as input_file:
-        return pickle.load(input_file)
+        megabout = pickle.load(input_file)
+    clock = rec.frame_time_ns
+    n = min(len(megabout.timestamp), len(clock))
+    if not np.array_equal(np.asarray(megabout.timestamp[:n], dtype=np.int64), clock[:n]):
+        raise ValueError(
+            f"{megabout_path(rec)} was computed on frames in a different order; "
+            "rerun this folder with --from-stage detect"
+        )
+    return megabout
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -35,9 +35,10 @@ def nearest_indices(reference: np.ndarray, targets: np.ndarray) -> np.ndarray:
 @dataclass
 class Recording:
     """
-    Frames are video frames, i.e. row positions in the video timestamps
-    file and in Lightning Pose outputs. Camera frame counters (`index`
-    columns) are only used to place online-tracking rows on that clock.
+    Frames are positions in time order. They equal video frames (rows of the
+    video timestamps file and of Lightning Pose outputs) unless the
+    acquisition wrote frames out of order; `video_frames` maps back. Camera
+    frame counters (`index` columns) only place online tracking on this clock.
     """
 
     files: BehaviorFiles
@@ -60,11 +61,20 @@ class Recording:
 
     @cached_property
     def pose(self) -> pd.DataFrame:
-        return load_lightning_pose(self.files.full_tracking, self.n_frames)
+        return self._in_time_order(load_lightning_pose(self.files.full_tracking, self.n_frames))
 
     @cached_property
     def eyes(self) -> pd.DataFrame:
-        return load_lightning_pose(self.files.eyes_tracking, self.n_frames)
+        return self._in_time_order(load_lightning_pose(self.files.eyes_tracking, self.n_frames))
+
+    def _in_time_order(self, rows: pd.DataFrame) -> pd.DataFrame:
+        """Video-order rows (one per video frame) reordered like the frame clock."""
+        order = self.video_frames[: len(rows)]
+        if np.array_equal(order, np.arange(len(rows))):
+            return rows
+        if order.max() >= len(rows):
+            raise ValueError(f"{self.name}: {len(rows)} rows do not cover the reordered frames")
+        return rows.iloc[order].reset_index(drop=True)
 
     @cached_property
     def video(self) -> OpenCV_VideoReader:
@@ -87,23 +97,27 @@ class Recording:
         return float(self.metadata["camera"]["framerate_value"])
 
     @cached_property
+    def video_frames(self) -> np.ndarray:
+        """Video frame at each frame position: video frames sorted by timestamp."""
+        return np.argsort(self.video_timestamps["timestamp"].to_numpy(np.int64), kind="stable")
+
+    @cached_property
     def frame_time_ns(self) -> np.ndarray:
-        return self.video_timestamps["timestamp"].to_numpy(np.int64)
+        return self.video_timestamps["timestamp"].to_numpy(np.int64)[self.video_frames]
 
     @property
     def n_frames(self) -> int:
         return len(self.frame_time_ns)
 
     def frames_at(self, timestamps_ns: np.ndarray) -> np.ndarray:
-        """Nearest video frame for each timestamp."""
+        """Nearest frame for each timestamp."""
         return nearest_indices(self.frame_time_ns, np.asarray(timestamps_ns))
 
     @cached_property
     def online(self) -> pd.DataFrame:
-        """Online tracking, one row per video frame; NaN where the tracker missed."""
-        frame = pd.Series(
-            np.arange(self.n_frames), index=self.video_timestamps["index"].to_numpy()
-        )
+        """Online tracking, one row per frame; NaN where the tracker missed."""
+        counter = self.video_timestamps["index"].to_numpy()[self.video_frames]
+        frame = pd.Series(np.arange(self.n_frames), index=counter)
         tracking = self.tracking.assign(frame=self.tracking["index"].map(frame))
         return (
             tracking.dropna(subset=["frame"])
