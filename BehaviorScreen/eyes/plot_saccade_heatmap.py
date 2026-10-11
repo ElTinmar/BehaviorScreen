@@ -71,7 +71,6 @@ def compact_saccade_table(
         ),
         float_columns=(
             "saccade_frequency",
-            "exposure_s",
             "time_bin_start",
             "time_bin_stop",
             "time_bin_duration",
@@ -178,12 +177,6 @@ def compute_spec_counts(
         raise ValueError("Saccade heatmaps require time bins.")
 
     start, stop = specification.time_range
-    duration = stop - start
-
-    if duration <= 0:
-        raise ValueError(
-            f"Invalid time interval for {specification}: " f"{specification.time_range}"
-        )
 
     mask = (
         (fish_spec_events["trial_time"] >= start)
@@ -231,7 +224,7 @@ def compute_spec_counts(
             fill_value=0,
         ).reset_index()
 
-        result["exposure_s"] = float(
+        result["time_bin_duration"] = float(
             exposure_by_trial.reindex(
                 range(number_of_trials),
                 fill_value=0.0,
@@ -270,15 +263,15 @@ def compute_spec_counts(
             fill_value=0,
         ).reset_index()
 
-        result["exposure_s"] = result["trial_idx"].map(exposure_by_trial).fillna(0.0)
+        result["time_bin_duration"] = (
+            result["trial_idx"].map(exposure_by_trial).fillna(0.0)
+        )
 
     result["saccade_frequency"] = np.where(
-        result["exposure_s"] > 0,
-        result["saccade_counts"] / result["exposure_s"],
+        result["time_bin_duration"] > 0,
+        result["saccade_counts"] / result["time_bin_duration"],
         np.nan,
     )
-
-    result["time_bin_duration"] = duration
 
     return result
 
@@ -567,13 +560,13 @@ def aggregate_saccade_frequency(
         )[
             [
                 "saccade_counts",
-                "exposure_s",
+                "time_bin_duration",
             ]
         ].sum()
 
         working["saccade_frequency"] = np.where(
-            working["exposure_s"] > 0,
-            working["saccade_counts"] / working["exposure_s"],
+            working["time_bin_duration"] > 0,
+            working["saccade_counts"] / working["time_bin_duration"],
             np.nan,
         )
 
