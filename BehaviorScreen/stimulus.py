@@ -161,14 +161,10 @@ def prey_capture_arc_stimulus_cosine(
     shader_trial_time = get_shader_trial_time(
         start_time_sec, trial_time_sec, rollover_time_sec
     )
-    arc_start_rad = np.deg2rad(prey_arc_start_deg)
-    arc_stop_rad = np.deg2rad(prey_arc_stop_deg)
-    angle_range_rad = arc_stop_rad - arc_start_rad
-    angle_rad = arc_start_rad
+    angle_range_rad = np.deg2rad(prey_arc_stop_deg - prey_arc_start_deg)
     freq = np.deg2rad(prey_speed_deg_s) / (2 * np.abs(angle_range_rad))
     phase = freq * shader_trial_time
-    angle_rad += angle_range_rad * (1 - np.cos(2 * np.pi * phase)) / 2
-    return angle_rad
+    return 2 * np.pi * (phase % 1)
 
 
 def prey_capture_arc_stimulus_modulo(
