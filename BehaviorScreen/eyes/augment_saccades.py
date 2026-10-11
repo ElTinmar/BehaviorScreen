@@ -11,14 +11,9 @@ import pandas as pd
 import numpy as np
 from tqdm import tqdm
 
-from BehaviorScreen.event_context import RecordingContext
-from BehaviorScreen.load import (
-    BehaviorData,
-    BehaviorFiles,
-    Directories,
-    find_files,
-    load_data,
-)
+from BehaviorScreen.event_context import event_context, posthoc_positions_at, trial_indices
+from BehaviorScreen.load import Directories, find_files
+from BehaviorScreen.recording import Recording
 from BehaviorScreen.protocol import saccade_laterality
 from BehaviorScreen.core import (
     SACCADE_CATEGORY_BY_CLUSTER,
@@ -28,62 +23,35 @@ from BehaviorScreen.core import (
 )
 
 
-def augment_fish_events(
-    events: pd.DataFrame,
-    directories: Directories,
-    behavior_data: BehaviorData,
-    behavior_files: BehaviorFiles,
-    rollover_time_s: int,
-) -> list[dict[str, Any]]:
-    """Create contextual records for one recording's saccades."""
-    recording = RecordingContext(
-        directories=directories,
-        behavior_files=behavior_files,
-        behavior_data=behavior_data,
-        rollover_time_s=rollover_time_s,
-    )
+def augment_fish_events(rec: Recording, events: pd.DataFrame) -> list[dict[str, Any]]:
+    """Contextual records for one recording's saccades."""
+    # onset_time_s is relative to the first video frame (see detect_saccades)
+    onset_ns = np.rint(events["onset_time_s"].to_numpy(float) * 1e9).astype(np.int64)
+    event_timestamps = rec.frame_time_ns[0] + onset_ns
+    trials = trial_indices(rec, event_timestamps)
+    position = posthoc_positions_at(rec, event_timestamps)
 
-    event_timestamps = recording.relative_seconds_to_timestamps(
-        events["onset_time_s"].to_numpy(dtype=float)
-    )
-
-    trial_indices = recording.trial_indices(event_timestamps)
-
-    tracking_context = recording.posthoc_positions_at(event_timestamps)
-
-    contexts: list[dict[str, Any]] = []
-
-    for event_index, (
-        event_timestamp,
-        trial_index,
-    ) in enumerate(zip(event_timestamps, trial_indices)):
-        context = recording.event_context(
-            event_timestamp=int(event_timestamp),
-            trial_index=int(trial_index),
-            x_mm=float(tracking_context["x_mm"][event_index]),
-            y_mm=float(tracking_context["y_mm"][event_index]),
-            heading=float(tracking_context["heading"][event_index]),
+    return [
+        event_context(
+            rec,
+            int(t),
+            int(trial),
+            float(position["x_mm"][i]),
+            float(position["y_mm"][i]),
+            float(position["heading"][i]),
         )
-
-        context.update(
-            {
-                "tracking_frame": int(tracking_context["tracking_frame"][event_index]),
-                "tracking_time_error_ms": float(
-                    tracking_context["tracking_time_error_ms"][event_index]
-                ),
-            }
-        )
-
-        contexts.append(context)
-
-    return contexts
+        | {
+            "tracking_frame": int(position["tracking_frame"][i]),
+            "tracking_time_error_ms": float(position["tracking_time_error_ms"][i]),
+        }
+        for i, (t, trial) in enumerate(zip(event_timestamps, trials))
+    ]
 
 
 def augment_saccades(
     input_csv: Path,
     output_csv: Path,
     directories: Directories,
-    rollover_time_s: int,
 ) -> None:
     """Add common behavioral context to all classified saccades."""
     saccades = pd.read_csv(input_csv)
@@ -113,16 +81,7 @@ def augment_saccades(
         if fish not in files_by_name:
             raise FileNotFoundError(f"No BehaviorFiles were found for {fish}.")
 
-        behavior_files = files_by_name[fish]
-        behavior_data = load_data(behavior_files)
-
-        contexts = augment_fish_events(
-            events=fish_events,
-            directories=directories,
-            behavior_data=behavior_data,
-            behavior_files=behavior_files,
-            rollover_time_s=rollover_time_s,
-        )
+        contexts = augment_fish_events(Recording(files_by_name[fish]), fish_events)
 
         if len(contexts) != len(fish_events):
             raise RuntimeError(
@@ -315,12 +274,6 @@ def build_parser() -> argparse.ArgumentParser:
             "Default: saccades_augmented.csv."
         ),
     )
-    parser.add_argument(
-        "--rollover-time-s",
-        type=int,
-        default=3600,
-    )
-
     parser.add_argument("--metadata", default="results")
     parser.add_argument("--stimuli", default="results")
     parser.add_argument("--tracking", default="results")
@@ -369,7 +322,6 @@ def main() -> None:
         input_csv=input_csv,
         output_csv=output_csv,
         directories=directories,
-        rollover_time_s=args.rollover_time_s,
     )
 
 

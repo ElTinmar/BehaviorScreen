@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Generator, Iterable
 
+import numpy as np
 import pandas as pd
 import yaml
 
@@ -159,42 +160,52 @@ def load_yaml_config(path: Path) -> dict:
     return config
 
 
-Number = int | float
-TimeBins = list[Number] | list[list[Number]]
+TimeBin = tuple[float, float]
 
 
-def parse_time_bins(bins: TimeBins) -> list[tuple[Number, Number]]:
-    """Parse [[start, stop], ...] or [start, stop, step]."""
+def parse_time_bins(bins: list) -> list[TimeBin]:
+    """
+    Parse [[start, stop], ...] or [start, stop, step] into sorted,
+    non-overlapping bins. Edges come from linspace, so they do not drift.
+    """
     if not bins:
         return []
 
     if len(bins) == 3 and not isinstance(bins[0], list):
         start, stop, step = bins
-
         if stop <= start or step <= 0:
             raise ValueError("Time bins require stop > start and step > 0.")
+        n = int(np.ceil((stop - start) / step - 1e-9))
+        edges = np.minimum(np.linspace(start, start + n * step, n + 1), stop)
+        edges = np.round(edges, 9).tolist()
+        return list(zip(edges[:-1], edges[1:]))
 
-        result = []
-        while start < stop:
-            end = min(start + step, stop)
-            result.append((start, end))
-            start = end
-        return result
-
-    return [tuple(bin_) for bin_ in bins]
+    result = [(float(lo), float(hi)) for lo, hi in bins]
+    if any(lo >= hi for lo, hi in result) or any(
+        a[1] > b[0] for a, b in zip(result, result[1:])
+    ):
+        raise ValueError(f"Time bins must be increasing and non-overlapping: {bins}")
+    return result
 
 
-def read_stim_specs(
-    config: dict,
-    ignore_time_bins: bool = False,
-    time_bins_key: str = "time_bins",
-) -> Generator[StimSpec, None, None]:
-    """Generate configured stimulus specifications."""
-    global_time_bins = config.get(time_bins_key, [])
+@dataclass(frozen=True)
+class StimEntry:
+    """One `stimuli` entry of the YAML: its selection rules and its time bins."""
 
+    spec: StimSpec  # time_range is None
+    bins: tuple[TimeBin, ...]
+
+    @property
+    def name(self) -> str:
+        return self.spec.name
+
+
+def read_stim_entries(config: dict, time_bins_key: str = "time_bins") -> list[StimEntry]:
+    """Configured stimulus entries, in YAML order."""
     if "stimuli" not in config:
         raise ValueError("The YAML configuration has no 'stimuli' section.")
 
+    entries = []
     for entry in config["stimuli"]:
         try:
             stimulus = Stim[entry["stim"]]
@@ -202,34 +213,24 @@ def read_stim_specs(
             raise ValueError(f"Unknown stimulus: {entry['stim']}") from error
 
         name = entry["name"]
-
-        raw_time_bins = entry.get(
-            time_bins_key,
-            global_time_bins,
-        )
-        time_bins = parse_time_bins(
-            raw_time_bins,
-        )
-        if not time_bins:
+        bins = parse_time_bins(entry.get(time_bins_key, config.get(time_bins_key, [])))
+        if not bins:
             raise ValueError(f"No time bins are defined for stimulus {name!r}.")
 
-        parameters = tuple(
-            parse_rules(parameter_config)
-            for parameter_config in entry.get(
-                "parameters",
-                [{}],
-            )
-        )
+        parameters = tuple(parse_rules(p) for p in entry.get("parameters", [{}]))
+        entries.append(StimEntry(StimSpec(stimulus, name, None, parameters), tuple(bins)))
+    return entries
 
-        ranges = [None] if ignore_time_bins else time_bins
 
-        for time_range in ranges:
-            yield StimSpec(
-                stim=stimulus,
-                name=name,
-                time_range=(None if time_range is None else tuple(time_range)),
-                parameters=parameters,
-            )
+def read_stim_specs(
+    config: dict,
+    ignore_time_bins: bool = False,
+    time_bins_key: str = "time_bins",
+) -> Generator[StimSpec, None, None]:
+    """One StimSpec per (entry, time bin), or per entry if ignore_time_bins."""
+    for entry in read_stim_entries(config, time_bins_key):
+        for time_range in [None] if ignore_time_bins else entry.bins:
+            yield StimSpec(entry.spec.stim, entry.spec.name, time_range, entry.spec.parameters)
 
 
 def stimulus_name_order(config: dict) -> list[str]:

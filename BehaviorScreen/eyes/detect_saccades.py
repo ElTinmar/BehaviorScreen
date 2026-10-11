@@ -48,19 +48,14 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-from BehaviorScreen.load import (
-    BehaviorData,
-    Directories,
-    find_files,
-    load_data,
-)
+from BehaviorScreen.load import Directories, find_files
 from BehaviorScreen.process import compute_angle_between_vectors
+from BehaviorScreen.recording import Recording
 
 import BehaviorScreen.eyes.saccade_pipeline as sp
 
@@ -136,7 +131,7 @@ def extract_landmark_likelihood(
 
 
 def extract_raw_eye_angles(
-    behavior_data: BehaviorData,
+    rec: Recording,
 ) -> tuple[
     np.ndarray,
     np.ndarray,
@@ -153,7 +148,7 @@ def extract_raw_eye_angles(
     Returns
     -------
     time_seconds
-        Timestamps relative to the first finite timestamp.
+        Frame timestamps relative to the first frame.
     left_angle
         Left-eye angle in degrees.
     right_angle
@@ -163,10 +158,10 @@ def extract_raw_eye_angles(
     right_likelihood
         Minimum of right-front and right-back likelihood.
     """
-    left_front = behavior_data.eyes_tracking.eye_left_front
-    left_back = behavior_data.eyes_tracking.eye_left_back
-    right_front = behavior_data.eyes_tracking.eye_right_front
-    right_back = behavior_data.eyes_tracking.eye_right_back
+    left_front = rec.eyes.eye_left_front
+    left_back = rec.eyes.eye_left_back
+    right_front = rec.eyes.eye_right_front
+    right_back = rec.eyes.eye_right_back
 
     left_vector = left_back[["x", "y"]].to_numpy(dtype=float) - left_front[
         ["x", "y"]
@@ -224,48 +219,10 @@ def extract_raw_eye_angles(
         method="min",
     )
 
-    timestamps_ns = behavior_data.video_timestamps.timestamp.to_numpy()
+    time_seconds = (rec.frame_time_ns[: len(rec.eyes)] - rec.frame_time_ns[0]) * 1e-9
 
-    number_of_samples = min(
-        len(timestamps_ns),
-        len(left_angle),
-        len(right_angle),
-        len(left_likelihood),
-        len(right_likelihood),
-    )
-
-    if number_of_samples < 2:
-        raise ValueError("Fewer than two aligned eye-tracking samples were found")
-
-    timestamps_ns = np.asarray(
-        timestamps_ns[:number_of_samples],
-        dtype=np.float64,
-    )
-    left_angle = np.asarray(
-        left_angle[:number_of_samples],
-        dtype=float,
-    )
-    right_angle = np.asarray(
-        right_angle[:number_of_samples],
-        dtype=float,
-    )
-    left_likelihood = np.asarray(
-        left_likelihood[:number_of_samples],
-        dtype=float,
-    )
-    right_likelihood = np.asarray(
-        right_likelihood[:number_of_samples],
-        dtype=float,
-    )
-
-    finite_timestamp_indices = np.flatnonzero(np.isfinite(timestamps_ns))
-
-    if finite_timestamp_indices.size < 2:
-        raise ValueError("Fewer than two finite video timestamps were found")
-
-    start_time_ns = timestamps_ns[finite_timestamp_indices[0]]
-
-    time_seconds = (timestamps_ns - start_time_ns) * 1e-9
+    if len(time_seconds) < 2:
+        raise ValueError("Fewer than two eye-tracking samples were found")
 
     return (
         time_seconds,
@@ -695,16 +652,11 @@ def collect_events(
         behavior_files,
         desc="Fish",
     ):
-        fish_label = files.metadata.stem
+        rec = Recording(files)
+        fish_label = rec.name
 
-        behavior_data = load_data(files)
-
-        if behavior_data.eyes_tracking.empty:
+        if rec.eyes.empty:
             print(f"[skip] {fish_label}: no eye tracking")
-            continue
-
-        if behavior_data.video_timestamps.empty:
-            print(f"[skip] {fish_label}: no video timestamps")
             continue
 
         try:
@@ -714,7 +666,7 @@ def collect_events(
                 right_raw,
                 left_likelihood,
                 right_likelihood,
-            ) = extract_raw_eye_angles(behavior_data)
+            ) = extract_raw_eye_angles(rec)
         except ValueError as error:
             print(f"[skip] {fish_label}: failed to extract " f"eye data: {error}")
             continue

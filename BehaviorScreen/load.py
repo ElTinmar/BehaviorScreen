@@ -1,77 +1,43 @@
 import json
-import pandas as pd
-import numpy as np
-import time
-from pathlib import Path
-from typing import List, Dict, NamedTuple, Optional, Tuple
 import re
-from re import Pattern
-from video_tools import OpenCV_VideoReader
+import time
 from datetime import datetime
+from pathlib import Path
+from re import Match, Pattern
+from typing import Any, NamedTuple, Optional
+
+import numpy as np
+import pandas as pd
+from video_tools import OpenCV_VideoReader
+
 from BehaviorScreen.core import TIME_TOLERANCE_S
 
 MONTH_MAP = {
     "jan": 1,
-    "january": 1,
-    "januar": 1,
     "feb": 2,
-    "february": 2,
-    "februar": 2,
     "mar": 3,
-    "march": 3,
-    "mär": 3,
-    "maerz": 3,
-    "märz": 3,
     "apr": 4,
-    "april": 4,
     "may": 5,
     "jun": 6,
-    "june": 6,
-    "juni": 6,
     "jul": 7,
-    "july": 7,
     "aug": 8,
-    "august": 8,
     "sep": 9,
-    "sept": 9,
-    "september": 9,
     "oct": 10,
-    "october": 10,
     "okt": 10,
-    "oktober": 10,
     "nov": 11,
-    "november": 11,
     "dec": 12,
-    "december": 12,
     "dez": 12,
-    "dezember": 12,
 }
-
-
-# TODO add eyes
-class BehaviorData(NamedTuple):
-    metadata: Dict  # contains parameters for an experiment
-    stimuli: List[
-        Dict
-    ]  # contains parameters for each stimulus applied during the experiment
-    tracking: pd.DataFrame  # on-line tracking
-    full_tracking: pd.DataFrame  # post-hoc tracking from pose estimation pipeline
-    eyes_tracking: (
-        pd.DataFrame
-    )  # post-hoc tracking from pose estimation pipeline for the eyes
-    video: OpenCV_VideoReader  # behavioral recording
-    video_timestamps: pd.DataFrame  # timing information for each frame of the recording
-    temperature: pd.DataFrame  # temperature monitoring
 
 
 class BehaviorFiles(NamedTuple):
     metadata: Path
     stimuli: Path
     tracking: Path
-    full_tracking: Path
-    eyes_tracking: Path
-    video: Path
-    video_timestamps: Path
+    full_tracking: Optional[Path]
+    eyes_tracking: Optional[Path]
+    video: Optional[Path]
+    video_timestamps: Optional[Path]
     temperature: Optional[Path]
 
 
@@ -118,10 +84,9 @@ class FileNameInfo(NamedTuple):
     extra: Optional[str]
 
     def to_datetime(self) -> datetime:
-        month_str = self.month.strip().lower()
         return datetime(
             year=self.year,
-            month=MONTH_MAP[month_str],
+            month=MONTH_MAP[self.month.strip().lower()],
             day=self.day,
             hour=self.hour,
             minute=self.minute,
@@ -182,10 +147,7 @@ lightningpose_eyes_filename_regexp = filename_regexp("eyes_", "csv")
 video_timestamps_filename_regexp = filename_regexp("", "csv")
 
 
-def parse_filename(path: Path, regexp: Pattern) -> FileNameInfo:
-    m = regexp.match(path.name)
-    if not m:
-        raise ValueError(f"Filename does not match expected pattern: {path.name}")
+def _file_name_info(m: Match) -> FileNameInfo:
     g = m.groupdict()
     return FileNameInfo(
         fish_id=int(g["fish_id"]),
@@ -202,18 +164,49 @@ def parse_filename(path: Path, regexp: Pattern) -> FileNameInfo:
     )
 
 
-def load_metadata(metadata_file: Path) -> Dict:
+def parse_filename(path: Path, regexp: Pattern) -> FileNameInfo:
+    m = regexp.match(path.name)
+    if not m:
+        raise ValueError(f"Filename does not match expected pattern: {path.name}")
+    return _file_name_info(m)
+
+
+def parse_fish(fish: str) -> FileNameInfo:
+    m = re.match(base_regexp, fish)
+    if m is None:
+        raise RuntimeError(f"failed to parse: {fish}")
+    return _file_name_info(m)
+
+
+def encode_time_of_day(info: FileNameInfo) -> tuple[float, float]:
+    seconds = info.hour * 3600 + info.minute * 60 + info.second
+    theta = 2 * np.pi * (seconds / (24 * 3600))
+    return float(np.cos(theta)), float(np.sin(theta))
+
+
+def fish_metadata(fish: str) -> dict[str, Any]:
+    """Per-recording covariates, derived from the file name alone."""
+    info = parse_fish(fish)
+    cos_daytime, sin_daytime = encode_time_of_day(info)
+    return {
+        "file": fish,
+        "dpf": info.age,
+        "day": f"{info.day}.{info.month}.{info.year}",
+        "cos_daytime": cos_daytime,
+        "sin_daytime": sin_daytime,
+    }
+
+
+def load_metadata(metadata_file: Path) -> dict:
     with open(metadata_file, "r") as f:
-        metadata = json.load(f)
-    return metadata
+        return json.load(f)
 
 
-def load_stimuli(stim_file: Path) -> List[Dict]:
-    stimuli = []
+def load_stimuli(stim_file: Path) -> list[dict]:
     with open(stim_file) as f:
-        for line in f:
-            stimuli.append(json.loads(line, parse_float=lambda x: round(float(x), 6)))
-    return stimuli
+        return [
+            json.loads(line, parse_float=lambda x: round(float(x), 6)) for line in f
+        ]
 
 
 def load_tracking(tracking_file: Path) -> pd.DataFrame:
@@ -224,39 +217,34 @@ def load_lightning_pose(tracking_file: Optional[Path]) -> pd.DataFrame:
     if tracking_file is None:
         return pd.DataFrame()
     df = pd.read_csv(tracking_file, header=[0, 1, 2])
-    pose_df = df["heatmap_tracker"]  # get rid off the first header level
-    return pose_df  # type: ignore
+    return df["heatmap_tracker"]  # type: ignore
 
 
-def load_video(video_file: Path) -> OpenCV_VideoReader:
+def load_video(video_file: Optional[Path]) -> OpenCV_VideoReader:
     reader = OpenCV_VideoReader()
-    if video_file is None:
-        return reader
-    reader.open_file(str(video_file))
+    if video_file is not None:
+        reader.open_file(str(video_file))
     return reader
 
 
 def load_video_timestamps(video_timestamp_file: Path) -> pd.DataFrame:
-    return pd.read_csv(video_timestamp_file)
+    """
+    One row per frame written to the video, in video order. `index` is the
+    camera frame counter and may skip values when frames were dropped, so a
+    video frame is always the row position, never the `index` value.
+    """
+    df = pd.read_csv(video_timestamp_file)
+    if not df["timestamp"].is_monotonic_increasing:
+        raise ValueError(f"Timestamps are not increasing in {video_timestamp_file}")
+    if not df["index"].is_unique:
+        raise ValueError(f"Duplicate frame indices in {video_timestamp_file}")
+    return df
 
 
 def load_temperature(temperature_file: Optional[Path]) -> pd.DataFrame:
     if temperature_file is None:
         return pd.DataFrame()
     return pd.read_csv(temperature_file)
-
-
-def load_data(files: BehaviorFiles) -> BehaviorData:
-    return BehaviorData(
-        metadata=load_metadata(files.metadata),
-        stimuli=load_stimuli(files.stimuli),
-        tracking=load_tracking(files.tracking),
-        full_tracking=load_lightning_pose(files.full_tracking),
-        eyes_tracking=load_lightning_pose(files.eyes_tracking),
-        video=load_video(files.video),
-        video_timestamps=load_video_timestamps(files.video_timestamps),
-        temperature=load_temperature(files.temperature),
-    )
 
 
 def find_file(
@@ -269,8 +257,7 @@ def find_file(
     if not dir.exists():
         if required:
             raise FileNotFoundError(f"Directory does not exist: {dir}")
-        else:
-            return None
+        return None
 
     for file in dir.iterdir():
 
@@ -291,63 +278,35 @@ def find_file(
     return None
 
 
-def find_files(dir: Directories) -> List[BehaviorFiles]:
-    metadata_files = list(dir.metadata.glob("*.metadata"))
+def find_files(dir: Directories) -> list[BehaviorFiles]:
     experiments = []
-    for metadata_file in metadata_files:
-        file_info = parse_filename(metadata_file, metadata_filename_regexp)
-        exp = BehaviorFiles(
-            metadata=metadata_file,
-            stimuli=find_file(file_info, dir.stimuli, stimuli_filename_regexp),  # type: ignore
-            tracking=find_file(file_info, dir.tracking, tracking_filename_regexp),  # type: ignore
-            full_tracking=find_file(file_info, dir.full_tracking, lightningpose_full_filename_regexp, required=False),  # type: ignore
-            eyes_tracking=find_file(file_info, dir.eyes_tracking, lightningpose_eyes_filename_regexp, required=False),  # type: ignore
-            video=find_file(file_info, dir.video, video_filename_regexp, required=False),  # type: ignore
-            video_timestamps=find_file(file_info, dir.video_timestamps, video_timestamps_filename_regexp, required=False),  # type: ignore
-            temperature=find_file(
-                file_info, dir.temperature, temperature_filename_regexp, required=False
-            ),
+    for metadata_file in dir.metadata.glob("*.metadata"):
+        info = parse_filename(metadata_file, metadata_filename_regexp)
+        experiments.append(
+            BehaviorFiles(
+                metadata=metadata_file,
+                stimuli=find_file(info, dir.stimuli, stimuli_filename_regexp),  # type: ignore
+                tracking=find_file(info, dir.tracking, tracking_filename_regexp),  # type: ignore
+                full_tracking=find_file(
+                    info, dir.full_tracking, lightningpose_full_filename_regexp, False
+                ),
+                eyes_tracking=find_file(
+                    info, dir.eyes_tracking, lightningpose_eyes_filename_regexp, False
+                ),
+                video=find_file(info, dir.video, video_filename_regexp, False),
+                video_timestamps=find_file(
+                    info, dir.video_timestamps, video_timestamps_filename_regexp, False
+                ),
+                temperature=find_file(
+                    info, dir.temperature, temperature_filename_regexp, False
+                ),
+            )
         )
-        experiments.append(exp)
     return experiments
-
-
-def parse_fish(fish: str) -> FileNameInfo:
-
-    fish_regexp = re.compile(base_regexp)
-    m = fish_regexp.match(fish)
-    if m is None:
-        raise RuntimeError(f"failed to parse: {fish}")
-    g = m.groupdict()
-
-    return FileNameInfo(
-        fish_id=int(g["fish_id"]),
-        age=int(g["age"]),
-        line=g["line"],
-        weekday=g["weekday"],
-        day=int(g["day"]),
-        month=g["month"],
-        year=int(g["year"]),
-        hour=int(g["hour"]),
-        minute=int(g["minute"]),
-        second=int(g["second"]),
-        extra=g["extra"],
-    )
-
-
-def encode_time_of_day(info: FileNameInfo) -> Tuple[float, float]:
-    seconds = info.hour * 3600 + info.minute * 60 + info.second
-    theta = 2 * np.pi * (seconds / (24 * 3600))
-    return (np.cos(theta), np.sin(theta))
 
 
 def file_younger_than(file_path: str | Path, hours: float) -> bool:
     path = Path(file_path)
-
     if not path.is_file():
         return False
-        
-    age_in_seconds = time.time() - path.stat().st_mtime
-    target_seconds = hours * 3600
-    return age_in_seconds <= target_seconds
-
+    return time.time() - path.stat().st_mtime <= hours * 3600

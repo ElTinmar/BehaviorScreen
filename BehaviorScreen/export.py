@@ -1,112 +1,91 @@
-import json
 import argparse
+import json
+from collections.abc import Iterator
 from pathlib import Path
+
 import numpy as np
-from typing import List, Dict
-
 from video_tools import CPU_VideoProcessor
-from BehaviorScreen.load import (
-    BehaviorData,
-    BehaviorFiles,
-    Directories,
-    find_files,
-    load_data,
-)
-from BehaviorScreen.process import get_background_image_safe
+
+from BehaviorScreen.load import Directories, find_files
+from BehaviorScreen.process import detect_well, get_background_image_safe
 from BehaviorScreen.protocol import protocol, protocol_ptx
+from BehaviorScreen.recording import Recording
+
+ROI = tuple[int, int, int, int]
 
 
-def ensure_results_dir(directories: Directories) -> None:
+def per_fish_outputs(
+    directories: Directories, rec: Recording, stem: str, suffix: str, overwrite: bool
+) -> Iterator[tuple[int, ROI, Path]]:
+    """(fish index, ROI, output path) for every ROI whose output must be written."""
     directories.results.mkdir(parents=True, exist_ok=True)
+    for i, roi in enumerate(rec.metadata["identity"]["ROIs"]):
+        out_path = directories.results / f"{stem}_fish_{i}{suffix}"
+        if overwrite or not out_path.exists():
+            yield i, roi, out_path
 
 
 def export_metadata(
-    directories: Directories,
-    behavior_file: BehaviorFiles,
-    behavior_data: BehaviorData,
-    overwrite: bool = False,
+    directories: Directories, rec: Recording, overwrite: bool = False
 ) -> None:
+    """Per-fish metadata, with the ROI background and the well detected in it."""
+    image = None
+    for i, (x, y, w, h), out_path in per_fish_outputs(
+        directories, rec, rec.name, ".metadata", overwrite
+    ):
+        if image is None:
+            stored = rec.metadata["background"].get("image")
+            # TODO fix missing background image upstream
+            image = (
+                get_background_image_safe(rec.video)
+                if stored is None
+                else np.asarray(stored, dtype=np.uint8)
+            )
 
-    ensure_results_dir(directories)
+        roi = image[y : y + h, x : x + w]
+        well = detect_well(
+            roi, rec.pix_per_mm, png=out_path.with_name(f"{out_path.stem}_WELLS.png")
+        )
+        if well is None:
+            print(f"[warn] {out_path.stem}: well not found")
 
-    for i, (x, y, w, h) in enumerate(behavior_data.metadata["identity"]["ROIs"]):
-        metadata_file = behavior_file.metadata.stem + f"_fish_{i}.metadata"
-        out_path = directories.results / metadata_file
-
-        if out_path.exists() and not overwrite:
-            continue
-
-        metadata = behavior_data.metadata.copy()
-
-        try:
-            background_img = np.asarray(metadata["background"]["image"])
-        except KeyError:
-            # TODO fix the issue
-            background_img = get_background_image_safe(behavior_data)
-
-        metadata["background"]["image_ROI"] = background_img[
-            y : y + h, x : x + w
-        ].tolist()
-        metadata["export"] = {}
-        metadata["export"]["fish_ID"] = i
-
+        metadata = rec.metadata | {
+            "background": rec.metadata["background"] | {"image_ROI": roi.tolist()},
+            "export": {"fish_ID": i},
+            "well": None if well is None else well._asdict(),
+        }
         with open(out_path, "w") as fp:
             json.dump(metadata, fp)
 
 
 def export_tracking(
-    directories: Directories,
-    behavior_file: BehaviorFiles,
-    behavior_data: BehaviorData,
-    overwrite: bool = False,
+    directories: Directories, rec: Recording, overwrite: bool = False
 ) -> None:
 
-    ensure_results_dir(directories)
+    n_tail_points = rec.metadata["settings"]["tracking"]["n_tail_pts_interp"]
+    coords = ["centroid", "left_eye", "right_eye"]
+    coords += [f"tail_point_{n:03}" for n in range(n_tail_points)]
 
-    df = behavior_data.tracking
-    for i, _ in enumerate(behavior_data.metadata["identity"]["ROIs"]):
-        tracking_file = behavior_file.tracking.stem + f"_fish_{i}.csv"
-        out_path = directories.results / tracking_file
-
-        if out_path.exists() and not overwrite:
-            continue
-
-        current_df = df[df.identity == i].set_index("index").copy()
-
-        offset_x, offset_y, _, _ = behavior_data.metadata["identity"]["ROIs"][i]
-        coords_to_transform = ["centroid", "left_eye", "right_eye"]
-        n_tail_points = behavior_data.metadata["settings"]["tracking"][
-            "n_tail_pts_interp"
-        ]
-        coords_to_transform.extend([f"tail_point_{n:03}" for n in range(n_tail_points)])
-
-        for coord in coords_to_transform:
-            current_df[coord + "_x"] -= offset_x
-            current_df[coord + "_y"] -= offset_y
-
-        current_df.to_csv(out_path)
+    for i, (offset_x, offset_y, _, _), out_path in per_fish_outputs(
+        directories, rec, rec.files.tracking.stem, ".csv", overwrite
+    ):
+        df = rec.tracking[rec.tracking.identity == i].set_index("index").copy()
+        for coord in coords:
+            df[coord + "_x"] -= offset_x
+            df[coord + "_y"] -= offset_y
+        df.to_csv(out_path)
 
 
 def export_timestamps(
-    directories: Directories,
-    behavior_file: BehaviorFiles,
-    behavior_data: BehaviorData,
-    overwrite: bool = False,
+    directories: Directories, rec: Recording, overwrite: bool = False
 ) -> None:
-
-    ensure_results_dir(directories)
-
-    for i, _ in enumerate(behavior_data.metadata["identity"]["ROIs"]):
-        timestamp_file = behavior_file.video_timestamps.stem + f"_fish_{i}.csv"
-        out_path = directories.results / timestamp_file
-
-        if out_path.exists() and not overwrite:
-            continue
-
-        behavior_data.video_timestamps.to_csv(out_path, index=False)
+    for _, _, out_path in per_fish_outputs(
+        directories, rec, rec.files.video_timestamps.stem, ".csv", overwrite  # type: ignore
+    ):
+        rec.video_timestamps.to_csv(out_path, index=False)
 
 
-def patch_epoch_name(stimuli: List[Dict]) -> List[Dict]:
+def patch_epoch_name(stimuli: list[dict]) -> list[dict]:
     """Use epoch name with older version of ZebVR"""
 
     patched_stimuli = stimuli.copy()
@@ -119,67 +98,39 @@ def patch_epoch_name(stimuli: List[Dict]) -> List[Dict]:
 
 def export_stimuli(
     directories: Directories,
-    behavior_file: BehaviorFiles,
-    behavior_data: BehaviorData,
+    rec: Recording,
     overwrite: bool = False,
     patch: bool = True,
 ) -> None:
-    # NOTE: not using JSON properly
-
-    ensure_results_dir(directories)
-
-    for i, _ in enumerate(behavior_data.metadata["identity"]["ROIs"]):
-        stim_file = behavior_file.stimuli.stem + f"_fish_{i}.json"
-        out_path = directories.results / stim_file
-
-        if out_path.exists() and not overwrite:
-            continue
-
-        if patch:
-            stim = patch_epoch_name(behavior_data.stimuli)
-        else:
-            stim = behavior_data.stimuli
-
+    stimuli = patch_epoch_name(rec.stimuli) if patch else rec.stimuli
+    for _, _, out_path in per_fish_outputs(
+        directories, rec, rec.files.stimuli.stem, ".json", overwrite
+    ):
         with open(out_path, "w") as fp:
-            for line in stim:
-                fp.write(json.dumps(line) + "\n")
+            fp.writelines(json.dumps(line) + "\n" for line in stimuli)
 
 
 def export_videos(
     directories: Directories,
-    behavior_file: BehaviorFiles,
-    behavior_data: BehaviorData,
+    rec: Recording,
     quality: int = 18,
     overwrite: bool = False,
 ) -> None:
 
-    ensure_results_dir(directories)
-
-    video_cropper = CPU_VideoProcessor(
-        str(behavior_file.video), quality=quality, preset="fast"
-    )
+    video_cropper = CPU_VideoProcessor(str(rec.files.video), quality=quality, preset="fast")
     dest_folder = str(directories.results)
 
-    for i, (x, y, w, h) in enumerate(behavior_data.metadata["identity"]["ROIs"]):
+    for i, (x, y, w, h) in enumerate(rec.metadata["identity"]["ROIs"]):
         suffix = f"fish_{i}"
         out_path = Path(video_cropper.make_output_path(suffix, dest_folder))
         if out_path.exists() and not overwrite:
             continue
-
-        video_cropper.crop(
-            x,
-            y,
-            w,
-            h,
-            suffix=suffix,
-            dest_folder=dest_folder,
-        )
+        video_cropper.crop(x, y, w, h, suffix=suffix, dest_folder=dest_folder)
 
 
 def export(
     directories: Directories,
-    behavior_file: BehaviorFiles,
-    behavior_data: BehaviorData,
+    rec: Recording,
     *,
     tracking_flag: bool = True,
     timestamps_flag: bool = True,
@@ -191,19 +142,19 @@ def export(
 ) -> None:
 
     if tracking_flag:
-        export_tracking(directories, behavior_file, behavior_data, overwrite)
+        export_tracking(directories, rec, overwrite)
 
     if timestamps_flag:
-        export_timestamps(directories, behavior_file, behavior_data, overwrite)
+        export_timestamps(directories, rec, overwrite)
 
     if stimuli_flag:
-        export_stimuli(directories, behavior_file, behavior_data, overwrite)
+        export_stimuli(directories, rec, overwrite)
 
     if metadata_flag:
-        export_metadata(directories, behavior_file, behavior_data, overwrite)
+        export_metadata(directories, rec, overwrite)
 
     if videos_flag:
-        export_videos(directories, behavior_file, behavior_data, quality, overwrite)
+        export_videos(directories, rec, quality, overwrite)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -340,15 +291,11 @@ def export_single_animals(
         plots=plots,
     )
 
-    behavior_files = find_files(directories)
-
-    for file in behavior_files:
+    for file in find_files(directories):
         print(f"processing {file.metadata.stem}", flush=True)
-        behavior_data = load_data(file)
         export(
             directories,
-            file,
-            behavior_data,
+            Recording(file),
             tracking_flag=tracking_flag,
             timestamps_flag=timestamps_flag,
             stimuli_flag=stimuli_flag,

@@ -3,97 +3,29 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import matplotlib.pyplot as plt
+import numpy as np
 import pandas as pd
 
-from BehaviorScreen.core import Laterality
-
-LATERALITY_CODE_LABELS = {
-    int(Laterality.IPSILATERAL): "ipsi",
-    int(Laterality.CONTRALATERAL): "contra",
-    int(Laterality.NONDIRECTIONAL): "none",
-}
-
-LATERALITY_ORDER = {
-    "ipsi": 0,
-    "contra": 1,
-    "none": 2,
-}
-
-SIGN_ORDER = {
-    "LEFT": 0,
-    "RIGHT": 1,
-}
-
-SIGN_LABELS = [
-    "LEFT",
-    "RIGHT",
-]
+from BehaviorScreen.event_rates import (
+    EventKind,
+    PreparedEvents,
+    aggregate,
+    frequency_table,
+    order_lateralities,
+)
+from BehaviorScreen.stim_specs import stimulus_name_order
 
 # average_trial, average_time_bin, filename suffix, title
 HEATMAP_VARIANTS = [
-    (
-        False,
-        False,
-        "",
-        "trial_x_time bin",
-    ),
-    (
-        True,
-        False,
-        "_trial_avg",
-        "averaged over trials",
-    ),
-    (
-        False,
-        True,
-        "_timebin_avg",
-        "averaged over time bins",
-    ),
-    (
-        True,
-        True,
-        "_full_avg",
-        "averaged over trials and time bins",
-    ),
+    (False, False, "", "trial_x_time bin"),
+    (True, False, "_trial_avg", "averaged over trials"),
+    (False, True, "_timebin_avg", "averaged over time bins"),
+    (True, True, "_full_avg", "averaged over trials and time bins"),
 ]
-
-
-def order_lateralities(values: Any) -> list[str]:
-    """Sort laterality labels in a stable display order."""
-    return sorted(
-        values,
-        key=lambda value: LATERALITY_ORDER.get(value, 99),
-    )
-
-
-def order_signs(values: Any) -> list[str]:
-    """Sort left/right labels in a stable display order."""
-    return sorted(
-        values,
-        key=lambda value: SIGN_ORDER.get(value, 99),
-    )
-
-
-def map_laterality(series: pd.Series) -> pd.Series:
-    """
-    Map raw laterality codes to display labels.
-
-    Explicit non-directional and missing values are placed in the ``none``
-    group.
-    """
-    numeric = pd.to_numeric(
-        series,
-        errors="coerce",
-    )
-    mapped = numeric.map(LATERALITY_CODE_LABELS)
-
-    return mapped.where(
-        mapped.notna(),
-        "none",
-    )
 
 
 def filename_safe(text: str) -> str:
@@ -462,3 +394,109 @@ def grouped_heatmap_figure_size(
             row_height * number_of_rows,
         ),
     )
+
+
+def save_rate_heatmap(
+    kind: EventKind,
+    averaged: pd.DataFrame,
+    stimulus_order: Sequence[str],
+    path: Path,
+    title: str,
+    vmax: float,
+    interactive: bool,
+    **figure_size: float,
+) -> None:
+    """Grouped heatmap of an aggregated rate table, one row block per category."""
+    pivot, groups, subgroups, labels, number_of_trials = build_grouped_heatmap_matrix(
+        averaged=averaged,
+        row_column=kind.category,
+        row_order=kind.categories,
+        value_column=kind.frequency,
+        stimulus_order=stimulus_order,
+    )
+    if not np.isfinite(pivot.to_numpy(dtype=float)).any():
+        print(f"Skipping {path.name}: only NaN values")
+        return
+
+    figure, axis = plt.subplots(
+        figsize=grouped_heatmap_figure_size(pivot.shape, **figure_size),
+        layout="constrained",
+    )
+    plot_grouped_heatmap(
+        figure=figure,
+        axis=axis,
+        pivot=pivot,
+        row_group_labels=kind.labels,
+        column_groups=groups,
+        column_subgroups=subgroups,
+        time_labels=labels,
+        number_of_trials=number_of_trials,
+        title=title,
+        color_limit=(0.0, vmax),
+        colorbar_label=f"{kind.name} frequency (s⁻¹)",
+    )
+    figure.savefig(path, dpi=180, bbox_inches="tight")
+    if not interactive:
+        plt.close(figure)
+    print(f"Saved {path}")
+
+
+def plot_rate_heatmaps(
+    kind: EventKind,
+    prepared: PreparedEvents,
+    config: dict,
+    output_png: Path,
+    vmax: float,
+    interactive: bool = False,
+) -> pd.DataFrame:
+    """
+    Per-fish table, the four trial/time-bin averages and the fine-bin
+    heatmaps, with their CSVs next to output_png. Returns the per-fish table.
+    """
+    out = output_png.parent
+    out.mkdir(parents=True, exist_ok=True)
+    stimulus_order = stimulus_name_order(config)
+
+    per_fish = frequency_table(kind, prepared, config)
+    per_fish.to_csv(out / f"{kind.frequency}.csv", index=False)
+    if per_fish.empty:
+        print(f"No {kind.name}s remain after filtering.")
+        return per_fish
+
+    for average_trial, average_time_bin, suffix, title in HEATMAP_VARIANTS:
+        averaged = aggregate(kind, per_fish, average_trial, average_time_bin)
+        averaged.to_csv(out / f"{kind.frequency}_avg{suffix}.csv", index=False)
+        save_rate_heatmap(
+            kind,
+            averaged,
+            stimulus_order,
+            out / f"{output_png.stem}{suffix}{output_png.suffix}",
+            title,
+            vmax,
+            interactive,
+        )
+
+    fine = frequency_table(kind, prepared, config, "fine_time_bins", collapse_trials=True)
+    if fine.empty:
+        return per_fish
+    fine_average = aggregate(kind, fine, average_trial=False, average_time_bin=False)
+    fine_average.to_csv(out / f"{kind.frequency}_fine.csv", index=False)
+
+    for stimulus in stimulus_order:
+        data = fine_average.loc[fine_average["stim_name"] == stimulus]
+        if data.empty:
+            continue
+        save_rate_heatmap(
+            kind,
+            data,
+            [stimulus],
+            out / f"{output_png.stem}_fine_{filename_safe(stimulus)}{output_png.suffix}",
+            f"{stimulus}: fine time bins, averaged over trials",
+            vmax,
+            interactive,
+            minimum_width=12,
+            minimum_height=6,
+            row_height=0,
+        )
+
+    return per_fish
