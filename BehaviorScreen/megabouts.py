@@ -31,14 +31,18 @@ from megabouts.tracking_data import (
     TrackingConfig,
 )
 
-from BehaviorScreen.event_context import RecordingContext
+from BehaviorScreen.event_context import (
+    RecordingContext,
+    frame_timestamps,
+    online_tracking_per_frame,
+)
 from BehaviorScreen.load import (
     BehaviorData,
     BehaviorFiles,
     Directories,
     find_files,
     load_data,
-    file_younger_than
+    file_younger_than,
 )
 from BehaviorScreen.protocol import bout_laterality
 
@@ -88,7 +92,7 @@ def megabout_fulltracking_pipeline(
 
     frames_per_second = float(behavior_data.metadata["camera"]["framerate_value"])
 
-    timestamps = behavior_data.tracking["timestamp"].to_numpy()
+    timestamps = frame_timestamps(behavior_data)
 
     tracking_config = TrackingConfig(
         fps=frames_per_second,
@@ -301,15 +305,13 @@ def get_bout_metrics(
         bout_start_timestamps[valid_bout_indices]
     )
 
-    online_centroid = behavior_data.tracking[["centroid_x", "centroid_y"]].to_numpy(
-        dtype=float
-    )
-
     posthoc_centroid = behavior_data.full_tracking.Swim_Bladder[["x", "y"]].to_numpy(
         dtype=float
     )
 
-    online_heading = behavior_data.tracking[["pc1_x", "pc1_y"]].to_numpy(dtype=float)
+    online = online_tracking_per_frame(behavior_data, len(posthoc_centroid))
+    online_centroid = online[["centroid_x", "centroid_y"]].to_numpy(dtype=float)
+    online_heading = online[["pc1_x", "pc1_y"]].to_numpy(dtype=float)
 
     posthoc_heading_vector = (
         behavior_data.full_tracking.Head[["x", "y"]].to_numpy(dtype=float)
@@ -357,7 +359,9 @@ def get_bout_metrics(
 
         bout_duration = (offset - onset) / frames_per_second
 
-        interbout_duration = np.nan if last_offset is None else (onset - last_offset) / frames_per_second
+        interbout_duration = (
+            np.nan if last_offset is None else (onset - last_offset) / frames_per_second
+        )
 
         peak_axial_speed = get_peak_signed_value(
             megabout.traj.axial_speed[onset:offset]
@@ -398,7 +402,9 @@ def get_bout_metrics(
             "peak_axial_speed": peak_axial_speed,
             "peak_yaw_speed": peak_yaw_speed,
             "category": int(bout_categories[bout_index]),
-            "within_trial": bool(bout_stop_timestamps[bout_index] < recording.trial_stops[trial_index]),
+            "within_trial": bool(
+                bout_stop_timestamps[bout_index] < recording.trial_stops[trial_index]
+            ),
             "sign": int(sign),
             "proba": float(bout_probabilities[bout_index]),
             "laterality": laterality,
@@ -478,7 +484,7 @@ def run_megabouts(
     plots: str,
     cpu: bool,
     rollover_time_s: int,
-    overwrite_mtime: int = 0
+    overwrite_mtime: int = 0,
 ) -> None:
     """Run Megabouts for all experiments and write the bout table."""
     if cpu:
@@ -489,7 +495,7 @@ def run_megabouts(
     output_path = root / output_csv
     if file_younger_than(output_path, overwrite_mtime):
         print(f"{output_path} is younger than {overwrite_mtime}h, skipping...")
-        return 
+        return
 
     output_path.parent.mkdir(
         parents=True,

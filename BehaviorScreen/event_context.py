@@ -32,6 +32,28 @@ TRIAL_COLUMNS_TO_EXCLUDE = {
 }
 
 
+def frame_timestamps(behavior_data: BehaviorData) -> np.ndarray:
+    """
+    Timestamp of each pose-estimation frame. Lightning Pose row i is video frame i,
+    so frame times come from video_timestamps, not from the online tracking rows
+    (which lack frames where the online tracker missed the fish).
+    """
+    timestamps = behavior_data.video_timestamps["timestamp"].to_numpy(dtype=np.int64)
+    n_frames = len(behavior_data.full_tracking)
+    if len(timestamps) < n_frames:
+        raise ValueError(
+            f"{len(timestamps)} video timestamps for {n_frames} pose-estimation frames"
+        )
+    return timestamps[:n_frames]
+
+
+def online_tracking_per_frame(
+    behavior_data: BehaviorData, n_frames: int
+) -> pd.DataFrame:
+    """Online tracking indexed by frame; frames the tracker missed become NaN rows."""
+    return behavior_data.tracking.set_index("index").reindex(range(n_frames))
+
+
 def scalar_for_csv(value: Any) -> Any:
     """Convert a value into a scalar suitable for a CSV table."""
     if value is None:
@@ -294,13 +316,19 @@ class RecordingContext:
             self.trial_stops = self.trials["stop_timestamp"].to_numpy(dtype=np.int64)
             self.first_trial_start = int(self.trial_starts.min())
 
-        video_timestamps = self.behavior_data.video_timestamps.timestamp.to_numpy()
+        video_timestamps = self.behavior_data.video_timestamps.timestamp.to_numpy(
+            dtype=float
+        )
+        finite_timestamps = video_timestamps[np.isfinite(video_timestamps)]
 
-        if len(video_timestamps) == 0:
+        if len(finite_timestamps) == 0:
             raise ValueError(f"No video timestamps were found for {self.file}.")
 
-        self.recording_start_timestamp = int(video_timestamps[0])
+        # Same origin as detect_saccades' onset_time_s.
+        self.recording_start_timestamp = int(finite_timestamps[0])
 
+        # A missing well leaves distance_center NaN; qc.py flags these fish
+        # (well_not_found) so they are excluded rather than counted as silent.
         try:
             (
                 self.well_center_x_mm,
@@ -311,10 +339,8 @@ class RecordingContext:
                 self.behavior_files,
                 self.behavior_data,
             )
-        except Exception as error:
-            print(
-                f"[warn] Could not determine well center for " f"{self.file}: {error}"
-            )
+        except RuntimeError as error:
+            print(f"[warn] Could not determine well center for {self.file}: {error}")
             self.well_center_x_mm = np.nan
             self.well_center_y_mm = np.nan
 
@@ -506,38 +532,14 @@ class RecordingContext:
             ),
         }
 
-        tracking = self.behavior_data.tracking
         full_tracking = self.behavior_data.full_tracking
 
-        if tracking.empty or full_tracking.empty:
+        if full_tracking.empty:
             return result
 
-        if "timestamp" not in tracking.columns:
-            return result
-
-        try:
-            tracking_timestamps_raw = tracking["timestamp"].to_numpy()
-
-            swim_bladder_px = full_tracking.Swim_Bladder[["x", "y"]].to_numpy(
-                dtype=float
-            )
-
-            head_px = full_tracking.Head[["x", "y"]].to_numpy(dtype=float)
-        except (AttributeError, KeyError):
-            return result
-
-        number_of_frames = min(
-            len(tracking_timestamps_raw),
-            len(swim_bladder_px),
-            len(head_px),
-        )
-
-        if number_of_frames == 0:
-            return result
-
-        tracking_timestamps_raw = tracking_timestamps_raw[:number_of_frames]
-        swim_bladder_px = swim_bladder_px[:number_of_frames]
-        head_px = head_px[:number_of_frames]
+        tracking_timestamps_raw = frame_timestamps(self.behavior_data)
+        swim_bladder_px = full_tracking.Swim_Bladder[["x", "y"]].to_numpy(dtype=float)
+        head_px = full_tracking.Head[["x", "y"]].to_numpy(dtype=float)
 
         finite = (
             np.isfinite(tracking_timestamps_raw)
