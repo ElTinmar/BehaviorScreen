@@ -84,6 +84,11 @@ DEFAULT_METRIC_MAX_GAP_MS = 20.0
 DEFAULT_SNIPPET_PRE_MS = 300.0
 DEFAULT_SNIPPET_POST_MS = 600.0
 
+# Not reported in the methods; see MetricConfig.
+DEFAULT_ONSET_THRESHOLD_FRACTION = 0.5
+DEFAULT_LOWESS_DELTA_THRESHOLD = 0.5
+DEFAULT_LOWESS_ANNEAL_SAMPLES = 50
+
 
 # ============================================================================
 # Lightning Pose data extraction
@@ -358,9 +363,9 @@ def process_fish(
     likelihood_threshold: float,
     detection_max_gap_ms: float,
     metric_max_gap_ms: float,
-    onset_threshold_fraction: float = 0.5,
-    lowess_delta_threshold: float = 0.5,
-    lowess_anneal_samples: int = 50,
+    onset_threshold_fraction: float = DEFAULT_ONSET_THRESHOLD_FRACTION,
+    lowess_delta_threshold: float = DEFAULT_LOWESS_DELTA_THRESHOLD,
+    lowess_anneal_samples: int = DEFAULT_LOWESS_ANNEAL_SAMPLES,
 ) -> tuple[pd.DataFrame, dict[str, np.ndarray]]:
     """
     Detect and measure saccades for one fish.
@@ -660,15 +665,15 @@ def process_fish(
 
 def collect_events(
     directories: Directories,
-    mode: str,
-    snippet_pre_ms: float,
-    snippet_post_ms: float,
-    likelihood_threshold: float,
-    detection_max_gap_ms: float,
-    metric_max_gap_ms: float,
-    onset_threshold_fraction: float,
-    lowess_delta_threshold: float,
-    lowess_anneal_samples: int,
+    mode: str = "freeswim",
+    snippet_pre_ms: float = DEFAULT_SNIPPET_PRE_MS,
+    snippet_post_ms: float = DEFAULT_SNIPPET_POST_MS,
+    likelihood_threshold: float = DEFAULT_LIKELIHOOD_THRESHOLD,
+    detection_max_gap_ms: float = DEFAULT_DETECTION_MAX_GAP_MS,
+    metric_max_gap_ms: float = DEFAULT_METRIC_MAX_GAP_MS,
+    onset_threshold_fraction: float = DEFAULT_ONSET_THRESHOLD_FRACTION,
+    lowess_delta_threshold: float = DEFAULT_LOWESS_DELTA_THRESHOLD,
+    lowess_anneal_samples: int = DEFAULT_LOWESS_ANNEAL_SAMPLES,
 ) -> tuple[
     pd.DataFrame,
     dict[str, np.ndarray] | None,
@@ -692,11 +697,7 @@ def collect_events(
     ):
         fish_label = files.metadata.stem
 
-        try:
-            behavior_data = load_data(files)
-        except Exception as error:
-            print(f"[skip] {fish_label}: failed to load data: " f"{error}")
-            continue
+        behavior_data = load_data(files)
 
         if behavior_data.eyes_tracking.empty:
             print(f"[skip] {fish_label}: no eye tracking")
@@ -714,7 +715,7 @@ def collect_events(
                 left_likelihood,
                 right_likelihood,
             ) = extract_raw_eye_angles(behavior_data)
-        except Exception as error:
+        except ValueError as error:
             print(f"[skip] {fish_label}: failed to extract " f"eye data: {error}")
             continue
 
@@ -754,7 +755,7 @@ def collect_events(
                 lowess_delta_threshold=(lowess_delta_threshold),
                 lowess_anneal_samples=(lowess_anneal_samples),
             )
-        except Exception as error:
+        except ValueError as error:
             print(f"[skip] {fish_label}: saccade processing " f"failed: {error}")
             continue
 
@@ -907,7 +908,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--onset-threshold-fraction",
         type=float,
-        default=0.5,
+        default=DEFAULT_ONSET_THRESHOLD_FRACTION,
         help=(
             "Fraction of the local onset-product maximum used "
             "for refined onset thresholding. This value was "
@@ -918,7 +919,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lowess-delta-threshold",
         type=float,
-        default=0.5,
+        default=DEFAULT_LOWESS_DELTA_THRESHOLD,
         help=(
             "Step-response threshold for custom LOWESS. This "
             "value was not fully reported. Default: %(default)s"
@@ -928,7 +929,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--lowess-anneal-samples",
         type=int,
-        default=50,
+        default=DEFAULT_LOWESS_ANNEAL_SAMPLES,
         help=(
             "Annealing distance for custom LOWESS, in 500 Hz "
             "samples. Default: %(default)s"
