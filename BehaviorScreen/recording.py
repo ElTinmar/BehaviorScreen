@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -61,19 +62,21 @@ class Recording:
 
     @cached_property
     def pose(self) -> pd.DataFrame:
-        return self._in_time_order(load_lightning_pose(self.files.full_tracking, self.n_frames))
+        return self._on_frame_clock(self.files.full_tracking)
 
     @cached_property
     def eyes(self) -> pd.DataFrame:
-        return self._in_time_order(load_lightning_pose(self.files.eyes_tracking, self.n_frames))
+        return self._on_frame_clock(self.files.eyes_tracking)
 
-    def _in_time_order(self, rows: pd.DataFrame) -> pd.DataFrame:
-        """Video-order rows (one per video frame) reordered like the frame clock."""
-        order = self.video_frames[: len(rows)]
+    def _on_frame_clock(self, path: Optional[Path]) -> pd.DataFrame:
+        """Lightning Pose rows (one per video frame) selected and ordered like the frame clock."""
+        rows = load_lightning_pose(path, len(self.video_timestamps))
+        order = self.video_frames
         if np.array_equal(order, np.arange(len(rows))):
             return rows
-        if order.max() >= len(rows):
-            raise ValueError(f"{self.name}: {len(rows)} rows do not cover the reordered frames")
+        order = order[order < len(rows)]
+        if not np.array_equal(order, self.video_frames[: len(order)]):
+            raise ValueError(f"{self.name}: {path} is too short for the reordered frames")
         return rows.iloc[order].reset_index(drop=True)
 
     @cached_property
@@ -98,8 +101,13 @@ class Recording:
 
     @cached_property
     def video_frames(self) -> np.ndarray:
-        """Video frame at each frame position: video frames sorted by timestamp."""
-        return np.argsort(self.video_timestamps["timestamp"].to_numpy(np.int64), kind="stable")
+        """
+        Video frame at each frame position: video frames sorted by timestamp,
+        keeping the first copy of frames written twice.
+        """
+        first_copy = np.flatnonzero(~self.video_timestamps.duplicated("index").to_numpy())
+        time = self.video_timestamps["timestamp"].to_numpy(np.int64)[first_copy]
+        return first_copy[np.argsort(time, kind="stable")]
 
     @cached_property
     def frame_time_ns(self) -> np.ndarray:

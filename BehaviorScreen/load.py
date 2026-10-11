@@ -244,9 +244,9 @@ def load_video_timestamps(video_timestamp_file: Path) -> pd.DataFrame:
     """
     One row per frame written to the video, in video order: the acquisition
     writes each frame and its row together. Frames can reach the writer out of
-    time order, so rows are not necessarily sorted (Recording sorts them).
-    `index` is the camera frame counter and may skip values when frames were
-    dropped.
+    time order or twice, so rows are not necessarily sorted or unique
+    (Recording sorts them and keeps one copy). `index` is the camera frame
+    counter and may skip values when frames were dropped.
     """
     df = pd.read_csv(video_timestamp_file)
     if not df["timestamp"].is_monotonic_increasing:
@@ -255,8 +255,13 @@ def load_video_timestamps(video_timestamp_file: Path) -> pd.DataFrame:
             f"[warn] {video_timestamp_file.name}: {np.sum(order != np.arange(len(df)))} "
             "frames written out of time order"
         )
-    if not df["index"].is_unique:
-        raise ValueError(f"Duplicate frame indices in {video_timestamp_file}")
+    repeated = df.duplicated("index")
+    if repeated.any():
+        if df.duplicated(["index", "timestamp"]).sum() != repeated.sum():
+            raise ValueError(
+                f"{video_timestamp_file}: the same frame counter has different timestamps"
+            )
+        print(f"[warn] {video_timestamp_file.name}: {repeated.sum()} frames written twice")
     return df
 
 

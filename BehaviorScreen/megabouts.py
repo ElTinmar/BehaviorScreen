@@ -297,17 +297,23 @@ def detect_bouts(rec: Recording) -> MegaboutResults:
     return megabout
 
 
-def load_megabout(rec: Recording) -> MegaboutResults:
-    """Saved Megabouts result; it must have been computed on the current frame order."""
-    with megabout_path(rec).open("rb") as input_file:
+def load_megabout(rec: Recording) -> MegaboutResults | None:
+    """
+    Saved Megabouts result, or None (with the reason printed) if it is missing
+    or was computed on frames in a different order than the current frame clock.
+    """
+    path = megabout_path(rec)
+    if not path.exists():
+        print(f"[detect] {rec.name}: no {path.name}")
+        return None
+
+    with path.open("rb") as input_file:
         megabout = pickle.load(input_file)
     clock = rec.frame_time_ns
     n = min(len(megabout.timestamp), len(clock))
     if not np.array_equal(np.asarray(megabout.timestamp[:n], dtype=np.int64), clock[:n]):
-        raise ValueError(
-            f"{megabout_path(rec)} was computed on frames in a different order; "
-            "rerun this folder with --from-stage detect"
-        )
+        print(f"[detect] {rec.name}: {path.name} was computed on frames in a different order")
+        return None
     return megabout
 
 
@@ -329,7 +335,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="detect",
         help=(
             "detect: run Megabouts, save one .pkl per fish, then build the table. "
-            "augment: rebuild the table from the saved .pkl files. "
+            "augment: rebuild the table from the saved .pkl files, running "
+            "Megabouts only for fish whose .pkl is missing or out of date. "
             "Default: %(default)s"
         ),
     )
@@ -375,7 +382,8 @@ def run_megabouts(
         fish, then augment.
     augment
         bouts.csv from the saved .pkl files: kinematics, laterality,
-        tracking quality and trial/stimulus/well context.
+        tracking quality and trial/stimulus/well context. Fish whose .pkl is
+        missing or out of date are detected first.
     """
     if start_stage not in STAGES:
         raise ValueError(f"Unknown start stage {start_stage!r}. Expected one of {STAGES}.")
@@ -385,7 +393,7 @@ def run_megabouts(
         print(f"{output_path} is younger than {overwrite_mtime}h, skipping...")
         return
 
-    if cpu and start_stage == "detect":
+    if cpu:
         import torch
 
         torch.cuda.is_available = lambda: False
@@ -408,16 +416,13 @@ def run_megabouts(
     for behavior_file in tqdm(find_files(directories), desc="Bouts"):
         rec = Recording(behavior_file)
 
-        if start_stage == "detect":
-            if rec.pose.empty:
-                print(f"[skip] {rec.name}: no full tracking")
-                continue
-            megabout = detect_bouts(rec)
-        elif megabout_path(rec).exists():
-            megabout = load_megabout(rec)
-        else:
-            print(f"[skip] {rec.name}: no {megabout_path(rec).name}, run --from-stage detect")
+        if rec.pose.empty:
+            print(f"[skip] {rec.name}: no full tracking")
             continue
+
+        megabout = load_megabout(rec) if start_stage == "augment" else None
+        if megabout is None:
+            megabout = detect_bouts(rec)
 
         fish_rows = get_bout_metrics(rec, megabout)
         bout_rows.extend(fish_rows)
