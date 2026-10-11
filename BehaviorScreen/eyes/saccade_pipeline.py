@@ -1966,17 +1966,11 @@ def detect_biphasic_convergent(
         details["invalid_reason"] = "invalid_search_window"
         return False, None, details
 
-    left_velocity = np.gradient(
-        left_position,
-        1.0 / fs,
-    )
-    right_velocity = np.gradient(
-        right_position,
-        1.0 / fs,
-    )
-
-    left_search_velocity = left_velocity[search_start:search_stop]
-    right_search_velocity = right_velocity[search_start:search_stop]
+    # Same values as np.gradient over the whole trace, at a fraction of the cost.
+    context = slice(search_start - 1, min(search_stop + 1, len(left_position)))
+    search = slice(1, 1 + search_stop - search_start)
+    left_search_velocity = np.gradient(left_position[context], 1.0 / fs)[search]
+    right_search_velocity = np.gradient(right_position[context], 1.0 / fs)[search]
 
     left_velocity_local_index = int(np.argmin(left_search_velocity))
     right_velocity_local_index = int(np.argmax(right_search_velocity))
