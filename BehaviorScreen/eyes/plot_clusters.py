@@ -27,19 +27,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-
-PAPER_CLUSTER_NAMES = {
-    -1: "Unassigned",
-    0: "Unclassified",
-    1: "Conjugate left",
-    2: "Conjugate right",
-    3: "Miniature convergent",
-    4: "Convergent",
-    5: "Non-saccadic",
-    6: "Divergent",
-    7: "Biphasic convergent right",
-    8: "Biphasic convergent left",
-}
+from BehaviorScreen.core import SACCADE_CLASS_NAMES
 
 
 def baseline_correct_traces(
@@ -336,7 +324,7 @@ def plot_cluster_traces(
             linewidth=0.8,
         )
 
-        cluster_name = PAPER_CLUSTER_NAMES.get(
+        cluster_name = SACCADE_CLASS_NAMES.get(
             int(cluster_id),
             f"Unknown cluster {cluster_id}",
         )

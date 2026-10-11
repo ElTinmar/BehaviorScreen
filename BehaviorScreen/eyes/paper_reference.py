@@ -70,6 +70,8 @@ from scipy.io import loadmat
 from sklearn.neighbors import NearestNeighbors
 from urllib3.util.retry import Retry
 
+from BehaviorScreen.core import SACCADE_CLASS_NAMES
+
 
 DATASET_ID = "vd5zdfwc37"
 DATASET_VERSION = 1
@@ -106,17 +108,7 @@ STANDARDIZED_FEATURE_NAMES = [
     for feature_name in FEATURE_NAMES
 ]
 
-LABEL_NAMES = {
-    0: "Unclassified",
-    1: "Conjugate left",
-    2: "Conjugate right",
-    3: "Miniature convergent",
-    4: "Convergent",
-    5: "Non-saccadic",
-    6: "Divergent",
-    7: "Biphasic convergent right",
-    8: "Biphasic convergent left",
-}
+LABEL_NAMES = {label: name for label, name in SACCADE_CLASS_NAMES.items() if label >= 0}
 
 LABEL_COLORS = {
     0: "#bdbdbd",
