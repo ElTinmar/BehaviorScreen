@@ -276,6 +276,7 @@ def load_valid_trials(path: Path) -> pd.DataFrame:
         "trial_num",
         "presented",
         "tracking_ok",
+        "trial_duration_s",
     }
     missing_columns = required_columns.difference(trials.columns)
 
@@ -289,6 +290,7 @@ def load_valid_trials(path: Path) -> pd.DataFrame:
         errors="raise",
     ).astype(int)
 
+    trials["trial_duration_s"] = pd.to_numeric(trials["trial_duration_s"])
     trials["presented"] = parse_boolean_series(trials["presented"])
     trials["tracking_ok"] = parse_boolean_series(trials["tracking_ok"])
     trials["usable"] = trials["presented"] & trials["tracking_ok"]
