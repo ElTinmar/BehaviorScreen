@@ -37,6 +37,7 @@ from BehaviorScreen.stim_specs import (
     load_yaml_config,
     read_stim_specs,
     restrict_trials_to_analysed_fish,
+    select_events,
     stimulus_name_order,
 )
 
@@ -133,9 +134,10 @@ def specification_selection_key(
     specification: StimSpec,
     matched_epoch_names: list[str],
 ) -> tuple[Any, tuple[str, ...]]:
-    """Create a reusable cache key for one stimulus/epoch selection."""
+    """Cache key for one YAML stimulus entry (shared by all its time bins)."""
     return (
         specification.stim,
+        specification.name,
         tuple(matched_epoch_names),
     )
 
@@ -143,17 +145,13 @@ def specification_selection_key(
 def get_matched_laterality_labels(
     events: pd.DataFrame,
     specification: StimSpec,
-    matched_epoch_names: list[str],
 ) -> list[str]:
-    """Determine laterality labels from resolved epoch names."""
+    """Laterality labels present among the events selected by this spec."""
     if "laterality" not in events.columns:
         return ["none"]
 
-    mask = (events["stim"] == specification.stim) & events["epoch_name"].isin(
-        matched_epoch_names
-    )
-
-    labels = map_laterality(events.loc[mask, "laterality"]).dropna().unique().tolist()
+    selected = select_events(events, specification)["laterality"]
+    labels = map_laterality(selected).dropna().unique().tolist()
 
     return order_lateralities(labels) if labels else ["none"]
 
@@ -379,7 +377,6 @@ def compute_saccade_frequency_table(
             laterality_cache[selection_key] = get_matched_laterality_labels(
                 events=events,
                 specification=specification,
-                matched_epoch_names=matched_epoch_names,
             )
 
         laterality_labels[id(specification)] = laterality_cache[selection_key]
@@ -466,11 +463,9 @@ def compute_saccade_frequency_table(
             )
 
             if selection_key not in event_selection_cache:
-                selection_mask = (
-                    fish_events["stim"] == specification.stim
-                ) & fish_events["epoch_name"].isin(matched_epoch_names)
-
-                event_selection_cache[selection_key] = fish_events.loc[selection_mask]
+                event_selection_cache[selection_key] = select_events(
+                    fish_events, specification
+                )
 
             fish_spec_events = event_selection_cache[selection_key]
 
@@ -489,8 +484,8 @@ def compute_saccade_frequency_table(
             exposure = (
                 get_exposure(
                     fish_trials,
+                    specification,
                     matched_epoch_names,
-                    specification.time_range,
                     usable_only=exclude_unusable,
                 )
                 .groupby(level="trial_num")

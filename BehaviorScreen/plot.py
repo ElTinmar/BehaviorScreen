@@ -40,6 +40,7 @@ from BehaviorScreen.stim_specs import (
     load_yaml_config,
     read_stim_specs,
     restrict_trials_to_analysed_fish,
+    select_events,
     stimulus_name_order,
 )
 
@@ -162,9 +163,10 @@ def specification_selection_key(
     specification: StimSpec,
     matched_epoch_names: list[str],
 ) -> tuple[Any, tuple[str, ...]]:
-    """Create a reusable cache key for one stimulus/epoch selection."""
+    """Cache key for one YAML stimulus entry (shared by all its time bins)."""
     return (
         specification.stim,
+        specification.name,
         tuple(matched_epoch_names),
     )
 
@@ -172,21 +174,13 @@ def specification_selection_key(
 def get_matched_laterality_labels(
     events: pd.DataFrame,
     specification: StimSpec,
-    matched_epoch_names: list[str],
 ) -> list[str]:
-    """
-    Determine laterality labels from previously resolved epoch names.
-
-    This avoids rerunning ``StimSpec.get_mask()`` for every time bin.
-    """
+    """Laterality labels present among the events selected by this spec."""
     if "laterality" not in events.columns:
         return ["none"]
 
-    mask = (events["stim"] == specification.stim) & events["epoch_name"].isin(
-        matched_epoch_names
-    )
-
-    labels = map_laterality(events.loc[mask, "laterality"]).dropna().unique().tolist()
+    selected = select_events(events, specification)["laterality"]
+    labels = map_laterality(selected).dropna().unique().tolist()
 
     return order_lateralities(labels) if labels else ["none"]
 
@@ -467,7 +461,6 @@ def compute_bout_frequency_table(
             laterality_cache[selection_key] = get_matched_laterality_labels(
                 events=bouts,
                 specification=specification,
-                matched_epoch_names=matched_epoch_names,
             )
 
         laterality_labels[id(specification)] = laterality_cache[selection_key]
@@ -552,11 +545,9 @@ def compute_bout_frequency_table(
             )
 
             if selection_key not in event_selection_cache:
-                selection_mask = (
-                    fish_bouts["stim"] == specification.stim
-                ) & fish_bouts["epoch_name"].isin(matched_epoch_names)
-
-                event_selection_cache[selection_key] = fish_bouts.loc[selection_mask]
+                event_selection_cache[selection_key] = select_events(
+                    fish_bouts, specification
+                )
 
             fish_spec_bouts = event_selection_cache[selection_key]
 
@@ -575,8 +566,8 @@ def compute_bout_frequency_table(
             start, stop = specification.time_range
             exposure = get_exposure(
                 fish_trials,
+                specification,
                 matched_epoch_names,
-                specification.time_range,
                 usable_only=exclude_unusable,
             )
 
@@ -1059,7 +1050,9 @@ def plot_heatmaps(
 
     fish_counts, number_of_fish = compute_fish_count_table(
         quality_control=quality_control,
-        valid_trials=valid_trials,
+        valid_trials=valid_trials.loc[
+            valid_trials["file"].astype(str).isin(per_fish["file"].astype(str))
+        ],
     )
     fish_counts.to_csv(
         output_png.parent / "fish_count.csv",

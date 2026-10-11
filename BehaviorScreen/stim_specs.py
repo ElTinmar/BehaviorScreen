@@ -364,17 +364,29 @@ def get_epoch_trial_count(
     return 0 if rows.empty else int(rows["trial_num"].max()) + 1
 
 
+def select_events(events: pd.DataFrame, specification: StimSpec) -> pd.DataFrame:
+    """Events of this stimulus that satisfy all of its YAML parameter rules."""
+    mask = (events["stim"] == specification.stim) & specification.get_mask(events)
+    return events.loc[mask]
+
+
 def get_exposure(
     fish_trials: pd.DataFrame,
+    specification: StimSpec,
     epoch_names: list[str],
-    time_range: tuple[float, float],
     usable_only: bool,
 ) -> pd.Series:
-    """Seconds of stimulus inside `time_range`, per (epoch_name, trial_num)."""
-    start, stop = time_range
+    """
+    Seconds of stimulus inside the spec's time range, per (epoch_name, trial_num).
+
+    Trials are selected with the same YAML parameter rules as the events, so a
+    trial whose events are excluded doesn't contribute exposure either.
+    """
+    start, stop = specification.time_range
     rows = fish_trials.loc[
         fish_trials["epoch_name"].isin(epoch_names)
         & fish_trials["usable" if usable_only else "presented"]
+        & specification.get_mask(fish_trials)
     ]
     overlap = (rows["trial_duration_s"].clip(upper=stop) - start).clip(lower=0)
     return overlap.groupby([rows["epoch_name"], rows["trial_num"]]).sum()
