@@ -21,7 +21,7 @@ def process_folder(folder):
         results = "results",
         plots = "results",
         cpu = False,
-        rollover_time_s=3600,
+        start_stage='detect',
         #overwrite_mtime=10
     )
     
