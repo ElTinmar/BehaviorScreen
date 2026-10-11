@@ -21,8 +21,8 @@ def process_folder(folder):
         results = "results",
         plots = "results",
         cpu = False,
-        start_stage='detect',
-        #overwrite_mtime=10
+        #start_stage='augment',
+        #overwrite_mtime=5
     )
     
 if __name__ == "__main__":
