@@ -64,6 +64,13 @@ def build_parser() -> argparse.ArgumentParser:
         "(default: 15.0, same value used by the session-level check)",
     )
 
+    parser.add_argument(
+        "--keep-frame-order-issues",
+        action="store_true",
+        help="Keep fish whose frames were written out of time order or twice "
+        "(repaired on load); excluded by default",
+    )
+
     # Directory layout overrides
     parser.add_argument(
         "--metadata",
@@ -186,6 +193,19 @@ def is_online_tracking_bad(
     )
 
 
+def has_frame_order_issue(rec: Recording) -> bool:
+    """
+    Frames written out of time order or twice: the acquisition's frame queue
+    misbehaved during the recording. Recording repairs the order, but the
+    recording is not trusted by default.
+    """
+    timestamps = rec.video_timestamps
+    return bool(
+        timestamps.duplicated("index").any()
+        or not timestamps["timestamp"].is_monotonic_increasing
+    )
+
+
 def is_fish_not_moving(rec: Recording, speed_threshold_mm_per_sec: float = 0.2) -> bool:
     # False if the dark epoch is not found
     return bool(get_average_speed(rec) < speed_threshold_mm_per_sec)
@@ -230,6 +250,7 @@ def quality_control(
     coverage_threshold: float = 0.8,
     trial_centroid_threshold_mm: float = 1.0,
     trial_heading_threshold_deg: float = 15.0,
+    exclude_frame_order_issues: bool = True,
 ) -> None:
     """
     Writes the fish-level exclusions (qc.csv) and the per-trial record
@@ -259,9 +280,10 @@ def quality_control(
         not_moving = is_fish_not_moving(rec)
         centroid_issue, heading_issue = is_online_tracking_bad(per_frame_error)
         well_not_found = rec.well is None
-        if not_moving or centroid_issue or heading_issue or well_not_found:
+        frame_order_issue = exclude_frame_order_issues and has_frame_order_issue(rec)
+        if not_moving or centroid_issue or heading_issue or well_not_found or frame_order_issue:
             bad_fish.append(
-                (rec.name, not_moving, centroid_issue, heading_issue, well_not_found)
+                (rec.name, not_moving, centroid_issue, heading_issue, well_not_found, frame_order_issue)
             )
 
         trials = rec.trials.assign(
@@ -280,7 +302,9 @@ def quality_control(
         valid["file"] = rec.name
         valid_trial_tables.append(valid)
 
-    header = ["file", "not_moving", "centroid_issue", "heading_issue", "well_not_found"]
+    header = [
+        "file", "not_moving", "centroid_issue", "heading_issue", "well_not_found", "frame_order_issue"
+    ]
     pd.DataFrame(bad_fish, columns=header).to_csv(root / output_csv, index=False)
     pd.concat(valid_trial_tables, ignore_index=True).to_csv(
         root / valid_trials_csv, index=False
@@ -304,6 +328,7 @@ def main(args: argparse.Namespace) -> None:
         coverage_threshold=args.coverage_threshold,
         trial_centroid_threshold_mm=args.trial_centroid_threshold_mm,
         trial_heading_threshold_deg=args.trial_heading_threshold_deg,
+        exclude_frame_order_issues=not args.keep_frame_order_issues,
     )
 
 
