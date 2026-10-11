@@ -281,44 +281,61 @@ def get_bout_metrics(rec: Recording, megabout: MegaboutResults) -> list[dict[str
     return rows
 
 
+STAGES = ("detect", "augment")
+
+
+def megabout_path(rec: Recording) -> Path:
+    return rec.files.metadata.with_suffix(".pkl")
+
+
+def detect_bouts(rec: Recording) -> MegaboutResults:
+    """Run Megabouts (segmentation + classification) and save the result next to the metadata."""
+    megabout = megabout_fulltracking_pipeline(rec)
+    with megabout_path(rec).open("wb") as output_file:
+        pickle.dump(megabout, output_file)
+    return megabout
+
+
+def load_megabout(rec: Recording) -> MegaboutResults:
+    with megabout_path(rec).open("rb") as input_file:
+        return pickle.load(input_file)
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Create the command-line parser."""
     parser = argparse.ArgumentParser(
-        description=(
-            "Run the Megabouts pipeline and create an augmented " "bout table."
-        )
+        description="Detect bouts with Megabouts and build the augmented bout table."
     )
 
-    parser.add_argument(
-        "root",
-        type=Path,
-        help="Root experiment folder.",
-    )
+    parser.add_argument("root", type=Path, help="Root experiment folder.")
     parser.add_argument(
         "--bouts-csv",
         default="bouts.csv",
-        help=("Output CSV filename relative to root. " "Default: bouts.csv."),
+        help="Output CSV filename relative to root. Default: bouts.csv.",
+    )
+    parser.add_argument(
+        "--from-stage",
+        choices=STAGES,
+        default="detect",
+        help=(
+            "detect: run Megabouts, save one .pkl per fish, then build the table. "
+            "augment: rebuild the table from the saved .pkl files. "
+            "Default: %(default)s"
+        ),
     )
     parser.add_argument("--metadata", default="results")
     parser.add_argument("--stimuli", default="results")
     parser.add_argument("--tracking", default="results")
-    parser.add_argument(
-        "--lightning-pose",
-        default="lightning_pose",
-    )
+    parser.add_argument("--lightning-pose", default="lightning_pose")
     parser.add_argument("--temperature", default="results")
     parser.add_argument("--video", default="results")
-    parser.add_argument(
-        "--video-timestamp",
-        default="results",
-    )
+    parser.add_argument("--video-timestamp", default="results")
     parser.add_argument("--results", default="results")
     parser.add_argument("--plots", default="plots")
-
     parser.add_argument(
         "--cpu",
         action="store_true",
-        help="Force Megabouts to run without CUDA.",
+        help="Force Megabouts to run without CUDA (detect stage).",
     )
 
     return parser
@@ -337,23 +354,31 @@ def run_megabouts(
     results: str,
     plots: str,
     cpu: bool,
+    start_stage: str = "detect",
     overwrite_mtime: float = 0,
 ) -> None:
-    """Run Megabouts for all experiments and write the bout table."""
-    if cpu:
-        import torch
+    """
+    Stages, as in eyes.run_analysis:
 
-        torch.cuda.is_available = lambda: False
+    detect
+        Megabouts segmentation and classification, saved as one .pkl per
+        fish, then augment.
+    augment
+        bouts.csv from the saved .pkl files: kinematics, laterality,
+        tracking quality and trial/stimulus/well context.
+    """
+    if start_stage not in STAGES:
+        raise ValueError(f"Unknown start stage {start_stage!r}. Expected one of {STAGES}.")
 
     output_path = root / output_csv
     if file_younger_than(output_path, overwrite_mtime):
         print(f"{output_path} is younger than {overwrite_mtime}h, skipping...")
         return
 
-    output_path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
+    if cpu and start_stage == "detect":
+        import torch
+
+        torch.cuda.is_available = lambda: False
 
     directories = Directories(
         root,
@@ -370,30 +395,27 @@ def run_megabouts(
 
     bout_rows: list[dict[str, Any]] = []
 
-    for behavior_file in tqdm(find_files(directories), desc="Megabouts"):
+    for behavior_file in tqdm(find_files(directories), desc="Bouts"):
         rec = Recording(behavior_file)
 
-        if rec.pose.empty:
-            print(f"[skip] {rec.name}: no full tracking")
+        if start_stage == "detect":
+            if rec.pose.empty:
+                print(f"[skip] {rec.name}: no full tracking")
+                continue
+            megabout = detect_bouts(rec)
+        elif megabout_path(rec).exists():
+            megabout = load_megabout(rec)
+        else:
+            print(f"[skip] {rec.name}: no {megabout_path(rec).name}, run --from-stage detect")
             continue
-
-        megabout = megabout_fulltracking_pipeline(rec)
-
-        with behavior_file.metadata.with_suffix(".pkl").open("wb") as output_file:
-            pickle.dump(megabout, output_file)
 
         fish_rows = get_bout_metrics(rec, megabout)
         bout_rows.extend(fish_rows)
         print(f"[ok] {rec.name}: {len(fish_rows):,} bouts")
 
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     bouts = pd.DataFrame.from_records(bout_rows)
-    bouts.to_csv(
-        output_path,
-        header=True,
-        index=False,
-        float_format="%.10g",
-    )
-
+    bouts.to_csv(output_path, header=True, index=False, float_format="%.10g")
     print(f"Saved {len(bouts):,} bouts to {output_path}")
 
 
@@ -414,6 +436,7 @@ def main() -> None:
         results=args.results,
         plots=args.plots,
         cpu=args.cpu,
+        start_stage=args.from_stage,
     )
 
 
