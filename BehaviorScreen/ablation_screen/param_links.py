@@ -68,3 +68,15 @@ class BoundedLink:
     def from_bounds(cls, bounds) -> "BoundedLink":
         lo, hi = bounds
         return cls(lo=lo, hi=hi)
+
+@dataclass(frozen=True)
+class LogLink:
+    """natural = exp(linear): effects multiply the natural parameter."""
+
+    clip: float = 50.0
+
+    def to_natural(self, x: float) -> float:
+        return float(np.exp(np.clip(x, -self.clip, self.clip)))
+
+    def to_linear(self, y: float) -> float:
+        return float(np.log(y))

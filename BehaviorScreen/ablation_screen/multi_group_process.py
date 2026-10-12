@@ -22,13 +22,13 @@ differ by one covariate column is a valid nested-model comparison for
 ModelComparator.likelihood_ratio_test (Δk = len(covariate) * n_kernel_params).
 """
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence
 import numpy as np
 import joblib
 
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
-from .param_links import BoundedLink
+from .param_links import BoundedLink, LogLink
 
 
 @dataclass
@@ -46,13 +46,14 @@ class MultiGroupProcess(PointProcess):
         groups: List[GroupSpec],
         covariate_names: List[str],
         integration_dt: float = 0.02,
+        links: Optional[Sequence[BoundedLink | LogLink]] = None,
     ):
         super().__init__(integration_dt)
         self.base_process = base_process
         self.groups = groups
         self.covariate_names = list(covariate_names)
         self.k = len(base_process.param_names)
-        self.links = [BoundedLink.from_bounds(b) for b in base_process.bounds]
+        self.links = list(links) if links is not None else [BoundedLink.from_bounds(b) for b in base_process.bounds]
 
         self.name = f"MultiGroup[{base_process.name}] ~ 1 + {' + '.join(covariate_names) or '(intercept only)'}"
         self.latex_formula = base_process.latex_formula
@@ -115,7 +116,7 @@ class MultiGroupProcess(PointProcess):
         boot_groups = [
             GroupSpec(g.name, g.dataset.resample(rng), g.covariates) for g in self.groups
         ]
-        return MultiGroupProcess(self.base_process, boot_groups, self.covariate_names, self.integration_dt)
+        return MultiGroupProcess(self.base_process, boot_groups, self.covariate_names, self.integration_dt, self.links)
 
     def bootstrap_params(self, n_boot: int = 200, seed: int = 0, n_jobs: int = -1) -> np.ndarray:
         if self.params_ is None:

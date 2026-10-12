@@ -31,6 +31,7 @@ from BehaviorScreen.ablation_screen.fdr import add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.ablation_screen.dataset_utils import Arms, mutant_contrast, ntr_contrast
 from BehaviorScreen.ablation_screen.tier1_config import tier1_behaviors
+from BehaviorScreen.ablation_screen.tier2_interaction import plot_tier2_map, run_tier2_screen
 
 
 OUTPUT_DIR = Path("./tier1_results")
@@ -134,6 +135,14 @@ rows = ["WT"] + ntr_rows + [line for line in MUTANT_REFERENCES if line in arms.c
 fig, _ = plot_tier1_map(param_df, tier1_df, BEHAVIORS, rows)
 save_fig(fig, OUTPUT_DIR, "tier1_map")
 param_df.to_csv(OUTPUT_DIR / "tier1_parameters.csv", index=False)
+
+# Tier 2: is a hit's drug effect different from the drug's effect on WT?
+# WT's arms are danieau -> ronidazole; NTR lines' are vehicle -> ronidazole.
+tier2_df = add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, reference="WT", n_boot=200))
+tier2_df.to_csv(OUTPUT_DIR / "tier2_results.csv", index=False)
+if (tier2_df["status"] == "ok").any():
+    fig, _ = plot_tier2_map(param_df, tier2_df, BEHAVIORS)
+    save_fig(fig, OUTPUT_DIR, "tier2_map")
 
 generate_arm_surface_grids(tier1_df, arms, output_dir=OUTPUT_DIR / "arm_surface_grids")
 

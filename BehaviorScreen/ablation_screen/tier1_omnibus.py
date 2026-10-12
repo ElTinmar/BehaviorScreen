@@ -337,6 +337,8 @@ def plot_tier1_map(
     rows: List[str],
     vmax: float = 2.0,
     se_half_size: float = 0.5,
+    row_labels: Optional[Dict[str, str]] = None,
+    colorbar_label: str = "log2(test / reference)",
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Dot matrix of the screen: rows are contrasts (in the given order, a gap
@@ -361,7 +363,7 @@ def plot_tier1_map(
         y += 1.0
     x_of = {column: i for i, column in enumerate(columns)}
 
-    fig, ax = plt.subplots(figsize=(3.0 + 0.42 * len(columns), 1.6 + 0.32 * y))
+    fig, ax = plt.subplots(figsize=(3.0 + 0.42 * len(columns), max(4.0, 1.6 + 0.32 * y)))
     cells = present.set_index(["line", "behavior", "parameter"])
     tested = tier1_df[tier1_df["status"] == "ok"].set_index(["line", "behavior"])
     xs, ys, colors, sizes = [], [], [], []
@@ -389,7 +391,7 @@ def plot_tier1_map(
         ax.axhline(gap, color="#bdbdbd", linewidth=0.6)
     for se in (0.1, se_half_size, 2 * se_half_size):
         ax.scatter([], [], s=_dot_size(se, se_half_size), color="#9e9e9e", label=f"{se:g}")
-    ax.legend(title="SE (log2)", loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False, fontsize=7, title_fontsize=7)
+    ax.legend(title="SE (log2)", loc="lower left", bbox_to_anchor=(1.01, 0.0), frameon=False, fontsize=7, title_fontsize=7)
 
     starts = [i for i, c in enumerate(columns) if i == 0 or c[0] != columns[i - 1][0]]
     for i in starts[1:]:
@@ -401,15 +403,15 @@ def plot_tier1_map(
     top.set_xticks([(i + j - 1) / 2 for i, j in zip(starts, starts[1:] + [len(columns)])],
                    [columns[i][0] for i in starts], rotation=90, fontsize=8)
     contrasts = tier1_df.drop_duplicates("line").set_index("line")
-    labels = [name if contrasts.loc[name, "family"] == "ntr" else f"{name} (vs {contrasts.loc[name, 'reference'].split('/')[0]})"
-              for name in rows]
+    labels = [(row_labels or {}).get(name) or (name if contrasts.loc[name, "family"] == "ntr"
+              else f"{name} (vs {contrasts.loc[name, 'reference'].split('/')[0]})") for name in rows]
     ax.set_yticks([positions[n] for n in rows], labels, fontsize=8)
     ax.set_xlim(-0.6, len(columns) - 0.4)
     ax.set_ylim(y - 0.4, -0.6)
     ax.tick_params(length=0)
     for spine in ax.spines.values():
         spine.set_visible(False)
-    fig.colorbar(dots, ax=ax, shrink=min(0.5, 6.0 / max(y, 1.0)), pad=0.12, anchor=(0.0, 0.75), label="log2(test / reference)")
+    fig.colorbar(dots, ax=ax, shrink=min(0.45, 6.0 / max(y, 1.0)), pad=0.03, anchor=(0.0, 1.0), label=colorbar_label)
     fig.tight_layout()
     return fig, ax
 
