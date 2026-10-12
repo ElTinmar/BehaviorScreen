@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, List, Tuple, Optional, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from scipy.integrate import trapezoid
@@ -351,6 +351,79 @@ class RenewalProcess(PointProcess):
 
         return grid
 
+    def _stream_grid(self, t_events: np.ndarray, duration_s: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Trapezoid grid of one stream, split at its events: times, weights,
+        and age since the previous event (NaN before the first event).
+        """
+        bounds = np.concatenate([[0.0], t_events, [duration_s]])
+        refs = np.concatenate([[np.nan], t_events])
+        grids = [self._segment_grid(float(a), float(b)) for a, b in zip(bounds[:-1], bounds[1:])]
+        if not any(len(g) for g in grids):
+            empty = np.empty(0)
+            return empty, empty, empty
+        times = np.concatenate(grids)
+        weights = np.concatenate([self._trapezoid_weights(g) for g in grids])
+        ages = np.concatenate([g - r for g, r in zip(grids, refs)])
+        return times, weights, ages
+
+    def _dataset_grid(self, dataset: PointProcessDataset) -> Dict[str, np.ndarray]:
+        """All streams' grids and events in flat arrays (data only, so cached on the dataset)."""
+        parts = {key: [] for key in ("times", "weights", "ages", "trials", "fish", "event_times", "event_lags", "event_trials", "event_fish")}
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            times, weights, ages = self._stream_grid(t_ev, dataset.duration_s)
+            for key, value in zip(("times", "weights", "ages"), (times, weights, ages)):
+                parts[key].append(value)
+            parts["trials"].append(np.full(len(times), t_idx, dtype=float))
+            parts["fish"].append(np.full(len(times), f_idx))
+            parts["event_times"].append(t_ev)
+            parts["event_lags"].append(np.diff(t_ev, prepend=np.nan))
+            parts["event_trials"].append(np.full(len(t_ev), t_idx, dtype=float))
+            parts["event_fish"].append(np.full(len(t_ev), f_idx))
+        grid = {key: np.concatenate([np.empty(0)] + values) for key, values in parts.items()}
+        grid["fish"], grid["event_fish"] = grid["fish"].astype(int), grid["event_fish"].astype(int)
+        # Ages after an event mostly sit on the k * integration_dt lattice (segment
+        # ends do not). The step past the lattice holds 1: no previous event.
+        steps = np.rint(grid["ages"] / self.integration_dt)
+        on_lattice = np.abs(grid["ages"] - steps * self.integration_dt) < 1e-9
+        n_lattice = int(np.max(steps[on_lattice], initial=0)) + 1
+        grid["lattice_step"] = np.where(on_lattice, steps, n_lattice).astype(np.int32)
+        grid["n_lattice"] = n_lattice
+        grid["off_lattice"] = np.flatnonzero(~on_lattice & ~np.isnan(grid["ages"]))
+        return grid
+
+    def _modulation(self, ages: np.ndarray, params_renewal: List[float]) -> np.ndarray:
+        """renewal_kernel(age), and 1 where there is no previous event (age NaN)."""
+        rho = np.ones(len(ages))
+        prior = ~np.isnan(ages)
+        rho[prior] = self.renewal_kernel.evaluate(ages[prior], params_renewal)
+        return rho
+
+    def _grid_modulation(self, grid: Dict[str, np.ndarray], params_renewal: List[float]) -> np.ndarray:
+        """_modulation of the grid ages, evaluating the kernel once per lattice step."""
+        lattice = self.renewal_kernel.evaluate(np.arange(grid["n_lattice"]) * self.integration_dt, params_renewal)
+        rho = np.append(lattice, 1.0)[grid["lattice_step"]]
+        off = grid["off_lattice"]
+        rho[off] = self.renewal_kernel.evaluate(grid["ages"][off], params_renewal)
+        return rho
+
+    def _log_intensities_and_exposure(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Log intensity at every event, and the compensator per fish."""
+        params_base, params_renewal = self._split_params(params)
+        grid = dataset.cached(("renewal_grid", self.integration_dt), lambda: self._dataset_grid(dataset))
+        integrand = (
+            grid["weights"]
+            * self.kernel.evaluate(grid["times"], grid["trials"], params_base)
+            * self._grid_modulation(grid, params_renewal)
+        )
+        exposure = np.bincount(grid["fish"], weights=integrand, minlength=dataset.num_fish)
+        event_rates = self.kernel.evaluate(grid["event_times"], grid["event_trials"], params_base) * self._modulation(
+            grid["event_lags"], params_renewal
+        )
+        return np.log(np.maximum(event_rates, 1e-300)), exposure
+
     def _stream_integral_and_ll(
         self,
         t_events: np.ndarray,
@@ -359,138 +432,18 @@ class RenewalProcess(PointProcess):
         params_base: List[float],
         params_renewal: List[float],
     ) -> Tuple[float, float]:
-        """
-        Compute the event log-intensity sum and compensator for one stream.
-
-        Integration remains piecewise at event boundaries, but all segment grids
-        are concatenated and evaluated in one vectorized call. This avoids repeated
-        kernel.evaluate() calls while preserving renewal resets exactly as
-        integration boundaries.
-        """
+        """Sum of log intensities at the events and compensator of one stream."""
         t_events = np.sort(np.asarray(t_events, dtype=float))
-        n_events = len(t_events)
-
-        # ------------------------------------------------------------------
-        # Event log intensities
-        # ------------------------------------------------------------------
-
-        if n_events == 0:
-            sum_log_intensity = 0.0
-        else:
-            event_trials = np.full(n_events, trial, dtype=float)
-            base_rates = self.kernel.evaluate(
-                t_events,
-                event_trials,
-                params_base,
-            )
-
-            renewal_multipliers = np.ones(n_events, dtype=float)
-
-            if n_events > 1:
-                event_lags = np.diff(t_events)
-                renewal_multipliers[1:] = self.renewal_kernel.evaluate(
-                    event_lags,
-                    params_renewal,
-                )
-
-            event_intensities = np.maximum(
-                base_rates * renewal_multipliers,
-                1e-300,
-            )
-            sum_log_intensity = float(np.sum(np.log(event_intensities)))
-
-        # ------------------------------------------------------------------
-        # Piecewise compensator geometry
-        # ------------------------------------------------------------------
-
-        integration_times = []
-        integration_ages = []
-        integration_weights = []
-        has_prior_event = []
-
-        # Before the first event there is no renewal modulation.
-        first_end = float(t_events[0]) if n_events > 0 else float(duration_s)
-        first_grid = self._segment_grid(0.0, first_end)
-
-        if len(first_grid) > 0:
-            integration_times.append(first_grid)
-            integration_ages.append(np.zeros_like(first_grid))
-            integration_weights.append(self._trapezoid_weights(first_grid))
-            has_prior_event.append(np.zeros(len(first_grid), dtype=bool))
-
-        # After each event, age is measured from that event until the next event
-        # or trial termination.
-        for event_idx, event_time in enumerate(t_events):
-            segment_end = (
-                float(t_events[event_idx + 1])
-                if event_idx + 1 < n_events
-                else float(duration_s)
-            )
-
-            segment_grid = self._segment_grid(float(event_time), segment_end)
-            if len(segment_grid) == 0:
-                continue
-
-            integration_times.append(segment_grid)
-            integration_ages.append(segment_grid - float(event_time))
-            integration_weights.append(self._trapezoid_weights(segment_grid))
-            has_prior_event.append(np.ones(len(segment_grid), dtype=bool))
-
-        if not integration_times:
-            return sum_log_intensity, 0.0
-
-        integration_times = np.concatenate(integration_times)
-        integration_ages = np.concatenate(integration_ages)
-        integration_weights = np.concatenate(integration_weights)
-        has_prior_event = np.concatenate(has_prior_event)
-
-        # ------------------------------------------------------------------
-        # One vectorized evaluation for the entire stream
-        # ------------------------------------------------------------------
-
-        integration_trials = np.full(
-            len(integration_times),
-            trial,
-            dtype=float,
-        )
-        base_values = self.kernel.evaluate(
-            integration_times,
-            integration_trials,
-            params_base,
-        )
-
-        renewal_values = np.ones(len(integration_times), dtype=float)
-        if np.any(has_prior_event):
-            renewal_values[has_prior_event] = self.renewal_kernel.evaluate(
-                integration_ages[has_prior_event],
-                params_renewal,
-            )
-
-        total_integral = float(
-            np.dot(
-                integration_weights,
-                base_values * renewal_values,
-            )
-        )
-
-        return sum_log_intensity, total_integral
-
-    def _renewal_nll(
-        self, t_events, trial, duration_s, params_base, params_refractory
-    ) -> float:
-        sum_log_intensity, total_integral = self._stream_integral_and_ll(
-            t_events, trial, duration_s, params_base, params_refractory
-        )
-        return -(sum_log_intensity - total_integral)
+        event_rates = self.kernel.evaluate(t_events, np.full(len(t_events), trial, dtype=float), params_base)
+        event_rates = event_rates * self._modulation(np.diff(t_events, prepend=np.nan), params_renewal)
+        times, weights, ages = self._stream_grid(t_events, duration_s)
+        integrand = weights * self.kernel.evaluate(times, np.full(len(times), trial, dtype=float), params_base)
+        integral = float(np.dot(integrand, self._modulation(ages, params_renewal)))
+        return float(np.sum(np.log(np.maximum(event_rates, 1e-300)))), integral
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
-        params_base, params_renewal = self._split_params(params)
-        total_nll = 0.0
-        for f_idx, t_idx, t_ev in dataset.iter_streams():
-            total_nll += self._renewal_nll(
-                t_ev, t_idx, dataset.duration_s, params_base, params_renewal
-            )
-        return total_nll
+        log_intensities, exposure = self._log_intensities_and_exposure(dataset, params)
+        return -(float(np.sum(log_intensities)) - float(np.sum(exposure)))
 
     def predict(
         self,
@@ -569,50 +522,13 @@ class RenewalProcess(PointProcess):
         self, dataset: PointProcessDataset, params: List[float]
     ) -> Tuple[float, np.ndarray, np.ndarray]:
         """
-        See PointProcess.mixed_effects_likelihood_terms for the general
-        contract. Disaggregates RenewalProcess's own _renewal_nll (summed
-        across all streams) into per-fish base_ll/N_f/S_f.
-
-        PRECONDITION CHECK: a per-fish gain g_f satisfies the "multiplies the
-        ENTIRE intensity uniformly" requirement here, since RenewalProcess's
-        intensity is already fully multiplicative:
-            lambda(t | history) = kernel(t, m) * renewal_kernel(t - t_last)
-        so g_f * lambda(t|history) factors as g_f^{N_f} in the likelihood
-        product and g_f * S_f in the integral term, exactly as required.
-
-        base_ll : sum, over EVERY event in every stream, of
-                log(kernel(t_i, m) * renewal_kernel(t_i - t_last_i)) --
-                i.e. exactly _renewal_nll's sum_log_intensity term, but
-                accumulated with a + sign (this is a log-likelihood
-                contribution, not a negative-log-likelihood) and never
-                g_f-dependent.
-        N_f     : total observed event count per fish, across all its streams.
-        S_f     : total refractory/renewal-corrected exposure integral per
-                fish -- i.e. _renewal_nll's total_integral term (which
-                already accounts for renewal_kernel suppression/recovery
-                after each event, using that stream's OWN event history),
-                summed across every trial that fish participated in.
-
-        Renewal history resets at each trial boundary (same convention as
-        _renewal_nll/_nll) -- this method does not change that; only the
-        per-fish AGGREGATION across trials is new here.
+        The intensity is multiplicative, so a fish gain scales all of it:
+        sum of log intensities, events and compensator per fish (history
+        resets every trial).
         """
-        params_base, params_refractory = self._split_params(params)
-
-        N_f = np.zeros(dataset.num_fish, dtype=float)
-        S_f = np.zeros(dataset.num_fish, dtype=float)
-        base_ll = 0.0
-
-        for f_idx, t_idx, t_ev in dataset.iter_streams():
-            N_f[f_idx] += len(t_ev)
-
-            sum_log_intensity, total_integral = self._stream_integral_and_ll(
-                t_ev, t_idx, dataset.duration_s, params_base, params_refractory
-            )
-            base_ll += sum_log_intensity
-            S_f[f_idx] += total_integral
-
-        return base_ll, N_f, S_f
+        log_intensities, exposure = self._log_intensities_and_exposure(dataset, params)
+        n_events = np.bincount(dataset.event_fish_idx, minlength=dataset.num_fish).astype(float)
+        return float(np.sum(log_intensities)), n_events, exposure
 
     def simulate_stream(
         self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator

@@ -4,7 +4,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from itertools import groupby
 from functools import cached_property
-from typing import Any, ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
 from BehaviorScreen.core import Stim, Laterality
@@ -85,6 +85,16 @@ class PointProcessDataset:
             ]  # already sorted by time, within group
             start += n
         return result
+
+    def cached(self, key: Any, build: Callable[[], Any]) -> Any:
+        """Per-dataset cache for model precomputations that depend on the data only; not pickled."""
+        cache = self.__dict__.setdefault("_cache", {})
+        if key not in cache:
+            cache[key] = build()
+        return cache[key]
+
+    def __getstate__(self) -> Dict[str, Any]:
+        return {key: value for key, value in self.__dict__.items() if key != "_cache"}
 
     def iter_streams(self, active_only: bool = True):
         """

@@ -22,7 +22,7 @@ from BehaviorScreen.point_process.point_process.survival_process import Survival
 IPSI, CONTRA, NONDIRECTIONAL = Laterality.IPSILATERAL, Laterality.CONTRALATERAL, Laterality.NONDIRECTIONAL
 PHOTOTAXIS_FILTER = {"foreground_color": "[0.1, 0.1, 0.0, 1.0]"}
 PREY_STIM_FREQ = 90 / (2 * 70)  # stimulus speed (deg/s) / sweep range (deg)
-BOUT_DEAD_TIME_S = 0.125  # shortest bout onset-to-onset gap within a trial (control screen)
+BOUT_DEAD_TIME_S = 0.25  # shortest bout onset-to-onset gap within a trial (control screen)
 
 flat = RateKernelFactory.homogeneous_poisson
 gamma = GammaMixedEffectsProcess
