@@ -4,7 +4,7 @@ import subprocess
 EXPERIMENTS = [
     "prey_capture_ipsi",
     "prey_capture_contra",
-    "prey_capture_ipsi_saccade"
+    "prey_capture_ipsi_saccade",
     "phototaxis_ipsi",
     "phototaxis_contra",
     "omr_lateral_ipsi",
