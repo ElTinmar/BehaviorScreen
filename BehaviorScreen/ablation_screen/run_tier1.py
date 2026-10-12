@@ -77,7 +77,7 @@ MUTANT_REFERENCES = {
 all_lines = sorted(loader.trials["line"].astype(str).unique())
 NTR_LINES = [l for l in all_lines if l not in MUTANT_REFERENCES and l != "WT"]
 CONTRASTS = (
-    [ntr_contrast("WT", vehicle="danieau")]
+    [ntr_contrast("WT")]
     + [ntr_contrast(line) for line in NTR_LINES]
     + [mutant_contrast(line, reference) for line, reference in MUTANT_REFERENCES.items() if line in all_lines]
 )
@@ -137,7 +137,6 @@ save_fig(fig, OUTPUT_DIR, "tier1_map")
 param_df.to_csv(OUTPUT_DIR / "tier1_parameters.csv", index=False)
 
 # Tier 2: is a hit's drug effect different from the drug's effect on WT?
-# WT's arms are danieau -> ronidazole; NTR lines' are vehicle -> ronidazole.
 tier2_df = add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, reference="WT", n_boot=200))
 tier2_df.to_csv(OUTPUT_DIR / "tier2_results.csv", index=False)
 if (tier2_df["status"] == "ok").any():
