@@ -6,7 +6,6 @@ from functools import partial
 import copy
 import re
 
-import joblib
 import numpy as np
 import pandas as pd
 from scipy.optimize import minimize
@@ -75,11 +74,7 @@ def refit_replicates(
         refit=refit,
         refit_n_starts=refit_n_starts,
     )
-    # One BLAS/OpenMP thread per worker to avoid oversubscription.
-    with joblib.parallel_backend("loky", inner_max_num_threads=1):
-        results = parallel_map(
-            job, seeds, n_jobs=n_jobs, desc=desc, progress=progress, batch_size=1, pre_dispatch="n_jobs"
-        )
+    results = parallel_map(job, seeds, n_jobs=n_jobs, desc=desc, progress=progress, batch_size=1, pre_dispatch="n_jobs")
     values = [value for value, error in results if error is None]
     errors = [error for _, error in results if error is not None]
     print(f"{desc}: {len(values)}/{n_boot} successful.")

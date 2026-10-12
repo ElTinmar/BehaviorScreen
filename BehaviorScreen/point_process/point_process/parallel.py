@@ -15,10 +15,12 @@ def parallel_map(
 ) -> List[Any]:
     """joblib.Parallel over items with a progress bar; results in input order."""
     items = list(items)
-    results = joblib.Parallel(n_jobs=n_jobs, return_as="generator", **parallel_kwargs)(
-        joblib.delayed(function)(item) for item in items
-    )
-    return list(tqdm(results, total=len(items), desc=desc, disable=not progress))
+    # One BLAS/OpenMP thread per worker: the workers already fill the cores.
+    with joblib.parallel_backend("loky", inner_max_num_threads=1):
+        results = joblib.Parallel(n_jobs=n_jobs, return_as="generator", **parallel_kwargs)(
+            joblib.delayed(function)(item) for item in items
+        )
+        return list(tqdm(results, total=len(items), desc=desc, disable=not progress))
 
 
 def report_failures(label: str, errors: List[str], n_total: int) -> None:

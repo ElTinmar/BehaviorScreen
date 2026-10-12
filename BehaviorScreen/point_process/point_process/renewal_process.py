@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Tuple, Union
+from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 from scipy.integrate import trapezoid
@@ -278,6 +278,8 @@ class RenewalProcess(PointProcess):
     HawkesProcess's positive-autocorrelation / clustering regime.
     """
 
+    _CHUNK: ClassVar[int] = 8192 #65536
+
     def __init__(
         self,
         kernel: RateKernel,
@@ -381,7 +383,8 @@ class RenewalProcess(PointProcess):
             parts["event_trials"].append(np.full(len(t_ev), t_idx, dtype=float))
             parts["event_fish"].append(np.full(len(t_ev), f_idx))
         grid = {key: np.concatenate([np.empty(0)] + values) for key, values in parts.items()}
-        grid["fish"], grid["event_fish"] = grid["fish"].astype(int), grid["event_fish"].astype(int)
+        grid["trials"], grid["fish"] = grid["trials"].astype(np.float32), grid["fish"].astype(np.int32)
+        grid["event_fish"] = grid["event_fish"].astype(int)
         # Ages after an event mostly sit on the k * integration_dt lattice (segment
         # ends do not). The step past the lattice holds 1: no previous event.
         steps = np.rint(grid["ages"] / self.integration_dt)
@@ -390,6 +393,7 @@ class RenewalProcess(PointProcess):
         grid["lattice_step"] = np.where(on_lattice, steps, n_lattice).astype(np.int32)
         grid["n_lattice"] = n_lattice
         grid["off_lattice"] = np.flatnonzero(~on_lattice & ~np.isnan(grid["ages"]))
+        grid["off_ages"] = grid.pop("ages")[grid["off_lattice"]]
         return grid
 
     def _modulation(self, ages: np.ndarray, params_renewal: List[float]) -> np.ndarray:
@@ -399,26 +403,27 @@ class RenewalProcess(PointProcess):
         rho[prior] = self.renewal_kernel.evaluate(ages[prior], params_renewal)
         return rho
 
-    def _grid_modulation(self, grid: Dict[str, np.ndarray], params_renewal: List[float]) -> np.ndarray:
-        """_modulation of the grid ages, evaluating the kernel once per lattice step."""
-        lattice = self.renewal_kernel.evaluate(np.arange(grid["n_lattice"]) * self.integration_dt, params_renewal)
-        rho = np.append(lattice, 1.0)[grid["lattice_step"]]
-        off = grid["off_lattice"]
-        rho[off] = self.renewal_kernel.evaluate(grid["ages"][off], params_renewal)
-        return rho
-
     def _log_intensities_and_exposure(
         self, dataset: PointProcessDataset, params: List[float]
     ) -> Tuple[np.ndarray, np.ndarray]:
-        """Log intensity at every event, and the compensator per fish."""
+        """
+        Log intensity at every event, and the compensator per fish. The grid
+        is processed in chunks that stay in the CPU cache (whole-array
+        temporaries cost page faults and memory bandwidth).
+        """
         params_base, params_renewal = self._split_params(params)
         grid = dataset.cached(("renewal_grid", self.integration_dt), lambda: self._dataset_grid(dataset))
-        integrand = (
-            grid["weights"]
-            * self.kernel.evaluate(grid["times"], grid["trials"], params_base)
-            * self._grid_modulation(grid, params_renewal)
-        )
-        exposure = np.bincount(grid["fish"], weights=integrand, minlength=dataset.num_fish)
+        lattice = self.renewal_kernel.evaluate(np.arange(grid["n_lattice"]) * self.integration_dt, params_renewal)
+        lattice = np.append(lattice, 1.0)
+        off, off_rho = grid["off_lattice"], self.renewal_kernel.evaluate(grid["off_ages"], params_renewal)
+        exposure = np.zeros(dataset.num_fish)
+        for a in range(0, len(grid["times"]), self._CHUNK):
+            b = a + self._CHUNK
+            rho = lattice[grid["lattice_step"][a:b]]
+            lo, hi = np.searchsorted(off, [a, b])
+            rho[off[lo:hi] - a] = off_rho[lo:hi]
+            integrand = grid["weights"][a:b] * self.kernel.evaluate(grid["times"][a:b], grid["trials"][a:b], params_base) * rho
+            exposure += np.bincount(grid["fish"][a:b], weights=integrand, minlength=dataset.num_fish)
         event_rates = self.kernel.evaluate(grid["event_times"], grid["event_trials"], params_base) * self._modulation(
             grid["event_lags"], params_renewal
         )
