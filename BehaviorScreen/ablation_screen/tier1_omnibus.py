@@ -251,7 +251,9 @@ def run_tier1_screen(
             record = {"line": name, "behavior": behavior,
                       "status": f"unexpected_error: {type(e).__name__}: {e}", "p_value": np.nan}
         c = arms.contrasts[name]
-        records.append({"family": c.family, "reference": "/".join(c.reference), "test": "/".join(c.test), **record})
+        n_fish = [0 if ds is None else ds.num_fish for ds in arms.datasets(name, behavior)]
+        records.append({"family": c.family, "reference": "/".join(c.reference), "test": "/".join(c.test),
+                        **record, "n_fish_ref": n_fish[0], "n_fish_test": n_fish[1]})
 
     return pd.DataFrame(records)
 
@@ -328,6 +330,20 @@ def _dot_size(se: float, se_half_size: float) -> float:
 # Column label of each amplitude parameter in the map.
 PARAMETER_LABELS = {"B": "baseline", "A": "evoked", "A_peak": "evoked", "H": "evoked"}
 MAP_COLORS = LinearSegmentedColormap.from_list("blue_grey_red", ["#2166ac", "#d9d9d9", "#b2182b"])
+MISSING = "#9e9e9e"
+
+
+def add_testability(tier1_df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
+    """
+    'testable': the cell could reach q < alpha. Its best possible q is its
+    design floor (1 / number of distinct fish splits) times the number of
+    tests in its FDR family (family x behavior), whatever the permutations.
+    """
+    df = tier1_df.copy()
+    keys = ["family", "behavior"] if "family" in df.columns else ["behavior"]
+    n_tests = df.groupby(keys)["p_value"].transform("count")
+    df["testable"] = (df["p_value_floor"] * n_tests < alpha).fillna(False)
+    return df
 
 
 def plot_tier1_map(
@@ -345,39 +361,53 @@ def plot_tier1_map(
     between families), columns are each behavior's free parameters.
     Colour: log2(test / reference) on a fixed scale centred on 0. Dot area
     shrinks with the standard error (half size at se_half_size log2 units).
-    Black frame: behavior significant in Tier 1 for that contrast. Grey x:
-    no test (no data, too few fish or events, failed fit).
+    Frame: behavior significant for that contrast. Hollow dot: the cell could
+    not reach significance with its fish ('testable' False). Grey x: no test.
+    With n_fish_ref / n_fish_test columns, a matching panel shows the smaller
+    arm's fish count per cell.
     """
     present = param_df[param_df["parameter"].isin(PARAMETER_LABELS)]
     columns = [
         (behavior, p) for behavior in behaviors for p in PARAMETER_LABELS
         if ((present["behavior"] == behavior) & (present["parameter"] == p)).any()
     ]
-    families = tier1_df.drop_duplicates("line").set_index("line")["family"]
+    contrasts = tier1_df.drop_duplicates("line").set_index("line")
     y, positions, gaps = 0.0, {}, []
     for i, name in enumerate(rows):
-        if i and families[name] != families[rows[i - 1]]:
+        if i and contrasts.loc[name, "family"] != contrasts.loc[rows[i - 1], "family"]:
             gaps.append(y)
             y += 1.0
         positions[name] = y
         y += 1.0
     x_of = {column: i for i, column in enumerate(columns)}
+    cell_info = tier1_df.set_index(["line", "behavior"])
+    show_n = {"n_fish_ref", "n_fish_test"} <= set(tier1_df.columns)
+    n_min = cell_info[["n_fish_ref", "n_fish_test"]].min(axis=1) if show_n else None
 
-    fig, ax = plt.subplots(figsize=(3.0 + 0.42 * len(columns), max(4.0, 1.6 + 0.32 * y)))
+    shown = [b for b in behaviors if any(c[0] == b for c in columns)]
+    widths = [len(columns), len(shown)] if show_n else [len(columns)]
+    fig, axes = plt.subplots(
+        1, len(widths), figsize=(3.0 + 0.42 * sum(widths), max(4.0, 1.6 + 0.32 * y)),
+        sharey=True, squeeze=False, gridspec_kw={"width_ratios": widths},
+    )
+    ax = axes[0, 0]
     cells = present.set_index(["line", "behavior", "parameter"])
     tested = tier1_df[tier1_df["status"] == "ok"].set_index(["line", "behavior"])
-    xs, ys, colors, sizes = [], [], [], []
+    dots = {True: ([], [], [], []), False: ([], [], [], [])}
     for name in rows:
         for behavior, p in columns:
             x, yy = x_of[(behavior, p)], positions[name]
             if (name, behavior) not in tested.index or (name, behavior, p) not in cells.index:
-                ax.plot(x, yy, marker="x", color="#9e9e9e", markersize=4, linestyle="")
+                ax.plot(x, yy, marker="x", color=MISSING, markersize=4, linestyle="")
                 continue
             cell = cells.loc[(name, behavior, p)]
-            xs.append(x); ys.append(yy); colors.append(cell["delta"])
             se = cell["delta_se"] if np.isfinite(cell["delta_se"]) else 4 * se_half_size
-            sizes.append(_dot_size(se, se_half_size))
-    dots = ax.scatter(xs, ys, c=np.clip(colors, -vmax, vmax), s=sizes, cmap=MAP_COLORS, vmin=-vmax, vmax=vmax)
+            xs, ys, colors, sizes = dots[bool(tested.loc[(name, behavior)].get("testable", True))]
+            xs.append(x); ys.append(yy); colors.append(np.clip(cell["delta"], -vmax, vmax)); sizes.append(_dot_size(se, se_half_size))
+    norm = plt.Normalize(-vmax, vmax)
+    filled = ax.scatter(*dots[True][:2], c=dots[True][2], s=dots[True][3], cmap=MAP_COLORS, norm=norm)
+    ax.scatter(*dots[False][:2], s=dots[False][3], facecolors="white", edgecolors=MAP_COLORS(norm(dots[False][2])),
+               linewidths=0.3 * np.sqrt(dots[False][3]))
 
     for (name, behavior), row in tested.iterrows():
         if name not in positions or not row.get("significant", False):
@@ -387,31 +417,56 @@ def plot_tier1_map(
             ax.add_patch(plt.Rectangle((min(xs_b) - 0.45, positions[name] - 0.45), max(xs_b) - min(xs_b) + 0.9, 0.9,
                                        fill=False, edgecolor="black", linewidth=1.2))
 
-    for gap in gaps:
-        ax.axhline(gap, color="#bdbdbd", linewidth=0.6)
-    for se in (0.1, se_half_size, 2 * se_half_size):
-        ax.scatter([], [], s=_dot_size(se, se_half_size), color="#9e9e9e", label=f"{se:g}")
-    ax.legend(title="SE (log2)", loc="lower left", bbox_to_anchor=(1.01, 0.0), frameon=False, fontsize=7, title_fontsize=7)
+    handles = [plt.scatter([], [], s=_dot_size(se, se_half_size), color=MISSING, label=f"SE {se:g} log2")
+               for se in (0.1, se_half_size, 2 * se_half_size)]
+    handles += [
+        plt.Line2D([], [], marker="s", markersize=11, markerfacecolor="none", markeredgecolor="black", linestyle="", label="significant (q < 0.05)"),
+        plt.Line2D([], [], marker="o", markersize=8, markerfacecolor="white", markeredgecolor=MISSING, markeredgewidth=2.4,
+                   linestyle="", label="too few fish to reach q < 0.05"),
+        plt.Line2D([], [], marker="x", color=MISSING, linestyle="", label="not tested"),
+    ]
+    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, -0.06 - 1.2 / max(y, 4.0)), ncol=3, frameon=False, fontsize=7)
 
-    starts = [i for i, c in enumerate(columns) if i == 0 or c[0] != columns[i - 1][0]]
-    for i in starts[1:]:
-        ax.axvline(i - 0.5, color="#bdbdbd", linewidth=0.6)
-    ax.set_xticks(range(len(columns)), [PARAMETER_LABELS[p] for _, p in columns], rotation=90, fontsize=7)
-    top = ax.secondary_xaxis("top")
-    top.spines["top"].set_visible(False)
-    top.tick_params(length=0)
-    top.set_xticks([(i + j - 1) / 2 for i, j in zip(starts, starts[1:] + [len(columns)])],
-                   [columns[i][0] for i in starts], rotation=90, fontsize=8)
-    contrasts = tier1_df.drop_duplicates("line").set_index("line")
-    labels = [(row_labels or {}).get(name) or (name if contrasts.loc[name, "family"] == "ntr"
-              else f"{name} (vs {contrasts.loc[name, 'reference'].split('/')[0]})") for name in rows]
-    ax.set_yticks([positions[n] for n in rows], labels, fontsize=8)
-    ax.set_xlim(-0.6, len(columns) - 0.4)
+    def decorate(axis: plt.Axes, cols: List[Tuple[str, str]]) -> None:
+        starts = [i for i, c in enumerate(cols) if i == 0 or c[0] != cols[i - 1][0]]
+        for i in starts[1:]:
+            axis.axvline(i - 0.5, color="#bdbdbd", linewidth=0.6)
+        for gap in gaps:
+            axis.axhline(gap, color="#bdbdbd", linewidth=0.6)
+        axis.set_xticks(range(len(cols)), [PARAMETER_LABELS.get(p, "") for _, p in cols], rotation=90, fontsize=7)
+        top = axis.secondary_xaxis("top")
+        top.spines["top"].set_visible(False)
+        top.tick_params(length=0)
+        top.set_xticks([(i + j - 1) / 2 for i, j in zip(starts, starts[1:] + [len(cols)])],
+                       [cols[i][0] for i in starts], rotation=90, fontsize=8)
+        axis.set_xlim(-0.6, len(cols) - 0.4)
+        axis.tick_params(length=0)
+        for spine in axis.spines.values():
+            spine.set_visible(False)
+
+    def label(name: str) -> str:
+        return (row_labels or {}).get(name) or (
+            name if contrasts.loc[name, "family"] == "ntr" else f"{name} (vs {contrasts.loc[name, 'reference'].split('/')[0]})"
+        )
+
+    decorate(ax, columns)
+    ax.set_yticks([positions[n] for n in rows], [label(n) for n in rows], fontsize=8)
     ax.set_ylim(y - 0.4, -0.6)
-    ax.tick_params(length=0)
-    for spine in ax.spines.values():
-        spine.set_visible(False)
-    fig.colorbar(dots, ax=ax, shrink=min(0.45, 6.0 / max(y, 1.0)), pad=0.03, anchor=(0.0, 1.0), label=colorbar_label)
+    fig.colorbar(filled, ax=axes[0, -1], shrink=min(0.45, 6.0 / max(y, 1.0)), pad=0.03, anchor=(0.0, 1.0), label=colorbar_label)
+
+    if show_n:
+        ax_n = axes[0, 1]
+        top_n = max(float(n_min.max()), 1.0)
+        for c, behavior in enumerate(shown):
+            for name in rows:
+                if (name, behavior) in n_min.index and np.isfinite(n_min.loc[(name, behavior)]):
+                    n = n_min.loc[(name, behavior)]
+                    shade = 0.92 - 0.6 * n / top_n
+                    ax_n.add_patch(plt.Rectangle((c - 0.45, positions[name] - 0.45), 0.9, 0.9, color=str(shade)))
+                    ax_n.text(c, positions[name], f"{int(n)}", ha="center", va="center", fontsize=6,
+                              color="white" if shade < 0.55 else "black")
+        decorate(ax_n, [(b, "") for b in shown])
+        ax_n.set_xlabel("fish in the smaller arm", fontsize=8)
     fig.tight_layout()
     return fig, ax
 

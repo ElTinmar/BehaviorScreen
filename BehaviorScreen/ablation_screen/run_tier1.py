@@ -20,6 +20,7 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
     extract_fitted_parameters,
     compute_parameter_deltas,
     plot_tier1_map,
+    add_testability,
     generate_arm_surface_grids,
     build_bad_fit_triage,
     plot_volcano,
@@ -120,7 +121,7 @@ print("\nRunning Tier 1 across all lines x behaviors...")
 tier1_df = run_tier1_screen(
     arms, behaviors=BEHAVIORS, null_process_factories=NULL_PROCESS_FACTORY, n_perm=1000,
 )
-tier1_df = add_fdr_per_behavior(tier1_df, alpha=0.05)
+tier1_df = add_testability(add_fdr_per_behavior(tier1_df, alpha=0.05))
 tier1_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
 print(tier1_df["status"].value_counts())
 
