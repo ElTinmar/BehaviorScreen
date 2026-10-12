@@ -37,7 +37,7 @@ def parse_args() -> argparse.Namespace:
         help="Directory the file arguments below are relative to.",
     )
     parser.add_argument("--bouts", "--events", default="bouts_control.csv", help="Bout table.")
-    parser.add_argument("--saccades", default="saccades_control.csv", help="Saccade table.")
+    parser.add_argument("--saccades", default="saccades_augmented_control.csv", help="Saccade table.")
     parser.add_argument(
         "--valid-trials", nargs="+", default=["valid_trials_control.csv"],
         help="Trial tables from quality control, one per screen folder.",
