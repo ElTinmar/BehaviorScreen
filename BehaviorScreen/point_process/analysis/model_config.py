@@ -1,14 +1,19 @@
 """Experiments: the dataset each one is built from and the candidate models, in a fixed order."""
+
 from typing import Callable, Dict, List
 
-from BehaviorScreen.core import Laterality, Stim
+from megabouts.utils import bouts_category_name_short
+from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, Laterality, Stim
 from BehaviorScreen.point_process.point_process.frailty import (
     BaselineOnlyFrailtyHawkesProcess,
     GammaMixedEffectsProcess,
     ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
     ZeroInflatedGammaMixedEffectsProcess,
 )
-from BehaviorScreen.point_process.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
+from BehaviorScreen.point_process.point_process.hawkes_process import (
+    HawkesProcess,
+    HistoryKernelFactory,
+)
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.poisson_process import (
     PoissonProcess,
@@ -16,13 +21,39 @@ from BehaviorScreen.point_process.point_process.poisson_process import (
     RateKernel,
     RateKernelFactory,
 )
-from BehaviorScreen.point_process.point_process.renewal_process import RenewalKernelFactory, RenewalProcess
-from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
+from BehaviorScreen.point_process.point_process.renewal_process import (
+    RenewalKernelFactory,
+    RenewalProcess,
+)
+from BehaviorScreen.point_process.point_process.survival_process import (
+    SurvivalKernelFactory,
+    SurvivalProcess,
+)
 
-IPSI, CONTRA, NONDIRECTIONAL = Laterality.IPSILATERAL, Laterality.CONTRALATERAL, Laterality.NONDIRECTIONAL
+IPSI, CONTRA, NONDIRECTIONAL = (
+    Laterality.IPSILATERAL,
+    Laterality.CONTRALATERAL,
+    Laterality.NONDIRECTIONAL,
+)
 PHOTOTAXIS_FILTER = {"foreground_color": "[0.1, 0.1, 0.0, 1.0]"}
 PREY_STIM_FREQ = 90 / (2 * 70)  # stimulus speed (deg/s) / sweep range (deg)
-BOUT_DEAD_TIME_S = 0.25  # shortest bout onset-to-onset gap within a trial (control screen)
+BOUT_DEAD_TIME_S = (
+    0.25  # shortest bout onset-to-onset gap within a trial (control screen)
+)
+
+# BehavioralDataLoader arguments of each event table; an experiment names its table.
+EVENT_TABLES = {
+    "bouts": dict(
+        category_column="category",
+        category_names=bouts_category_name_short,
+        tracking_column="tracking_ok",
+    ),
+    "saccades": dict(
+        category_column="saccade_category",
+        category_names=SACCADE_CATEGORY_NAMES,
+        tracking_column="tracking_ok",  # body tracking: switch to an eye-tracking flag once qc writes one
+    ),
+}
 
 flat = RateKernelFactory.homogeneous_poisson
 gamma = GammaMixedEffectsProcess
@@ -38,7 +69,9 @@ def renewal(kernel: RateKernel) -> RenewalProcess:
 
 
 def dead_time_renewal(kernel: RateKernel, dead_time_s: float) -> RenewalProcess:
-    return RenewalProcess(kernel, RenewalKernelFactory.dead_time_delayed_excitation(dead_time_s))
+    return RenewalProcess(
+        kernel, RenewalKernelFactory.dead_time_delayed_excitation(dead_time_s)
+    )
 
 
 def hawkes(kernel: RateKernel) -> HawkesProcess:
@@ -49,9 +82,18 @@ def prey(variant: str) -> RateKernel:
     return PreyCapture.variant(variant, PREY_STIM_FREQ)
 
 
-def dataset(category: str, laterality, t_end: float, binning_dt: float = 0.05, **selection) -> dict:
+def dataset(
+    category: str, laterality, t_end: float, binning_dt: float = 0.05, **selection
+) -> dict:
     """prepare_dataset arguments; selection is stim or epoch_name, and trial_filters."""
-    return dict(selection, category=category, laterality=laterality, binning_dt=binning_dt, t_start=0.0, t_end=t_end)
+    return dict(
+        selection,
+        category=category,
+        laterality=laterality,
+        binning_dt=binning_dt,
+        t_start=0.0,
+        t_end=t_end,
+    )
 
 
 def flat_models(dead_time_s: float) -> List[PointProcess]:
@@ -64,7 +106,9 @@ def flat_models(dead_time_s: float) -> List[PointProcess]:
     ]
 
 
-def rate_models(kernel: Callable[[], RateKernel], dead_time_s: float, flat_renewal: bool = True) -> List[PointProcess]:
+def rate_models(
+    kernel: Callable[[], RateKernel], dead_time_s: float, flat_renewal: bool = True
+) -> List[PointProcess]:
     models = [
         poisson(flat()),
         poisson(kernel()),
@@ -86,13 +130,20 @@ def survival_models(*kernels: Callable[[], object]) -> List[PointProcess]:
     )
 
 
-def experiment(dataset_args: dict, models: List[PointProcess]) -> dict:
+def experiment(
+    dataset_args: dict, models: List[PointProcess], events: str = "bouts"
+) -> dict:
     null = (
         SurvivalProcess(SurvivalKernelFactory.constant_hazard())
         if models[0].is_survival
         else poisson(flat())
     )
-    return {"dataset": dataset_args, "null_model": null, "models": models}
+    return {
+        "events": events,
+        "dataset": dataset_args,
+        "null_model": null,
+        "models": models,
+    }
 
 
 def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
@@ -100,10 +151,22 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
     Fresh (unfitted) models every call. Keep the model order: best_model.json
     stores an index (new models go at the end of a list).
     """
-    looming_bump = lambda: SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4, 6))
-    looming_habituating = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6))
-    flash_bump = lambda: SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.2, t_bounds=(0.01, 1))
-    flash_habituating = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=0.2, t_bounds=(0.01, 1))
+    looming_bump = lambda: SurvivalKernelFactory.gaussian_bump_baseline(
+        t_init=5, t_bounds=(4, 6)
+    )
+    looming_habituating = (
+        lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(
+            t_init=5, t_bounds=(4, 6)
+        )
+    )
+    flash_bump = lambda: SurvivalKernelFactory.gaussian_bump_baseline(
+        t_init=0.2, t_bounds=(0.01, 1)
+    )
+    flash_habituating = (
+        lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(
+            t_init=0.2, t_bounds=(0.01, 1)
+        )
+    )
     gratings = ["grating right", "grating left"]
 
     return {
@@ -128,7 +191,9 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 gamma(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple")), fit_c=True),
-                ZeroInflatedBaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
+                ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                    hawkes(prey("Peak_Baseline_Ripple"))
+                ),
                 hawkes(prey("Peak_Baseline_Ripple")),
                 BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(renewal(prey("Peak_Baseline_Ripple"))),
@@ -147,7 +212,9 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
             ],
         ),
         "phototaxis_ipsi": experiment(
-            dataset("RT", IPSI, 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER),
+            dataset(
+                "RT", IPSI, 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER
+            ),
             [
                 poisson(flat()),
                 poisson(RateKernelFactory.phototaxis_ipsi()),
@@ -155,40 +222,63 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 gamma(poisson(flat())),
                 gamma(poisson(RateKernelFactory.phototaxis_ipsi())),
                 gamma(poisson(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
-                zero_inflated(renewal(RateKernelFactory.phototaxis_exgaussian_peak_no_dip())),
+                zero_inflated(
+                    renewal(RateKernelFactory.phototaxis_exgaussian_peak_no_dip())
+                ),
             ],
         ),
         "phototaxis_contra": experiment(
-            dataset("RT", CONTRA, 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER),
+            dataset(
+                "RT",
+                CONTRA,
+                24.0,
+                stim=Stim.PHOTOTAXIS,
+                trial_filters=PHOTOTAXIS_FILTER,
+            ),
             rate_models(RateKernelFactory.phototaxis_contra, dead_time_s),
         ),
-        "omr_lateral_ipsi": experiment(dataset("RT", IPSI, 9.0, epoch_name=gratings), flat_models(dead_time_s)),
+        "omr_lateral_ipsi": experiment(
+            dataset("RT", IPSI, 9.0, epoch_name=gratings), flat_models(dead_time_s)
+        ),
         "omr_lateral_contra": experiment(
-            dataset("RT", CONTRA, 9.0, epoch_name=gratings), rate_models(RateKernelFactory.omr_lateral_contra, dead_time_s)
+            dataset("RT", CONTRA, 9.0, epoch_name=gratings),
+            rate_models(RateKernelFactory.omr_lateral_contra, dead_time_s),
         ),
         "omr_forward": experiment(
             dataset("BS", NONDIRECTIONAL, 9.0, epoch_name="grating forward"),
             rate_models(RateKernelFactory.omr_forward, dead_time_s, flat_renewal=False),
         ),
-        "okr_ipsi": experiment(dataset("S1", IPSI, 9.0, stim=Stim.OKR), flat_models(dead_time_s)),
-        "okr_contra": experiment(dataset("S1", CONTRA, 9.0, stim=Stim.OKR), flat_models(dead_time_s)),
+        "okr_ipsi": experiment(
+            dataset("S1", IPSI, 9.0, stim=Stim.OKR), flat_models(dead_time_s)
+        ),
+        "okr_contra": experiment(
+            dataset("S1", CONTRA, 9.0, stim=Stim.OKR), flat_models(dead_time_s)
+        ),
         "looming_ipsi": experiment(
-            dataset("SLC", IPSI, 9.0, stim=Stim.LOOMING), survival_models(looming_bump, looming_habituating)
+            dataset("SLC", IPSI, 9.0, stim=Stim.LOOMING),
+            survival_models(looming_bump, looming_habituating),
         ),
         "looming_contra": experiment(
-            dataset("SLC", CONTRA, 9.0, stim=Stim.LOOMING), survival_models(looming_bump, looming_habituating)
+            dataset("SLC", CONTRA, 9.0, stim=Stim.LOOMING),
+            survival_models(looming_bump, looming_habituating),
         ),
         "dark_flash": experiment(
-            dataset("O", NONDIRECTIONAL, 5.0, binning_dt=0.025, epoch_name="flash dark"),
+            dataset(
+                "O", NONDIRECTIONAL, 5.0, binning_dt=0.025, epoch_name="flash dark"
+            ),
             survival_models(
-                flash_bump, flash_habituating, SurvivalKernelFactory.exgaussian_bump_baseline_habituating
+                flash_bump,
+                flash_habituating,
+                SurvivalKernelFactory.exgaussian_bump_baseline_habituating,
             ),
         ),
         "spont_dark": experiment(
-            dataset("RT", NONDIRECTIONAL, 24.0, epoch_name="spontaneous dark"), rate_models(RateKernelFactory.spont, dead_time_s)
+            dataset("RT", NONDIRECTIONAL, 24.0, epoch_name="spontaneous dark"),
+            rate_models(RateKernelFactory.spont, dead_time_s),
         ),
         "spont_bright": experiment(
-            dataset("RT", NONDIRECTIONAL, 24.0, epoch_name="spontaneous bright"), rate_models(RateKernelFactory.spont, dead_time_s)
+            dataset("RT", NONDIRECTIONAL, 24.0, epoch_name="spontaneous bright"),
+            rate_models(RateKernelFactory.spont, dead_time_s),
         ),
         "after_looming": experiment(
             dataset(
@@ -203,5 +293,16 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 zero_inflated(renewal(RateKernelFactory.after_looming())),
                 zero_inflated(renewal(flat())),
             ],
+        ),
+        "okr_conjugate_saccades": experiment(
+            dataset("Conjugate", [IPSI, CONTRA], 9.0, stim=Stim.OKR),
+            [
+                poisson(flat()),
+                gamma(poisson(flat())),
+                zero_inflated(poisson(flat())),
+                hawkes(flat()),
+                zero_inflated(renewal(flat())),
+            ],
+            events="saccades",
         ),
     }

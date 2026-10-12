@@ -13,6 +13,7 @@ import numpy as np
 
 from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
+from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES
 from BehaviorScreen.point_process.point_process.poisson_process import PoissonProcess, RateKernelFactory, PreyCapture
 from BehaviorScreen.point_process.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
 from BehaviorScreen.point_process.point_process.frailty import GammaMixedEffectsProcess
@@ -44,7 +45,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 ROOT = Path('/media/martin/DATA_18TB/Screen')
 # Tables merged across screen folders with merge_csv (adds line/condition columns)
 loader = BehavioralDataLoader(
-    ROOT / "bouts_all.csv", [ROOT / "valid_trials_all.csv"], [ROOT / "qc_all.csv"]
+    ROOT / "bouts_all.csv", [ROOT / "valid_trials_all.csv"], [ROOT / "qc_all.csv"], **EVENT_TABLES["bouts"]
 )
 
 prey_stim_speed_deg_per_s = 90

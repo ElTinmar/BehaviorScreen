@@ -353,7 +353,8 @@ class BehavioralDataLoader:
         valid_trials_csvs: Sequence[Path],
         qc_csvs: Sequence[Path] = (),
         category_column: str = "category",
-        category_names: Optional[Sequence[str]] = None,
+        category_names: Optional[Union[Sequence[str], Mapping[int, str]]] = None,
+        tracking_column: str = "tracking_ok",
     ) -> None:
         read = lambda path: pd.read_csv(path, dtype={"line": str, "condition": str}, low_memory=False)
         events = read(events_csv)
@@ -368,21 +369,25 @@ class BehavioralDataLoader:
         if without_trials:
             warnings.warn(f"{len(without_trials)} fish have events but no row in valid_trials; their events are ignored")
 
-        self.events = events.dropna(subset=["epoch_name", "trial_num"]).astype({"trial_num": int})
-        self.trials = trials.astype({"presented": bool, "tracking_ok": bool})
+        events = events.dropna(subset=["epoch_name", "trial_num"])
+        unmarked = events[category_column].isna() | events["laterality"].isna()
+        if unmarked.any():
+            counts = events.loc[unmarked, "epoch_name"].value_counts().to_string()
+            warnings.warn(f"{unmarked.sum()} events without {category_column} or laterality ignored, by epoch:\n{counts}")
+        self.events = events[~unmarked].astype({"trial_num": int, category_column: int, "laterality": int})
+        self.trials = trials.astype({"presented": bool, tracking_column: bool})
         self.screen_trials = self.trials
-        self.category_column = category_column
-        if category_names is None and category_column == "category":
-            # Megabouts bout categories; imported here so worker processes, which
-            # only unpickle datasets, never load megabouts.
-            from megabouts.utils import bouts_category_name_short as category_names
-        self.category_names = category_names
+        self.category_column, self.tracking_column = category_column, tracking_column
+        self.category_names = None if category_names is None else dict(
+            category_names.items() if isinstance(category_names, Mapping) else enumerate(category_names)
+        )
 
     def _category_codes(self, category: Union[str, int, Sequence[Union[str, int]]]) -> List[int]:
         values = [category] if isinstance(category, (str, int)) else list(category)
         if any(isinstance(v, str) for v in values) and self.category_names is None:
             raise ValueError(f"category names unknown for {self.category_column}; use codes")
-        return [self.category_names.index(v) if isinstance(v, str) else int(v) for v in values]
+        codes = {name: code for code, name in (self.category_names or {}).items()}
+        return [codes[v] if isinstance(v, str) else int(v) for v in values]
 
     @staticmethod
     def _select_trials(
@@ -469,13 +474,13 @@ class BehavioralDataLoader:
         codes = None if category is None else self._category_codes(category)
         lateralities = None if laterality is None else [int(l) for l in np.atleast_1d(laterality)]
         category_label = "all" if codes is None else "+".join(
-            self.category_names[c] if self.category_names is not None else str(c) for c in codes
+            self.category_names.get(c, str(c)) if self.category_names is not None else str(c) for c in codes
         )
         laterality_label = "all" if lateralities is None else "+".join(Laterality(l).name for l in lateralities)
         label = f"{category_label}/{laterality_label}"
 
         trials, n_trials = self._condition_trials(stim, epoch_name, trial_filters)
-        usable = trials["presented"] & trials["tracking_ok"]
+        usable = trials["presented"] & trials[self.tracking_column]
         too_short = usable & (trials["trial_duration_s"] < t_end)
         if too_short.any():
             short = trials.loc[too_short, ["file", "epoch_name", "trial_num", "trial_duration_s"]]
@@ -512,8 +517,8 @@ class BehavioralDataLoader:
             category_label=category_label,
             laterality=laterality_label,
             marks={
-                "category": events[self.category_column].to_numpy(int),
-                "laterality": events["laterality"].to_numpy(int),
+                "category": events[self.category_column].to_numpy(),
+                "laterality": events["laterality"].to_numpy(),
             },
         )
         criteria = {"category": codes, "laterality": lateralities}

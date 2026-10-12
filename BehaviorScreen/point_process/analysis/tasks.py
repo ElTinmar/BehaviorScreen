@@ -1,7 +1,7 @@
 """The three run modes: dataset diagnostics, model fitting, consolidation across experiments."""
 import json
 from pathlib import Path
-from typing import Dict
+from typing import Callable, Dict
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -125,7 +125,9 @@ def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDatas
     )
 
 
-def run_consolidation_task(model_config: dict, loader: BehavioralDataLoader, output_root: Path) -> None:
+def run_consolidation_task(
+    model_config: dict, loader: Callable[[str], BehavioralDataLoader], output_root: Path
+) -> None:
     """Cross-experiment tables and gain correlations, from the saved best models."""
     print("\n=== Consolidating experiment results ===")
     summaries, datasets, best_models = [], {}, {}
@@ -134,7 +136,7 @@ def run_consolidation_task(model_config: dict, loader: BehavioralDataLoader, out
         if not (model_dir / "best_model.json").exists():
             continue
         summaries.append(pd.read_csv(model_dir / "model_comparison_table.csv"))
-        datasets[exp_name] = loader.prepare_dataset(**config["dataset"])
+        datasets[exp_name] = loader(config["events"]).prepare_dataset(**config["dataset"])
         best_models[exp_name] = load_best_model(config, model_dir)
     if not summaries:
         return
