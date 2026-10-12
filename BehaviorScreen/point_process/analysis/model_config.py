@@ -1,6 +1,6 @@
 """Experiments: the dataset each one is built from and the candidate models, in a fixed order."""
 
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 from megabouts.utils import bouts_category_name_short
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, Laterality, Stim
@@ -40,6 +40,9 @@ PREY_STIM_FREQ = 90 / (2 * 70)  # stimulus speed (deg/s) / sweep range (deg)
 BOUT_DEAD_TIME_S = (
     0.25  # shortest bout onset-to-onset gap within a trial (control screen)
 )
+# Rate scales (baseline, evoked peak, hazard bump): free in the ablation screen's
+# Tier 1, every other parameter pinned to the control fit.
+AMPLITUDE_PARAMETERS = ("B", "A", "A_peak", "H")
 
 # BehavioralDataLoader arguments of each event table; an experiment names its table.
 EVENT_TABLES = {
@@ -131,8 +134,12 @@ def survival_models(*kernels: Callable[[], object]) -> List[PointProcess]:
 
 
 def experiment(
-    dataset_args: dict, models: List[PointProcess], events: str = "bouts"
+    dataset_args: dict,
+    models: List[PointProcess],
+    events: str = "bouts",
+    tier1_model: Optional[int] = None,
 ) -> dict:
+    """tier1_model: index of the model the ablation screen uses (None: the best by AIC)."""
     null = (
         SurvivalProcess(SurvivalKernelFactory.constant_hazard())
         if models[0].is_survival
@@ -143,6 +150,7 @@ def experiment(
         "dataset": dataset_args,
         "null_model": null,
         "models": models,
+        "tier1_model": tier1_model,
     }
 
 
