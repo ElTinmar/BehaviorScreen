@@ -28,10 +28,10 @@ from BehaviorScreen.point_process.point_process.survival_process import (
     SurvivalProcess,
     SurvivalKernelFactory,
 )
-from BehaviorScreen.point_process.point_process.mixed_effects_process import (
+from BehaviorScreen.point_process.point_process.frailty import (
     GammaMixedEffectsProcess,
 )
-from BehaviorScreen.point_process.point_process.partially_fixed_process import (
+from BehaviorScreen.point_process.point_process.wrappers import (
     PartiallyFixedProcess,
 )
 

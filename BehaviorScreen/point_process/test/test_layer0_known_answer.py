@@ -31,12 +31,7 @@ from BehaviorScreen.point_process.point_process.renewal_process import (
     RenewalProcess,
     RenewalKernelFactory,
 )
-from BehaviorScreen.point_process.point_process.mixed_effects_process import (
-    GammaMixedEffectsProcess,
-)
-from BehaviorScreen.point_process.point_process.zero_inflated_mixed_effects_process import (
-    ZeroInflatedGammaMixedEffectsProcess,
-)
+from BehaviorScreen.point_process.point_process.frailty import GammaGain, ZeroInflatedGain
 
 
 class TestHomogeneousPoissonKnownAnswer:
@@ -253,12 +248,6 @@ class TestGammaFrailtyCompensatorKnownAnswer:
 class TestZeroInflatedFrailtyCompensatorKnownAnswer:
 
     def test_pi_zero_reduces_to_gamma_frailty(self):
-        base = PoissonProcess(RateKernelFactory.homogeneous_poisson())
-        model = ZeroInflatedGammaMixedEffectsProcess(
-            base,
-            fit_c=False,
-        )
-
         pi = 0.0
         r = 3.0
         c = 0.0
@@ -268,15 +257,8 @@ class TestZeroInflatedFrailtyCompensatorKnownAnswer:
         s_previous = 2.5
         s_new = 3.2
 
-        computed = model._predictable_tau(
-            N_count=n_previous,
-            S_prev=s_previous,
-            S_abs=s_new,
-            pi=pi,
-            r=r,
-            c=c,
-            beta=beta,
-        )
+        gain = ZeroInflatedGain(pi, c, GammaGain(r, beta))
+        computed = gain.tau(n_previous, s_previous, s_new)
 
         expected = (r + n_previous) * np.log((r + s_new) / (r + s_previous))
 

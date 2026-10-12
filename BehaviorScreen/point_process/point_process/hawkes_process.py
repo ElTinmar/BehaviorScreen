@@ -2,63 +2,16 @@ from dataclasses import dataclass
 from typing import Callable, List, Tuple, Optional, Union
 
 import numpy as np
-from scipy.integrate import trapezoid
 
 from .dataset import PointProcessDataset
-from .point_process import PointProcess
+from .point_process import PointProcess, thin
+from .lag_kernel import LagKernel
 from .poisson_process import RateKernel
 
 
 @dataclass(frozen=True)
-class HistoryKernel:
-    name: str
-    func: Callable[[np.ndarray, List[float]], np.ndarray]
-    param_names: List[str]
-    initial_guesses: List[float]
-    bounds: List[Tuple[Optional[float], Optional[float]]]
-    integral_func: Optional[Callable[[np.ndarray, List[float]], np.ndarray]] = None
+class HistoryKernel(LagKernel):
     event_history_func: Optional[Callable[[np.ndarray, List[float]], np.ndarray]] = None
-    latex_formula: str = ""
-
-    def evaluate(self, lag: np.ndarray, params: List[float]) -> np.ndarray:
-        if np.any(lag < 0):
-            raise ValueError("History-kernel lags must be non-negative.")
-
-        return self.func(lag, params)
-
-    def integrate(
-        self,
-        duration: Union[float, np.ndarray],
-        params: List[float],
-        integration_dt: float = 0.02,
-    ) -> np.ndarray:
-
-        duration = np.asarray(duration, dtype=float)
-        if np.any(duration < 0):
-            raise ValueError("Integration duration must be non-negative.")
-
-        if self.integral_func is not None:
-            return self.integral_func(duration, params)
-
-        scalar_input = duration.ndim == 0
-        durations = np.atleast_1d(duration)
-        result = np.empty_like(durations)
-
-        for i, T in enumerate(durations):
-            if T == 0:
-                result[i] = 0.0
-                continue
-
-            t_grid = np.arange(0.0, T + integration_dt, integration_dt)
-            if t_grid[-1] > T:
-                t_grid[-1] = T
-            elif t_grid[-1] < T:
-                t_grid = np.append(t_grid, T)
-
-            values = self.evaluate(t_grid, params)
-            result[i] = trapezoid(values, t_grid)
-
-        return result[0] if scalar_input else result
 
     def event_history(self, t_events: np.ndarray, params: List[float]) -> np.ndarray:
 
@@ -156,12 +109,6 @@ class HawkesProcess(PointProcess):
         self.bounds = kernel.bounds + history_kernel.bounds
         self.param_names = kernel.param_names + history_kernel.param_names
 
-    def _split_params(self, params: List[float]) -> Tuple[List[float], List[float]]:
-        n = len(self.kernel.param_names)
-        params_base = params[:n]
-        params_history = params[n:]
-        return params_base, params_history
-
     def _hawkes_nll(
         self,
         t_events: np.ndarray,
@@ -220,40 +167,22 @@ class HawkesProcess(PointProcess):
 
         return total_nll
 
-    def cumulative_integrated_intensity(
-        self,
-        t_events: np.ndarray,
-        trial: float,
-    ) -> np.ndarray:
+    def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
+        return np.add(*self._compensator_parts(t_events, trial))
 
-        if self.params_ is None:
-            raise ValueError("Model must be fitted first.")
-
+    def _compensator_parts(self, t_events: np.ndarray, trial: float) -> Tuple[np.ndarray, np.ndarray]:
+        """Baseline and history compensators at sorted t_events, each earlier one an event."""
+        self._require_fitted()
         params_base, params_history = self._split_params(self.params_)
-        t_events = np.sort(np.asarray(t_events))
-
-        # Baseline cumulative intensity
-        Lambda_base = self.kernel.cumulative_integrate(
-            t_events=t_events,
-            trial=trial,
-            params=params_base,
-            integration_dt=self.integration_dt,
+        t_events = np.sort(np.asarray(t_events, dtype=float))
+        base = self.kernel.cumulative_integrate(t_events, trial, params_base, integration_dt=self.integration_dt)
+        history = np.array(
+            [
+                np.sum(self.history_kernel.integrate(t - t_events[:i], params_history, integration_dt=self.integration_dt))
+                for i, t in enumerate(t_events)
+            ]
         )
-
-        # Hawkes history contribution
-        Lambda_history = np.zeros_like(t_events)
-        for i, t in enumerate(t_events):
-            previous_events = t_events[:i]
-            lags = t - previous_events
-            Lambda_history[i] = np.sum(
-                self.history_kernel.integrate(
-                    lags,
-                    params_history,
-                    integration_dt=self.integration_dt,
-                )
-            )
-
-        return Lambda_base + Lambda_history
+        return base, history.reshape(base.shape)
 
     def predict(
         self,
@@ -262,8 +191,7 @@ class HawkesProcess(PointProcess):
         history_events: Optional[np.ndarray] = None,
     ) -> np.ndarray:
 
-        if self.params_ is None:
-            raise ValueError("Model is not fitted yet. Call .fit() first.")
+        self._require_fitted()
 
         params_base, params_history = self._split_params(self.params_)
 
@@ -348,18 +276,6 @@ class HawkesProcess(PointProcess):
 
         return base_ll, N_f, S_f
 
-    def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx: int) -> float:
-        """Only the BASE kernel's bound is needed here -- the history
-        contribution is handled separately, inline, in simulate_stream (see
-        that method's docstring: the current recursive state R already gives
-        an exact, tight bound for the history term, no grid search needed)."""
-        base_params, _ = self._split_params(self.params_)
-        grid = np.arange(
-            0.0, dataset.duration_s + self.integration_dt, self.integration_dt
-        )
-        vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), base_params)
-        return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
-
     def _estimate_decay_horizon(
         self, hist_params: List[float], tol: float = 1e-6, max_horizon: float = 1000.0
     ) -> float:
@@ -395,67 +311,33 @@ class HawkesProcess(PointProcess):
         return cached[1]
 
     def simulate_stream(
-        self,
-        dataset: PointProcessDataset,
-        t_idx: int,
-        gain: float,
-        rng: np.random.Generator,
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator
     ) -> np.ndarray:
-        """
-        Ogata thinning WITH self-excitation, generic across any HistoryKernel
-        shape, via history_kernel.decay_envelope() as the thinning bound.
+        """Thinning with the gain on the whole intensity (baseline and history)."""
+        return thin(*self._thinning_functions(dataset, t_idx, gain, gain), dataset.duration_s, rng)
 
-        The envelope spans [0, decay_horizon]; older events contribute 0.
+    def _thinning_functions(
+        self, dataset: PointProcessDataset, t_idx: int, base_gain: float, history_gain: float
+    ) -> Tuple[Callable[[float, List[float]], float], Callable[[float, List[float]], float]]:
+        """
+        Intensity and upper bound for thinning. The bound uses the history
+        kernel's decay envelope (running supremum), so it holds for any
+        kernel shape; events older than the decay horizon contribute 0.
         """
         base_params, hist_params = self._split_params(self.params_)
-        hk = self.history_kernel
+        base_upper = base_gain * self._intensity_upper_bound(dataset, t_idx)
+        decay_horizon, envelope = self._history_envelope(hist_params)
+        dt = self.integration_dt
 
-        def _base(t_scalar: float) -> float:
-            return (
-                gain
-                * self.kernel.evaluate(
-                    np.array([t_scalar]), np.array([t_idx]), base_params
-                )[0]
-            )
+        def envelope_at(lag: float) -> float:
+            return 0.0 if lag >= decay_horizon else envelope[max(min(int(lag / dt), len(envelope) - 1), 0)]
 
-        def _history_intensity(t_eval: float, events: List[float]) -> float:
-            if not events:
-                return 0.0
-            lags = t_eval - np.asarray(events)
-            return float(np.sum(hk.evaluate(lags, hist_params)))
+        def intensity(t: float, events: List[float]) -> float:
+            base = base_gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), base_params)[0]
+            history = float(np.sum(self.history_kernel.evaluate(t - np.asarray(events), hist_params))) if events else 0.0
+            return base + history_gain * history
 
-        base_upper = gain * self._intensity_upper_bound(dataset, t_idx)
+        def upper_bound(t: float, events: List[float]) -> float:
+            return base_upper + history_gain * sum(envelope_at(t - e) for e in events)
 
-        decay_horizon, envelope_grid = self._history_envelope(hist_params)
-
-        def _envelope(lag: float) -> float:
-            if lag >= decay_horizon:
-                return 0.0  # explicit zero beyond the decay horizon -- NOT a floor
-            idx = min(int(lag / self.integration_dt), len(envelope_grid) - 1)
-            return envelope_grid[max(idx, 0)]
-
-        events: List[float] = []
-        t = 0.0
-        while t < dataset.duration_s:
-            # Only events within decay_horizon of `t` can contribute nonzero
-            # envelope mass -- summing over the full events list is still
-            # correct (since _envelope returns exactly 0.0 for older ones),
-            # just no longer unbounded in effect.
-            hist_upper = gain * sum(_envelope(t - e) for e in events)
-            lambda_upper = base_upper + hist_upper
-
-            w = rng.exponential(1.0 / max(lambda_upper, 1e-12))
-            t_candidate = t + w
-            if t_candidate >= dataset.duration_s:
-                break
-
-            lam_candidate = _base(t_candidate) + gain * _history_intensity(
-                t_candidate, events
-            )
-
-            if rng.uniform() <= lam_candidate / lambda_upper:
-                events.append(t_candidate)
-
-            t = t_candidate
-
-        return np.array(events)
+        return intensity, upper_bound

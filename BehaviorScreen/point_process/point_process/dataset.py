@@ -1,13 +1,15 @@
 import copy
-from dataclasses import dataclass
+import warnings
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from itertools import groupby
 from functools import cached_property
-from typing import Any, List, Optional, Sequence, Union, Tuple, ClassVar, Dict
+from typing import Any, ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
 from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.stim_specs import exclude_qc_fish
+from .kaplan_meier import km_table
 from megabouts.utils import bouts_category_name_short
 from scipy.special import gammaln
 from scipy.stats import norm
@@ -30,7 +32,7 @@ class PointProcessDataset:
     laterality: str = ""
     duration_s: float = 24.0
     binning_dt: float = 0.02
-    event_marks: Optional[np.ndarray] = None  # event category, for marked models
+    marks: Mapping[str, np.ndarray] = field(default_factory=dict)  # per event, e.g. category, laterality
 
     @property
     def num_fish(self) -> int:
@@ -124,6 +126,12 @@ class PointProcessDataset:
         n_fish = self.n_fish_per_trial[:, None]
         safe_denom = np.where(n_fish > 0, n_fish * self.binning_dt, 1.0)
         return np.where(n_fish > 0, counts / safe_denom, 0.0)
+
+    def first_event_times(self) -> Tuple[np.ndarray, np.ndarray]:
+        """Per stream: time of the first event (duration_s if none) and whether it is censored."""
+        firsts = [(t_ev[0], False) if len(t_ev) else (self.duration_s, True) for _, _, t_ev in self.iter_streams()]
+        times, censored = zip(*firsts) if firsts else ((), ())
+        return np.array(times, dtype=float), np.array(censored, dtype=bool)
 
     @property
     def stream_event_counts(self) -> np.ndarray:
@@ -257,45 +265,64 @@ class PointProcessDataset:
 
         return (cov_sum / (pair_count * pooled_var)) if pair_count > 0 else np.nan
 
+    def _with_events(self, take: np.ndarray, event_fish_idx: np.ndarray, **changes: Any) -> "PointProcessDataset":
+        return replace(
+            self,
+            event_times=self.event_times[take],
+            event_trials_idx=self.event_trials_idx[take],
+            event_fish_idx=event_fish_idx,
+            marks={key: values[take] for key, values in self.marks.items()},
+            **changes,
+        )
+
+    def select(self, **criteria: Union[int, Sequence[int]]) -> "PointProcessDataset":
+        """Events whose marks are among the given values, e.g. select(category=[0, 1], laterality=1)."""
+        keep = np.ones(len(self.event_times), dtype=bool)
+        for key, values in criteria.items():
+            keep &= np.isin(self.marks[key], np.atleast_1d(values))
+        return self._with_events(keep, self.event_fish_idx[keep])
+
+    def fish(self, indices: Sequence[int]) -> "PointProcessDataset":
+        """The given fish, renumbered in the order given; repeats allowed (bootstrap)."""
+        indices = np.asarray(indices, dtype=int)
+        order = np.argsort(self.event_fish_idx, kind="stable")
+        starts = np.searchsorted(self.event_fish_idx[order], np.arange(self.num_fish + 1))
+        pieces = [order[starts[i] : starts[i + 1]] for i in indices]
+        take = np.concatenate([np.empty(0, dtype=int)] + pieces)
+        new_fish_idx = np.repeat(np.arange(len(indices)), [len(piece) for piece in pieces])
+        return self._with_events(
+            take, new_fish_idx, fish_trial_mask=self.fish_trial_mask[indices], fish_ids=self.fish_ids[indices]
+        )
+
+    def first_events(self) -> "PointProcessDataset":
+        """Only the first event of every stream (what a survival model describes)."""
+        order = np.lexsort((self.event_times, self.event_trials_idx, self.event_fish_idx))
+        keys = np.column_stack([self.event_fish_idx[order], self.event_trials_idx[order]])
+        take = order[np.r_[True, (np.diff(keys, axis=0) != 0).any(axis=1)]] if len(order) else order
+        return self._with_events(take, self.event_fish_idx[take])
+
     def resample(self, rng: np.random.Generator) -> "PointProcessDataset":
-        n_fish = self.fish_trial_mask.shape[0]
-        boot_fish_idx = rng.choice(n_fish, size=n_fish, replace=True)
+        return self.fish(rng.choice(self.num_fish, size=self.num_fish, replace=True))
 
-        boot_times = []
-        boot_trials = []
-        boot_fish = []
-        boot_marks = []
-
-        for new_id, orig_id in enumerate(boot_fish_idx):
-            mask = self.event_fish_idx == orig_id
-            if np.any(mask):
-                boot_times.append(self.event_times[mask])
-                boot_trials.append(self.event_trials_idx[mask])
-                boot_fish.append(np.full(np.sum(mask), new_id, dtype=int))
-                if self.event_marks is not None:
-                    boot_marks.append(self.event_marks[mask])
-
-        return PointProcessDataset(
-            event_times=(
-                np.concatenate(boot_times) if boot_times else np.array([], dtype=float)
-            ),
-            event_trials_idx=(
-                np.concatenate(boot_trials) if boot_trials else np.array([], dtype=int)
-            ),
-            event_fish_idx=(
-                np.concatenate(boot_fish) if boot_fish else np.array([], dtype=int)
-            ),
-            fish_trial_mask=self.fish_trial_mask[boot_fish_idx, :],
-            fish_ids=self.fish_ids[boot_fish_idx],
-            duration_s=self.duration_s,
-            binning_dt=self.binning_dt,
-            category_label=self.category_label,
-            laterality=self.laterality,
-            event_marks=(
-                None
-                if self.event_marks is None
-                else np.concatenate(boot_marks) if boot_marks else np.array([], dtype=int)
-            ),
+    @staticmethod
+    def concat(*datasets: "PointProcessDataset") -> "PointProcessDataset":
+        """Fish of each dataset in turn; all must share trials, duration and mark keys."""
+        first = datasets[0]
+        if any(
+            (d.num_trials, d.duration_s, set(d.marks)) != (first.num_trials, first.duration_s, set(first.marks))
+            for d in datasets
+        ):
+            raise ValueError("concat: datasets differ in trials, duration or marks")
+        offsets = np.cumsum([0] + [d.num_fish for d in datasets[:-1]])
+        joined = lambda arrays: np.concatenate(list(arrays))
+        return replace(
+            first,
+            event_times=joined(d.event_times for d in datasets),
+            event_trials_idx=joined(d.event_trials_idx for d in datasets),
+            event_fish_idx=joined(d.event_fish_idx + o for d, o in zip(datasets, offsets)),
+            fish_trial_mask=np.vstack([d.fish_trial_mask for d in datasets]),
+            fish_ids=joined(d.fish_ids for d in datasets),
+            marks={key: joined(d.marks[key] for d in datasets) for key in first.marks},
         )
 
 
@@ -330,10 +357,7 @@ class BehavioralDataLoader:
             raise ValueError("valid_trials lists the same (file, epoch_name, trial_num) twice")
         without_trials = set(events["file"]) - set(trials["file"])
         if without_trials:
-            print(
-                f"[warn] {len(without_trials)} fish have events but no row in valid_trials; "
-                "their events are ignored"
-            )
+            warnings.warn(f"{len(without_trials)} fish have events but no row in valid_trials; their events are ignored")
 
         self.events = events.dropna(subset=["epoch_name", "trial_num"]).astype({"trial_num": int})
         self.trials = trials.astype({"presented": bool, "tracking_ok": bool})
@@ -414,8 +438,8 @@ class BehavioralDataLoader:
 
     def prepare_dataset(
         self,
-        category: Union[str, int, Sequence[Union[str, int]]],
-        laterality: Union[Laterality, Sequence[Laterality]],
+        category: Optional[Union[str, int, Sequence[Union[str, int]]]] = None,
+        laterality: Optional[Union[Laterality, Sequence[Laterality]]] = None,
         stim: Optional[Union[Stim, int]] = None,
         epoch_name: Optional[Union[str, Sequence[str]]] = None,
         trial_filters: Optional[Dict[str, Any]] = None,
@@ -425,22 +449,26 @@ class BehavioralDataLoader:
     ) -> PointProcessDataset:
         """
         Streams are the usable trials (presented and tracked) lasting at least
-        t_end; events are those of the requested categories and lateralities
-        within [t_start, t_end) of these trials.
+        t_end; events are those within [t_start, t_end) of these trials, of
+        the requested categories and lateralities (None: all), marked with
+        both.
         """
-        codes = self._category_codes(category)
-        lateralities = [laterality] if isinstance(laterality, int) else list(laterality)
-        category_label = "+".join(
+        codes = None if category is None else self._category_codes(category)
+        lateralities = None if laterality is None else [int(l) for l in np.atleast_1d(laterality)]
+        category_label = "all" if codes is None else "+".join(
             self.category_names[c] if self.category_names is not None else str(c) for c in codes
         )
-        laterality_label = "+".join(Laterality(int(l)).name for l in lateralities)
+        laterality_label = "all" if lateralities is None else "+".join(Laterality(l).name for l in lateralities)
         label = f"{category_label}/{laterality_label}"
 
         trials, n_trials = self._condition_trials(stim, epoch_name, trial_filters)
         usable = trials["presented"] & trials["tracking_ok"]
         too_short = usable & (trials["trial_duration_s"] < t_end)
         if too_short.any():
-            print(f"[{label}] {too_short.sum()} usable trials shorter than t_end={t_end}s left out")
+            short = trials.loc[too_short, ["file", "epoch_name", "trial_num", "trial_duration_s"]]
+            warnings.warn(
+                f"[{label}] {len(short)} usable trials shorter than t_end={t_end}s left out:\n{short.to_string(index=False)}"
+            )
         streams = trials.loc[usable & ~too_short, ["file", "epoch_name", "trial_num", "trial"]]
         if streams.empty:
             raise ValueError(f"[{label}] no usable trial lasting at least t_end={t_end}s")
@@ -451,12 +479,7 @@ class BehavioralDataLoader:
         fish_trial_mask[streams["file"].map(fish_map).to_numpy(), streams["trial"].to_numpy()] = True
 
         events = self.events.merge(streams, on=["file", "epoch_name", "trial_num"])
-        events = events[
-            events[self.category_column].isin(codes)
-            & events["laterality"].isin([int(l) for l in lateralities])
-            & (events["trial_time"] >= t_start)
-            & (events["trial_time"] < t_end)
-        ]
+        events = events[(events["trial_time"] >= t_start) & (events["trial_time"] < t_end)]
 
         print(
             f"[{label}] fish_trial_mask occupancy: {fish_trial_mask.mean():.1%} "
@@ -465,7 +488,7 @@ class BehavioralDataLoader:
             f"min trials/fish = {fish_trial_mask.sum(axis=1).min()}"
         )
 
-        return PointProcessDataset(
+        dataset = PointProcessDataset(
             event_times=(events["trial_time"] - t_start).to_numpy(float),
             event_trials_idx=events["trial"].to_numpy(int),
             event_fish_idx=events["file"].map(fish_map).to_numpy(int),
@@ -475,8 +498,32 @@ class BehavioralDataLoader:
             binning_dt=binning_dt,
             category_label=category_label,
             laterality=laterality_label,
-            event_marks=events[self.category_column].to_numpy(int),
+            marks={
+                "category": events[self.category_column].to_numpy(int),
+                "laterality": events["laterality"].to_numpy(int),
+            },
         )
+        criteria = {"category": codes, "laterality": lateralities}
+        return dataset.select(**{key: values for key, values in criteria.items() if values is not None})
+
+
+def _coarse_trial_rates(
+    dataset: PointProcessDataset, bin_width_s: float
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(trial x coarse bin) rate per fish (NaN for trials without fish), coarse bin edges and centers."""
+    factor = max(1, int(round(bin_width_s / dataset.binning_dt)))
+    counts = dataset.time_trial_histogram_counts
+    n_coarse = counts.shape[1] // factor
+    if n_coarse == 0:
+        raise ValueError("bin_width_s too large relative to duration_s/binning_dt")
+    coarse_counts = counts[:, : n_coarse * factor].reshape(dataset.num_trials, n_coarse, factor).sum(axis=2)
+    centers = dataset.t_centers[: n_coarse * factor].reshape(n_coarse, factor).mean(axis=1)
+    edges = dataset.t_grid[: n_coarse * factor + 1 : factor]
+    n_fish = dataset.n_fish_per_trial
+    active = n_fish > 0
+    rates = np.full_like(coarse_counts, np.nan, dtype=float)
+    rates[active] = coarse_counts[active] / (n_fish[active, None] * factor * dataset.binning_dt)
+    return rates, edges, centers
 
 
 class DatasetPlotter:
@@ -1074,31 +1121,9 @@ class DatasetPlotter:
         plot_time_trial_rate_heatmap to see if that variability is
         structured, e.g. a trend across trials, vs. just noise).
         """
-        factor = max(1, int(round(bin_width_s / dataset.binning_dt)))
-        counts = dataset.time_trial_histogram_counts  # (n_trials, n_fine_bins)
-        n_coarse = counts.shape[1] // factor
-        if n_coarse == 0:
-            raise ValueError("bin_width_s too large relative to duration_s/binning_dt")
-        trimmed = counts[:, : n_coarse * factor]
-        coarse_counts = trimmed.reshape(dataset.num_trials, n_coarse, factor).sum(
-            axis=2
-        )
-        coarse_centers = (
-            dataset.t_centers[: n_coarse * factor]
-            .reshape(n_coarse, factor)
-            .mean(axis=1)
-        )
-        coarse_dt = factor * dataset.binning_dt
-
-        n_fish_per_trial = dataset.n_fish_per_trial
-        active = n_fish_per_trial > 0
-        rate_per_trial = np.full_like(coarse_counts, np.nan, dtype=float)
-        rate_per_trial[active] = coarse_counts[active] / (
-            n_fish_per_trial[active, None] * coarse_dt
-        )
-
+        rate_per_trial, _, coarse_centers = _coarse_trial_rates(dataset, bin_width_s)
         mean_rate = np.nanmean(rate_per_trial, axis=0)
-        n_active_trials = int(np.sum(active))
+        n_active_trials = int(np.sum(dataset.n_fish_per_trial > 0))
         spread = np.nanstd(rate_per_trial, axis=0)
         if band == "sem":
             spread = spread / np.sqrt(max(n_active_trials, 1))
@@ -1148,24 +1173,7 @@ class DatasetPlotter:
         shared across all trials. Trials with no observed fish are masked
         gray, distinguishing "no data" from "zero rate".
         """
-        factor = max(1, int(round(bin_width_s / dataset.binning_dt)))
-        counts = dataset.time_trial_histogram_counts
-        n_coarse = counts.shape[1] // factor
-        if n_coarse == 0:
-            raise ValueError("bin_width_s too large relative to duration_s/binning_dt")
-        trimmed = counts[:, : n_coarse * factor]
-        coarse_counts = trimmed.reshape(dataset.num_trials, n_coarse, factor).sum(
-            axis=2
-        )
-        coarse_edges = dataset.t_grid[: n_coarse * factor + 1 : factor]
-        coarse_dt = factor * dataset.binning_dt
-
-        n_fish_per_trial = dataset.n_fish_per_trial
-        active = n_fish_per_trial > 0
-        rate_matrix = np.full_like(coarse_counts, np.nan, dtype=float)
-        rate_matrix[active] = coarse_counts[active] / (
-            n_fish_per_trial[active, None] * coarse_dt
-        )
+        rate_matrix, coarse_edges, _ = _coarse_trial_rates(dataset, bin_width_s)
 
         fig, ax = plt.subplots(figsize=figsize)
         cmap_obj = plt.get_cmap(cmap).copy()
@@ -1295,43 +1303,12 @@ class DatasetPlotter:
         - Greenwood CI band very wide at late t -> few fish still at risk
         there; don't over-interpret tail shape.
         """
-        times, censored = [], []
-        for _, _, t_ev in dataset.iter_streams():
-            if len(t_ev) == 0:
-                times.append(dataset.duration_s)
-                censored.append(True)
-            else:
-                times.append(float(np.min(t_ev)))
-                censored.append(False)
-        times, censored = np.array(times), np.array(censored)
-
-        order = np.argsort(times)
-        t_sorted, c_sorted = times[order], censored[order]
-        n = len(t_sorted)
-
-        grid, surv, var_sum = [0.0], [1.0], [0.0]
-        S, V = 1.0, 0.0
-        i = 0
-        while i < n:
-            t = t_sorted[i]
-            j = i
-            d = 0
-            while j < n and t_sorted[j] == t:
-                if not c_sorted[j]:
-                    d += 1
-                j += 1
-            n_at_risk = n - i
-            if n_at_risk > 0 and d > 0:
-                S *= 1.0 - d / n_at_risk
-                if n_at_risk > d:
-                    V += d / (n_at_risk * (n_at_risk - d))
-                grid.append(float(t))
-                surv.append(S)
-                var_sum.append(V)
-            i = j
-
-        grid, surv, var_sum = np.array(grid), np.array(surv), np.array(var_sum)
-        se = surv * np.sqrt(var_sum)  # Greenwood's formula
+        times, censored = dataset.first_event_times()
+        n = len(times)
+        grid, surv, at_risk, events = km_table(times, censored)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            terms = np.where(at_risk > events, events / (at_risk * (at_risk - events)), 0.0)
+        se = surv * np.sqrt(np.cumsum(terms))  # Greenwood
         z = norm.ppf(0.5 + ci / 200.0)
         lower = np.clip(surv - z * se, 0.0, 1.0)
         upper = np.clip(surv + z * se, 0.0, 1.0)

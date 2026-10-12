@@ -29,8 +29,7 @@ from BehaviorScreen.point_process.point_process.frailty_analysis import (
     plot_fish_gain_correlation_dual,
 )
 
-from .dataset_ops import pool_fish, select_fish
-from .dataset_utils import safe_prepare_dataset, per_fish_summary, compare_fish_metric
+from .dataset_utils import Arms, per_fish_summary, compare_fish_metric
 from .arm_contrast import output_metric
 from .model_qc import assess_group_fit
 
@@ -56,10 +55,12 @@ def fit_tier1(process_factory: Callable[[], PointProcess],
     dimensionality (mathematically identical target, see module docstring)."""
     m_veh = process_factory(); m_veh.fit(ds_veh)
     m_drug = process_factory(); m_drug.fit(ds_drug)
-    m_pooled = process_factory(); m_pooled.fit(pool_fish(ds_veh, ds_drug))
+    m_pooled = process_factory(); m_pooled.fit(PointProcessDataset.concat(ds_veh, ds_drug))
+    return tier1_deviance(m_veh, m_drug, m_pooled), m_veh, m_drug, m_pooled
 
-    deviance = max(0.0, 2.0 * ((m_veh.log_likelihood + m_drug.log_likelihood) - m_pooled.log_likelihood))
-    return deviance, m_veh, m_drug, m_pooled
+
+def tier1_deviance(m_veh: PointProcess, m_drug: PointProcess, m_pooled: PointProcess) -> float:
+    return max(0.0, 2.0 * ((m_veh.log_likelihood + m_drug.log_likelihood) - m_pooled.log_likelihood))
 
 
 def tier1_permutation_test(
@@ -71,7 +72,7 @@ def tier1_permutation_test(
     if observed_deviance is None:
         observed_deviance, *_ = fit_tier1(process_factory, ds_veh, ds_drug)
 
-    pooled = pool_fish(ds_veh, ds_drug)
+    pooled = PointProcessDataset.concat(ds_veh, ds_drug)
     n_veh = ds_veh.num_fish
     n_distinct = math.comb(pooled.num_fish, n_veh)
     seeds = np.random.SeedSequence(seed).spawn(n_perm)
@@ -80,7 +81,7 @@ def tier1_permutation_test(
         perm = np.random.default_rng(s).permutation(pooled.num_fish)
         try:
             d, *_ = fit_tier1(process_factory,
-                               select_fish(pooled, perm[:n_veh]), select_fish(pooled, perm[n_veh:]))
+                               pooled.fish(perm[:n_veh]), pooled.fish(perm[n_veh:]))
             return d
         except Exception as exc:
             return repr(exc)
@@ -157,15 +158,12 @@ def tier1_effect_size(m_veh: PointProcess, ds_veh: PointProcessDataset,
     }
 
 def _tier1_one(
-    line: str, behavior: str, dataset_config: dict,
-    base_process_factory: Callable[[], PointProcess],
+    line: str, behavior: str, arms: Arms,
     null_process_factory: Callable[[], PointProcess],
-    loader, veh_label: str, drug_label: str,
     min_fish: int = 6, n_perm: int = 500,
 ) -> Dict:
-    ctx = f"{line}/{behavior}"
-    ds_veh = safe_prepare_dataset(loader.subset(line, [veh_label]), dataset_config, ctx + "/veh")
-    ds_drug = safe_prepare_dataset(loader.subset(line, [drug_label]), dataset_config, ctx + "/drug")
+    veh_label, drug_label = arms.conditions(line)
+    ds_veh, ds_drug = arms.dataset(line, veh_label, behavior), arms.dataset(line, drug_label, behavior)
 
     if ds_veh is None or ds_drug is None:
         return {"line": line, "behavior": behavior, "status": "skipped_insufficient_data", "p_value": np.nan}
@@ -181,9 +179,9 @@ def _tier1_one(
                 "total_events": total_events, "min_events_required": min_events, "p_value": np.nan}
 
     # --- Model QC gate on each arm before trusting any comparison ---
-    qc_veh = assess_group_fit(base_process_factory, null_process_factory, ds_veh, line, behavior, "vehicle",
+    qc_veh = assess_group_fit(partial(arms.model, line, veh_label, behavior), null_process_factory, ds_veh, line, behavior, "vehicle",
                                min_fish=min_fish)
-    qc_drug = assess_group_fit(base_process_factory, null_process_factory, ds_drug, line, behavior, "drug",
+    qc_drug = assess_group_fit(partial(arms.model, line, drug_label, behavior), null_process_factory, ds_drug, line, behavior, "drug",
                                 min_fish=min_fish)
 
     # Only a HARD flag on either arm excludes the cell. "reliable_no_signal"
@@ -206,12 +204,15 @@ def _tier1_one(
 
     # --- Real fit + permutation test ---
     try:
-        observed_deviance, m_veh, m_drug, m_pooled = fit_tier1(base_process_factory, ds_veh, ds_drug)
+        m_veh, m_drug = arms.model(line, veh_label, behavior), arms.model(line, drug_label, behavior)
+        m_pooled = arms.process_factories[behavior]()
+        m_pooled.fit(PointProcessDataset.concat(ds_veh, ds_drug))
+        observed_deviance = tier1_deviance(m_veh, m_drug, m_pooled)
     except Exception as e:
         return {"line": line, "behavior": behavior, "status": f"fit_failed: {type(e).__name__}: {e}",
                 "p_value": np.nan}
 
-    perm = tier1_permutation_test(base_process_factory, ds_veh, ds_drug,
+    perm = tier1_permutation_test(arms.process_factories[behavior], ds_veh, ds_drug,
                                    observed_deviance=observed_deviance, n_perm=n_perm)
     eff = tier1_effect_size(m_veh, ds_veh, m_drug, ds_drug)
 
@@ -234,24 +235,17 @@ def _tier1_one(
     }
 
 def run_tier1_screen(
-    loader, lines, behaviors, dataset_configs,
-    base_process_factories, null_process_factories,
-    line_labels=None, default_labels=("vehicle", "ronidazole"),
+    arms: Arms, lines, behaviors, null_process_factories,
     n_perm=500, show_progress=True,
 ) -> pd.DataFrame:
 
-    line_labels = line_labels or {}
     jobs = [(line, behavior) for line in lines for behavior in behaviors]
     cell_iter = tqdm(jobs, desc="Tier 1 cells", position=0, unit="cell") if show_progress else jobs
 
     records = []
     for line, behavior in cell_iter:
         try:
-            record = _tier1_one(
-                line, behavior, dataset_configs[behavior],
-                base_process_factories[behavior], null_process_factories[behavior],
-                loader, *line_labels.get(line, default_labels), n_perm=n_perm,
-            )
+            record = _tier1_one(line, behavior, arms, null_process_factories[behavior], n_perm=n_perm)
         except Exception as e:
             record = {"line": line, "behavior": behavior,
                       "status": f"unexpected_error: {type(e).__name__}: {e}", "p_value": np.nan}
@@ -301,28 +295,15 @@ def compute_parameter_deltas(param_df: pd.DataFrame) -> pd.DataFrame:
     )
     return df
 
-def extract_fitted_parameters(
-    tier1_df: pd.DataFrame,
-    loader, dataset_configs, base_process_factories,
-    line_labels=None, default_labels=("vehicle", "ronidazole"),
-) -> pd.DataFrame:
-
-    line_labels = line_labels or {}
+def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFrame:
     records = []
 
     valid = tier1_df[tier1_df["status"] == "ok"]
     for _, row in valid.iterrows():
         line, behavior = row["line"], row["behavior"]
-        veh_label, drug_label = line_labels.get(line, default_labels)
-
-        ds_veh = safe_prepare_dataset(loader.subset(line, [veh_label]), dataset_configs[behavior])
-        ds_drug = safe_prepare_dataset(loader.subset(line, [drug_label]), dataset_configs[behavior])
-        if ds_veh is None or ds_drug is None:
-            continue
-
+        veh_label, drug_label = arms.conditions(line)
         try:
-            m_veh = base_process_factories[behavior](); m_veh.fit(ds_veh)
-            m_drug = base_process_factories[behavior](); m_drug.fit(ds_drug)
+            m_veh, m_drug = arms.model(line, veh_label, behavior), arms.model(line, drug_label, behavior)
         except Exception as e:
             tqdm.write(f"[{line}/{behavior}] refit failed during parameter extraction: {e}")
             continue
@@ -534,31 +515,23 @@ def plot_arm_surface_grid_with_marginals(
 
     return fig
 
-def generate_arm_surface_grids(
-    cells: pd.DataFrame,
-    loader, dataset_configs, base_process_factories,
-    output_dir: Path,
-    line_labels=None, default_labels=("vehicle", "ronidazole"),
-) -> pd.DataFrame:
+def generate_arm_surface_grids(cells: pd.DataFrame, arms: Arms, output_dir: Path) -> pd.DataFrame:
     """Returns a per-(line, behavior) status table -- 'plotted' / 'no_data' /
     'fit_failed' -- so missing plots are traceable without re-deriving them
     from the output directory after the fact."""
-    line_labels = line_labels or {}
     results = []
 
     for _, row in tqdm(cells.iterrows(), total=len(cells), desc="Arm surface grids"):
         line, behavior = row["line"], row["behavior"]
-        veh_label, drug_label = line_labels.get(line, default_labels)
+        veh_label, drug_label = arms.conditions(line)
 
-        ds_veh = safe_prepare_dataset(loader.subset(line, [veh_label]), dataset_configs[behavior])
-        ds_drug = safe_prepare_dataset(loader.subset(line, [drug_label]), dataset_configs[behavior])
+        ds_veh, ds_drug = arms.dataset(line, veh_label, behavior), arms.dataset(line, drug_label, behavior)
         if ds_veh is None or ds_drug is None:
             results.append({"line": line, "behavior": behavior, "plot_status": "no_data"})
             continue
 
         try:
-            m_veh = base_process_factories[behavior](); m_veh.fit(ds_veh)
-            m_drug = base_process_factories[behavior](); m_drug.fit(ds_drug)
+            m_veh, m_drug = arms.model(line, veh_label, behavior), arms.model(line, drug_label, behavior)
         except Exception as e:
             tqdm.write(f"[{line}/{behavior}] fit failed, skipping plot: {e}")
             results.append({"line": line, "behavior": behavior, "plot_status": f"fit_failed: {e}"})
@@ -765,49 +738,25 @@ def _label_top_hits(ax, sub: pd.DataFrame, effect_col: str, label_col: str, top_
         )
 
 def build_models_and_datasets_for_line(
-    line: str, label: str,
-    loader, dataset_configs: dict, base_process_factories: dict,
-    behaviors: Optional[List[str]] = None,
+    line: str, condition: str, arms: Arms, behaviors: Optional[List[str]] = None,
 ) -> Dict[str, Tuple[PointProcess, PointProcessDataset]]:
-    """
-    Fits every behavior's pinned architecture for ONE (line, label) arm.
-    This is the ablation-screen-specific orchestration (knows about
-    loader/line/label); frailty_analysis knows nothing about any of it.
-    """
-    behaviors = behaviors or list(dataset_configs.keys())
-    broad = loader.subset(line, [label])
+    """Fitted model and dataset of every behavior of one (line, condition) arm that has both."""
     result = {}
-
-    for behavior in behaviors:
-        ds = safe_prepare_dataset(broad, dataset_configs[behavior])
-        if ds is None:
+    for behavior in behaviors or list(arms.dataset_configs):
+        if arms.dataset(line, condition, behavior) is None:
             continue
-        model = base_process_factories[behavior]()
         try:
-            model.fit(ds)
+            result[behavior] = (arms.model(line, condition, behavior), arms.dataset(line, condition, behavior))
         except Exception as e:
-            tqdm.write(f"[{line}/{label}/{behavior}] fit failed: {e}")
-            continue
-        result[behavior] = (model, ds)
-
+            tqdm.write(f"[{line}/{condition}/{behavior}] fit failed: {e}")
     return result
 
 
-def plot_fish_gain_correlation_vehicle_vs_drug(
-    line: str,
-    loader, dataset_configs: dict, base_process_factories: dict,
-    labels: Tuple[str, str] = ("vehicle", "ronidazole"),
-    line_labels: Optional[Dict[str, Tuple[str, str]]] = None,
-    min_behaviors: int = 2,
-) -> Optional[plt.Figure]:
-    line_labels = line_labels or {}
-    veh_label, drug_label = line_labels.get(line, labels)
-
-    models_veh = build_models_and_datasets_for_line(line, veh_label, loader, dataset_configs, base_process_factories)
-    models_drug = build_models_and_datasets_for_line(line, drug_label, loader, dataset_configs, base_process_factories)
-
+def plot_fish_gain_correlation_vehicle_vs_drug(line: str, arms: Arms, min_behaviors: int = 2) -> Optional[plt.Figure]:
+    veh_label, drug_label = arms.conditions(line)
     return plot_fish_gain_correlation_dual(
-        collect_fish_gains(models_veh), collect_fish_gains(models_drug),
+        collect_fish_gains(build_models_and_datasets_for_line(line, veh_label, arms)),
+        collect_fish_gains(build_models_and_datasets_for_line(line, drug_label, arms)),
         label_a="Vehicle", label_b="Drug",
         suptitle=f"{line}: fish-level frailty gain correlation, vehicle vs drug",
         min_behaviors=min_behaviors,
@@ -815,7 +764,7 @@ def plot_fish_gain_correlation_vehicle_vs_drug(
 
 def _bootstrap_one_delta_iteration(
     seed_seq, ds_veh: PointProcessDataset, ds_drug: PointProcessDataset,
-    behavior: str, base_process_factories: dict, transform_lookup: dict,
+    behavior: str, process_factory: Callable[[], PointProcess], transform_lookup: dict,
 ) -> Optional[Dict[str, float]]:
     """
     One bootstrap iteration: resample both arms, refit both, return the
@@ -828,8 +777,8 @@ def _bootstrap_one_delta_iteration(
     ds_veh_b = ds_veh.resample(rng)
     ds_drug_b = ds_drug.resample(rng)
     try:
-        m_veh_b = base_process_factories[behavior](); m_veh_b.fit(ds_veh_b)
-        m_drug_b = base_process_factories[behavior](); m_drug_b.fit(ds_drug_b)
+        m_veh_b = process_factory(); m_veh_b.fit(ds_veh_b)
+        m_drug_b = process_factory(); m_drug_b.fit(ds_drug_b)
     except Exception:
         return None
 
@@ -847,9 +796,8 @@ def _bootstrap_one_delta_iteration(
 def bootstrap_parameter_deltas(
     tier1_df: pd.DataFrame,
     param_df: pd.DataFrame,
-    loader, dataset_configs: dict, base_process_factories: dict,
+    arms: Arms,
     cells: Optional[pd.DataFrame] = None,
-    line_labels=None, default_labels=("vehicle", "ronidazole"),
     n_boot: int = 200, ci: float = 95.0, seed: int = 0, n_jobs: int = -1,
 ) -> pd.DataFrame:
     """
@@ -862,7 +810,6 @@ def bootstrap_parameter_deltas(
     Tier 1's own nested joblib.Parallel discussion). A single bounded
     worker pool is active at any time, reused across cells sequentially.
     """
-    line_labels = line_labels or {}
     if cells is None:
         cells = tier1_df[tier1_df["significant"] == True][["line", "behavior"]]
 
@@ -879,16 +826,13 @@ def bootstrap_parameter_deltas(
     records = []
     for _, row in tqdm(cells.iterrows(), total=len(cells), desc="Bootstrapping parameter deltas (cells)"):
         line, behavior = row["line"], row["behavior"]
-        veh_label, drug_label = line_labels.get(line, default_labels)
-
-        ds_veh = safe_prepare_dataset(loader.subset(line, [veh_label]), dataset_configs[behavior])
-        ds_drug = safe_prepare_dataset(loader.subset(line, [drug_label]), dataset_configs[behavior])
+        veh_label, drug_label = arms.conditions(line)
+        ds_veh, ds_drug = arms.dataset(line, veh_label, behavior), arms.dataset(line, drug_label, behavior)
         if ds_veh is None or ds_drug is None:
             continue
 
         try:
-            m_veh0 = base_process_factories[behavior](); m_veh0.fit(ds_veh)
-            m_drug0 = base_process_factories[behavior](); m_drug0.fit(ds_drug)
+            m_veh0, m_drug0 = arms.model(line, veh_label, behavior), arms.model(line, drug_label, behavior)
         except Exception as e:
             tqdm.write(f"[{line}/{behavior}] initial fit failed: {e}")
             continue
@@ -902,7 +846,7 @@ def bootstrap_parameter_deltas(
                 ds_veh=ds_veh,
                 ds_drug=ds_drug,
                 behavior=behavior,
-                base_process_factories=base_process_factories,
+                process_factory=arms.process_factories[behavior],
                 transform_lookup=transform_lookup,
             ),
             seeds,

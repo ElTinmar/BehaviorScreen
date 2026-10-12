@@ -1,3 +1,4 @@
+import os
 import subprocess
 from multiprocessing import Pool
 
@@ -20,6 +21,9 @@ EXPERIMENTS = [
 ]
 
 DATA_DIR = "/media/martin/DATA_18TB/Screen"
+EVENTS = "bouts_control.csv"
+VALID_TRIALS = "valid_trials_control.csv"
+QC = "qc_control.csv"
 OUT_DIR = "./figures"
 N_WORKERS = 1
 
@@ -30,10 +34,13 @@ def run_experiment(exp_name):
         "--exp", exp_name,
         "--mode", "fit",
         "--data-root", DATA_DIR,
+        "--events", EVENTS,
+        "--valid-trials", VALID_TRIALS,
+        "--qc", QC,
         "--output-dir", OUT_DIR,
     ]
     print(f"Starting {exp_name}")
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, env=os.environ | {"MPLBACKEND": "Agg"})
     print(f"Finished {exp_name}")
 
 

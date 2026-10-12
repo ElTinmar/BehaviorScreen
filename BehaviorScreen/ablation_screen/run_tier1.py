@@ -7,7 +7,6 @@ values already fitted on the Phase-3 pooled-vehicle population -- no
 runtime computation needed, so they're just constants written in here.
 """
 from pathlib import Path
-import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy as np
@@ -16,10 +15,10 @@ from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
 from BehaviorScreen.point_process.point_process.poisson_process import PoissonProcess, RateKernelFactory, PreyCapture
 from BehaviorScreen.point_process.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
-from BehaviorScreen.point_process.point_process.mixed_effects_process import GammaMixedEffectsProcess
+from BehaviorScreen.point_process.point_process.frailty import GammaMixedEffectsProcess
 from BehaviorScreen.point_process.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
 from BehaviorScreen.point_process.point_process.io import save_fig
-from BehaviorScreen.point_process.point_process.partially_fixed_process import PartiallyFixedProcess
+from BehaviorScreen.point_process.point_process.wrappers import PartiallyFixedProcess
 from BehaviorScreen.ablation_screen.tier1_omnibus import (
     run_tier1_screen, 
     tier1_permutation_test, 
@@ -36,8 +35,7 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
 )
 from BehaviorScreen.ablation_screen.fdr import add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
-from BehaviorScreen.ablation_screen.dataset_utils import safe_prepare_dataset
-from BehaviorScreen.ablation_screen.dataset_ops import select_fish
+from BehaviorScreen.ablation_screen.dataset_utils import Arms
 
 
 OUTPUT_DIR = Path("./tier1_results")
@@ -308,21 +306,21 @@ LINE_LABELS = {"WT": ("danieau", "ronidazole")}
 # Step 1: single-cell smoke test BEFORE the full batch
 # ===========================================================================
 
-def find_first_valid_cell(loader, lines, behaviors, dataset_configs, line_labels, default_labels):
+arms = Arms(loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY, line_labels=LINE_LABELS)
+
+
+def find_first_valid_cell(arms: Arms, lines, behaviors):
     for line in lines:
-        veh_label, drug_label = line_labels.get(line, default_labels)
+        veh_label, drug_label = arms.conditions(line)
         for behavior in behaviors:
-            ds_veh = safe_prepare_dataset(loader.subset(line, [veh_label]), dataset_configs[behavior])
-            ds_drug = safe_prepare_dataset(loader.subset(line, [drug_label]), dataset_configs[behavior])
+            ds_veh, ds_drug = arms.dataset(line, veh_label, behavior), arms.dataset(line, drug_label, behavior)
             if ds_veh is not None and ds_drug is not None and ds_veh.num_fish >= 3 and ds_drug.num_fish >= 3:
                 return line, behavior, ds_veh, ds_drug
     return None, None, None, None
 
 
 print("\nSmoke test: scanning for first valid (line, behavior) cell...")
-smoke_line, smoke_behavior, ds_veh, ds_drug = find_first_valid_cell(
-    loader, NTR_LINES + ["WT"], BEHAVIORS, DATASET_CONFIGS, LINE_LABELS, ("vehicle", "ronidazole")
-)
+smoke_line, smoke_behavior, ds_veh, ds_drug = find_first_valid_cell(arms, NTR_LINES + ["WT"], BEHAVIORS)
 if smoke_line is None:
     raise RuntimeError(
         "No (line, behavior) cell has both non-empty vehicle and drug data with >=3 fish each. "
@@ -340,9 +338,8 @@ print(f"Smoke test OK: deviance={deviance:.3f}, LL_veh={m_veh.log_likelihood:.2f
 # ===========================================================================
 print("\nRunning Tier 1 across all lines x behaviors...")
 tier1_df = run_tier1_screen(
-    loader, lines=NTR_LINES + ["WT"], behaviors=BEHAVIORS,
-    dataset_configs=DATASET_CONFIGS, base_process_factories=BEHAVIOR_PROCESS_FACTORY,
-    null_process_factories=NULL_PROCESS_FACTORY, line_labels=LINE_LABELS, n_perm=1000,
+    arms, lines=NTR_LINES + ["WT"], behaviors=BEHAVIORS,
+    null_process_factories=NULL_PROCESS_FACTORY, n_perm=1000,
 )
 tier1_df = add_fdr_per_behavior(tier1_df, alpha=0.05)
 tier1_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
@@ -350,10 +347,7 @@ print(tier1_df["status"].value_counts())
 
 bad_fits = build_bad_fit_triage(tier1_df)
 
-param_df = extract_fitted_parameters(
-    tier1_df, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY,
-    line_labels=LINE_LABELS,
-)
+param_df = extract_fitted_parameters(tier1_df, arms)
 param_df = compute_parameter_deltas(param_df)
 
 line_order = (
@@ -366,26 +360,20 @@ line_order = (
 fig, axes = plot_parameter_change_heatmaps(param_df, line_order=line_order)
 save_fig(fig, OUTPUT_DIR, "tier1_parameter_change_heatmaps")
 
-generate_arm_surface_grids(
-    tier1_df, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY,
-    output_dir=OUTPUT_DIR / "arm_surface_grids", line_labels=LINE_LABELS
-)
+generate_arm_surface_grids(tier1_df, arms, output_dir=OUTPUT_DIR / "arm_surface_grids")
 
 fig, axes = plot_volcano(tier1_df)
 save_fig(fig, OUTPUT_DIR, "tier1_volcano_by_behavior")
 
 for line in NTR_LINES + ["WT"]:
-    fig = plot_fish_gain_correlation_vehicle_vs_drug(
-        line, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY, line_labels=LINE_LABELS,
-    )
+    fig = plot_fish_gain_correlation_vehicle_vs_drug(line, arms)
     if fig is None:
         continue
     save_fig(fig, OUTPUT_DIR / "fish_gain_correlations", line)
     plt.close(fig)
 
 boot_delta_df = bootstrap_parameter_deltas(
-    tier1_df, param_df, loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY,
-    line_labels=LINE_LABELS, n_boot=1000,
+    tier1_df, param_df, arms, n_boot=1000,
 )
 boot_delta_df.to_csv(OUTPUT_DIR / "bootstrap_parameter_deltas.csv", index=False)
 
@@ -416,7 +404,7 @@ for behavior in BEHAVIORS:
 # ===========================================================================
 print("\nRunning WT split-half negative control...")
 for behavior in BEHAVIORS:
-    ds_wt = safe_prepare_dataset(loader.subset("WT", ["danieau"]), DATASET_CONFIGS[behavior])
+    ds_wt = arms.dataset("WT", "danieau", behavior)
     if ds_wt is None or ds_wt.num_fish < 10:
         continue
     null_ps = []
@@ -424,8 +412,8 @@ for behavior in BEHAVIORS:
         rng = np.random.default_rng(seed)
         perm = rng.permutation(ds_wt.num_fish)
         half = ds_wt.num_fish // 2
-        ds_a = select_fish(ds_wt, perm[:half])
-        ds_b = select_fish(ds_wt, perm[half:])
+        ds_a = ds_wt.fish(perm[:half])
+        ds_b = ds_wt.fish(perm[half:])
         try:
             result = tier1_permutation_test(BEHAVIOR_PROCESS_FACTORY[behavior], ds_a, ds_b, n_perm=200)
             if not result["permutation_unreliable"]:

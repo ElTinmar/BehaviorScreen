@@ -4,7 +4,7 @@ from typing import List, Optional, Tuple, Union
 import numpy as np
 
 from .dataset import PointProcessDataset
-from .point_process import PointProcess
+from .point_process import PointProcess, thin
 from .poisson_process import RateKernel
 from .kernel_shapes import bounded_trial_scale, exgaussian_shape
 
@@ -310,8 +310,7 @@ class SurvivalProcess(PointProcess):
         this single method is right -- no isinstance checks needed anywhere
         else in the codebase.
         """
-        if self.params_ is None:
-            raise ValueError("Model must be fitted first.")
+        self._require_fitted()
         t_obs, censored = self._first_event_or_censor(t_ev, duration_s)
         H = float(
             self.kernel.integrate(
@@ -376,15 +375,13 @@ class SurvivalProcess(PointProcess):
         """Raw fitted hazard h(t, m). NOTE: NOT a first-passage density;
         prefer population_survival_curve() for anything beyond a rough
         visual check against ModelPlotter's generic overlays."""
-        if self.params_ is None:
-            raise ValueError("Model is not fitted yet. Call .fit() first.")
+        self._require_fitted()
         return self.kernel.evaluate(t, trial, self.params_)
 
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
         """Raw fitted hazard surface, matching PoissonProcess's convention
         exactly so ModelPlotter/ModelComparator work unmodified."""
-        if self.params_ is None:
-            raise ValueError("Model is not fitted yet. Call .fit() first.")
+        self._require_fitted()
         t_2d = dataset.t_centers[None, :]
         trials_2d = np.arange(dataset.num_trials)[:, None]
         return self.predict(t_2d, trials_2d)
@@ -392,8 +389,7 @@ class SurvivalProcess(PointProcess):
     def cumulative_integrated_intensity(
         self, t_events: np.ndarray, trial: float
     ) -> np.ndarray:
-        if self.params_ is None:
-            raise ValueError("Model must be fitted first.")
+        self._require_fitted()
         return self.kernel.cumulative_integrate(
             t_events=t_events,
             trial=trial,
@@ -417,8 +413,7 @@ class SurvivalProcess(PointProcess):
         estimate for a real goodness-of-fit check -- NOT
         compute_expected_rate()'s raw hazard.
         """
-        if self.params_ is None:
-            raise ValueError("Model must be fitted first.")
+        self._require_fitted()
 
         t_grid = dataset.t_centers
         if trial is not None:
@@ -439,52 +434,16 @@ class SurvivalProcess(PointProcess):
     def is_survival(self) -> bool:
         return True
 
-    def _intensity_upper_bound(self, dataset, t_idx) -> float:
-        """
-        Upper bound on the base intensity over [0, duration_s], for thinning's
-        proposal step. Grid resolution matches self.integration_dt (the same
-        resolution the model was fit/integrated with) rather than an arbitrary
-        fixed point count -- consistent, and automatically finer for models
-        fit at higher precision.
-        """
-        grid = np.arange(
-            0.0, dataset.duration_s + self.integration_dt, self.integration_dt
+    def simulate_stream(
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator
+    ) -> np.ndarray:
+        """First event only (empty if censored), as in _first_event_or_censor."""
+        upper = gain * self._intensity_upper_bound(dataset, t_idx)
+        return thin(
+            lambda t, events: gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), self.params_)[0],
+            lambda t, events: upper,
+            dataset.duration_s,
+            rng,
+            first_only=True,
         )
-        vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), self.params_)
-        return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
 
-    def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
-        """
-        First-passage thinning simulation: proposes candidate event times the
-        same way the base PointProcess.simulate_stream does, but STOPS at the
-        first accepted event (or returns empty if none occurs by duration_s)
-        -- matching _first_event_or_censor's reduction of real data exactly,
-        so simulated streams are directly comparable to observed ones via
-        generate_model_predicted_counts / plot_predicted_vs_observed (which,
-        for SurvivalProcess, compares against the "any event" indicator, not
-        raw counts -- see plot_predicted_vs_observed override).
-
-        No self-history term (SurvivalProcess has none, by construction --
-        it terminates at the first event, so there is no "history" to
-        accumulate) -- this is simpler than HawkesProcess/RenewalProcess's
-        overrides, not more complex.
-        """
-        lambda_upper = gain * self._intensity_upper_bound(dataset, t_idx)
-        t = 0.0
-        while t < dataset.duration_s:
-            w = rng.exponential(1.0 / max(lambda_upper, 1e-12))
-            t_candidate = t + w
-            if t_candidate >= dataset.duration_s:
-                break
-            lam_candidate = (
-                gain
-                * self.kernel.evaluate(
-                    np.array([t_candidate]), np.array([t_idx]), self.params_
-                )[0]
-            )
-            if rng.uniform() <= lam_candidate / lambda_upper:
-                return np.array(
-                    [t_candidate]
-                )  # <-- stop immediately, unlike the base version
-            t = t_candidate
-        return np.array([])  # censored: no event within duration_s

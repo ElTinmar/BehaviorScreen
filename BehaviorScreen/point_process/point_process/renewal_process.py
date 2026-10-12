@@ -5,66 +5,18 @@ import numpy as np
 from scipy.integrate import trapezoid
 
 from .dataset import PointProcessDataset
-from .point_process import PointProcess
+from .point_process import PointProcess, thin
+from .kernel_shapes import peak_normalized_pulse
+from .lag_kernel import LagKernel
 from .poisson_process import RateKernel
 
 
 @dataclass(frozen=True)
-class RenewalKernel:
+class RenewalKernel(LagKernel):
     """
-    Generic time-since-last-event modulation kernel: rho(lag) >= 0 for
-    lag >= 0. No sign or shape assumption -- rho can be suppressive
-    (refractory), facilitating, rhythmic/bump-shaped, or any combination.
-    Used by RenewalProcess as a multiplicative modulator of a RateKernel's
-    base intensity.
+    Multiplicative modulation rho(lag) >= 0 by the time since the stream's
+    last event: suppressive (refractory), facilitating or bump-shaped.
     """
-
-    name: str
-    func: Callable[[np.ndarray, List[float]], np.ndarray]
-    param_names: List[str]
-    initial_guesses: List[float]
-    bounds: List[Tuple[Optional[float], Optional[float]]]
-    integral_func: Optional[Callable[[np.ndarray, List[float]], np.ndarray]] = None
-    latex_formula: str = ""
-
-    def evaluate(self, lag: np.ndarray, params: List[float]) -> np.ndarray:
-        if np.any(lag < 0):
-            raise ValueError("Renewal-kernel lags must be non-negative.")
-        return self.func(lag, params)
-
-    def integrate(
-        self,
-        duration: Union[float, np.ndarray],
-        params: List[float],
-        integration_dt: float = 0.02,
-    ) -> np.ndarray:
-
-        duration = np.asarray(duration, dtype=float)
-        if np.any(duration < 0):
-            raise ValueError("Integration duration must be non-negative.")
-
-        if self.integral_func is not None:
-            return self.integral_func(duration, params)
-
-        scalar_input = duration.ndim == 0
-        durations = np.atleast_1d(duration)
-        result = np.empty_like(durations)
-
-        for i, T in enumerate(durations):
-            if T == 0:
-                result[i] = 0.0
-                continue
-
-            t_grid = np.arange(0.0, T + integration_dt, integration_dt)
-            if t_grid[-1] > T:
-                t_grid[-1] = T
-            elif t_grid[-1] < T:
-                t_grid = np.append(t_grid, T)
-
-            values = self.evaluate(t_grid, params)
-            result[i] = trapezoid(values, t_grid)
-
-        return result[0] if scalar_input else result
 
 
 class RenewalKernelFactory:
@@ -194,8 +146,7 @@ class RenewalKernelFactory:
 
             recovery = 1.0 - np.exp(-lag / tau_refractory)
 
-            ratio = lag / pulse_peak_lag
-            pulse = np.power(ratio, shape_k) * np.exp(shape_k * (1.0 - ratio))
+            pulse = peak_normalized_pulse(lag, pulse_peak_lag, shape_k)
 
             return recovery + A_excitation * pulse
 
@@ -260,8 +211,7 @@ class RenewalKernelFactory:
         def _func(lag, params):
             A_excitation, pulse_peak_lag = params
 
-            ratio = lag / pulse_peak_lag
-            pulse = np.power(ratio, shape_k) * np.exp(shape_k * (1.0 - ratio))
+            pulse = peak_normalized_pulse(lag, pulse_peak_lag, shape_k)
 
             return 1.0 + A_excitation * pulse
 
@@ -322,10 +272,6 @@ class RenewalProcess(PointProcess):
         self.initial_guesses = kernel.initial_guesses + renewal_kernel.initial_guesses
         self.bounds = kernel.bounds + renewal_kernel.bounds
         self.param_names = kernel.param_names + renewal_kernel.param_names
-
-    def _split_params(self, params: List[float]) -> Tuple[List[float], List[float]]:
-        n = len(self.kernel.param_names)
-        return params[:n], params[n:]
 
     def _segment_integral(
         self,
@@ -530,8 +476,7 @@ class RenewalProcess(PointProcess):
         trial: Union[float, np.ndarray],
         history_events: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        if self.params_ is None:
-            raise ValueError("Model is not fitted yet. Call .fit() first.")
+        self._require_fitted()
         params_base, params_renewal = self._split_params(self.params_)
 
         base_rate = self.kernel.evaluate(t, trial, params_base)
@@ -575,8 +520,7 @@ class RenewalProcess(PointProcess):
     def cumulative_integrated_intensity(
         self, t_events: np.ndarray, trial: float
     ) -> np.ndarray:
-        if self.params_ is None:
-            raise ValueError("Model must be fitted first.")
+        self._require_fitted()
         params_base, params_renewal = self._split_params(self.params_)
         t_events = np.sort(np.asarray(t_events))
         if len(t_events) == 0:
@@ -648,60 +592,25 @@ class RenewalProcess(PointProcess):
 
         return base_ll, N_f, S_f
 
-    def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
+    def simulate_stream(
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator
+    ) -> np.ndarray:
         """
-        Ogata thinning WITH renewal modulation: intensity at any proposed time
-        is gain * kernel(t, m) * renewal_kernel(t - t_last), where t_last is
-        the most recently ACCEPTED simulated event (or no modulation before
-        the first event) -- mirrors _stream_integral_and_ll's own
-        interpretation of the fitted model exactly, unlike the base class's
-        history-free default.
-
-        Simpler than HawkesProcess's override: only the SINGLE most recent
-        event matters (no recursive/cumulative history state to carry), per
-        RenewalProcess's own multiplicative, order-1-Markov intensity
-        (see class docstring).
+        Thinning with gain * kernel(t) * renewal(t - last event). The bound
+        includes the renewal kernel's maximum, which can exceed 1 (excitation).
         """
         params_base, params_renewal = self._split_params(self.params_)
+        upper = gain * self._intensity_upper_bound(dataset, t_idx) * self._renewal_kernel_upper_bound(
+            params_renewal, dataset
+        )
 
-        # Upper bound must account for the renewal kernel's own possible
-        # amplification (e.g. ExponentialExcitation can push intensity ABOVE
-        # the bare kernel's max right after an event) -- NOT just the base
-        # kernel's peak, unlike a purely-suppressive renewal kernel where the
-        # base kernel's max alone would suffice.
-        base_upper = gain * self._intensity_upper_bound(dataset, t_idx)
-        renewal_upper = self._renewal_kernel_upper_bound(params_renewal, dataset)
-        lambda_upper = base_upper * renewal_upper
+        def intensity(t: float, events: List[float]) -> float:
+            base = gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), params_base)[0]
+            if not events:
+                return base
+            return base * self.renewal_kernel.evaluate(np.array([t - events[-1]]), params_renewal)[0]
 
-        events = []
-        t = 0.0
-        t_last = None
-        while t < dataset.duration_s:
-            w = rng.exponential(1.0 / max(lambda_upper, 1e-12))
-            t_candidate = t + w
-            if t_candidate >= dataset.duration_s:
-                break
-
-            base_c = (
-                gain
-                * self.kernel.evaluate(
-                    np.array([t_candidate]), np.array([t_idx]), params_base
-                )[0]
-            )
-            if t_last is None:
-                rho = 1.0  # no prior event this stream -- no modulation yet
-            else:
-                rho = self.renewal_kernel.evaluate(
-                    np.array([t_candidate - t_last]), params_renewal
-                )[0]
-            lam_candidate = base_c * rho
-
-            if rng.uniform() <= lam_candidate / lambda_upper:
-                events.append(t_candidate)
-                t_last = t_candidate  # only the SINGLE most recent event matters
-            t = t_candidate
-
-        return np.array(events)
+        return thin(intensity, lambda t, events: upper, dataset.duration_s, rng)
 
     def _renewal_kernel_upper_bound(
         self, params_renewal, dataset: PointProcessDataset
@@ -723,15 +632,3 @@ class RenewalProcess(PointProcess):
         vals = self.renewal_kernel.evaluate(lag_grid, params_renewal)
         return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
 
-    def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx: int) -> float:
-        """Base kernel's bound only -- renewal modulation's bound is computed
-        separately via _renewal_kernel_upper_bound and multiplied in
-        simulate_stream, since renewal_kernel is an arbitrary pluggable
-        object with no guaranteed monotonicity (see conversation notes on why
-        Hawkes can skip a grid search here but RenewalProcess cannot)."""
-        base_params, _ = self._split_params(self.params_)
-        grid = np.arange(
-            0.0, dataset.duration_s + self.integration_dt, self.integration_dt
-        )
-        vals = self.kernel.evaluate(grid, np.full_like(grid, t_idx), base_params)
-        return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN

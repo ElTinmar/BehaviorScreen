@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import Callable, List, Tuple, Optional, Union
+from typing import Callable, Dict, List, Tuple, Optional, Union
 
 import numpy as np
 from scipy.integrate import trapezoid, cumulative_trapezoid
 
 from .dataset import PointProcessDataset
-from .point_process import PointProcess
+from .point_process import PointProcess, thin
 from .kernel_shapes import (
     exgaussian_shape,
     bounded_trial_scale,
@@ -87,84 +87,43 @@ class RateKernel:
 
 class PreyCapture:
     """
-    λ(t, m) = [A·e^(−t/τ)·e^(α_peak m) + B·e^(α_baseline m)]
-              · [1 + depth(m)·wave(t)]
-    wave(t)  = ½[sin(ωt+φ1) + sin(2ωt+φ2)] ∈ [-1, 1]
-    depth(m) = sigmoid_bounded(z0_ripple + α_ripple·m, RIPPLE_UPPER)
-             = RIPPLE_UPPER / (1 + e^{-(z0_ripple + α_ripple m)})  ∈ (0, RIPPLE_UPPER)
+    lambda(t, m) = [A e^(-t/tau) e^(alpha_peak m) + B e^(alpha_baseline m)] (1 + depth(m) wave(t))
+    wave(t)  = (sin(w t + phi1) + sin(2 w t + phi2)) / 2,  w = 2 pi stim_freq
+    depth(m) = RIPPLE_UPPER / (1 + e^-(z0_ripple + alpha_ripple m))
 
-    No reparametrization needed for A/B -- already conform to convention.
-
-    REPARAMETRIZATION NOTE: z0_ripple/alpha_ripple replace the old
-    (A_ripple, alpha_ripple) pair, where A_ripple was box-bounded to
-    (0, 0.49) purely to guarantee A_ripple*bounded_trial_scale(m,.) < 1 for
-    the WORST-CASE trial scale factor (max 2x) -- an artificial ceiling on
-    A_ripple itself, not a real belief about ripple depth. Bootstrap fits
-    were pinning exactly at that wall (fitted=0.49, CI collapsed to a point).
-    depth(m) is now guaranteed in (0, RIPPLE_UPPER) for ANY (z0_ripple,
-    alpha_ripple, m) via a logistic -- no worst-case analysis, no artificial
-    margin below the true limit. Positional argument order is unchanged, so
-    every classmethod below only needed a rename + formula fix, not a logic
-    change.
-
-    Parameters
-    ----------
-    A : Hz. LITERAL height of the onset-burst at t=0, trial m=0 (the
-        exponential decay means this IS the true peak, unlike
-        phototaxis_ipsi's old A_peak). Comparable in Hz to B, H, etc.
-    tau : seconds. Onset-burst decay time constant. Not comparable across
-        kernels.
-    B : Hz. Sustained/tonic rate during ongoing stimulus, trial m=0.
-        Comparable in Hz to other kernels' baseline terms.
-    z0_ripple : unconstrained (logit scale). NOT an amplitude or a
-        probability -- depth(m=0) = sigmoid_bounded(z0_ripple, RIPPLE_UPPER).
-        Recover the interpretable depth-at-trial-0 post-fit via
-        sigmoid_bounded(z0_ripple, RIPPLE_UPPER); do not interpret z0_ripple
-        itself. Do not compare to A/B/H; it answers a qualitatively
-        different question (bout-timing coordination with the stimulus, not
-        response magnitude).
-    phi1, phi2 : radians. Phase offsets of the ripple's fundamental and
-        2nd harmonic. Timing-coordination parameters, not amplitudes.
-    alpha_peak, alpha_baseline : 1/trial (log-scale). Independent
-        trial-modulation of A and B respectively (unbounded exponential).
-    alpha_ripple : 1/trial, acting on the LOGIT scale (additive to
-        z0_ripple, not multiplicative on a probability) -- bounded effect on
-        depth(m) via the same saturating logistic as z0_ripple itself.
+    A: onset-burst height (Hz) at trial 0; tau: its decay (s); B: tonic rate
+    (Hz) at trial 0; z0_ripple: ripple depth on the logit scale (depth at
+    trial 0 = sigmoid_bounded(z0_ripple, RIPPLE_UPPER)); phi1, phi2: phases.
+    The alphas modulate peak and baseline log-linearly and the ripple depth
+    on the logit scale, per trial; variants differ in which alphas are free
+    and which are shared.
     """
 
     _PARAM_NAMES: List[str] = ["A", "tau", "B", "z0_ripple", "phi1", "phi2"]
     _RIPPLE_UPPER: float = 0.95
-    _GUESSES: List[float] = [
-        0.56,
-        1.15,
-        0.40,
-        float(logit_bounded(0.1, _RIPPLE_UPPER)),
-        0.0,
-        0.0,
-    ]
+    _GUESSES: List[float] = [0.56, 1.15, 0.40, float(logit_bounded(0.1, _RIPPLE_UPPER)), 0.0, 0.0]
     _BOUNDS: List[Tuple[Optional[float], Optional[float]]] = [
-        (0.01, 10.0),  # A: transient peak amplitude
-        (0.1, 5.0),  # tau: transient decay time constant
-        (0.01, 5.0),  # B: baseline rate
-        (-15.0, 15.0),  # z0_ripple: unconstrained logit scale
-        (-np.pi, np.pi),  # phi1
-        (-np.pi, np.pi),  # phi2
+        (0.01, 10.0),
+        (0.1, 5.0),
+        (0.01, 5.0),
+        (-15.0, 15.0),
+        (-np.pi, np.pi),
+        (-np.pi, np.pi),
     ]
-    _ALPHA_BOUNDS: Tuple[Optional[float], Optional[float]] = (-2.0, 2.0)
-    _ALPHA_RIPPLE_BOUNDS: Tuple[Optional[float], Optional[float]] = (-4.0, 4.0)
+    _ALPHA_BOUNDS: Tuple[float, float] = (-2.0, 2.0)
+    _ALPHA_RIPPLE_BOUNDS: Tuple[float, float] = (-4.0, 4.0)
     _ALPHA_GUESS: float = -0.05
-    _RIPPLE_WAVE_LATEX = (
-        r"\frac{1}{2}\left[\sin(\omega t + \phi_1) + \sin(2\omega t + \phi_2)\right]"
-    )
-
-    @classmethod
-    def _depth_latex(cls, alpha_symbol: Optional[str] = None) -> str:
-        """Shared LaTeX snippet for depth(m), used by every variant below so
-        the formula always matches _rate's actual sigmoid_bounded computation."""
-        u = cls._RIPPLE_UPPER
-        if alpha_symbol is None:
-            return rf"\frac{{{u}}}{{1+e^{{-z_{{0,\text{{ripple}}}}}}}}"
-        return rf"\frac{{{u}}}{{1+e^{{-(z_{{0,\text{{ripple}}}}+\alpha_{{{alpha_symbol}}} m)}}}}"
+    # variant: {modulated term: parameter}
+    _VARIANTS: Dict[str, Dict[str, str]] = {
+        "TimeOnly": {},
+        "Peak": {"peak": "alpha_peak"},
+        "Baseline": {"baseline": "alpha_baseline"},
+        "Peak_Baseline": {"peak": "alpha_peak", "baseline": "alpha_baseline"},
+        "Peak_Baseline_Ripple": {"peak": "alpha_peak", "baseline": "alpha_baseline", "ripple": "alpha_ripple"},
+        "Peak_Baseline_Shared": {"peak": "alpha_shared", "baseline": "alpha_shared"},
+        "Peak_Baseline_Shared_Ripple": {"peak": "alpha_shared", "baseline": "alpha_shared", "ripple": "alpha_ripple"},
+        "Peak_Baseline_Ripple_Shared": {"peak": "alpha_shared", "baseline": "alpha_shared", "ripple": "alpha_shared"},
+    }
 
     @classmethod
     def _rate(
@@ -182,281 +141,61 @@ class PreyCapture:
         alpha_baseline: float = 0.0,
         alpha_ripple: float = 0.0,
     ) -> np.ndarray:
-
-        w = 2.0 * np.pi * stim_freq
-        phase = w * t
-
+        phase = 2.0 * np.pi * stim_freq * t
         transient = A * np.exp(-t / tau) * np.exp(alpha_peak * trial)
         baseline = B * np.exp(alpha_baseline * trial)
-
         wave = 0.5 * (np.sin(phase + phi1) + np.sin(2.0 * phase + phi2))
-        ripple_depth = sigmoid_bounded(
-            z0_ripple + alpha_ripple * trial, cls._RIPPLE_UPPER
-        )
-        ripple_mod = 1.0 + ripple_depth * wave
-
-        return (transient + baseline) * ripple_mod
-
-    # -- Variants ----------------------------------------------------------
+        depth = sigmoid_bounded(z0_ripple + alpha_ripple * trial, cls._RIPPLE_UPPER)
+        return (transient + baseline) * (1.0 + depth * wave)
 
     @classmethod
-    def time_only(cls, stim_freq: float) -> RateKernel:
-        """No trial-dependent plasticity."""
+    def variant(cls, variant: str, stim_freq: float) -> RateKernel:
+        modulated = cls._VARIANTS[variant]
+        alphas = list(dict.fromkeys(modulated.values()))
+        names = cls._PARAM_NAMES + alphas
 
-        def _func(t, trial, params):
-            A, tau, B, z0_ripple, phi1, phi2 = params
-            return cls._rate(t, trial, stim_freq, A, tau, B, z0_ripple, phi1, phi2)
-
-        return RateKernel(
-            name="PreyCapture(TimeOnly)",
-            func=_func,
-            param_names=list(cls._PARAM_NAMES),
-            initial_guesses=list(cls._GUESSES),
-            bounds=list(cls._BOUNDS),
-            latex_formula=(
-                r"$\lambda(t) = \left(A e^{-t/\tau} + B\right)"
-                rf"\left(1 + {cls._depth_latex()} {cls._RIPPLE_WAVE_LATEX}\right)$"
-            ),
-        )
-
-    @classmethod
-    def peak(cls, stim_freq: float) -> RateKernel:
-        """Only the transient (peak) amplitude is modulated across trials."""
-
-        def _func(t, trial, params):
-            A, tau, B, z0_ripple, phi1, phi2, alpha_peak = params
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
+            values = dict(zip(names, params))
             return cls._rate(
                 t,
                 trial,
                 stim_freq,
-                A,
-                tau,
-                B,
-                z0_ripple,
-                phi1,
-                phi2,
-                alpha_peak=alpha_peak,
+                *(values[p] for p in cls._PARAM_NAMES),
+                **{f"alpha_{term}": values[p] for term, p in modulated.items()},
             )
 
+        def factor(term: str) -> str:
+            p = modulated.get(term)
+            return rf" e^{{\alpha_{{\text{{{p[6:]}}}}} m}}" if p else ""
+
+        ripple = modulated.get("ripple")
+        z = rf"z_{{0,\text{{ripple}}}}" + (rf"+\alpha_{{\text{{{ripple[6:]}}}}} m" if ripple else "")
+        depth = rf"\frac{{{cls._RIPPLE_UPPER}}}{{1+e^{{-({z})}}}}"
+        wave = r"\frac{1}{2}\left[\sin(\omega t + \phi_1) + \sin(2\omega t + \phi_2)\right]"
         return RateKernel(
-            name="PreyCapture(Peak)",
+            name=f"PreyCapture({variant})",
             func=_func,
-            param_names=cls._PARAM_NAMES + ["alpha_peak"],
-            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS],
-            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS],
+            param_names=names,
+            initial_guesses=cls._GUESSES + [0.0 if p == "alpha_ripple" else cls._ALPHA_GUESS for p in alphas],
+            bounds=cls._BOUNDS + [cls._ALPHA_RIPPLE_BOUNDS if p == "alpha_ripple" else cls._ALPHA_BOUNDS for p in alphas],
             latex_formula=(
-                r"$\lambda(t,m) = \left(A e^{-t/\tau} e^{\alpha_{\text{peak}} m} + B\right)"
-                rf"\left(1 + {cls._depth_latex()} {cls._RIPPLE_WAVE_LATEX}\right)$"
+                rf"$\lambda(t,m) = \left(A e^{{-t/\tau}}{factor('peak')} + B{factor('baseline')}\right)"
+                rf"\left(1 + {depth} {wave}\right)$"
             ),
         )
 
-    @classmethod
-    def baseline(cls, stim_freq: float) -> RateKernel:
-        """Only the tonic baseline is modulated across trials."""
-
-        def _func(t, trial, params):
-            A, tau, B, z0_ripple, phi1, phi2, alpha_baseline = params
-            return cls._rate(
-                t,
-                trial,
-                stim_freq,
-                A,
-                tau,
-                B,
-                z0_ripple,
-                phi1,
-                phi2,
-                alpha_baseline=alpha_baseline,
-            )
-
-        return RateKernel(
-            name="PreyCapture(Baseline)",
-            func=_func,
-            param_names=cls._PARAM_NAMES + ["alpha_baseline"],
-            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS],
-            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS],
-            latex_formula=(
-                r"$\lambda(t,m) = \left(A e^{-t/\tau} + B e^{\alpha_{\text{base}} m}\right)"
-                rf"\left(1 + {cls._depth_latex()} {cls._RIPPLE_WAVE_LATEX}\right)$"
-            ),
-        )
-
-    @classmethod
-    def peak_baseline(cls, stim_freq: float) -> RateKernel:
-        """Peak and baseline each independently modulated across trials."""
-
-        def _func(t, trial, params):
-            A, tau, B, z0_ripple, phi1, phi2, alpha_peak, alpha_baseline = params
-            return cls._rate(
-                t,
-                trial,
-                stim_freq,
-                A,
-                tau,
-                B,
-                z0_ripple,
-                phi1,
-                phi2,
-                alpha_peak=alpha_peak,
-                alpha_baseline=alpha_baseline,
-            )
-
-        return RateKernel(
-            name="PreyCapture(Peak_Baseline)",
-            func=_func,
-            param_names=cls._PARAM_NAMES + ["alpha_peak", "alpha_baseline"],
-            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS, cls._ALPHA_GUESS],
-            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS, cls._ALPHA_BOUNDS],
-            latex_formula=(
-                r"$\lambda(t,m) = \left(A e^{-t/\tau} e^{\alpha_{\text{peak}} m}"
-                r" + B e^{\alpha_{\text{base}} m}\right)"
-                rf"\left(1 + {cls._depth_latex()} {cls._RIPPLE_WAVE_LATEX}\right)$"
-            ),
-        )
-
-    @classmethod
-    def peak_baseline_ripple(cls, stim_freq: float) -> RateKernel:
-        """Peak, baseline, and ripple depth each independently modulated (fully general)."""
-
-        def _func(t, trial, params):
-            (
-                A,
-                tau,
-                B,
-                z0_ripple,
-                phi1,
-                phi2,
-                alpha_peak,
-                alpha_baseline,
-                alpha_ripple,
-            ) = params
-            return cls._rate(
-                t,
-                trial,
-                stim_freq,
-                A,
-                tau,
-                B,
-                z0_ripple,
-                phi1,
-                phi2,
-                alpha_peak=alpha_peak,
-                alpha_baseline=alpha_baseline,
-                alpha_ripple=alpha_ripple,
-            )
-
-        return RateKernel(
-            name="PreyCapture(Peak_Baseline_Ripple)",
-            func=_func,
-            param_names=cls._PARAM_NAMES
-            + ["alpha_peak", "alpha_baseline", "alpha_ripple"],
-            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS, cls._ALPHA_GUESS, 0.0],
-            bounds=cls._BOUNDS
-            + [cls._ALPHA_BOUNDS, cls._ALPHA_BOUNDS, cls._ALPHA_RIPPLE_BOUNDS],
-            latex_formula=(
-                r"$\lambda(t,m) = \left(A e^{-t/\tau} e^{\alpha_{\text{peak}} m}"
-                r" + B e^{\alpha_{\text{base}} m}\right)"
-                rf"\left(1 + {cls._depth_latex('ripple')} {cls._RIPPLE_WAVE_LATEX}\right)$"
-            ),
-        )
-
-    @classmethod
-    def peak_baseline_shared(cls, stim_freq: float) -> RateKernel:
-        """Peak and baseline share a single modulation parameter; ripple unmodulated."""
-
-        def _func(t, trial, params):
-            A, tau, B, z0_ripple, phi1, phi2, alpha_shared = params
-            return cls._rate(
-                t,
-                trial,
-                stim_freq,
-                A,
-                tau,
-                B,
-                z0_ripple,
-                phi1,
-                phi2,
-                alpha_peak=alpha_shared,
-                alpha_baseline=alpha_shared,
-            )
-
-        return RateKernel(
-            name="PreyCapture(Peak_Baseline_Shared)",
-            func=_func,
-            param_names=cls._PARAM_NAMES + ["alpha_shared"],
-            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS],
-            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS],
-            latex_formula=(
-                r"$\lambda(t,m) = \left(A e^{-t/\tau} + B\right) e^{\alpha_{\text{shared}} m}"
-                rf"\left(1 + {cls._depth_latex()} {cls._RIPPLE_WAVE_LATEX}\right)$"
-            ),
-        )
-
-    @classmethod
-    def peak_baseline_shared_ripple(cls, stim_freq: float) -> RateKernel:
-        """Peak & baseline share one modulation parameter; ripple has its own, separate one."""
-
-        def _func(t, trial, params):
-            A, tau, B, z0_ripple, phi1, phi2, alpha_shared, alpha_ripple = params
-            return cls._rate(
-                t,
-                trial,
-                stim_freq,
-                A,
-                tau,
-                B,
-                z0_ripple,
-                phi1,
-                phi2,
-                alpha_peak=alpha_shared,
-                alpha_baseline=alpha_shared,
-                alpha_ripple=alpha_ripple,
-            )
-
-        return RateKernel(
-            name="PreyCapture(Peak_Baseline_Shared_Ripple)",
-            func=_func,
-            param_names=cls._PARAM_NAMES + ["alpha_shared", "alpha_ripple"],
-            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS, 0.0],
-            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS, cls._ALPHA_RIPPLE_BOUNDS],
-            latex_formula=(
-                r"$\lambda(t,m) = \left(A e^{-t/\tau} + B\right) e^{\alpha_{\text{shared}} m}"
-                rf"\left(1 + {cls._depth_latex('ripple')} {cls._RIPPLE_WAVE_LATEX}\right)$"
-            ),
-        )
-
-    @classmethod
-    def peak_baseline_ripple_shared(cls, stim_freq: float) -> RateKernel:
-        """Peak, baseline, and ripple all share a single modulation parameter."""
-
-        def _func(t, trial, params):
-            A, tau, B, z0_ripple, phi1, phi2, alpha_shared = params
-            return cls._rate(
-                t,
-                trial,
-                stim_freq,
-                A,
-                tau,
-                B,
-                z0_ripple,
-                phi1,
-                phi2,
-                alpha_peak=alpha_shared,
-                alpha_baseline=alpha_shared,
-                alpha_ripple=alpha_shared,
-            )
-
-        return RateKernel(
-            name="PreyCapture(Peak_Baseline_Ripple_Shared)",
-            func=_func,
-            param_names=cls._PARAM_NAMES + ["alpha_shared"],
-            initial_guesses=cls._GUESSES + [cls._ALPHA_GUESS],
-            bounds=cls._BOUNDS + [cls._ALPHA_BOUNDS],
-            latex_formula=(
-                r"$\lambda(t,m) = \left(A e^{-t/\tau} + B\right) e^{\alpha_{\text{shared}} m}"
-                rf"\left(1 + {cls._depth_latex('shared')} {cls._RIPPLE_WAVE_LATEX}\right)$"
-            ),
-        )
+    time_only = classmethod(lambda cls, stim_freq: cls.variant("TimeOnly", stim_freq))
+    peak = classmethod(lambda cls, stim_freq: cls.variant("Peak", stim_freq))
+    baseline = classmethod(lambda cls, stim_freq: cls.variant("Baseline", stim_freq))
+    peak_baseline = classmethod(lambda cls, stim_freq: cls.variant("Peak_Baseline", stim_freq))
+    peak_baseline_ripple = classmethod(lambda cls, stim_freq: cls.variant("Peak_Baseline_Ripple", stim_freq))
+    peak_baseline_shared = classmethod(lambda cls, stim_freq: cls.variant("Peak_Baseline_Shared", stim_freq))
+    peak_baseline_shared_ripple = classmethod(
+        lambda cls, stim_freq: cls.variant("Peak_Baseline_Shared_Ripple", stim_freq)
+    )
+    peak_baseline_ripple_shared = classmethod(
+        lambda cls, stim_freq: cls.variant("Peak_Baseline_Ripple_Shared", stim_freq)
+    )
 
 
 class RateKernelFactory:
@@ -534,51 +273,43 @@ class RateKernelFactory:
         )
 
     @staticmethod
-    def phototaxis_contra(f_dip_upper: float = 0.95) -> RateKernel:
+    def _recovering_dip(
+        name: str,
+        f_dip_upper: float,
+        z0_dip_bounds: Tuple[float, float],
+        tau_dip_bounds: Tuple[float, float],
+        alpha_dip_bounds: Tuple[float, float],
+    ) -> RateKernel:
         """
-        h(t,m) = B*exp(alpha_B*m) * (1 - depth(m)*exp(-t/tau_dip))
-        depth(m) = sigmoid_bounded(z0_dip + alpha_dip*m, f_dip_upper)
-
-        Reparametrized from f_dip (box-bounded to [0, 0.49) purely so that
-        f_dip * bounded_trial_scale(m, alpha_dip) -- whose worst case over m
-        approaches 2*f_dip -- stayed under 1). That coupling made 0.49 an
-        artificial ceiling on f_dip itself, not a real belief about dip depth,
-        and bootstrap fits were pinning against it exactly (CI collapsed to a
-        point at 0.49). Bounding depth(m) directly via a logistic of an
-        unconstrained (z0_dip, alpha_dip) removes the coupling: depth(m) is
-        guaranteed in (0, f_dip_upper) for ANY z0_dip, alpha_dip, ANY trial m --
-        no worst-case analysis, no artificial margin below the true limit.
+        lambda(t, m) = B e^(alpha_B m) (1 - depth(m) e^(-t/tau_dip)),
+        depth(m) = f_dip_upper / (1 + e^-(z0_dip + alpha_dip m)) in (0, f_dip_upper)
+        for any parameters and trial, so the rate stays positive without
+        box-bounding the depth itself.
         """
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             B, z0_dip, tau_dip, alpha_B, alpha_dip = params
-
-            mod_B = B * np.exp(alpha_B * trial)
             depth = sigmoid_bounded(z0_dip + alpha_dip * trial, f_dip_upper)
-            dip_factor = 1.0 - depth * np.exp(-t / tau_dip)
-
-            return mod_B * dip_factor
-
-        z0_dip_init = float(logit_bounded(0.5, f_dip_upper))
+            return B * np.exp(alpha_B * trial) * (1.0 - depth * np.exp(-t / tau_dip))
 
         return RateKernel(
-            name="Phototaxis Contra λ(t, m)",
+            name=name,
             func=_func,
             param_names=["B", "z0_dip", "tau_dip", "alpha_B", "alpha_dip"],
-            initial_guesses=[0.4, z0_dip_init, 0.5, 0.0, 0.0],
-            bounds=[
-                (0.01, 10.0),
-                (-15.0, 15.0),  # z0_dip -- unconstrained on the logit scale
-                (0.01, 5.0),
-                (-0.1, 0.1),
-                (-0.5, 0.5),  # alpha_dip -- widened since it now acts on logit,
-                # not probability, scale (logistic derivative <=0.25)
-            ],
+            initial_guesses=[0.4, float(logit_bounded(0.5, f_dip_upper)), 0.5, 0.0, 0.0],
+            bounds=[(0.01, 10.0), z0_dip_bounds, tau_dip_bounds, (-0.1, 0.1), alpha_dip_bounds],
             latex_formula=(
                 r"$\lambda(t, m) = B e^{\alpha_B m}\left(1 - \frac{" + f"{f_dip_upper}"
                 r"}{1+e^{-(z_{0,\text{dip}}+\alpha_{\text{dip}} m)}}\, e^{-t/\tau_{\text{dip}}}\right)$"
             ),
         )
+
+    @staticmethod
+    def phototaxis_contra(f_dip_upper: float = 0.95) -> RateKernel:
+        return RateKernelFactory._recovering_dip(
+            "Phototaxis Contra λ(t, m)", f_dip_upper, (-15.0, 15.0), (0.01, 5.0), (-0.5, 0.5)
+        )
+
 
     @staticmethod
     def spont() -> RateKernel:
@@ -607,50 +338,10 @@ class RateKernelFactory:
 
     @staticmethod
     def after_looming(f_dip_upper: float = 0.95) -> RateKernel:
-        """
-        h(t,m) = B*exp(alpha_B*m) * (1 - depth(m)*exp(-t/tau_dip))
-        depth(m) = sigmoid_bounded(z0_dip + alpha_dip*m, f_dip_upper)
-
-        Reparametrized from f_dip (box-bounded to [0, 0.49) purely so that
-        f_dip * bounded_trial_scale(m, alpha_dip) -- whose worst case over m
-        approaches 2*f_dip -- stayed under 1). That coupling made 0.49 an
-        artificial ceiling on f_dip itself, not a real belief about dip depth,
-        and bootstrap fits were pinning against it exactly (CI collapsed to a
-        point at 0.49). Bounding depth(m) directly via a logistic of an
-        unconstrained (z0_dip, alpha_dip) removes the coupling: depth(m) is
-        guaranteed in (0, f_dip_upper) for ANY z0_dip, alpha_dip, ANY trial m --
-        no worst-case analysis, no artificial margin below the true limit.
-        """
-
-        def _func(t, trial, params):
-            B, z0_dip, tau_dip, alpha_B, alpha_dip = params
-
-            mod_B = B * np.exp(alpha_B * trial)
-            depth = sigmoid_bounded(z0_dip + alpha_dip * trial, f_dip_upper)
-            dip_factor = 1.0 - depth * np.exp(-t / tau_dip)
-
-            return mod_B * dip_factor
-
-        z0_dip_init = float(logit_bounded(0.5, f_dip_upper))
-
-        return RateKernel(
-            name="Looming recovery λ(t, m)",
-            func=_func,
-            param_names=["B", "z0_dip", "tau_dip", "alpha_B", "alpha_dip"],
-            initial_guesses=[0.4, z0_dip_init, 0.5, 0.0, 0.0],
-            bounds=[
-                (0.01, 10.0),
-                (-10, 10),  # z0_dip -- unconstrained on the logit scale
-                (0.05, 15.0),
-                (-0.1, 0.1),
-                (-2.0, 2.0),  # alpha_dip -- widened since it now acts on logit,
-                # not probability, scale (logistic derivative <=0.25)
-            ],
-            latex_formula=(
-                r"$\lambda(t, m) = B e^{\alpha_B m}\left(1 - \frac{" + f"{f_dip_upper}"
-                r"}{1+e^{-(z_{0,\text{dip}}+\alpha_{\text{dip}} m)}}\, e^{-t/\tau_{\text{dip}}}\right)$"
-            ),
+        return RateKernelFactory._recovering_dip(
+            "Looming recovery λ(t, m)", f_dip_upper, (-10, 10), (0.05, 15.0), (-2.0, 2.0)
         )
+
 
     @staticmethod
     def omr_forward(f_dip_upper: float = 0.995) -> RateKernel:
@@ -902,15 +593,13 @@ class PoissonProcess(PointProcess):
         return -(sum_log_rates - total_expected_events)
 
     def predict(self, t: np.ndarray, trial: Union[float, np.ndarray]) -> np.ndarray:
-        if self.params_ is None:
-            raise ValueError("Model is not fitted yet. Call .fit() first.")
+        self._require_fitted()
 
         expected_rate = self.kernel.evaluate(t, trial, self.params_)
         return expected_rate
 
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
-        if self.params_ is None:
-            raise ValueError("Model is not fitted yet. Call .fit() first.")
+        self._require_fitted()
 
         t_2d = dataset.t_centers[None, :]
         trials_2d = np.arange(dataset.num_trials)[:, None]
@@ -958,54 +647,14 @@ class PoissonProcess(PointProcess):
 
         return base_ll, N_f, S_f
 
-    def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx) -> float:
-        """
-        Upper bound on the base intensity over [0, duration_s], for thinning's
-        proposal step. Grid resolution matches self.integration_dt (the same
-        resolution the model was fit/integrated with) rather than an arbitrary
-        fixed point count -- consistent, and automatically finer for models
-        fit at higher precision.
-        """
-        t_grid = np.arange(0.0, dataset.duration_s, self.integration_dt)
-        t_grid = np.append(t_grid, dataset.duration_s)
-        vals = self.kernel.evaluate(t_grid, np.full_like(t_grid, t_idx), self.params_)
-        return float(np.max(vals)) * self._THINNING_SAFETY_MARGIN
-
     def simulate_stream(
-        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator
     ) -> np.ndarray:
-        """
-        Simulates ONE synthetic (fish, trial) stream's event times, for a
-        fish with random-effect gain `gain` (1.0 if no frailty), in trial
-        t_idx, using Ogata's thinning algorithm. This is the one place that
-        needs to know how to correctly account for self-excitation
-        (HawkesProcess) or refractory/facilitation history (RenewalProcess)
-        during generation -- unlike _base_exposure_for_stream (a single
-        aggregate number, ignorant of history), this produces an actual
-        event sequence, so history-dependent intensity terms are correctly
-        included as simulated events accumulate.
-
-        Default (this implementation): no self-history dependence -- correct
-        for PoissonProcess. HawkesProcess/RenewalProcess override this with
-        a thinning loop that folds each newly-drawn event into the ongoing
-        intensity calculation. SurvivalProcess overrides this to stop after
-        the first event (or return empty if none occurs by duration_s).
-        """
-        lambda_upper = gain * self._intensity_upper_bound(dataset, t_idx)
-        events = []
-        t = 0.0
-        while t < dataset.duration_s:
-            w = rng.exponential(1.0 / max(lambda_upper, 1e-12))
-            t_candidate = t + w
-            if t_candidate >= dataset.duration_s:
-                break
-            lam_candidate = (
-                gain
-                * self.kernel.evaluate(
-                    np.array([t_candidate]), np.array([t_idx]), self.params_
-                )[0]
-            )
-            if rng.uniform() <= lam_candidate / lambda_upper:
-                events.append(t_candidate)
-            t = t_candidate
-        return np.array(events)
+        """One stream of a fish with frailty gain `gain`, by thinning."""
+        upper = gain * self._intensity_upper_bound(dataset, t_idx)
+        return thin(
+            lambda t, events: gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), self.params_)[0],
+            lambda t, events: upper,
+            dataset.duration_s,
+            rng,
+        )

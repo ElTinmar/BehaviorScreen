@@ -40,16 +40,10 @@ from BehaviorScreen.point_process.point_process.survival_process import (
     SurvivalProcess,
     SurvivalKernelFactory,
 )
-from BehaviorScreen.point_process.point_process.mixed_effects_process import (
+from BehaviorScreen.point_process.point_process.frailty import (
     GammaMixedEffectsProcess,
-)
-from BehaviorScreen.point_process.point_process.zero_inflated_mixed_effects_process import (
     ZeroInflatedGammaMixedEffectsProcess,
-)
-from BehaviorScreen.point_process.point_process.baseline_only_frailty_hawkes import (
     BaselineOnlyFrailtyHawkesProcess,
-)
-from BehaviorScreen.point_process.point_process.zero_inflated_baseline_only_frailty_hawkes import (
     ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
 )
 from BehaviorScreen.point_process.point_process.kernel_shapes import logit_bounded

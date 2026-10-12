@@ -71,7 +71,7 @@ def _near_bound(value: float, bound: Tuple[Optional[float], Optional[float]],
 
 
 def assess_group_fit(
-    process_factory: Callable[[], PointProcess],
+    fitted_architecture: Callable[[], PointProcess],
     null_process_factory: Callable[[], PointProcess],
     dataset: PointProcessDataset,
     line: str,
@@ -94,11 +94,9 @@ def assess_group_fit(
         qc.reasons_flagged.append(f"too_few_fish (n={n_fish})")
         return qc
 
-    model_arch = process_factory()
     model_null = null_process_factory()
-
     try:
-        model_arch.fit(dataset)
+        model_arch = fitted_architecture()
         model_null.fit(dataset)
     except Exception as e:
         qc.reasons_flagged.append(f"fit_failed: {type(e).__name__}: {e}")

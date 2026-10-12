@@ -53,17 +53,13 @@ from BehaviorScreen.point_process.point_process.survival_process import (
     SurvivalProcess,
     SurvivalKernelFactory,
 )
-from BehaviorScreen.point_process.point_process.mixed_effects_process import GammaMixedEffectsProcess
-from BehaviorScreen.point_process.point_process.zero_inflated_mixed_effects_process import (
+from BehaviorScreen.point_process.point_process.frailty import (
+    GammaMixedEffectsProcess,
     ZeroInflatedGammaMixedEffectsProcess,
-)
-from BehaviorScreen.point_process.point_process.baseline_only_frailty_hawkes import (
     BaselineOnlyFrailtyHawkesProcess,
-)
-from BehaviorScreen.point_process.point_process.zero_inflated_baseline_only_frailty_hawkes import (
     ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
 )
-from BehaviorScreen.point_process.point_process.partially_fixed_process import PartiallyFixedProcess
+from BehaviorScreen.point_process.point_process.wrappers import PartiallyFixedProcess
 from BehaviorScreen.point_process.point_process.kernel_shapes import logit_bounded, sigmoid_bounded
 
 # =============================================================================
@@ -385,9 +381,8 @@ class TestBaselineOnlyFrailtyHawkesProcessRecovery:
 
     def test_homogeneous_baseline_exponential_history(self, rng_factory):
         """
-        NOTE: BaselineOnlyFrailtyHawkesProcess does NOT override
-        _draw_fish_gains -- gains are drawn manually here. n_quad_nodes is
-        reduced from the default (30) to keep runtime reasonable.
+        Gains are drawn manually here. n_quad_nodes is reduced from the
+        default (30) to keep runtime reasonable.
         """
         rng = rng_factory(7)
         true_B, true_alpha, true_beta, true_r = 0.4, 0.3, 2.0, 4.0
