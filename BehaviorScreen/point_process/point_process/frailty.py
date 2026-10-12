@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 from scipy.linalg import eigh_tridiagonal
-from scipy.special import gammaln, logsumexp
+from scipy.special import gammaln
 
 from .dataset import PointProcessDataset
 from .kernel_shapes import logit_bounded, sigmoid_bounded
@@ -22,46 +22,74 @@ from .point_process import PointProcess, StreamTaus, thin
 from .wrappers import Wrapper
 
 ArrayLike = Union[float, np.ndarray]
+_EVENT_CHUNK = 512  # events per chunk of the quadrature: 512 x n_nodes values stay in cache
 
 
-def gauss_laguerre(n: int, alpha: float) -> Tuple[np.ndarray, np.ndarray]:
-    """Nodes and log-weights for the weight x^alpha e^-x (Golub-Welsch, finite for large alpha)."""
+def gauss_laguerre(n: int, alpha: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Nodes and log-weights, one row per alpha, for the weight x^alpha e^-x
+    (Golub-Welsch, finite for large alpha).
+    """
+    alpha = np.atleast_1d(np.asarray(alpha, dtype=float))[:, None]
     k = np.arange(n)
-    nodes, vectors = eigh_tridiagonal(2 * k + alpha + 1, np.sqrt(k[1:] * (k[1:] + alpha)))
-    return nodes, 2 * np.log(np.abs(vectors[0])) + gammaln(alpha + 1)
+    if len(alpha) == 1:  # one fish: the tridiagonal solver is faster than a batch of one
+        nodes, vectors = eigh_tridiagonal(2 * k + alpha[0] + 1, np.sqrt(k[1:] * (k[1:] + alpha[0])))
+        return nodes[None, :], 2 * np.log(np.abs(vectors[:1])) + gammaln(alpha + 1)
+    off_diagonal = np.sqrt(k[1:] * (k[1:] + alpha))
+    jacobi = np.zeros((len(alpha), n, n))
+    jacobi[:, k, k] = 2 * k + alpha + 1
+    jacobi[:, k[1:], k[:-1]] = jacobi[:, k[:-1], k[1:]] = off_diagonal
+    nodes, vectors = np.linalg.eigh(jacobi)
+    return nodes, 2 * np.log(np.abs(vectors[:, 0, :])) + gammaln(alpha + 1)
 
 
-def gamma_gain_evidence(
+def gamma_gain_evidence_by_fish(
     base_rates: np.ndarray,
     history_rates: np.ndarray,
-    exposure: float,
+    fish: np.ndarray,
+    exposure: np.ndarray,
     shape: float,
     rate: float,
     n_nodes: int = 30,
-) -> Tuple[float, float]:
+) -> Tuple[np.ndarray, np.ndarray]:
     """
-    log Z and E[g | events] for g ~ Gamma(shape, rate), with
-    Z = integral of p(g) exp(-g exposure) prod(g b_l + h_l) dg.
+    Per fish: log Z and E[g | events] for g ~ Gamma(shape, rate), with
+    Z = integral of p(g) exp(-g exposure) prod over its events (g b + h) dg.
+    fish: the fish of every event, non-decreasing.
 
     Generalized Gauss-Laguerre with exponent shape - 1 + k, where k is the
     effective number of baseline-driven events: the remaining factor
     prod(g b + h) / g^k is flat near the posterior mode, so the rule stays
     accurate for fish with hundreds of events (exact when h = 0).
     """
+    n_fish = len(exposure)
     d = exposure + rate
-    driven = base_rates * (shape + len(base_rates)) / d
+    driven = base_rates * (shape + np.bincount(fish, minlength=n_fish)[fish]) / d[fish]
     total = driven + history_rates
-    k = float(np.sum(np.divide(driven, total, out=np.zeros_like(total), where=total > 0)))
+    k = np.bincount(fish, weights=np.divide(driven, total, out=np.zeros_like(total), where=total > 0), minlength=n_fish)
     x, log_w = gauss_laguerre(n_nodes, shape - 1 + k)
-    g = x / d
-    log_terms = (
-        log_w
-        + np.log(np.maximum(np.outer(g, base_rates) + history_rates, 1e-300)).sum(axis=1)
-        - k * np.log(g)
+    g = x / d[:, None]
+    log_terms = log_w - k[:, None] * np.log(g)
+    for a in range(0, len(fish), _EVENT_CHUNK):
+        chunk_fish = fish[a : a + _EVENT_CHUNK]
+        logs = np.log(np.maximum(g[chunk_fish] * base_rates[a : a + _EVENT_CHUNK, None] + history_rates[a : a + _EVENT_CHUNK, None], 1e-300))
+        starts = np.flatnonzero(np.concatenate([[True], chunk_fish[1:] != chunk_fish[:-1]]))
+        log_terms[chunk_fish[starts]] += np.add.reduceat(logs, starts, axis=0)
+    peak = log_terms.max(axis=1, keepdims=True)
+    terms = np.exp(log_terms - peak)
+    total_terms = terms.sum(axis=1)
+    log_z = shape * np.log(rate) - gammaln(shape) - (shape + k) * np.log(d) + peak[:, 0] + np.log(total_terms)
+    return log_z, np.sum(terms * g, axis=1) / total_terms
+
+
+def gamma_gain_evidence(
+    base_rates: np.ndarray, history_rates: np.ndarray, exposure: float, shape: float, rate: float, n_nodes: int = 30
+) -> Tuple[float, float]:
+    """gamma_gain_evidence_by_fish for a single fish."""
+    log_z, mean = gamma_gain_evidence_by_fish(
+        base_rates, history_rates, np.zeros(len(base_rates), dtype=int), np.array([exposure]), shape, rate, n_nodes
     )
-    log_quad = logsumexp(log_terms)
-    log_z = shape * np.log(rate) - gammaln(shape) - (shape + k) * np.log(d) + log_quad
-    return float(log_z), float(np.sum(np.exp(log_terms - log_quad) * g))
+    return float(log_z[0]), float(mean[0])
 
 
 @dataclass(frozen=True)
@@ -82,6 +110,11 @@ class GammaGain:
 
     def posterior(self, N: np.ndarray, S: np.ndarray) -> Dict[str, np.ndarray]:
         return {"estimated_gain": (self.shape + N) / (self.rate + S)}
+
+    def evidence_by_fish(
+        self, base_rates: np.ndarray, history_rates: np.ndarray, fish: np.ndarray, S: np.ndarray, n_nodes: int
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        return gamma_gain_evidence_by_fish(base_rates, history_rates, fish, S, self.shape, self.rate, n_nodes)
 
     def evidence(self, base_rates: np.ndarray, history_rates: np.ndarray, S: float, n_nodes: int) -> Tuple[float, float]:
         return gamma_gain_evidence(base_rates, history_rates, S, self.shape, self.rate, n_nodes)
@@ -139,14 +172,22 @@ class ZeroInflatedGain:
             "estimated_gain": (1.0 - p_responder) * self.c + p_responder * responder_gain,
         }
 
-    def evidence(self, base_rates: np.ndarray, history_rates: np.ndarray, S: float, n_nodes: int) -> Tuple[float, float]:
-        log_nr = -self.c * S + float(np.sum(np.log(np.maximum(self.c * base_rates + history_rates, 1e-300))))
-        log_r, mean_r = self.responder.evidence(base_rates, history_rates, S, n_nodes)
+    def evidence_by_fish(
+        self, base_rates: np.ndarray, history_rates: np.ndarray, fish: np.ndarray, S: np.ndarray, n_nodes: int
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        log_nr = -self.c * S + np.bincount(
+            fish, weights=np.log(np.maximum(self.c * base_rates + history_rates, 1e-300)), minlength=len(S)
+        )
+        log_r, mean_r = self.responder.evidence_by_fish(base_rates, history_rates, fish, S, n_nodes)
         weighted_nr = np.log(max(self.pi, 1e-300)) + log_nr
         weighted_r = np.log(max(1.0 - self.pi, 1e-300)) + log_r
-        log_z = float(np.logaddexp(weighted_nr, weighted_r))
-        p_responder = float(np.exp(weighted_r - log_z))
+        log_z = np.logaddexp(weighted_nr, weighted_r)
+        p_responder = np.exp(weighted_r - log_z)
         return log_z, (1.0 - p_responder) * self.c + p_responder * mean_r
+
+    def evidence(self, base_rates: np.ndarray, history_rates: np.ndarray, S: float, n_nodes: int) -> Tuple[float, float]:
+        log_z, mean = self.evidence_by_fish(base_rates, history_rates, np.zeros(len(base_rates), dtype=int), np.array([S]), n_nodes)
+        return float(log_z[0]), float(mean[0])
 
     def survival(self, Lambda: np.ndarray) -> np.ndarray:
         return self.pi * np.exp(-self.c * Lambda) + (1.0 - self.pi) * self.responder.survival(Lambda)
@@ -353,44 +394,34 @@ class BaselineFrailty(_GainWrapper):
 
     def _per_fish_terms(
         self, dataset: PointProcessDataset, base_params: List[float]
-    ) -> Tuple[List[Tuple[np.ndarray, np.ndarray]], np.ndarray, np.ndarray]:
+    ) -> Tuple[Tuple[np.ndarray, np.ndarray, np.ndarray], np.ndarray, np.ndarray]:
         """
-        Per fish: (baseline rate, history rate) at its events, baseline
-        exposure (scaled by g_f) and history exposure (not scaled).
+        (baseline rate, history rate, fish) at every event, baseline exposure
+        per fish (scaled by g_f) and history exposure per fish (not scaled).
         """
         base = self.base_process
-        kernel_params, hist_params = base._split_params(base_params)
-        rates: List[Tuple[List[np.ndarray], List[np.ndarray]]] = [([], []) for _ in range(dataset.num_fish)]
+        kernel_params, _ = base._split_params(base_params)
+        events, base_rates, history_rates, history_integrals = base._event_terms(dataset, base_params)
         S_base = dataset.fish_trial_mask.astype(float) @ base._trial_integrals(dataset, kernel_params)
-        S_hist = np.zeros(dataset.num_fish)
-        for f_idx, t_idx, t_ev in dataset.iter_streams():
-            if len(t_ev):
-                rates[f_idx][0].append(base.kernel.evaluate(t_ev, np.full(t_ev.shape, t_idx, dtype=float), kernel_params))
-                rates[f_idx][1].append(base.history_kernel.event_history(t_ev, hist_params))
-                S_hist[f_idx] += float(
-                    np.sum(base.history_kernel.integrate(dataset.duration_s - t_ev, hist_params, integration_dt=base.integration_dt))
-                )
-        events = [(np.concatenate([[]] + b), np.concatenate([[]] + h)) for b, h in rates]
-        return events, S_base, S_hist
+        S_hist = np.bincount(events["fish"], weights=history_integrals, minlength=dataset.num_fish)
+        return (base_rates, history_rates, events["fish"]), S_base, S_hist
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
-        gain = self._gain(params)
         events, S_base, S_hist = self._per_fish_terms(dataset, self._base_params(params))
-        return -sum(
-            gain.evidence(*events[f], S_base[f], self.n_quad_nodes)[0] - S_hist[f]
-            for f in np.flatnonzero(dataset.fish_trial_mask.any(axis=1))
-        )
+        log_z, _ = self._gain(params).evidence_by_fish(*events, S_base, self.n_quad_nodes)
+        active = dataset.fish_trial_mask.any(axis=1)
+        return -float(np.sum(log_z[active] - S_hist[active]))
 
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         """Whole-session posterior mean gain per fish (for reporting, not for time rescaling)."""
-        gain = self._gain()
         events, S_base, _ = self._per_fish_terms(dataset, self._base_params(self.params_))
+        _, gains = self._gain().evidence_by_fish(*events, S_base, self.n_quad_nodes)
         active = np.flatnonzero(dataset.fish_trial_mask.any(axis=1))
         return pd.DataFrame(
             {
                 "fish_idx": active,
-                "n_events": [len(events[f][0]) for f in active],
-                "estimated_gain": [gain.evidence(*events[f], S_base[f], self.n_quad_nodes)[1] for f in active],
+                "n_events": np.bincount(events[2], minlength=dataset.num_fish)[active],
+                "estimated_gain": gains[active],
             }
         )
 

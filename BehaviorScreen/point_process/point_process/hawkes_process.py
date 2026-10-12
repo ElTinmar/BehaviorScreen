@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, List, Tuple, Optional, Union
+from typing import Callable, ClassVar, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -91,6 +91,8 @@ class HistoryKernelFactory:
 
 class HawkesProcess(PointProcess):
 
+    _CHUNK: ClassVar[int] = 8192  # pairs per chunk: working set within a core's L2
+
     def __init__(
         self,
         kernel: RateKernel,
@@ -109,38 +111,51 @@ class HawkesProcess(PointProcess):
         self.bounds = kernel.bounds + history_kernel.bounds
         self.param_names = kernel.param_names + history_kernel.param_names
 
-    def _hawkes_nll(
-        self,
-        t_events: np.ndarray,
-        trial: float,
-        base_integral: float,
-        duration_s: float,
-        params_base: List[float],
-        params_history: List[float],
-    ) -> float:
+    def _dataset_events(self, dataset: PointProcessDataset) -> Dict[str, np.ndarray]:
+        """
+        All events in stream order, and every pair of events in the same
+        trial (earlier, later) with their lag, sorted by the later event.
+        Data only, so cached on the dataset.
+        """
+        times, trials, fish, later, lags = [], [], [], [], []
+        offset = 0
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            n = len(t_ev)
+            i, j = np.tril_indices(n, k=-1)
+            order = np.lexsort((j, i))
+            later.append(offset + i[order])
+            lags.append(t_ev[i[order]] - t_ev[j[order]])
+            times.append(t_ev)
+            trials.append(np.full(n, t_idx, dtype=float))
+            fish.append(np.full(n, f_idx))
+            offset += n
+        joined = lambda parts, dtype: np.concatenate([np.empty(0, dtype=dtype)] + parts).astype(dtype)
+        return {
+            "times": joined(times, float), "trials": joined(trials, float), "fish": joined(fish, int),
+            "pair_later": joined(later, int), "pair_lags": joined(lags, float),
+        }
 
-        trials_arr = np.full(t_events.shape, trial, dtype=float)
-        base_rates = self.kernel.evaluate(
-            t_events,
-            trials_arr,
-            params_base,
-        )
-        history_rates = self.history_kernel.event_history(
-            t_events,
-            params_history,
-        )
-        intensity = base_rates + history_rates
-        sum_log_intensity = np.sum(np.log(intensity))
-
-        remaining_time = duration_s - t_events
+    def _event_terms(self, dataset: PointProcessDataset, params: List[float]) -> Tuple[Dict[str, np.ndarray], np.ndarray, np.ndarray, np.ndarray]:
+        """
+        Events, and at every event: baseline rate, history rate (sum of the
+        kernel over earlier events of its trial) and history integral to
+        trial end. Pairs are evaluated in cache-sized chunks.
+        """
+        params_base, params_history = self._split_params(params)
+        events = dataset.cached("hawkes_events", lambda: self._dataset_events(dataset))
+        base = self.kernel.evaluate(events["times"], events["trials"], params_base)
+        history = np.zeros(len(events["times"]))
+        later, lags = events["pair_later"], events["pair_lags"]
+        for a in range(0, len(lags), self._CHUNK):
+            chunk_later = later[a : a + self._CHUNK]
+            first = chunk_later[0]
+            history[first : chunk_later[-1] + 1] += np.bincount(
+                chunk_later - first, weights=self.history_kernel.evaluate(lags[a : a + self._CHUNK], params_history)
+            )
         history_integrals = self.history_kernel.integrate(
-            remaining_time,
-            params_history,
-            integration_dt=self.integration_dt,
+            dataset.duration_s - events["times"], params_history, integration_dt=self.integration_dt
         )
-        total_history_integral = np.sum(history_integrals)
-
-        return -(sum_log_intensity - (base_integral + total_history_integral))
+        return events, base, history, history_integrals
 
     def _trial_integrals(self, dataset: PointProcessDataset, params_base: List[float]) -> np.ndarray:
         return self.kernel.integrate(
@@ -151,21 +166,10 @@ class HawkesProcess(PointProcess):
         )
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
-        params_base, params_history = self._split_params(params)
-        trial_integrals = self._trial_integrals(dataset, params_base)
-        total_nll = 0.0
-
-        for f_idx, t_idx, t_ev in dataset.iter_streams():
-            total_nll += self._hawkes_nll(
-                t_ev,
-                t_idx,
-                trial_integrals[t_idx],
-                dataset.duration_s,
-                params_base,
-                params_history,
-            )
-
-        return total_nll
+        params_base, _ = self._split_params(params)
+        _, base, history, history_integrals = self._event_terms(dataset, params)
+        exposure = dataset.n_fish_per_trial @ self._trial_integrals(dataset, params_base) + np.sum(history_integrals)
+        return -(float(np.sum(np.log(base + history))) - float(exposure))
 
     def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
         return np.add(*self._compensator_parts(t_events, trial))
@@ -248,33 +252,12 @@ class HawkesProcess(PointProcess):
     def mixed_effects_likelihood_terms(
         self, dataset: PointProcessDataset, params: List[float]
     ) -> Tuple[float, np.ndarray, np.ndarray]:
-
-        params_base, params_history = self._split_params(params)
-        trial_integrals = self._trial_integrals(dataset, params_base)
-
-        N_f = np.zeros(dataset.num_fish, dtype=float)
-        S_f = np.zeros(dataset.num_fish, dtype=float)
-        base_ll = 0.0
-
-        for f_idx, t_idx, t_ev in dataset.iter_streams():
-            N_f[f_idx] += len(t_ev)
-
-            if len(t_ev) > 0:
-                trials_arr = np.full(t_ev.shape, t_idx, dtype=float)
-                base_rates = self.kernel.evaluate(t_ev, trials_arr, params_base)
-                history_rates = self.history_kernel.event_history(t_ev, params_history)
-                intensity = np.maximum(base_rates + history_rates, 1e-12)
-                base_ll += float(np.sum(np.log(intensity)))
-
-            remaining_time = dataset.duration_s - t_ev
-            history_integrals = self.history_kernel.integrate(
-                remaining_time,
-                params_history,
-                integration_dt=self.integration_dt,
-            )
-            S_f[f_idx] += trial_integrals[t_idx] + float(np.sum(history_integrals))
-
-        return base_ll, N_f, S_f
+        params_base, _ = self._split_params(params)
+        events, base, history, history_integrals = self._event_terms(dataset, params)
+        n_events = np.bincount(events["fish"], minlength=dataset.num_fish).astype(float)
+        exposure = dataset.fish_trial_mask.astype(float) @ self._trial_integrals(dataset, params_base)
+        exposure += np.bincount(events["fish"], weights=history_integrals, minlength=dataset.num_fish)
+        return float(np.sum(np.log(np.maximum(base + history, 1e-12)))), n_events, exposure
 
     def _estimate_decay_horizon(
         self, hist_params: List[float], tol: float = 1e-6, max_horizon: float = 1000.0
