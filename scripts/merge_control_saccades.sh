@@ -40,7 +40,7 @@ id2b/vehicle/saccades_augmented.csv \
 pcbp3/vehicle/saccades_augmented.csv \
 cort/vehicle/saccades_augmented.csv \
 lhx2b/vehicle/saccades_augmented.csv \
-mpn318/vehicle/saccades_augmented.csv --no-header-check
+mpn318/vehicle/saccades_augmented.csv
 
 
 python -m BehaviorScreen.merge_csv $DATA_ROOT \

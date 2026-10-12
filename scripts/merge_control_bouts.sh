@@ -39,11 +39,11 @@ id2b/vehicle/bouts.csv \
 pcbp3/vehicle/bouts.csv \
 cort/vehicle/bouts.csv \
 lhx2b/vehicle/bouts.csv \
-mpn318/vehicle/bouts.csv --no-header-check
+mpn318/vehicle/bouts.csv 
 
 
 python -m BehaviorScreen.merge_csv $DATA_ROOT \
--o qc.csv \
+-o qc_control.csv \
 ccka/vehicle/qc.csv \
 lhx9/vehicle/qc.csv \
 y532/vehicle/qc.csv \
@@ -84,7 +84,7 @@ lhx2b/vehicle/qc.csv \
 mpn318/vehicle/qc.csv 
 
 python -m BehaviorScreen.merge_csv $DATA_ROOT \
--o valid_trials.csv \
+-o valid_trials_control.csv \
 ccka/vehicle/valid_trials.csv \
 lhx9/vehicle/valid_trials.csv \
 y532/vehicle/valid_trials.csv \
