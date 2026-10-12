@@ -5,6 +5,7 @@ EXPERIMENTS = [
     "prey_capture_ipsi",
     "prey_capture_contra",
     "prey_capture_convergent_saccade",
+    "prey_capture_divergent_saccade",
     "phototaxis_ipsi",
     "phototaxis_contra",
     "omr_lateral_ipsi",
@@ -16,12 +17,11 @@ EXPERIMENTS = [
     "okr_conjugate_contra_saccades",
     "looming_ipsi",
     "looming_contra",
+    "looming_divergent_saccade",
+    "after_looming",
     "dark_flash",
     "spont_dark",
     "spont_bright",
-    "after_looming",
-    "prey_capture_divergent_saccade",
-    "looming_divergent_saccade",
 ]
 
 DATA_DIR = "/media/martin/DATA_18TB/Screen"
