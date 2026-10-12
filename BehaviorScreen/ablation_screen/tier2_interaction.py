@@ -133,23 +133,20 @@ def plot_tier2_map(
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Lines tested in Tier 2, coloured by log2FC(line) - log2FC(reference)
-    (white: same drug effect as WT), under a top row with the reference's
-    own drug effect. Frames: Tier 2 significant; untested cells are coloured
-    but never framed.
+    (grey: same drug effect as the reference). Frames: Tier 2 significant;
+    untested cells are coloured but never framed. The reference's own drug
+    effect is its row of the Tier 1 map.
     """
-    effects = interaction_effects(param_df, reference)
     tested = tier2_df[tier2_df["status"] == "ok"]
+    effects = interaction_effects(param_df, reference)
     effects = effects[effects["line"].isin(tested["line"])].assign(delta=lambda d: d["interaction"], delta_se=lambda d: d["interaction_se"])
-    reference_rows = param_df[param_df["line"] == reference].assign(family="reference")
-    cells = pd.concat([reference_rows, effects], ignore_index=True)
     significant = set(zip(tested.loc[tested["significant"], "line"], tested.loc[tested["significant"], "behavior"]))
-    status = (
-        cells.drop_duplicates(["line", "behavior"])[["line", "behavior", "family"]]
-        .assign(status="ok", reference=f"{reference}/drug effect",
-                significant=lambda d: [(l, b) in significant for l, b in zip(d["line"], d["behavior"])])
+    status = effects.drop_duplicates(["line", "behavior"])[["line", "behavior", "family"]].assign(
+        status="ok", reference=reference, significant=lambda d: [(l, b) in significant for l, b in zip(d["line"], d["behavior"])]
     )
-    rows = [reference] + list(dict.fromkeys(effects["line"]))
-    return plot_tier1_map(
-        cells, status, behaviors, rows, row_labels={reference: f"{reference} drug effect"},
+    fig, ax = plot_tier1_map(
+        effects, status, behaviors, list(dict.fromkeys(effects["line"])),
         colorbar_label=f"log2 fold change: line minus {reference}",
     )
+    fig.suptitle(f"Drug effect beyond {reference} (reference: {reference} vehicle -> ronidazole)", fontsize=9, y=1.0)
+    return fig, ax
