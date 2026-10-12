@@ -44,7 +44,7 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 ROOT = Path('/media/martin/DATA_18TB/Screen')
 FITS_ROOT = Path("./figures")  # run_analysis --mode fit output on the control screen
 # Tables merged across screen folders with merge_csv (adds line/condition columns)
-EVENTS_CSV = {"bouts": "bouts_all.csv", "saccades": "saccades_all.csv"}
+EVENTS_CSV = {"bouts": "bouts_all.csv", "saccades": "saccades_augmented_all.csv"}
 loaders = {
     events: BehavioralDataLoader(ROOT / csv, [ROOT / "valid_trials_all.csv"], [ROOT / "qc_all.csv"], **EVENT_TABLES[events])
     for events, csv in EVENTS_CSV.items()
