@@ -1,20 +1,22 @@
 """
-Tier 1 behaviors from the control fits: each experiment's chosen model
-(model_config tier1_model, else the best by AIC) with its fitted
-parameters pinned, except the amplitude parameters, which are free.
+Tier 1 behaviors: the model each one uses, with every parameter pinned to
+the control fit of the same model (matched by name) except the amplitudes.
 """
 import copy
 from pathlib import Path
-from typing import Dict, Sequence
+from typing import Callable, Dict
 
-from BehaviorScreen.point_process.analysis.model_config import AMPLITUDE_PARAMETERS, get_model_config
-from BehaviorScreen.point_process.analysis.tasks import load_best_model, load_fitted_model
+from BehaviorScreen.point_process.analysis.model_config import get_model_config
+from BehaviorScreen.point_process.analysis.tasks import load_fitted_params
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.wrappers import PartiallyFixedProcess
 
+# Rate scales (baseline, evoked peak, hazard bump): fitted per arm.
+AMPLITUDE_PARAMETERS = ("B", "A", "A_peak", "H")
+
 
 class PinnedArchitecture:
-    """Factory of fresh, unfitted copies of a model with every non-amplitude parameter pinned."""
+    """Factory of fresh, unfitted copies of a fitted model with every non-amplitude parameter pinned."""
 
     def __init__(self, fitted: PointProcess) -> None:
         self.template = copy.deepcopy(fitted)
@@ -36,24 +38,23 @@ class Fresh:
         return copy.deepcopy(self.template)
 
 
-def tier1_behaviors(experiments: Sequence[str], fits_root: Path) -> Dict[str, dict]:
+def tier1_behaviors(models: Dict[str, Callable[[], PointProcess]], fits_root: Path) -> Dict[str, dict]:
     """
-    {experiment: {"dataset", "architecture", "null", "model_name", "free"}},
-    from the `fit` outputs under fits_root (fits_root / experiment / models).
+    {experiment: {"dataset", "architecture", "null", "model_name", "free"}}
+    for each experiment and model builder in `models`; the pinned values come
+    from the `fit` run of that experiment (fits_root / experiment / models).
     """
     config = get_model_config()
     behaviors = {}
-    for name in experiments:
-        experiment = config[name]
-        model_dir = fits_root / name / "models"
-        index = experiment["tier1_model"]
-        fitted = load_best_model(experiment, model_dir) if index is None else load_fitted_model(experiment, model_dir, index)
-        architecture = PinnedArchitecture(fitted)
+    for name, build in models.items():
+        model = build()
+        model.set_params(load_fitted_params(fits_root / name / "models", model.name))
+        architecture = PinnedArchitecture(model)
         behaviors[name] = {
-            "dataset": experiment["dataset"],
+            "dataset": config[name]["dataset"],
             "architecture": architecture,
-            "null": Fresh(experiment["null_model"]),
-            "model_name": fitted.name,
-            "free": [n for n in fitted.param_names if n not in architecture.fixed],
+            "null": Fresh(config[name]["null_model"]),
+            "model_name": model.name,
+            "free": [n for n in model.param_names if n not in architecture.fixed],
         }
     return behaviors

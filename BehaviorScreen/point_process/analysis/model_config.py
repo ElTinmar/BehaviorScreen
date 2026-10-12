@@ -1,6 +1,6 @@
 """Experiments: the dataset each one is built from and the candidate models, in a fixed order."""
 
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List
 
 from megabouts.utils import bouts_category_name_short
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, Laterality, Stim
@@ -40,9 +40,6 @@ PREY_STIM_FREQ = 90 / (2 * 70)  # stimulus speed (deg/s) / sweep range (deg)
 BOUT_DEAD_TIME_S = (
     0.25  # shortest bout onset-to-onset gap within a trial (control screen)
 )
-# Rate scales (baseline, evoked peak, hazard bump): free in the ablation screen's
-# Tier 1, every other parameter pinned to the control fit.
-AMPLITUDE_PARAMETERS = ("B", "A", "A_peak", "H")
 
 # BehavioralDataLoader arguments of each event table; an experiment names its table.
 EVENT_TABLES = {
@@ -104,8 +101,8 @@ def flat_models(dead_time_s: float) -> List[PointProcess]:
         poisson(flat()),
         gamma(poisson(flat())),
         zero_inflated(poisson(flat())),
-        zero_inflated(renewal(flat())),
-        zero_inflated(dead_time_renewal(flat(), dead_time_s)),
+        # zero_inflated(renewal(flat())),
+        # zero_inflated(dead_time_renewal(flat(), dead_time_s)),
     ]
 
 
@@ -118,10 +115,11 @@ def rate_models(
         gamma(poisson(flat())),
         gamma(poisson(kernel())),
         zero_inflated(poisson(kernel())),
-        zero_inflated(renewal(kernel())),
+        # zero_inflated(renewal(kernel())),
     ]
-    models += [zero_inflated(renewal(flat()))] if flat_renewal else []
-    return models + [zero_inflated(dead_time_renewal(kernel(), dead_time_s))]
+    # models += [zero_inflated(renewal(flat()))] if flat_renewal else []
+    # return models + [zero_inflated(dead_time_renewal(kernel(), dead_time_s))]
+    return models
 
 
 def survival_models(*kernels: Callable[[], object]) -> List[PointProcess]:
@@ -134,12 +132,8 @@ def survival_models(*kernels: Callable[[], object]) -> List[PointProcess]:
 
 
 def experiment(
-    dataset_args: dict,
-    models: List[PointProcess],
-    events: str = "bouts",
-    tier1_model: Optional[int] = None,
+    dataset_args: dict, models: List[PointProcess], events: str = "bouts"
 ) -> dict:
-    """tier1_model: index of the model the ablation screen uses (None: the best by AIC)."""
     null = (
         SurvivalProcess(SurvivalKernelFactory.constant_hazard())
         if models[0].is_survival
@@ -150,7 +144,6 @@ def experiment(
         "dataset": dataset_args,
         "null_model": null,
         "models": models,
-        "tier1_model": tier1_model,
     }
 
 
@@ -199,13 +192,13 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 gamma(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple")), fit_c=True),
-                ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-                    hawkes(prey("Peak_Baseline_Ripple"))
-                ),
-                hawkes(prey("Peak_Baseline_Ripple")),
-                BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
-                renewal(prey("Peak_Baseline_Ripple")),
-                gamma(renewal(prey("Peak_Baseline_Ripple"))),
+                # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                    # hawkes(prey("Peak_Baseline_Ripple"))
+                # ),
+                # hawkes(prey("Peak_Baseline_Ripple")),
+                # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
+                # renewal(prey("Peak_Baseline_Ripple")),
+                # gamma(renewal(prey("Peak_Baseline_Ripple"))),
             ],
         ),
         "prey_capture_contra": experiment(
@@ -213,11 +206,11 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
             [
                 poisson(flat()),
                 gamma(poisson(flat())),
-                hawkes(flat()),
-                BaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
+                # hawkes(flat()),
+                # BaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
                 zero_inflated(poisson(flat())),
-                ZeroInflatedBaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
-                zero_inflated(renewal(flat())),
+                # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
+                # zero_inflated(renewal(flat())),
             ],
         ),
         "prey_capture_convergent_saccade": experiment(
@@ -241,13 +234,13 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 gamma(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple")), fit_c=True),
-                ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-                    hawkes(prey("Peak_Baseline_Ripple"))
-                ),
-                hawkes(prey("Peak_Baseline_Ripple")),
-                BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
-                renewal(prey("Peak_Baseline_Ripple")),
-                gamma(renewal(prey("Peak_Baseline_Ripple"))),
+                # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                    # hawkes(prey("Peak_Baseline_Ripple"))
+                # ),
+                # hawkes(prey("Peak_Baseline_Ripple")),
+                # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
+                # renewal(prey("Peak_Baseline_Ripple")),
+                # gamma(renewal(prey("Peak_Baseline_Ripple"))),
             ],
             events="saccades",
         ),
@@ -262,7 +255,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 gamma(poisson(flat())),
                 gamma(poisson(RateKernelFactory.phototaxis_ipsi())),
                 gamma(poisson(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
-                gamma(renewal(RateKernelFactory.phototaxis_exgaussian_peak_no_dip())),
+                # gamma(renewal(RateKernelFactory.phototaxis_exgaussian_peak_no_dip())),
             ],
         ),
         "phototaxis_contra": experiment(
@@ -276,7 +269,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
             rate_models(RateKernelFactory.phototaxis_contra, dead_time_s),
         ),
         "omr_lateral_ipsi": experiment(
-            dataset("RT", IPSI, 9.0, epoch_name=gratings), flat_models(dead_time_s)
+            dataset("RT", IPSI, 9.0, epoch_name=gratings), flat_models(dead_time_s),
         ),
         "omr_lateral_contra": experiment(
             dataset("RT", CONTRA, 9.0, epoch_name=gratings),
@@ -287,10 +280,10 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
             rate_models(RateKernelFactory.omr_forward, dead_time_s, flat_renewal=False),
         ),
         "okr_ipsi": experiment(
-            dataset("S1", IPSI, 9.0, stim=Stim.OKR), flat_models(dead_time_s)
+            dataset("S1", IPSI, 9.0, stim=Stim.OKR), flat_models(dead_time_s),
         ),
         "okr_contra": experiment(
-            dataset("S1", CONTRA, 9.0, stim=Stim.OKR), flat_models(dead_time_s)
+            dataset("S1", CONTRA, 9.0, stim=Stim.OKR), flat_models(dead_time_s),
         ),
         "looming_ipsi": experiment(
             dataset("SLC", IPSI, 9.0, stim=Stim.LOOMING),
@@ -328,8 +321,8 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
             [
                 gamma(poisson(RateKernelFactory.after_looming())),
                 zero_inflated(poisson(RateKernelFactory.after_looming())),
-                zero_inflated(renewal(RateKernelFactory.after_looming())),
-                zero_inflated(renewal(flat())),
+                # zero_inflated(renewal(RateKernelFactory.after_looming())),
+                # zero_inflated(renewal(flat())),
             ],
         ),
         "okr_conjugate_contra_saccades": experiment(
@@ -338,8 +331,8 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 poisson(flat()),
                 gamma(poisson(flat())),
                 zero_inflated(poisson(flat())),
-                hawkes(flat()),
-                zero_inflated(renewal(flat())),
+                # hawkes(flat()),
+                # zero_inflated(renewal(flat())),
             ],
             events="saccades",
         ),
@@ -349,8 +342,8 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 poisson(flat()),
                 gamma(poisson(flat())),
                 zero_inflated(poisson(flat())),
-                hawkes(flat()),
-                zero_inflated(renewal(flat())),
+                # hawkes(flat()),
+                # zero_inflated(renewal(flat())),
             ],
             events="saccades",
         ),

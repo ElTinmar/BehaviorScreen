@@ -1,8 +1,9 @@
 """
 Tier 1 end-to-end run. Behaviors come from the control fits (run_analysis
 --mode fit): each experiment's chosen model with every parameter pinned to
-its control value except the amplitudes (model_config.AMPLITUDE_PARAMETERS),
-which are fitted per arm. Contrasts: drug against vehicle within each NTR
+its control value except the amplitudes (tier1_config.AMPLITUDE_PARAMETERS),
+which are fitted per arm. Each model must be one of its experiment's control
+candidates (matched by name). Contrasts: drug against vehicle within each NTR
 line, and each straight mutant against its wild-type background.
 """
 from pathlib import Path
@@ -11,7 +12,9 @@ from tqdm import tqdm
 import numpy as np
 
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
-from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES
+from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, flat, gamma, poisson, prey
+from BehaviorScreen.point_process.point_process.poisson_process import RateKernelFactory
+from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
 from BehaviorScreen.point_process.point_process.io import save_fig
 from BehaviorScreen.ablation_screen.tier1_omnibus import (
     run_tier1_screen,
@@ -45,15 +48,22 @@ loader = BehavioralDataLoader(
     ROOT / "bouts_all.csv", [ROOT / "valid_trials_all.csv"], [ROOT / "qc_all.csv"], **EVENT_TABLES["bouts"]
 )
 
-TIER1_EXPERIMENTS = [
-    "prey_capture_ipsi", "prey_capture_contra",
-    "phototaxis_ipsi", "phototaxis_contra",
-    "omr_lateral_ipsi", "omr_lateral_contra", "omr_forward",
-    "okr_ipsi", "okr_contra",
-    "looming_ipsi", "looming_contra",
-    "dark_flash",
-]
-BEHAVIOR_CONFIG = tier1_behaviors(TIER1_EXPERIMENTS, FITS_ROOT)
+looming = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6))
+TIER1_MODELS = {
+    "prey_capture_ipsi": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
+    "prey_capture_contra": lambda: gamma(poisson(flat())),
+    "phototaxis_ipsi": lambda: gamma(poisson(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
+    "phototaxis_contra": lambda: gamma(poisson(RateKernelFactory.phototaxis_contra())),
+    "omr_lateral_ipsi": lambda: gamma(poisson(flat())),
+    "omr_lateral_contra": lambda: gamma(poisson(RateKernelFactory.omr_lateral_contra())),
+    "omr_forward": lambda: gamma(poisson(RateKernelFactory.omr_forward())),
+    "okr_ipsi": lambda: gamma(poisson(flat())),
+    "okr_contra": lambda: gamma(poisson(flat())),
+    "looming_ipsi": lambda: gamma(SurvivalProcess(looming())),
+    "looming_contra": lambda: gamma(SurvivalProcess(looming())),
+    "dark_flash": lambda: gamma(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
+}
+BEHAVIOR_CONFIG = tier1_behaviors(TIER1_MODELS, FITS_ROOT)
 BEHAVIORS = list(BEHAVIOR_CONFIG)
 DATASET_CONFIGS = {b: cfg['dataset'] for b, cfg in BEHAVIOR_CONFIG.items()}
 BEHAVIOR_PROCESS_FACTORY = {b: cfg['architecture'] for b, cfg in BEHAVIOR_CONFIG.items()}
