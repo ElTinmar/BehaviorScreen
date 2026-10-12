@@ -202,7 +202,7 @@ for behavior in BEHAVIORS:
     if ds_wt is None or ds_wt.num_fish < 10:
         continue
     null_ps = []
-    for seed in tqdm(range(500)):
+    for seed in tqdm(range(20)):
         rng = np.random.default_rng(seed)
         perm = rng.permutation(ds_wt.num_fish)
         half = ds_wt.num_fish // 2

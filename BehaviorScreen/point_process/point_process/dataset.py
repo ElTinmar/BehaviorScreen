@@ -335,6 +335,11 @@ class PointProcessDataset:
         )
 
 
+# Usable trials shorter than this fraction of the analysis window are kept but
+# reported: recorded durations fall a few frames short of the nominal epoch length.
+SHORT_TRIAL_FRACTION = 0.95
+
+
 class BehavioralDataLoader:
     """
     Events (bouts or saccades) and the trial table (valid_trials.csv) they
@@ -466,8 +471,8 @@ class BehavioralDataLoader:
         t_end: float = 24.0,
     ) -> PointProcessDataset:
         """
-        Streams are the usable trials (presented and tracked) lasting at least
-        t_end; events are those within [t_start, t_end) of these trials, of
+        Streams are the usable trials (presented and tracked), all treated as
+        observed over [t_start, t_end); events are those within that window, of
         the requested categories and lateralities (None: all), marked with
         both.
         """
@@ -481,15 +486,16 @@ class BehavioralDataLoader:
 
         trials, n_trials = self._condition_trials(stim, epoch_name, trial_filters)
         usable = trials["presented"] & trials[self.tracking_column]
-        too_short = usable & (trials["trial_duration_s"] < t_end)
+        too_short = usable & (trials["trial_duration_s"] < SHORT_TRIAL_FRACTION * t_end)
         if too_short.any():
             short = trials.loc[too_short, ["file", "epoch_name", "trial_num", "trial_duration_s"]]
             warnings.warn(
-                f"[{label}] {len(short)} usable trials shorter than t_end={t_end}s left out:\n{short.to_string(index=False)}"
+                f"[{label}] {len(short)} usable trials shorter than {SHORT_TRIAL_FRACTION:.0%} of t_end={t_end}s "
+                f"kept, as if observed until t_end:\n{short.to_string(index=False)}"
             )
-        streams = trials.loc[usable & ~too_short, ["file", "epoch_name", "trial_num", "trial"]]
+        streams = trials.loc[usable, ["file", "epoch_name", "trial_num", "trial"]]
         if streams.empty:
-            raise ValueError(f"[{label}] no usable trial lasting at least t_end={t_end}s")
+            raise ValueError(f"[{label}] no usable trial")
 
         fish_ids = np.sort(streams["file"].unique())
         fish_map = {f_id: idx for idx, f_id in enumerate(fish_ids)}
