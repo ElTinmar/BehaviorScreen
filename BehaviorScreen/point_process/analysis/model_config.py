@@ -196,7 +196,8 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 ),
                 hawkes(prey("Peak_Baseline_Ripple")),
                 BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
-                zero_inflated(renewal(prey("Peak_Baseline_Ripple"))),
+                renewal(prey("Peak_Baseline_Ripple")),
+                gamma(renewal(prey("Peak_Baseline_Ripple"))),
             ],
         ),
         "prey_capture_contra": experiment(
@@ -211,6 +212,37 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 zero_inflated(renewal(flat())),
             ],
         ),
+        "prey_capture_ipsi_saccade": experiment(
+            dataset("Convergent", NONDIRECTIONAL, 24.0, stim=Stim.PREY_CAPTURE),
+            [poisson(flat())]
+            + [
+                poisson(prey(v))
+                for v in [
+                    "TimeOnly",
+                    "Peak",
+                    "Baseline",
+                    "Peak_Baseline",
+                    "Peak_Baseline_Ripple",
+                    "Peak_Baseline_Shared",
+                    "Peak_Baseline_Shared_Ripple",
+                    "Peak_Baseline_Ripple_Shared",
+                ]
+            ]
+            + [
+                gamma(poisson(flat())),
+                gamma(poisson(prey("Peak_Baseline_Ripple"))),
+                zero_inflated(poisson(prey("Peak_Baseline_Ripple"))),
+                zero_inflated(poisson(prey("Peak_Baseline_Ripple")), fit_c=True),
+                ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                    hawkes(prey("Peak_Baseline_Ripple"))
+                ),
+                hawkes(prey("Peak_Baseline_Ripple")),
+                BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
+                renewal(prey("Peak_Baseline_Ripple")),
+                gamma(renewal(prey("Peak_Baseline_Ripple"))),
+            ],
+            events="saccades",
+        ),
         "phototaxis_ipsi": experiment(
             dataset(
                 "RT", IPSI, 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER
@@ -222,9 +254,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 gamma(poisson(flat())),
                 gamma(poisson(RateKernelFactory.phototaxis_ipsi())),
                 gamma(poisson(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
-                zero_inflated(
-                    renewal(RateKernelFactory.phototaxis_exgaussian_peak_no_dip())
-                ),
+                gamma(renewal(RateKernelFactory.phototaxis_exgaussian_peak_no_dip())),
             ],
         ),
         "phototaxis_contra": experiment(
@@ -294,8 +324,19 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 zero_inflated(renewal(flat())),
             ],
         ),
-        "okr_conjugate_saccades": experiment(
-            dataset("Conjugate", [IPSI, CONTRA], 9.0, stim=Stim.OKR),
+        "okr_conjugate_contra_saccades": experiment(
+            dataset("Conjugate", CONTRA, 9.0, stim=Stim.OKR),
+            [
+                poisson(flat()),
+                gamma(poisson(flat())),
+                zero_inflated(poisson(flat())),
+                hawkes(flat()),
+                zero_inflated(renewal(flat())),
+            ],
+            events="saccades",
+        ),
+        "okr_conjugate_ipsi_saccades": experiment(
+            dataset("Conjugate", IPSI, 9.0, stim=Stim.OKR),
             [
                 poisson(flat()),
                 gamma(poisson(flat())),

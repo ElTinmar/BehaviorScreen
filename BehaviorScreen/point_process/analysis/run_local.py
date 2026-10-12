@@ -4,6 +4,7 @@ import subprocess
 EXPERIMENTS = [
     "prey_capture_ipsi",
     "prey_capture_contra",
+    "prey_capture_ipsi_saccade"
     "phototaxis_ipsi",
     "phototaxis_contra",
     "omr_lateral_ipsi",
@@ -11,6 +12,8 @@ EXPERIMENTS = [
     "omr_forward",
     "okr_ipsi",
     "okr_contra",
+    "okr_conjugate_ipsi_saccades",
+    "okr_conjugate_contra_saccades",
     "looming_ipsi",
     "looming_contra",
     "dark_flash",
