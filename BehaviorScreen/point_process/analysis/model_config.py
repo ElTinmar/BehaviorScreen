@@ -244,6 +244,37 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
             ],
             events="saccades",
         ),
+        "prey_capture_divergent_saccade": experiment(
+            dataset("Divergent", NONDIRECTIONAL, 24.0, stim=Stim.PREY_CAPTURE),
+            [poisson(flat())]
+            + [
+                poisson(prey(v))
+                for v in [
+                    "TimeOnly",
+                    "Peak",
+                    "Baseline",
+                    "Peak_Baseline",
+                    "Peak_Baseline_Ripple",
+                    "Peak_Baseline_Shared",
+                    "Peak_Baseline_Shared_Ripple",
+                    "Peak_Baseline_Ripple_Shared",
+                ]
+            ]
+            + [
+                gamma(poisson(flat())),
+                gamma(poisson(prey("Peak_Baseline_Ripple"))),
+                zero_inflated(poisson(prey("Peak_Baseline_Ripple"))),
+                zero_inflated(poisson(prey("Peak_Baseline_Ripple")), fit_c=True),
+                # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
+                    # hawkes(prey("Peak_Baseline_Ripple"))
+                # ),
+                # hawkes(prey("Peak_Baseline_Ripple")),
+                # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
+                # renewal(prey("Peak_Baseline_Ripple")),
+                # gamma(renewal(prey("Peak_Baseline_Ripple"))),
+            ],
+            events="saccades",
+        ),
         "phototaxis_ipsi": experiment(
             dataset(
                 "RT", IPSI, 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER
@@ -292,6 +323,11 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
         "looming_contra": experiment(
             dataset("SLC", CONTRA, 9.0, stim=Stim.LOOMING),
             survival_models(looming_bump, looming_habituating),
+        ),
+        "looming_divergent_saccade": experiment(
+            dataset("Divergent", NONDIRECTIONAL, 9.0, stim=Stim.LOOMING),
+            survival_models(looming_bump, looming_habituating),
+            events="saccades",
         ),
         "dark_flash": experiment(
             dataset(

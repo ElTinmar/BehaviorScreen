@@ -40,7 +40,7 @@ class Fresh:
 
 def tier1_behaviors(models: Dict[str, Callable[[], PointProcess]], fits_root: Path) -> Dict[str, dict]:
     """
-    {experiment: {"dataset", "architecture", "null", "model_name", "free"}}
+    {experiment: {"events", "dataset", "architecture", "null", "model_name", "free"}}
     for each experiment and model builder in `models`; the pinned values come
     from the `fit` run of that experiment (fits_root / experiment / models).
     """
@@ -51,6 +51,7 @@ def tier1_behaviors(models: Dict[str, Callable[[], PointProcess]], fits_root: Pa
         model.set_params(load_fitted_params(fits_root / name / "models", model.name))
         architecture = PinnedArchitecture(model)
         behaviors[name] = {
+            "events": config[name]["events"],
             "dataset": config[name]["dataset"],
             "architecture": architecture,
             "null": Fresh(config[name]["null_model"]),

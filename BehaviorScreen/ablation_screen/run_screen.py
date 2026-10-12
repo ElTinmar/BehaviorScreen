@@ -44,9 +44,11 @@ OUTPUT_DIR.mkdir(exist_ok=True)
 ROOT = Path('/media/martin/DATA_18TB/Screen')
 FITS_ROOT = Path("./figures")  # run_analysis --mode fit output on the control screen
 # Tables merged across screen folders with merge_csv (adds line/condition columns)
-loader = BehavioralDataLoader(
-    ROOT / "bouts_all.csv", [ROOT / "valid_trials_all.csv"], [ROOT / "qc_all.csv"], **EVENT_TABLES["bouts"]
-)
+EVENTS_CSV = {"bouts": "bouts_all.csv", "saccades": "saccades_all.csv"}
+loaders = {
+    events: BehavioralDataLoader(ROOT / csv, [ROOT / "valid_trials_all.csv"], [ROOT / "qc_all.csv"], **EVENT_TABLES[events])
+    for events, csv in EVENTS_CSV.items()
+}
 
 looming = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6))
 TIER1_MODELS = {
@@ -62,6 +64,11 @@ TIER1_MODELS = {
     "looming_ipsi": lambda: gamma(SurvivalProcess(looming())),
     "looming_contra": lambda: gamma(SurvivalProcess(looming())),
     "dark_flash": lambda: gamma(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
+    "prey_capture_convergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
+    "prey_capture_divergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
+    "okr_conjugate_ipsi_saccades": lambda: gamma(poisson(flat())),
+    "okr_conjugate_contra_saccades": lambda: gamma(poisson(flat())),
+    "looming_divergent_saccade": lambda: gamma(SurvivalProcess(looming())),
 }
 BEHAVIOR_CONFIG = tier1_behaviors(TIER1_MODELS, FITS_ROOT)
 BEHAVIORS = list(BEHAVIOR_CONFIG)
@@ -84,7 +91,7 @@ MUTANT_REFERENCES = {
     "blu": WT,              # vglut2a tz257, TL/Tuebingen (Smear et al. 2007)
     "mecp2": ("AB", "danieau"),  # outcrossed to AB (Pietri et al. 2013)
 }
-all_lines = sorted(loader.trials["line"].astype(str).unique())
+all_lines = sorted(loaders["bouts"].trials["line"].astype(str).unique())
 NTR_LINES = [l for l in all_lines if l not in MUTANT_REFERENCES and l != "WT"]
 CONTRASTS = (
     [ntr_contrast("WT")]
@@ -97,7 +104,7 @@ CONTRASTS = (
 # Step 1: single-cell smoke test BEFORE the full batch
 # ===========================================================================
 
-arms = Arms(loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY, CONTRASTS)
+arms = Arms(loaders, {b: cfg["events"] for b, cfg in BEHAVIOR_CONFIG.items()}, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY, CONTRASTS)
 
 
 def find_first_valid_cell(arms: Arms, behaviors):
@@ -114,7 +121,7 @@ smoke_line, smoke_behavior, ds_ref, ds_test = find_first_valid_cell(arms, BEHAVI
 if smoke_line is None:
     raise RuntimeError(
         "No (contrast, behavior) cell has both arms with >=3 fish. "
-        "Check DATASET_CONFIGS filters against loader.raw_df contents before proceeding."
+        "Check DATASET_CONFIGS filters against the event tables before proceeding."
     )
 print(f"Using {smoke_line}/{smoke_behavior} for smoke test "
       f"(n_ref={ds_ref.num_fish}, n_test={ds_test.num_fish})")

@@ -20,6 +20,8 @@ EXPERIMENTS = [
     "spont_dark",
     "spont_bright",
     "after_looming",
+    "prey_capture_divergent_saccade",
+    "looming_divergent_saccade",
 ]
 
 DATA_DIR = "/media/martin/DATA_18TB/Screen"

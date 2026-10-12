@@ -61,12 +61,14 @@ class Arms:
 
     def __init__(
         self,
-        loader: BehavioralDataLoader,
+        loaders: Dict[str, BehavioralDataLoader],
+        events: Dict[str, str],
         dataset_configs: Dict[str, dict],
         process_factories: Dict[str, Callable[[], PointProcess]],
         contrasts: Sequence[Contrast],
     ) -> None:
-        self.loader = loader
+        """loaders: one per event table; events: the table of each behavior."""
+        self.loaders, self.events = loaders, events
         self.dataset_configs = dataset_configs
         self.process_factories = process_factories
         self.contrasts = {c.name: c for c in contrasts}
@@ -77,7 +79,7 @@ class Arms:
         key = (line, condition, behavior)
         if key not in self._datasets:
             self._datasets[key] = safe_prepare_dataset(
-                self.loader.subset(line, [condition]), self.dataset_configs[behavior], "/".join(key)
+                self.loaders[self.events[behavior]].subset(line, [condition]), self.dataset_configs[behavior], "/".join(key)
             )
         return self._datasets[key]
 

@@ -384,12 +384,25 @@ def plot_tier1_map(
     show_n = {"n_fish_ref", "n_fish_test"} <= set(tier1_df.columns)
     n_min = cell_info[["n_fish_ref", "n_fish_test"]].min(axis=1) if show_n else None
 
+    def label(name: str) -> str:
+        return (row_labels or {}).get(name) or (
+            name if contrasts.loc[name, "family"] == "ntr" else f"{name} (vs {contrasts.loc[name, 'reference'].split('/')[0]})"
+        )
+
+    # Layout in inches: one 0.32 in unit per column and row, margins from label lengths.
     shown = [b for b in behaviors if any(c[0] == b for c in columns)]
     widths = [len(columns), len(shown)] if show_n else [len(columns)]
+    unit, gap, right, bottom = 0.32, 0.4, 1.3, 1.3
+    left = 0.2 + 0.065 * max(len(label(n)) for n in rows)
+    top = 0.3 + 0.065 * max(len(b) for b in shown)
+    content_w, bar_h = unit * sum(widths) + gap * (len(widths) - 1), max(1.2, min(2.5, unit * y))
+    fig_w, fig_h = max(left + content_w + right, 6.5), top + max(unit * y, bar_h) + bottom
+    right = fig_w - left - content_w
     fig, axes = plt.subplots(
-        1, len(widths), figsize=(3.0 + 0.42 * sum(widths), max(4.0, 1.6 + 0.32 * y)),
-        sharey=True, squeeze=False, gridspec_kw={"width_ratios": widths},
+        1, len(widths), figsize=(fig_w, fig_h), sharey=True, squeeze=False,
+        gridspec_kw={"width_ratios": widths, "wspace": gap / (unit * sum(widths) / len(widths))},
     )
+    fig.subplots_adjust(left=left / fig_w, right=1 - right / fig_w, top=1 - top / fig_h, bottom=1 - (top + unit * y) / fig_h)
     ax = axes[0, 0]
     cells = present.set_index(["line", "behavior", "parameter"])
     tested = tier1_df[tier1_df["status"] == "ok"].set_index(["line", "behavior"])
@@ -425,7 +438,7 @@ def plot_tier1_map(
                    linestyle="", label="too few fish to reach q < 0.05"),
         plt.Line2D([], [], marker="x", color=MISSING, linestyle="", label="not tested"),
     ]
-    ax.legend(handles=handles, loc="upper left", bbox_to_anchor=(0.0, -0.06 - 1.2 / max(y, 4.0)), ncol=3, frameon=False, fontsize=7)
+    fig.legend(handles=handles, loc="lower left", bbox_to_anchor=(left / fig_w, 0.1 / fig_h), ncol=3, frameon=False, fontsize=7)
 
     def decorate(axis: plt.Axes, cols: List[Tuple[str, str]]) -> None:
         starts = [i for i, c in enumerate(cols) if i == 0 or c[0] != cols[i - 1][0]]
@@ -444,15 +457,12 @@ def plot_tier1_map(
         for spine in axis.spines.values():
             spine.set_visible(False)
 
-    def label(name: str) -> str:
-        return (row_labels or {}).get(name) or (
-            name if contrasts.loc[name, "family"] == "ntr" else f"{name} (vs {contrasts.loc[name, 'reference'].split('/')[0]})"
-        )
 
     decorate(ax, columns)
     ax.set_yticks([positions[n] for n in rows], [label(n) for n in rows], fontsize=8)
     ax.set_ylim(y - 0.4, -0.6)
-    fig.colorbar(filled, ax=axes[0, -1], shrink=min(0.45, 6.0 / max(y, 1.0)), pad=0.03, anchor=(0.0, 1.0), label=colorbar_label)
+    cax = fig.add_axes([(left + content_w + 0.15) / fig_w, 1 - (top + bar_h) / fig_h, 0.12 / fig_w, bar_h / fig_h])
+    fig.colorbar(filled, cax=cax, label=colorbar_label)
 
     if show_n:
         ax_n = axes[0, 1]
@@ -467,7 +477,6 @@ def plot_tier1_map(
                               color="white" if shade < 0.55 else "black")
         decorate(ax_n, [(b, "") for b in shown])
         ax_n.set_xlabel("fish in the smaller arm", fontsize=8)
-    fig.tight_layout()
     return fig, ax
 
 def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
