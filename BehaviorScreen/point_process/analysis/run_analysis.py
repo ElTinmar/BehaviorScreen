@@ -42,9 +42,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     loader = make_loader(args)
-    dead_time_s = loader.dead_time()
-    print(f"Dead time from all events: {dead_time_s:g} s")
-    model_config = get_model_config(dead_time_s)
+    model_config = get_model_config()
 
     if args.mode == "consolidate":
         run_consolidation_task(model_config, loader, args.output_dir)

@@ -365,16 +365,6 @@ class BehavioralDataLoader:
         self.category_column = category_column
         self.category_names = category_names
 
-    def dead_time(self, quantile: float = 0.001, resolution_s: float = 0.01) -> float:
-        """
-        Shortest onset-to-onset gap within a trial over all events (its given
-        quantile), rounded down to resolution_s: the dead time of the
-        behaviour and its detection.
-        """
-        events = self.events.sort_values(["file", "epoch_name", "trial_num", "trial_time"])
-        gaps = events.groupby(["file", "epoch_name", "trial_num"])["trial_time"].diff().dropna()
-        return float(np.floor(np.quantile(gaps, quantile) / resolution_s) * resolution_s)
-
     def _category_codes(self, category: Union[str, int, Sequence[Union[str, int]]]) -> List[int]:
         values = [category] if isinstance(category, (str, int)) else list(category)
         if any(isinstance(v, str) for v in values) and self.category_names is None:

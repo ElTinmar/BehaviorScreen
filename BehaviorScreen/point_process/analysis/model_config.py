@@ -22,6 +22,7 @@ from BehaviorScreen.point_process.point_process.survival_process import Survival
 IPSI, CONTRA, NONDIRECTIONAL = Laterality.IPSILATERAL, Laterality.CONTRALATERAL, Laterality.NONDIRECTIONAL
 PHOTOTAXIS_FILTER = {"foreground_color": "[0.1, 0.1, 0.0, 1.0]"}
 PREY_STIM_FREQ = 90 / (2 * 70)  # stimulus speed (deg/s) / sweep range (deg)
+BOUT_DEAD_TIME_S = 0.125  # shortest bout onset-to-onset gap within a trial (control screen)
 
 flat = RateKernelFactory.homogeneous_poisson
 gamma = GammaMixedEffectsProcess
@@ -94,11 +95,10 @@ def experiment(dataset_args: dict, models: List[PointProcess]) -> dict:
     return {"dataset": dataset_args, "null_model": null, "models": models}
 
 
-def get_model_config(dead_time_s: float) -> Dict[str, dict]:
+def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
     """
     Fresh (unfitted) models every call. Keep the model order: best_model.json
-    stores an index (new models go at the end of a list). dead_time_s: the
-    dead time of the renewal models that have one (BehavioralDataLoader.dead_time).
+    stores an index (new models go at the end of a list).
     """
     looming_bump = lambda: SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4, 6))
     looming_habituating = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6))

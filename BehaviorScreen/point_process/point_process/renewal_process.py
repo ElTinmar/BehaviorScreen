@@ -41,24 +41,13 @@ class RenewalKernelFactory:
     @staticmethod
     def exponential_excitation() -> RenewalKernel:
         """
-        rho(0) = 1 + A_exc (elevated right after an event), decaying back to
-        baseline (rho -> 1) with time constant tau_exc. The FACILITATING
-        counterpart to hard_dead_time()/exponential_recovery()/
-        dead_time_plus_recovery() (all of which are suppressive, rho in [0,1]).
-
-        A_exc is bounded >= 0 so this kernel can only facilitate, never
-        suppress -- keeping it a clean, unambiguous test of ONE specific
-        hypothesis (excitatory influence of the immediately preceding event)
-        rather than a general-purpose shape that could come out suppressive
-        and duplicate hard_dead_time()/exponential_recovery()'s role.
+        rho(0) = 1 + A_exc, decaying to 1 with time constant tau_exc. A_exc >= 0,
+        so it can only facilitate: a test of excitation by the previous event.
         """
 
         def _func(lag, params):
             A_exc, tau_exc = params
             return 1.0 + A_exc * np.exp(-lag / tau_exc)
-            # rho >= 1 for ANY lag >= 0 given A_exc >= 0 -- positive by
-            # construction, no clipping needed (unlike dead_time_plus_recovery,
-            # which needs np.clip because its recovery term can go negative).
 
         return RenewalKernel(
             name="ExponentialExcitation",
@@ -253,10 +242,9 @@ class RenewalKernelFactory:
             rho(lag) = floor                      for lag < d
             rho(lag) = 1 + A_exc * pulse(lag)     for lag >= d
 
-        d is a constant, not a parameter (the likelihood jumps at every
-        observed gap as d moves); estimate it once from the data, e.g.
-        BehavioralDataLoader.dead_time. floor keeps a rare gap shorter than d
-        from having zero likelihood.
+        d is a constant, not a parameter: the likelihood jumps at every
+        observed gap as d moves. floor keeps a rare gap shorter than d from
+        having zero likelihood.
         """
         excitation = RenewalKernelFactory.delayed_excitation(shape_k, excitation_init, pulse_peak_lag_init)
         return RenewalKernel(
