@@ -3,21 +3,21 @@ import subprocess
 from multiprocessing import Pool
 
 EXPERIMENTS = [
-    # "prey_capture_ipsi",
-    # "prey_capture_contra",
-    # "phototaxis_ipsi",
-    # "phototaxis_contra",
+    "prey_capture_ipsi",
+    "prey_capture_contra",
+    "phototaxis_ipsi",
+    "phototaxis_contra",
     "omr_lateral_ipsi",
     "omr_lateral_contra",
     "omr_forward",
     "okr_ipsi",
     "okr_contra",
-    # "looming_ipsi",
-    # "looming_contra",
-    # "dark_flash",
-    # "spont_dark",
-    # "spont_bright",
-    # "after_looming",
+    "looming_ipsi",
+    "looming_contra",
+    "dark_flash",
+    "spont_dark",
+    "spont_bright",
+    "after_looming",
 ]
 
 DATA_DIR = "/media/martin/DATA_18TB/Screen"
