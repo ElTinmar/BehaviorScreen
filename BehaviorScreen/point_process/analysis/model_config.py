@@ -220,7 +220,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 zero_inflated(renewal(flat())),
             ],
         ),
-        "prey_capture_ipsi_saccade": experiment(
+        "prey_capture_convergent_saccade": experiment(
             dataset("Convergent", NONDIRECTIONAL, 24.0, stim=Stim.PREY_CAPTURE),
             [poisson(flat())]
             + [
