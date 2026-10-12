@@ -1,12 +1,12 @@
 """
 Tier 1: omnibus test -- "does ablation change anything for this line and
-behavior" -- via three ordinary, low-dimensional fits (vehicle-only,
-drug-only, pooled) and a PERMUTATION test on the resulting deviance
+behavior" -- via three ordinary, low-dimensional fits (reference-only,
+test-only, pooled) and a PERMUTATION test on the resulting deviance
 statistic (not the asymptotic chi-square LRT, given small-sample concerns
-at typical line_vehicle/line_drug arm sizes).
+at typical line_reference/line_test arm sizes).
 
 No MultiGroupProcess needed for this saturated 2-group comparison --
-vehicle-only + drug-only IS the saturated joint model, at lower
+reference-only + test-only IS the saturated joint model, at lower
 dimensionality and with no risk of the optimizer fragility seen in the
 originally-attempted joint fits.
 """
@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
@@ -48,40 +49,40 @@ def _total_events(dataset: PointProcessDataset) -> int:
 
 
 def fit_tier1(process_factory: Callable[[], PointProcess],
-              ds_veh: PointProcessDataset, ds_drug: PointProcessDataset
+              ds_ref: PointProcessDataset, ds_test: PointProcessDataset
               ) -> Tuple[float, PointProcess, PointProcess, PointProcess]:
     """Three independent fits; deviance = 2*(LL_independent - LL_pooled),
     exactly the saturated-2-group joint-model comparison at lower
     dimensionality (mathematically identical target, see module docstring)."""
-    m_veh = process_factory(); m_veh.fit(ds_veh)
-    m_drug = process_factory(); m_drug.fit(ds_drug)
-    m_pooled = process_factory(); m_pooled.fit(PointProcessDataset.concat(ds_veh, ds_drug))
-    return tier1_deviance(m_veh, m_drug, m_pooled), m_veh, m_drug, m_pooled
+    m_ref = process_factory(); m_ref.fit(ds_ref)
+    m_test = process_factory(); m_test.fit(ds_test)
+    m_pooled = process_factory(); m_pooled.fit(PointProcessDataset.concat(ds_ref, ds_test))
+    return tier1_deviance(m_ref, m_test, m_pooled), m_ref, m_test, m_pooled
 
 
-def tier1_deviance(m_veh: PointProcess, m_drug: PointProcess, m_pooled: PointProcess) -> float:
-    return max(0.0, 2.0 * ((m_veh.log_likelihood + m_drug.log_likelihood) - m_pooled.log_likelihood))
+def tier1_deviance(m_ref: PointProcess, m_test: PointProcess, m_pooled: PointProcess) -> float:
+    return max(0.0, 2.0 * ((m_ref.log_likelihood + m_test.log_likelihood) - m_pooled.log_likelihood))
 
 
 def tier1_permutation_test(
     process_factory: Callable[[], PointProcess],
-    ds_veh: PointProcessDataset, ds_drug: PointProcessDataset,
+    ds_ref: PointProcessDataset, ds_test: PointProcessDataset,
     observed_deviance: Optional[float] = None,
     n_perm: int = 500, seed: int = 0, n_jobs: int = -1,
 ) -> Dict:
     if observed_deviance is None:
-        observed_deviance, *_ = fit_tier1(process_factory, ds_veh, ds_drug)
+        observed_deviance, *_ = fit_tier1(process_factory, ds_ref, ds_test)
 
-    pooled = PointProcessDataset.concat(ds_veh, ds_drug)
-    n_veh = ds_veh.num_fish
-    n_distinct = math.comb(pooled.num_fish, n_veh)
+    pooled = PointProcessDataset.concat(ds_ref, ds_test)
+    n_ref = ds_ref.num_fish
+    n_distinct = math.comb(pooled.num_fish, n_ref)
     seeds = np.random.SeedSequence(seed).spawn(n_perm)
 
     def _one(s: np.random.SeedSequence) -> float | str:
         perm = np.random.default_rng(s).permutation(pooled.num_fish)
         try:
             d, *_ = fit_tier1(process_factory,
-                               pooled.fish(perm[:n_veh]), pooled.fish(perm[n_veh:]))
+                               pooled.fish(perm[:n_ref]), pooled.fish(perm[n_ref:]))
             return d
         except Exception as exc:
             return repr(exc)
@@ -104,35 +105,35 @@ def tier1_permutation_test(
             "permutation_unreliable": False}
 
 
-def single_param_effect_size(m_veh: PointProcess, m_drug: PointProcess, free_param: str,
+def single_param_effect_size(m_ref: PointProcess, m_test: PointProcess, free_param: str,
                               eps: float = 1e-9) -> Dict:
 
-    v_veh = m_veh.param_dict_.get(free_param)
-    v_drug = m_drug.param_dict_.get(free_param)
-    if v_veh is None or v_drug is None:
+    v_ref = m_ref.param_dict_.get(free_param)
+    v_test = m_test.param_dict_.get(free_param)
+    if v_ref is None or v_test is None:
         raise ValueError(f"{free_param} not found in one of the fitted models' param_dict_")
 
     return {
         "metric_name": f"param_{free_param}",
-        "metric_vehicle": v_veh,
-        "metric_drug": v_drug,
-        "effect_size": float(np.log2(max(v_drug, eps) / max(v_veh, eps))),
+        "metric_reference": v_ref,
+        "metric_test": v_test,
+        "effect_size": float(np.log2(max(v_test, eps) / max(v_ref, eps))),
         "effect_size_type": "log2_fold_change",
     }
 
-def tier1_effect_size(m_veh: PointProcess, ds_veh: PointProcessDataset,
-                       m_drug: PointProcess, ds_drug: PointProcessDataset,
+def tier1_effect_size(m_ref: PointProcess, ds_ref: PointProcessDataset,
+                       m_test: PointProcess, ds_test: PointProcessDataset,
                        eps: float = 1e-9) -> Dict:
 
     # Single-free-parameter architectures: use the parameter directly as
     # the effect size (see conversation notes -- more informative here
     # than the aggregate output_metric, since there's no other dimension
     # for the effect to hide in, and no saturation risk).
-    if len(m_veh.param_names) == 1:
-        return single_param_effect_size(m_veh, m_drug, m_veh.param_names[0], eps=eps)
+    if len(m_ref.param_names) == 1:
+        return single_param_effect_size(m_ref, m_test, m_ref.param_names[0], eps=eps)
     
-    val_veh, name = output_metric(m_veh, ds_veh)
-    val_drug, _ = output_metric(m_drug, ds_drug)
+    val_ref, name = output_metric(m_ref, ds_ref)
+    val_test, _ = output_metric(m_test, ds_test)
 
     if name == "response_probability":
         # Bounded metric (0,1) -- log2-ratio is NOT symmetric here (a
@@ -142,18 +143,18 @@ def tier1_effect_size(m_veh: PointProcess, ds_veh: PointProcessDataset,
         # logit difference instead: unbounded, symmetric under p<->1-p,
         # and the standard transform for exactly this situation (same
         # scale logistic regression coefficients live on).
-        p_veh = np.clip(val_veh, eps, 1 - eps)
-        p_drug = np.clip(val_drug, eps, 1 - eps)
-        effect = float(np.log(p_drug / (1 - p_drug)) - np.log(p_veh / (1 - p_veh)))
+        p_ref = np.clip(val_ref, eps, 1 - eps)
+        p_test = np.clip(val_test, eps, 1 - eps)
+        effect = float(np.log(p_test / (1 - p_test)) - np.log(p_ref / (1 - p_ref)))
         effect_name = "logit_diff"
     else:
         # Unbounded positive rate -- log2-ratio is appropriate here:
         # symmetric under doubling/halving, scale-invariant.
-        effect = float(np.log2(max(val_drug, eps) / max(val_veh, eps)))
+        effect = float(np.log2(max(val_test, eps) / max(val_ref, eps)))
         effect_name = "log2_fold_change"
     
     return {
-        "metric_name": name, "metric_vehicle": val_veh, "metric_drug": val_drug,
+        "metric_name": name, "metric_reference": val_ref, "metric_test": val_test,
         "effect_size": effect, "effect_size_type": effect_name,
     }
 
@@ -162,240 +163,255 @@ def _tier1_one(
     null_process_factory: Callable[[], PointProcess],
     min_fish: int = 6, n_perm: int = 500,
 ) -> Dict:
-    veh_label, drug_label = arms.conditions(line)
-    ds_veh, ds_drug = arms.dataset(line, veh_label, behavior), arms.dataset(line, drug_label, behavior)
+    contrast = arms.contrasts[line]
+    ds_ref, ds_test = arms.datasets(line, behavior)
 
-    if ds_veh is None or ds_drug is None:
+    if ds_ref is None or ds_test is None:
         return {"line": line, "behavior": behavior, "status": "skipped_insufficient_data", "p_value": np.nan}
-    if ds_veh.num_fish < min_fish or ds_drug.num_fish < min_fish:
+    if ds_ref.num_fish < min_fish or ds_test.num_fish < min_fish:
         return {"line": line, "behavior": behavior, "status": "skipped_insufficient_data", "p_value": np.nan}
-    if ds_veh.num_trials != ds_drug.num_trials:
+    if ds_ref.num_trials != ds_test.num_trials:
         return {"line": line, "behavior": behavior, "status": "skipped_trial_count_mismatch", "p_value": np.nan}
 
     min_events = MIN_EVENTS_BY_BEHAVIOR.get(behavior, DEFAULT_MIN_EVENTS)
-    total_events = _total_events(ds_veh) + _total_events(ds_drug)
+    total_events = _total_events(ds_ref) + _total_events(ds_test)
     if total_events < min_events:
         return {"line": line, "behavior": behavior, "status": "skipped_insufficient_information",
                 "total_events": total_events, "min_events_required": min_events, "p_value": np.nan}
 
     # --- Model QC gate on each arm before trusting any comparison ---
-    qc_veh = assess_group_fit(partial(arms.model, line, veh_label, behavior), null_process_factory, ds_veh, line, behavior, "vehicle",
+    qc_ref = assess_group_fit(partial(arms.model, *contrast.reference, behavior), null_process_factory, ds_ref, line, behavior, "reference",
                                min_fish=min_fish)
-    qc_drug = assess_group_fit(partial(arms.model, line, drug_label, behavior), null_process_factory, ds_drug, line, behavior, "drug",
+    qc_test = assess_group_fit(partial(arms.model, *contrast.test, behavior), null_process_factory, ds_test, line, behavior, "test",
                                 min_fish=min_fish)
 
     # Only a HARD flag on either arm excludes the cell. "reliable_no_signal"
     # (architecture didn't beat null, but fit is otherwise trustworthy)
     # proceeds to the real fit_tier1 comparison below -- see GroupFitQC.verdict.
-    if qc_veh.verdict == "flagged" or qc_drug.verdict == "flagged":
+    if qc_ref.verdict == "flagged" or qc_test.verdict == "flagged":
         fallback_records = []
         try:
-            sum_veh, sum_drug = per_fish_summary(ds_veh), per_fish_summary(ds_drug)
+            sum_ref, sum_test = per_fish_summary(ds_ref), per_fish_summary(ds_test)
             for metric in ["rate_hz", "response_prob", "mean_first_latency_s"]:
-                fallback_records.append(compare_fish_metric(sum_veh, sum_drug, metric))
+                fallback_records.append(compare_fish_metric(sum_ref, sum_test, metric))
         except Exception:
             pass
         return {
             "line": line, "behavior": behavior, "status": "flagged_architecture_collapse",
-            "qc_reasons_vehicle": qc_veh.reasons_flagged, "qc_reasons_drug": qc_drug.reasons_flagged,
-            "qc_notes_vehicle": qc_veh.informational_notes, "qc_notes_drug": qc_drug.informational_notes,
+            "qc_reasons_reference": qc_ref.reasons_flagged, "qc_reasons_test": qc_test.reasons_flagged,
+            "qc_notes_reference": qc_ref.informational_notes, "qc_notes_test": qc_test.informational_notes,
             "fallback_tier0": fallback_records, "p_value": np.nan,
         }
 
     # --- Real fit + permutation test ---
     try:
-        m_veh, m_drug = arms.model(line, veh_label, behavior), arms.model(line, drug_label, behavior)
+        m_ref, m_test = arms.models(line, behavior)
         m_pooled = arms.process_factories[behavior]()
-        m_pooled.fit(PointProcessDataset.concat(ds_veh, ds_drug))
-        observed_deviance = tier1_deviance(m_veh, m_drug, m_pooled)
+        m_pooled.fit(PointProcessDataset.concat(ds_ref, ds_test))
+        observed_deviance = tier1_deviance(m_ref, m_test, m_pooled)
     except Exception as e:
         return {"line": line, "behavior": behavior, "status": f"fit_failed: {type(e).__name__}: {e}",
                 "p_value": np.nan}
 
-    perm = tier1_permutation_test(arms.process_factories[behavior], ds_veh, ds_drug,
+    perm = tier1_permutation_test(arms.process_factories[behavior], ds_ref, ds_test,
                                    observed_deviance=observed_deviance, n_perm=n_perm)
-    eff = tier1_effect_size(m_veh, ds_veh, m_drug, ds_drug)
+    eff = tier1_effect_size(m_ref, ds_ref, m_test, ds_test)
 
     return {
         "line": line, "behavior": behavior, "status": "ok",
-        "n_fish_veh": ds_veh.num_fish, "n_fish_drug": ds_drug.num_fish,
+        "n_fish_ref": ds_ref.num_fish, "n_fish_test": ds_test.num_fish,
         "total_events": total_events,
         # Surfaced for reporting -- lets you see, per arm, whether the
         # architecture found real structure or collapsed to null-like
         # behavior, without that fact ever having excluded the cell.
-        "qc_verdict_vehicle": qc_veh.verdict,
-        "qc_verdict_drug": qc_drug.verdict,
-        "qc_beats_null_vehicle": qc_veh.beats_null,
-        "qc_beats_null_drug": qc_drug.beats_null,
-        "qc_delta_aic_vehicle": qc_veh.delta_aic,
-        "qc_delta_aic_drug": qc_drug.delta_aic,
-        "qc_notes_vehicle": qc_veh.informational_notes,
-        "qc_notes_drug": qc_drug.informational_notes,
+        "qc_verdict_reference": qc_ref.verdict,
+        "qc_verdict_test": qc_test.verdict,
+        "qc_beats_null_reference": qc_ref.beats_null,
+        "qc_beats_null_test": qc_test.beats_null,
+        "qc_delta_aic_reference": qc_ref.delta_aic,
+        "qc_delta_aic_test": qc_test.delta_aic,
+        "qc_notes_reference": qc_ref.informational_notes,
+        "qc_notes_test": qc_test.informational_notes,
         **perm, **eff,
     }
 
 def run_tier1_screen(
-    arms: Arms, lines, behaviors, null_process_factories,
+    arms: Arms, behaviors, null_process_factories,
     n_perm=500, show_progress=True,
 ) -> pd.DataFrame:
-
-    jobs = [(line, behavior) for line in lines for behavior in behaviors]
+    """One row per (contrast, behavior); the contrast name is in column 'line'."""
+    jobs = [(name, behavior) for name in arms.contrasts for behavior in behaviors]
     cell_iter = tqdm(jobs, desc="Tier 1 cells", position=0, unit="cell") if show_progress else jobs
 
     records = []
-    for line, behavior in cell_iter:
+    for name, behavior in cell_iter:
         try:
-            record = _tier1_one(line, behavior, arms, null_process_factories[behavior], n_perm=n_perm)
+            record = _tier1_one(name, behavior, arms, null_process_factories[behavior], n_perm=n_perm)
         except Exception as e:
-            record = {"line": line, "behavior": behavior,
+            record = {"line": name, "behavior": behavior,
                       "status": f"unexpected_error: {type(e).__name__}: {e}", "p_value": np.nan}
-        records.append(record)
+        c = arms.contrasts[name]
+        records.append({"family": c.family, "reference": "/".join(c.reference), "test": "/".join(c.test), **record})
 
     return pd.DataFrame(records)
 
 
 def compute_parameter_deltas(param_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Adds 'delta' (drug vs vehicle change) and 'delta_z' (z-scored within
-    each (behavior, parameter) column, across lines) to a long-format
-    parameter table.
-
-    log2-ratio vs raw-difference is chosen PER (behavior, parameter) column
-    based on whether every observed value is strictly positive -- not by
-    name pattern, since parameter names aren't consistent enough across
-    architectures (B means 'baseline rate in Hz' in one kernel, tau means
-    'decay time constant' in another). Rate/scale-like parameters (B, A, H,
-    tau, sigma, mu) are virtually always positive across a whole screen and
-    get log2-ratio (scale-invariant); parameters that can be negative
-    (alpha_*, z0_*, z_dip -- already living on a log/logit scale by
-    construction, see the reparametrization work) get a raw difference,
-    which is the natural, already-additive unit for those.
+    'delta' (test vs reference) and its standard error 'delta_se'.
+    log2-ratio for parameters positive across the whole screen (rate
+    scales: B, A, H), raw difference otherwise; chosen per (behavior,
+    parameter) column.
     """
     df = param_df.copy()
-    df["delta"] = np.nan
-
-    for (behavior, pname), group in df.groupby(["behavior", "parameter"]):
-        vals = pd.concat([group["value_vehicle"], group["value_drug"]]).dropna()
-        use_log_ratio = len(vals) > 0 and (vals > 0).all()
-
-        idx = group.index
-        if use_log_ratio:
-            df.loc[idx, "delta"] = np.log2(
-                group["value_drug"].clip(lower=1e-9) / group["value_vehicle"].clip(lower=1e-9)
-            )
+    df["delta"], df["delta_se"] = np.nan, np.nan
+    for _, group in df.groupby(["behavior", "parameter"]):
+        values = pd.concat([group["value_reference"], group["value_test"]]).dropna()
+        ref, test = group["value_reference"], group["value_test"]
+        se_ref, se_test = group["se_reference"], group["se_test"]
+        if len(values) > 0 and (values > 0).all():
+            df.loc[group.index, "delta"] = np.log2(test / ref)
+            df.loc[group.index, "delta_se"] = np.hypot(se_ref / ref, se_test / test) / np.log(2)
         else:
-            df.loc[idx, "delta"] = group["value_drug"] - group["value_vehicle"]
-
-    # Z-score within each (behavior, parameter) column across lines --
-    # makes heterogeneous units/scales comparable as "how unusual is this
-    # line relative to the rest of the screen", which is what the heatmap
-    # color should mean.
-    df["delta_z"] = df.groupby(["behavior", "parameter"])["delta"].transform(
-        lambda x: (x - x.mean()) / x.std() if x.std() > 0 else 0.0
-    )
+            df.loc[group.index, "delta"] = test - ref
+            df.loc[group.index, "delta_se"] = np.hypot(se_ref, se_test)
     return df
 
-def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFrame:
-    records = []
 
-    valid = tier1_df[tier1_df["status"] == "ok"]
-    for _, row in valid.iterrows():
+def _standard_errors(model: PointProcess, dataset: PointProcessDataset) -> Dict[str, float]:
+    """From the inverse Hessian; NaN for parameters at a bound or a singular Hessian."""
+    try:
+        hessian = model.estimate_hessian(dataset)
+        interior = np.isfinite(np.diag(hessian))
+        cov = np.linalg.inv(hessian[np.ix_(interior, interior)])
+        se = np.full(len(model.param_names), np.nan)
+        se[interior] = np.sqrt(np.where(np.diag(cov) > 0, np.diag(cov), np.nan))
+    except (np.linalg.LinAlgError, ValueError):
+        se = np.full(len(model.param_names), np.nan)
+    return dict(zip(model.param_names, se))
+
+
+def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFrame:
+    """Free parameters of both arms of every 'ok' cell, with standard errors."""
+    records, errors = [], {}
+
+    def standard_errors(arm: Tuple[str, str], behavior: str) -> Dict[str, float]:
+        key = (*arm, behavior)
+        if key not in errors:
+            errors[key] = _standard_errors(arms.model(*key), arms.dataset(*key))
+        return errors[key]
+
+    for _, row in tier1_df[tier1_df["status"] == "ok"].iterrows():
         line, behavior = row["line"], row["behavior"]
-        veh_label, drug_label = arms.conditions(line)
+        contrast = arms.contrasts[line]
         try:
-            m_veh, m_drug = arms.model(line, veh_label, behavior), arms.model(line, drug_label, behavior)
+            m_ref, m_test = arms.models(line, behavior)
         except Exception as e:
             tqdm.write(f"[{line}/{behavior}] refit failed during parameter extraction: {e}")
             continue
-
-        for pname in m_veh.param_names:
-            v_veh = m_veh.param_dict_.get(pname)
-            v_drug = m_drug.param_dict_.get(pname)
-            if v_veh is None or v_drug is None:
-                continue
+        se_ref, se_test = standard_errors(contrast.reference, behavior), standard_errors(contrast.test, behavior)
+        for pname in m_ref.param_names:
             records.append({
-                "line": line, "behavior": behavior, "parameter": pname,
-                "value_vehicle": v_veh, "value_drug": v_drug,
+                "family": contrast.family, "line": line, "behavior": behavior, "parameter": pname,
+                "value_reference": m_ref.param_dict_[pname], "value_test": m_test.param_dict_[pname],
+                "se_reference": se_ref[pname], "se_test": se_test[pname],
                 "significant": bool(row.get("significant", False)),
             })
 
     return pd.DataFrame(records)
 
-def plot_parameter_change_heatmaps(
+
+def _dot_size(se: float, se_half_size: float) -> float:
+    return 160.0 / (1.0 + (se / se_half_size) ** 2)
+
+
+# Column label of each amplitude parameter in the map.
+PARAMETER_LABELS = {"B": "baseline", "A": "evoked", "A_peak": "evoked", "H": "evoked"}
+MAP_COLORS = LinearSegmentedColormap.from_list("blue_grey_red", ["#2166ac", "#d9d9d9", "#b2182b"])
+
+
+def plot_tier1_map(
     param_df: pd.DataFrame,
-    line_order: Optional[List[str]] = None,
-    cmap: str = "coolwarm",
-    figsize_per_col: float = 1.2,
-    row_height: float = 0.28,
-) -> Tuple[plt.Figure, np.ndarray]:
+    tier1_df: pd.DataFrame,
+    behaviors: List[str],
+    rows: List[str],
+    vmax: float = 2.0,
+    se_half_size: float = 0.5,
+) -> Tuple[plt.Figure, plt.Axes]:
     """
-    Small-multiples grid: one heatmap panel per behavior, rows=lines,
-    columns=that behavior's free parameters, color=z-scored drug-vs-vehicle
-    change (delta_z). Deliberately NOT a single combined (line x
-    behavior_parameter) matrix -- most parameter names are behavior-
-    specific (e.g. z0_ripple only exists for prey_capture_ipsi), so a
-    combined matrix would be mostly gray/NaN and hard to scan; one panel
-    per behavior keeps each subplot dense and legible.
-
-    Significant cells (per tier1's omnibus test) are marked with '*'.
+    Dot matrix of the screen: rows are contrasts (in the given order, a gap
+    between families), columns are each behavior's free parameters.
+    Colour: log2(test / reference) on a fixed scale centred on 0. Dot area
+    shrinks with the standard error (half size at se_half_size log2 units).
+    Black frame: behavior significant in Tier 1 for that contrast. Grey x:
+    no test (no data, too few fish or events, failed fit).
     """
-    behaviors = sorted(param_df["behavior"].unique())
-    if line_order is None:
-        line_order = sorted(param_df["line"].unique())
+    present = param_df[param_df["parameter"].isin(PARAMETER_LABELS)]
+    columns = [
+        (behavior, p) for behavior in behaviors for p in PARAMETER_LABELS
+        if ((present["behavior"] == behavior) & (present["parameter"] == p)).any()
+    ]
+    families = tier1_df.drop_duplicates("line").set_index("line")["family"]
+    y, positions, gaps = 0.0, {}, []
+    for i, name in enumerate(rows):
+        if i and families[name] != families[rows[i - 1]]:
+            gaps.append(y)
+            y += 1.0
+        positions[name] = y
+        y += 1.0
+    x_of = {column: i for i, column in enumerate(columns)}
 
-    n_behaviors = len(behaviors)
-    n_cols = 4
-    n_rows = int(np.ceil(n_behaviors / n_cols))
-    fig, axes = plt.subplots(
-        n_rows, n_cols,
-        figsize=(n_cols * 3.2, n_rows * max(2.5, len(line_order) * row_height)),
-        squeeze=False,
-    )
+    fig, ax = plt.subplots(figsize=(3.0 + 0.42 * len(columns), 1.6 + 0.32 * y))
+    cells = present.set_index(["line", "behavior", "parameter"])
+    tested = tier1_df[tier1_df["status"] == "ok"].set_index(["line", "behavior"])
+    xs, ys, colors, sizes = [], [], [], []
+    for name in rows:
+        for behavior, p in columns:
+            x, yy = x_of[(behavior, p)], positions[name]
+            if (name, behavior) not in tested.index or (name, behavior, p) not in cells.index:
+                ax.plot(x, yy, marker="x", color="#9e9e9e", markersize=4, linestyle="")
+                continue
+            cell = cells.loc[(name, behavior, p)]
+            xs.append(x); ys.append(yy); colors.append(cell["delta"])
+            se = cell["delta_se"] if np.isfinite(cell["delta_se"]) else 4 * se_half_size
+            sizes.append(_dot_size(se, se_half_size))
+    dots = ax.scatter(xs, ys, c=np.clip(colors, -vmax, vmax), s=sizes, cmap=MAP_COLORS, vmin=-vmax, vmax=vmax)
 
-    vmax = np.nanmax(np.abs(param_df["delta_z"])) if len(param_df) else 1.0
-    vmax = max(vmax, 1e-6)
+    for (name, behavior), row in tested.iterrows():
+        if name not in positions or not row.get("significant", False):
+            continue
+        xs_b = [x_of[c] for c in columns if c[0] == behavior]
+        if xs_b:
+            ax.add_patch(plt.Rectangle((min(xs_b) - 0.45, positions[name] - 0.45), max(xs_b) - min(xs_b) + 0.9, 0.9,
+                                       fill=False, edgecolor="black", linewidth=1.2))
 
-    for i, behavior in enumerate(behaviors):
-        ax = axes[i // n_cols, i % n_cols]
-        sub = param_df[param_df["behavior"] == behavior]
-        params = sorted(sub["parameter"].unique())
+    for gap in gaps:
+        ax.axhline(gap, color="#bdbdbd", linewidth=0.6)
+    for se in (0.1, se_half_size, 2 * se_half_size):
+        ax.scatter([], [], s=_dot_size(se, se_half_size), color="#9e9e9e", label=f"{se:g}")
+    ax.legend(title="SE (log2)", loc="upper left", bbox_to_anchor=(1.01, 1.0), frameon=False, fontsize=7, title_fontsize=7)
 
-        matrix = np.full((len(line_order), len(params)), np.nan)
-        sig_mask = np.zeros_like(matrix, dtype=bool)
-        for r, line in enumerate(line_order):
-            for c, pname in enumerate(params):
-                cell = sub[(sub["line"] == line) & (sub["parameter"] == pname)]
-                if len(cell):
-                    matrix[r, c] = cell["delta_z"].iloc[0]
-                    sig_mask[r, c] = cell["significant"].iloc[0]
-
-        cmap_obj = plt.get_cmap(cmap).copy()
-        cmap_obj.set_bad(color="lightgray")
-        masked = np.ma.masked_invalid(matrix)
-        im = ax.imshow(masked, aspect="auto", cmap=cmap_obj, vmin=-vmax, vmax=vmax)
-
-        for r in range(len(line_order)):
-            for c in range(len(params)):
-                if sig_mask[r, c]:
-                    ax.text(c, r, "*", ha="center", va="center", color="black", fontsize=10, fontweight="bold")
-
-        ax.set_title(behavior, fontsize=9, fontweight="bold")
-        ax.set_xticks(range(len(params)))
-        ax.set_xticklabels(params, rotation=45, ha="right", fontsize=7)
-        if i % n_cols == 0:
-            ax.set_yticks(range(len(line_order)))
-            ax.set_yticklabels(line_order, fontsize=6)
-        else:
-            ax.set_yticks([])
-
-    for j in range(n_behaviors, n_rows * n_cols):
-        axes[j // n_cols, j % n_cols].axis("off")
-
-    sm = plt.cm.ScalarMappable(cmap=cmap, norm=plt.Normalize(vmin=-vmax, vmax=vmax))
-    sm.set_array([])
-    fig.colorbar(sm, ax=axes, shrink=0.5, label="Z-scored Δ (drug vs vehicle)\n* = significant (Tier 1)")
-
-    return fig, axes
+    starts = [i for i, c in enumerate(columns) if i == 0 or c[0] != columns[i - 1][0]]
+    for i in starts[1:]:
+        ax.axvline(i - 0.5, color="#bdbdbd", linewidth=0.6)
+    ax.set_xticks(range(len(columns)), [PARAMETER_LABELS[p] for _, p in columns], rotation=90, fontsize=7)
+    top = ax.secondary_xaxis("top")
+    top.spines["top"].set_visible(False)
+    top.tick_params(length=0)
+    top.set_xticks([(i + j - 1) / 2 for i, j in zip(starts, starts[1:] + [len(columns)])],
+                   [columns[i][0] for i in starts], rotation=90, fontsize=8)
+    contrasts = tier1_df.drop_duplicates("line").set_index("line")
+    labels = [name if contrasts.loc[name, "family"] == "ntr" else f"{name} (vs {contrasts.loc[name, 'reference'].split('/')[0]})"
+              for name in rows]
+    ax.set_yticks([positions[n] for n in rows], labels, fontsize=8)
+    ax.set_xlim(-0.6, len(columns) - 0.4)
+    ax.set_ylim(y - 0.4, -0.6)
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    fig.colorbar(dots, ax=ax, shrink=min(0.5, 6.0 / max(y, 1.0)), pad=0.12, anchor=(0.0, 0.75), label="log2(test / reference)")
+    fig.tight_layout()
+    return fig, ax
 
 def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
     """(unchanged from before)"""
@@ -418,42 +434,42 @@ def _robust_vmax(surfaces: List[np.ndarray], percentile: float = 95.0) -> float:
     return float(np.percentile(pooled, percentile))
 
 def plot_arm_surface_grid_with_marginals(
-    ds_veh: PointProcessDataset, ds_drug: PointProcessDataset,
-    m_veh: PointProcess, m_drug: PointProcess,
+    ds_ref: PointProcessDataset, ds_test: PointProcessDataset,
+    m_ref: PointProcess, m_test: PointProcess,
     title: str = "",
     cmap: str = "plasma",
     figsize: Tuple[float, float] = (12, 10),
     vmax_percentile: float = 95.0,
 ) -> plt.Figure:
     """
-    Per arm (vehicle, drug): empirical heatmap | model heatmap, with ONE
+    Per arm (reference, test): empirical heatmap | model heatmap, with ONE
     shared time-marginal strip above (spanning both heatmap columns) and
     ONE shared trial-marginal column to the right -- each marginal overlays
     empirical (solid) vs model (dashed) on the same axis, rather than
     living in 4 separate locations. This directly shows fit calibration
     (the actual point of a marginal) without making the eye hop between
     two physically separate line plots, and removes the redundancy of the
-    previous version (where the "vehicle" time marginal was effectively
+    previous version (where the "reference" time marginal was effectively
     shown twice, once framed under each heatmap).
 
     Single shared GridSpec for the whole figure (not nested per-panel
     GridSpecs) -- guarantees pixel alignment across rows/columns. Colorbar
     is an explicit, manually-positioned axis, not matplotlib-placed.
     """
-    surf_veh_emp = ds_veh.time_trial_histogram_hz
-    surf_veh_model = m_veh.compute_expected_rate(ds_veh)
-    surf_drug_emp = ds_drug.time_trial_histogram_hz
-    surf_drug_model = m_drug.compute_expected_rate(ds_drug)
+    surf_ref_emp = ds_ref.time_trial_histogram_hz
+    surf_ref_model = m_ref.compute_expected_rate(ds_ref)
+    surf_test_emp = ds_test.time_trial_histogram_hz
+    surf_test_model = m_test.compute_expected_rate(ds_test)
 
-    tm_veh_emp, trm_veh_emp = _weighted_marginals(surf_veh_emp, ds_veh)
-    tm_veh_model, trm_veh_model = _weighted_marginals(surf_veh_model, ds_veh)
-    tm_drug_emp, trm_drug_emp = _weighted_marginals(surf_drug_emp, ds_drug)
-    tm_drug_model, trm_drug_model = _weighted_marginals(surf_drug_model, ds_drug)
+    tm_ref_emp, trm_ref_emp = _weighted_marginals(surf_ref_emp, ds_ref)
+    tm_ref_model, trm_ref_model = _weighted_marginals(surf_ref_model, ds_ref)
+    tm_test_emp, trm_test_emp = _weighted_marginals(surf_test_emp, ds_test)
+    tm_test_model, trm_test_model = _weighted_marginals(surf_test_model, ds_test)
 
-    vmax = _robust_vmax([surf_veh_emp, surf_drug_emp], percentile=vmax_percentile)
-    time_ymax = max(np.nanmax(x) for x in [tm_veh_emp, tm_veh_model, tm_drug_emp, tm_drug_model]
+    vmax = _robust_vmax([surf_ref_emp, surf_test_emp], percentile=vmax_percentile)
+    time_ymax = max(np.nanmax(x) for x in [tm_ref_emp, tm_ref_model, tm_test_emp, tm_test_model]
                      if np.any(np.isfinite(x)))
-    trial_xmax = max(np.nanmax(x) for x in [trm_veh_emp, trm_veh_model, trm_drug_emp, trm_drug_model]
+    trial_xmax = max(np.nanmax(x) for x in [trm_ref_emp, trm_ref_model, trm_test_emp, trm_test_model]
                       if np.any(np.isfinite(x)))
     time_ymax, trial_xmax = max(time_ymax, 1e-9), max(trial_xmax, 1e-9)
 
@@ -503,10 +519,10 @@ def plot_arm_surface_grid_with_marginals(
 
         return mesh
 
-    _draw_arm(0, ds_veh, surf_veh_emp, surf_veh_model, tm_veh_emp, tm_veh_model, trm_veh_emp, trm_veh_model,
-              "Vehicle", show_legend=True)
-    mesh = _draw_arm(2, ds_drug, surf_drug_emp, surf_drug_model, tm_drug_emp, tm_drug_model, trm_drug_emp, trm_drug_model,
-                      "Drug", show_legend=False)
+    _draw_arm(0, ds_ref, surf_ref_emp, surf_ref_model, tm_ref_emp, tm_ref_model, trm_ref_emp, trm_ref_model,
+              "Reference", show_legend=True)
+    mesh = _draw_arm(2, ds_test, surf_test_emp, surf_test_model, tm_test_emp, tm_test_model, trm_test_emp, trm_test_model,
+                      "Test", show_legend=False)
 
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.97)
     cax = fig.add_axes([0.89, 0.15, 0.02, 0.65])
@@ -523,15 +539,13 @@ def generate_arm_surface_grids(cells: pd.DataFrame, arms: Arms, output_dir: Path
 
     for _, row in tqdm(cells.iterrows(), total=len(cells), desc="Arm surface grids"):
         line, behavior = row["line"], row["behavior"]
-        veh_label, drug_label = arms.conditions(line)
-
-        ds_veh, ds_drug = arms.dataset(line, veh_label, behavior), arms.dataset(line, drug_label, behavior)
-        if ds_veh is None or ds_drug is None:
+        ds_ref, ds_test = arms.datasets(line, behavior)
+        if ds_ref is None or ds_test is None:
             results.append({"line": line, "behavior": behavior, "plot_status": "no_data"})
             continue
 
         try:
-            m_veh, m_drug = arms.model(line, veh_label, behavior), arms.model(line, drug_label, behavior)
+            m_ref, m_test = arms.models(line, behavior)
         except Exception as e:
             tqdm.write(f"[{line}/{behavior}] fit failed, skipping plot: {e}")
             results.append({"line": line, "behavior": behavior, "plot_status": f"fit_failed: {e}"})
@@ -539,7 +553,7 @@ def generate_arm_surface_grids(cells: pd.DataFrame, arms: Arms, output_dir: Path
 
         reason = row.get("plot_reason", "")
         title = f"{line} / {behavior}" + (f"  [{reason}]" if reason else "")
-        fig = plot_arm_surface_grid_with_marginals(ds_veh, ds_drug, m_veh, m_drug, title=title)
+        fig = plot_arm_surface_grid_with_marginals(ds_ref, ds_test, m_ref, m_test, title=title)
         path = save_fig(fig, output_dir / (reason or "all"), f"{line}_{behavior}")
         plt.close(fig)
         results.append({"line": line, "behavior": behavior, "plot_status": "plotted", "path": str(path)})
@@ -570,14 +584,14 @@ def build_bad_fit_triage(tier1_df: pd.DataFrame) -> pd.DataFrame:
     df.loc[unreliable, "cause"] = "permutation_unreliable"
 
     no_signal_arm = is_ok & (
-        (df["qc_verdict_vehicle"] == "reliable_no_signal") |
-        (df["qc_verdict_drug"] == "reliable_no_signal")
+        (df["qc_verdict_reference"] == "reliable_no_signal") |
+        (df["qc_verdict_test"] == "reliable_no_signal")
     )
     df.loc[no_signal_arm, "cause"] = "one_arm_no_signal"
 
     weak_margin = is_ok & (
-        (df["qc_delta_aic_vehicle"].fillna(np.inf) < 5) |
-        (df["qc_delta_aic_drug"].fillna(np.inf) < 5)
+        (df["qc_delta_aic_reference"].fillna(np.inf) < 5) |
+        (df["qc_delta_aic_test"].fillna(np.inf) < 5)
     )
     df.loc[weak_margin, "cause"] = "weak_qc_margin"
 
@@ -675,11 +689,11 @@ def plot_volcano(
 
         if name.startswith("param_"):
             pname = name[len("param_"):]
-            return f"log2({pname}_drug / {pname}_vehicle)"
+            return f"log2({pname}_test / {pname}_reference)"
         if name == "response_probability" and etype == "logit_diff":
-            return "logit(p_drug) - logit(p_vehicle)"
+            return "logit(p_test) - logit(p_reference)"
         if etype == "log2_fold_change":
-            return f"log2({name}_drug / {name}_vehicle)"
+            return f"log2({name}_test / {name}_reference)"
         return f"effect size ({name})"
 
     behaviors = sorted(plot_df["behavior"].unique())
@@ -752,18 +766,18 @@ def build_models_and_datasets_for_line(
     return result
 
 
-def plot_fish_gain_correlation_vehicle_vs_drug(line: str, arms: Arms, min_behaviors: int = 2) -> Optional[plt.Figure]:
-    veh_label, drug_label = arms.conditions(line)
+def plot_fish_gain_correlation_reference_vs_test(contrast: str, arms: Arms, min_behaviors: int = 2) -> Optional[plt.Figure]:
+    c = arms.contrasts[contrast]
     return plot_fish_gain_correlation_dual(
-        collect_fish_gains(build_models_and_datasets_for_line(line, veh_label, arms)),
-        collect_fish_gains(build_models_and_datasets_for_line(line, drug_label, arms)),
-        label_a="Vehicle", label_b="Drug",
-        suptitle=f"{line}: fish-level frailty gain correlation, vehicle vs drug",
+        collect_fish_gains(build_models_and_datasets_for_line(*c.reference, arms)),
+        collect_fish_gains(build_models_and_datasets_for_line(*c.test, arms)),
+        label_a="/".join(c.reference), label_b="/".join(c.test),
+        suptitle=f"{contrast}: fish-level frailty gain correlation, {'/'.join(c.reference)} vs {'/'.join(c.test)}",
         min_behaviors=min_behaviors,
     )
 
 def _bootstrap_one_delta_iteration(
-    seed_seq, ds_veh: PointProcessDataset, ds_drug: PointProcessDataset,
+    seed_seq, ds_ref: PointProcessDataset, ds_test: PointProcessDataset,
     behavior: str, process_factory: Callable[[], PointProcess], transform_lookup: dict,
 ) -> Optional[Dict[str, float]]:
     """
@@ -774,17 +788,17 @@ def _bootstrap_one_delta_iteration(
     joblib's process-based backends.
     """
     rng = np.random.default_rng(seed_seq)
-    ds_veh_b = ds_veh.resample(rng)
-    ds_drug_b = ds_drug.resample(rng)
+    ds_ref_b = ds_ref.resample(rng)
+    ds_test_b = ds_test.resample(rng)
     try:
-        m_veh_b = process_factory(); m_veh_b.fit(ds_veh_b)
-        m_drug_b = process_factory(); m_drug_b.fit(ds_drug_b)
+        m_ref_b = process_factory(); m_ref_b.fit(ds_ref_b)
+        m_test_b = process_factory(); m_test_b.fit(ds_test_b)
     except Exception:
         return None
 
     out = {}
-    for pname in m_veh_b.param_names:
-        v_v, v_d = m_veh_b.param_dict_.get(pname), m_drug_b.param_dict_.get(pname)
+    for pname in m_ref_b.param_names:
+        v_v, v_d = m_ref_b.param_dict_.get(pname), m_test_b.param_dict_.get(pname)
         if v_v is None or v_d is None:
             continue
         transform = transform_lookup.get((behavior, pname), "difference")
@@ -801,7 +815,7 @@ def bootstrap_parameter_deltas(
     n_boot: int = 200, ci: float = 95.0, seed: int = 0, n_jobs: int = -1,
 ) -> pd.DataFrame:
     """
-    Bootstrap CI on the drug-vs-vehicle DELTA of each free parameter, for a
+    Bootstrap CI on the test-vs-reference DELTA of each free parameter, for a
     subset of (line, behavior) cells. Parallelized at the BOOTSTRAP-
     ITERATION level within each cell (via joblib), not across cells --
     matches the existing PointProcess.bootstrap/tier1_permutation_test
@@ -815,36 +829,35 @@ def bootstrap_parameter_deltas(
 
     transform_lookup = {}
     for (behavior, pname), group in param_df.groupby(["behavior", "parameter"]):
-        vals = pd.concat([group["value_vehicle"], group["value_drug"]]).dropna()
+        vals = pd.concat([group["value_reference"], group["value_test"]]).dropna()
         transform_lookup[(behavior, pname)] = "log2_ratio" if len(vals) > 0 and (vals > 0).all() else "difference"
 
-    def _point_delta(v_veh, v_drug, transform):
+    def _point_delta(v_ref, v_test, transform):
         if transform == "log2_ratio":
-            return np.log2(max(v_drug, 1e-9) / max(v_veh, 1e-9))
-        return v_drug - v_veh
+            return np.log2(max(v_test, 1e-9) / max(v_ref, 1e-9))
+        return v_test - v_ref
 
     records = []
     for _, row in tqdm(cells.iterrows(), total=len(cells), desc="Bootstrapping parameter deltas (cells)"):
         line, behavior = row["line"], row["behavior"]
-        veh_label, drug_label = arms.conditions(line)
-        ds_veh, ds_drug = arms.dataset(line, veh_label, behavior), arms.dataset(line, drug_label, behavior)
-        if ds_veh is None or ds_drug is None:
+        ds_ref, ds_test = arms.datasets(line, behavior)
+        if ds_ref is None or ds_test is None:
             continue
 
         try:
-            m_veh0, m_drug0 = arms.model(line, veh_label, behavior), arms.model(line, drug_label, behavior)
+            m_ref0, m_test0 = arms.models(line, behavior)
         except Exception as e:
             tqdm.write(f"[{line}/{behavior}] initial fit failed: {e}")
             continue
 
-        param_names = m_veh0.param_names
+        param_names = m_ref0.param_names
         seeds = np.random.SeedSequence(seed).spawn(n_boot)
 
         results = parallel_map(
             partial(
                 _bootstrap_one_delta_iteration,
-                ds_veh=ds_veh,
-                ds_drug=ds_drug,
+                ds_ref=ds_ref,
+                ds_test=ds_test,
                 behavior=behavior,
                 process_factory=arms.process_factories[behavior],
                 transform_lookup=transform_lookup,
@@ -869,7 +882,7 @@ def bootstrap_parameter_deltas(
             if len(arr) < min_success:
                 continue
             transform = transform_lookup.get((behavior, pname), "difference")
-            point_delta = _point_delta(m_veh0.param_dict_.get(pname), m_drug0.param_dict_.get(pname), transform)
+            point_delta = _point_delta(m_ref0.param_dict_.get(pname), m_test0.param_dict_.get(pname), transform)
             records.append({
                 "line": line, "behavior": behavior, "parameter": pname, "transform": transform,
                 "delta": point_delta, "boot_mean": float(np.mean(arr)),
@@ -922,7 +935,7 @@ def plot_parameter_forest(
         ax.set_yticks(y_pos)
         ax.set_yticklabels(psub["line"], fontsize=7)
         transform = psub["transform"].iloc[0]
-        xlabel = f"log2({pname}_drug / {pname}_vehicle)" if transform == "log2_ratio" else f"Δ{pname} (drug − vehicle)"
+        xlabel = f"log2({pname}_test / {pname}_reference)" if transform == "log2_ratio" else f"Δ{pname} (test − reference)"
         ax.set_xlabel(xlabel, fontsize=8)
         ax.set_title(pname, fontsize=9, fontweight="bold")
         ax.tick_params(labelsize=7)

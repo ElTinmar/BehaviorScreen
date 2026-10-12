@@ -38,9 +38,9 @@ class GroupFitQC:
     @property
     def verdict(self) -> str:
         """
-        - "flagged": hard failure, do not trust this fit for any comparison
-          (too few fish, fit exception, non-PD Hessian, near-collinear
-          params). Triggers Tier-0 fallback.
+        - "flagged": too few fish or a fit exception; the only hard
+          failures, since the permutation test stays valid for any fit that
+          exists. Triggers Tier-0 fallback.
         - "reliable_no_signal": fit converged cleanly and is well-identified,
           but the architecture didn't beat the null in THIS arm. Still fine
           to feed into fit_tier1's deviance test -- in fact this is exactly
@@ -151,7 +151,7 @@ def assess_group_fit(
                     f"(r={off_diag[i, j]:.2f})"
                 )
     except Exception as e:
-        qc.reasons_flagged.append(f"hessian_estimation_failed: {type(e).__name__}: {e}")
+        qc.informational_notes.append(f"hessian_estimation_failed: {type(e).__name__}: {e}")
 
     if qc.is_low_power:
         # Also informational-only: low power is a caveat on interpretation

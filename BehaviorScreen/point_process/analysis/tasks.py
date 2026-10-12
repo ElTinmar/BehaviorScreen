@@ -62,6 +62,7 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
 
     best = fitted_models[0]
     save_best_model(config, best, model_dir)
+    save_fitted_models(config, model_dir)
 
     fig, _ = ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
     save_fig(fig, model_dir, "model_fits_overlay")
@@ -87,18 +88,34 @@ def save_best_model(config: dict, model: PointProcess, model_dir: Path) -> None:
         json.dump({"model_index": index, "name": model.name, "params": model.params_.tolist()}, f, indent=2)
 
 
+def save_fitted_models(config: dict, model_dir: Path) -> None:
+    """Parameters of every candidate, in config order (None where the fit failed)."""
+    fitted = [{"name": m.name, "params": None if m.params_ is None else m.params_.tolist()} for m in config["models"]]
+    with open(model_dir / "fitted_models.json", "w") as f:
+        json.dump(fitted, f, indent=2)
+
+
+def _set_saved_params(model: PointProcess, saved: dict, index: int, model_dir: Path) -> PointProcess:
+    if model.name != saved["name"]:
+        raise ValueError(f"{model_dir}: model {index} is now {model.name!r}, was {saved['name']!r} when fitted; rerun the fit")
+    if saved["params"] is None:
+        raise ValueError(f"{model_dir}: model {index} ({model.name}) failed to fit")
+    model.set_params(np.asarray(saved["params"], dtype=float))
+    return model
+
+
 def load_best_model(config: dict, model_dir: Path) -> PointProcess:
     """The best model of a `fit` run, with its fitted parameters."""
     with open(model_dir / "best_model.json") as f:
         saved = json.load(f)
-    model = config["models"][saved["model_index"]]
-    if model.name != saved["name"]:
-        raise ValueError(
-            f"{model_dir}: model {saved['model_index']} is now {model.name!r}, "
-            f"was {saved['name']!r} when fitted; rerun the fit"
-        )
-    model.set_params(np.asarray(saved["params"], dtype=float))
-    return model
+    return _set_saved_params(config["models"][saved["model_index"]], saved, saved["model_index"], model_dir)
+
+
+def load_fitted_model(config: dict, model_dir: Path, index: int) -> PointProcess:
+    """Candidate `index` of a `fit` run, with its fitted parameters."""
+    with open(model_dir / "fitted_models.json") as f:
+        saved = json.load(f)[index]
+    return _set_saved_params(config["models"][index], saved, index, model_dir)
 
 
 def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDataset]) -> pd.DataFrame:

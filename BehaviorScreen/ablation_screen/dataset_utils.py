@@ -4,7 +4,8 @@ summary statistics used as a fallback when a parametric fit is flagged
 (see model_qc.py).
 """
 import warnings
-from typing import Callable, Dict, Optional, Tuple, Union
+from dataclasses import dataclass
+from typing import Callable, Dict, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -28,11 +29,34 @@ def safe_prepare_dataset(
         return None
 
 
+@dataclass(frozen=True)
+class Contrast:
+    """
+    One row of the screen: test arm against reference arm, each a
+    (line, condition). family keeps hypotheses apart for FDR (drug effect
+    within an NTR line vs mutant against its wild-type background).
+    """
+
+    name: str
+    family: str
+    reference: Tuple[str, str]
+    test: Tuple[str, str]
+
+
+def ntr_contrast(line: str, vehicle: str = "vehicle", drug: str = "ronidazole") -> Contrast:
+    return Contrast(line, "ntr", (line, vehicle), (line, drug))
+
+
+def mutant_contrast(line: str, reference: Tuple[str, str] = ("WT", "danieau"), condition: str = "danieau") -> Contrast:
+    return Contrast(line, "mutant", reference, (line, condition))
+
+
 class Arms:
     """
     Every (line, condition, behavior) arm of the screen, prepared and fitted
-    at most once per run. dataset() is None when the data cannot form a
-    dataset; model() raises the (cached) fit error.
+    at most once per run, so a reference shared by several contrasts is
+    fitted once. dataset() is None when the data cannot form a dataset;
+    model() raises the (cached) fit error.
     """
 
     def __init__(
@@ -40,20 +64,14 @@ class Arms:
         loader: BehavioralDataLoader,
         dataset_configs: Dict[str, dict],
         process_factories: Dict[str, Callable[[], PointProcess]],
-        line_labels: Optional[Dict[str, Tuple[str, str]]] = None,
-        default_labels: Tuple[str, str] = ("vehicle", "ronidazole"),
+        contrasts: Sequence[Contrast],
     ) -> None:
         self.loader = loader
         self.dataset_configs = dataset_configs
         self.process_factories = process_factories
-        self.line_labels = line_labels or {}
-        self.default_labels = default_labels
+        self.contrasts = {c.name: c for c in contrasts}
         self._datasets: Dict[Tuple[str, str, str], Optional[PointProcessDataset]] = {}
         self._models: Dict[Tuple[str, str, str], Union[PointProcess, Exception]] = {}
-
-    def conditions(self, line: str) -> Tuple[str, str]:
-        """(vehicle, drug) condition labels of a line."""
-        return self.line_labels.get(line, self.default_labels)
 
     def dataset(self, line: str, condition: str, behavior: str) -> Optional[PointProcessDataset]:
         key = (line, condition, behavior)
@@ -76,6 +94,16 @@ class Arms:
         if isinstance(result, Exception):
             raise result
         return result
+
+    def datasets(self, contrast: str, behavior: str) -> Tuple[Optional[PointProcessDataset], Optional[PointProcessDataset]]:
+        """(reference, test) datasets of a contrast."""
+        c = self.contrasts[contrast]
+        return self.dataset(*c.reference, behavior), self.dataset(*c.test, behavior)
+
+    def models(self, contrast: str, behavior: str) -> Tuple[PointProcess, PointProcess]:
+        """(reference, test) fitted models of a contrast."""
+        c = self.contrasts[contrast]
+        return self.model(*c.reference, behavior), self.model(*c.test, behavior)
 
 
 def per_fish_summary(dataset: PointProcessDataset) -> pd.DataFrame:

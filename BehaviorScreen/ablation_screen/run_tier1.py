@@ -1,337 +1,114 @@
 """
-Tier 1 end-to-end run. BEHAVIOR_CONFIG is the single source of truth: one
-entry per behavior with its dataset filter, the (already partially-fixed)
-architecture factory, and the null model. Shape parameters are pinned
-directly in each 'architecture' lambda via PartiallyFixedProcess, using
-values already fitted on the Phase-3 pooled-vehicle population -- no
-runtime computation needed, so they're just constants written in here.
+Tier 1 end-to-end run. Behaviors come from the control fits (run_analysis
+--mode fit): each experiment's chosen model with every parameter pinned to
+its control value except the amplitudes (model_config.AMPLITUDE_PARAMETERS),
+which are fitted per arm. Contrasts: drug against vehicle within each NTR
+line, and each straight mutant against its wild-type background.
 """
 from pathlib import Path
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy as np
 
-from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
 from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES
-from BehaviorScreen.point_process.point_process.poisson_process import PoissonProcess, RateKernelFactory, PreyCapture
-from BehaviorScreen.point_process.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
-from BehaviorScreen.point_process.point_process.frailty import GammaMixedEffectsProcess
-from BehaviorScreen.point_process.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
 from BehaviorScreen.point_process.point_process.io import save_fig
-from BehaviorScreen.point_process.point_process.wrappers import PartiallyFixedProcess
 from BehaviorScreen.ablation_screen.tier1_omnibus import (
-    run_tier1_screen, 
-    tier1_permutation_test, 
-    fit_tier1, 
-    extract_fitted_parameters, 
-    compute_parameter_deltas, 
-    plot_parameter_change_heatmaps,
+    run_tier1_screen,
+    tier1_permutation_test,
+    fit_tier1,
+    extract_fitted_parameters,
+    compute_parameter_deltas,
+    plot_tier1_map,
     generate_arm_surface_grids,
     build_bad_fit_triage,
     plot_volcano,
-    plot_fish_gain_correlation_vehicle_vs_drug,
+    plot_fish_gain_correlation_reference_vs_test,
     bootstrap_parameter_deltas,
     plot_parameter_forest
 )
 from BehaviorScreen.ablation_screen.fdr import add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
-from BehaviorScreen.ablation_screen.dataset_utils import Arms
+from BehaviorScreen.ablation_screen.dataset_utils import Arms, mutant_contrast, ntr_contrast
+from BehaviorScreen.ablation_screen.tier1_config import tier1_behaviors
 
 
 OUTPUT_DIR = Path("./tier1_results")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 ROOT = Path('/media/martin/DATA_18TB/Screen')
+FITS_ROOT = Path("./figures")  # run_analysis --mode fit output on the control screen
 # Tables merged across screen folders with merge_csv (adds line/condition columns)
 loader = BehavioralDataLoader(
     ROOT / "bouts_all.csv", [ROOT / "valid_trials_all.csv"], [ROOT / "qc_all.csv"], **EVENT_TABLES["bouts"]
 )
 
-prey_stim_speed_deg_per_s = 90
-prey_stim_range_deg = 2 * 70
-prey_stim_freq = prey_stim_speed_deg_per_s / prey_stim_range_deg
-
-# ===========================================================================
-# ONE dict per behavior. 'architecture' already returns a fully-formed,
-# fitting-ready process -- PartiallyFixedProcess wraps the raw architecture
-# and pins its shape parameters to values already known from the 
-# pooled-vehicle fit. Whatever's NOT listed in the fixed dict stays free and
-# gets estimated per line/condition arm.
-# ===========================================================================
-BEHAVIOR_CONFIG = {
-
-    'prey_capture_ipsi': {
-        'dataset': {
-            'stim': Stim.PREY_CAPTURE, 'category': 'JT',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
-        },
-        # AIC winner (ΔAIC=0). Requires the hawkes_process.py per-trial
-        # integral fix to be practical for a full per-line screen -- see
-        # conversation notes; re-benchmark before running the full sweep.
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(
-                HawkesProcess(
-                    PreyCapture.peak_baseline_ripple(stim_freq=prey_stim_freq),
-                    HistoryKernelFactory.exponential(),
-                )
-            ),
-            {
-                'tau': 0.812041, 'z0_ripple': 0.889359,
-                'phi1': 0.267287, 'phi2': -2.720154,
-                'alpha_peak': -0.192392, 'alpha_baseline': -0.100840,
-                'alpha_ripple': -0.230097,
-                'alpha_hawkes': 0.266288, 'beta_hawkes': 0.628789,  # pinned as shape -- see caveat
-                'r_dispersion': 6.236294,
-            },
-        ),
-        # free: A, B
-        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    },
-
-    'prey_capture_contra': {
-        'dataset': {
-            'stim': Stim.PREY_CAPTURE, 'category': 'JT',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
-        },
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            {'r_dispersion': 2.733626},
-        ),
-        # free: B
-        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    },
-
-    'phototaxis_ipsi': {
-        'dataset': {
-            'stim': Stim.PHOTOTAXIS, 'category': 'RT',
-            'trial_filters': {'foreground_color': '[0.1, 0.1, 0.0, 1.0]'},
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
-        },
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
-            {
-                'f_dip': 0.330746, 'tau_dip': 0.429057, 'mu': 0.282779,
-                'sigma': 0.069307, 'tau_decay': 0.175063,
-                'alpha_B': 0.033644, 'alpha_peak': 0.046725,
-                'r_dispersion': 2.273735,
-            },
-        ),
-        # free: B, A_peak
-        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    },
-
-    'phototaxis_contra': {
-        'dataset': {
-            'stim': Stim.PHOTOTAXIS, 'category': 'RT',
-            'trial_filters': {'foreground_color': '[0.1, 0.1, 0.0, 1.0]'},
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
-        },
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.phototaxis_contra())),
-            {
-                'tau_dip': 0.870464,
-                'alpha_B': 0.037437,
-                'alpha_dip': -0.151756,
-                'r_dispersion': 1.851101,
-            },
-        ),
-        # free: B, z0_dip
-        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    },
-
-    'omr_lateral_ipsi': {
-        'dataset': {
-            'epoch_name': ["grating right", "grating left"], 'category': 'RT',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
-        },
-        # AIC winner (ΔAIC=0). Homogeneous baseline -> cheap regardless of
-        # the Hawkes integral fix (trivial kernel.integrate), so this one
-        # was never the bottleneck.
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(
-                HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
-            ),
-            {
-                'alpha_hawkes': 0.037930, 'beta_hawkes': 0.330805,  # pinned as shape -- see caveat
-                'r_dispersion': 2.485696,
-            },
-        ),
-        # free: B
-        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    },
-
-    'omr_lateral_contra': {
-        'dataset': {
-            'epoch_name': ["grating right", "grating left"], 'category': 'RT',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
-        },
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_lateral_contra())),
-            {'tau_dip': 1.667727, 'r_dispersion': 0.761771, 'f_dip': 0.34305359},
-        ),
-        # free: B
-        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    },
-
-    'omr_forward': {
-        'dataset': {
-            'epoch_name': "grating forward", 'category': 'BS',
-            'laterality': Laterality.NONDIRECTIONAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
-        },
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.omr_forward())),
-            {'tau_dip': 1.653539, 'r_dispersion': 0.443042, 'z_dip': 2.504278},
-        ),
-        # free: B
-        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    },
-
-    'okr_ipsi': {
-        'dataset': {
-            'stim': Stim.OKR, 'category': 'S1',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
-        },
-        # CAVEAT: no Hawkes/Renewal candidate was ever fit for this condition
-        # in Phase 3 -- best of what was TRIED, not a confirmed winner over
-        # history-dependence.
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(PoissonProcess(RateKernelFactory.homogeneous_poisson())),
-            {'r_dispersion': 0.853827},
-        ),
-        # free: B
-        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    },
-
-    'okr_contra': {
-        'dataset': {
-            'stim': Stim.OKR, 'category': 'S1',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
-        },
-        # AIC winner (ΔAIC=0; Renewal-ExponentialExcitation close second at
-        # ΔAIC=13.08, AIC weight 0.14% -- Hawkes still clearly preferred).
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(
-                HawkesProcess(RateKernelFactory.homogeneous_poisson(), HistoryKernelFactory.exponential())
-            ),
-            {
-                'alpha_hawkes': 0.038189, 'beta_hawkes': 0.452438,  # pinned as shape -- see caveat
-                'r_dispersion': 1.698480,
-            },
-        ),
-        # free: B
-        'null': lambda: PoissonProcess(RateKernelFactory.homogeneous_poisson()),
-    },
-
-    'looming_ipsi': {
-        'dataset': {
-            'stim': Stim.LOOMING, 'category': 'SLC',
-            'laterality': Laterality.IPSILATERAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
-        },
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(
-                SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6)))
-            ),
-            {
-                'mu': 4.952208, 'sigma': 0.102790, 'alpha': -0.120006,
-                'r_dispersion': 2.845518, 'B': 0.0284841
-            },
-        ),
-        # free: H
-        'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-    },
-
-    'looming_contra': {
-        'dataset': {
-            'stim': Stim.LOOMING, 'category': 'SLC',
-            'laterality': Laterality.CONTRALATERAL,
-            'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
-        },
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(
-                SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6)))
-            ),
-            {
-                'mu': 4.955200, 'sigma': 0.101784, 'alpha': -0.139564,
-                'r_dispersion': 2.910379, 'B': 0.0289052
-            },
-        ),
-        # free: H
-        'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-    },
-
-    'dark_flash': {
-        'dataset': {
-            'epoch_name': "flash dark", 'category': 'O',
-            'laterality': Laterality.NONDIRECTIONAL,
-            'binning_dt': 0.025, 't_start': 0.0, 't_end': 5.0,
-        },
-        'architecture': lambda: PartiallyFixedProcess(
-            GammaMixedEffectsProcess(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
-            {
-                'mu': 0.073930, 'sigma': 0.016163, 'tau': 0.078449,
-                'alpha': -0.187736, 'r_dispersion': 2.549803, 'B': 0.0179795
-            },
-        ),
-        # free: H
-        'null': lambda: SurvivalProcess(SurvivalKernelFactory.constant_hazard()),
-    },
-}
-
-BEHAVIORS = list(BEHAVIOR_CONFIG.keys())
+TIER1_EXPERIMENTS = [
+    "prey_capture_ipsi", "prey_capture_contra",
+    "phototaxis_ipsi", "phototaxis_contra",
+    "omr_lateral_ipsi", "omr_lateral_contra", "omr_forward",
+    "okr_ipsi", "okr_contra",
+    "looming_ipsi", "looming_contra",
+    "dark_flash",
+]
+BEHAVIOR_CONFIG = tier1_behaviors(TIER1_EXPERIMENTS, FITS_ROOT)
+BEHAVIORS = list(BEHAVIOR_CONFIG)
 DATASET_CONFIGS = {b: cfg['dataset'] for b, cfg in BEHAVIOR_CONFIG.items()}
 BEHAVIOR_PROCESS_FACTORY = {b: cfg['architecture'] for b, cfg in BEHAVIOR_CONFIG.items()}
 NULL_PROCESS_FACTORY = {b: cfg['null'] for b, cfg in BEHAVIOR_CONFIG.items()}
 
-print("Per-behavior free parameters (everything else pinned in BEHAVIOR_CONFIG):")
-for behavior in BEHAVIORS:
-    print(f"  {behavior}: free={BEHAVIOR_PROCESS_FACTORY[behavior]().param_names}")
+print("Per-behavior model and free parameters (everything else pinned to the control fit):")
+for behavior, cfg in BEHAVIOR_CONFIG.items():
+    print(f"  {behavior}: {cfg['model_name']}, free={cfg['free']}")
 
+# Straight mutants against their wild-type background. wik and AB measure how
+# far background (and recording day) alone moves each behavior from WT (TL).
+WT = ("WT", "danieau")
+MUTANT_REFERENCES = {
+    "wik": WT,
+    "AB": WT,
+    "lak": WT,              # atoh7 th241, TL (Tuebingen)
+    "gr": WT,               # nr3c1 s357, TL (Muto et al. 2005)
+    "cort": WT,             # background not published: assumed TL
+    "mecp2": ("AB", "danieau"),  # outcrossed to AB (Pietri et al. 2013)
+}
 all_lines = sorted(loader.trials["line"].astype(str).unique())
-STRAIGHT_MUTANTS = {"lak", "gr", "mecp2", "cort", "wik", "AB"}
-NTR_LINES = [l for l in all_lines if l not in STRAIGHT_MUTANTS and l != "WT"]
-LINE_LABELS = {"WT": ("danieau", "ronidazole")}
+NTR_LINES = [l for l in all_lines if l not in MUTANT_REFERENCES and l != "WT"]
+CONTRASTS = (
+    [ntr_contrast("WT", vehicle="danieau")]
+    + [ntr_contrast(line) for line in NTR_LINES]
+    + [mutant_contrast(line, reference) for line, reference in MUTANT_REFERENCES.items() if line in all_lines]
+)
 
 
 # ===========================================================================
 # Step 1: single-cell smoke test BEFORE the full batch
 # ===========================================================================
 
-arms = Arms(loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY, line_labels=LINE_LABELS)
+arms = Arms(loader, DATASET_CONFIGS, BEHAVIOR_PROCESS_FACTORY, CONTRASTS)
 
 
-def find_first_valid_cell(arms: Arms, lines, behaviors):
-    for line in lines:
-        veh_label, drug_label = arms.conditions(line)
+def find_first_valid_cell(arms: Arms, behaviors):
+    for name in arms.contrasts:
         for behavior in behaviors:
-            ds_veh, ds_drug = arms.dataset(line, veh_label, behavior), arms.dataset(line, drug_label, behavior)
-            if ds_veh is not None and ds_drug is not None and ds_veh.num_fish >= 3 and ds_drug.num_fish >= 3:
-                return line, behavior, ds_veh, ds_drug
+            ds_ref, ds_test = arms.datasets(name, behavior)
+            if ds_ref is not None and ds_test is not None and ds_ref.num_fish >= 3 and ds_test.num_fish >= 3:
+                return name, behavior, ds_ref, ds_test
     return None, None, None, None
 
 
 print("\nSmoke test: scanning for first valid (line, behavior) cell...")
-smoke_line, smoke_behavior, ds_veh, ds_drug = find_first_valid_cell(arms, NTR_LINES + ["WT"], BEHAVIORS)
+smoke_line, smoke_behavior, ds_ref, ds_test = find_first_valid_cell(arms, BEHAVIORS)
 if smoke_line is None:
     raise RuntimeError(
-        "No (line, behavior) cell has both non-empty vehicle and drug data with >=3 fish each. "
+        "No (contrast, behavior) cell has both arms with >=3 fish. "
         "Check DATASET_CONFIGS filters against loader.raw_df contents before proceeding."
     )
 print(f"Using {smoke_line}/{smoke_behavior} for smoke test "
-      f"(n_veh={ds_veh.num_fish}, n_drug={ds_drug.num_fish})")
-deviance, m_veh, m_drug, m_pooled = fit_tier1(BEHAVIOR_PROCESS_FACTORY[smoke_behavior], ds_veh, ds_drug)
-print(f"Smoke test OK: deviance={deviance:.3f}, LL_veh={m_veh.log_likelihood:.2f}, "
-      f"LL_drug={m_drug.log_likelihood:.2f}, free_params={m_veh.param_names}")
+      f"(n_ref={ds_ref.num_fish}, n_test={ds_test.num_fish})")
+deviance, m_ref, m_test, m_pooled = fit_tier1(BEHAVIOR_PROCESS_FACTORY[smoke_behavior], ds_ref, ds_test)
+print(f"Smoke test OK: deviance={deviance:.3f}, LL_ref={m_ref.log_likelihood:.2f}, "
+      f"LL_test={m_test.log_likelihood:.2f}, free_params={m_ref.param_names}")
 
 
 # ===========================================================================
@@ -339,8 +116,7 @@ print(f"Smoke test OK: deviance={deviance:.3f}, LL_veh={m_veh.log_likelihood:.2f
 # ===========================================================================
 print("\nRunning Tier 1 across all lines x behaviors...")
 tier1_df = run_tier1_screen(
-    arms, lines=NTR_LINES + ["WT"], behaviors=BEHAVIORS,
-    null_process_factories=NULL_PROCESS_FACTORY, n_perm=1000,
+    arms, behaviors=BEHAVIORS, null_process_factories=NULL_PROCESS_FACTORY, n_perm=1000,
 )
 tier1_df = add_fdr_per_behavior(tier1_df, alpha=0.05)
 tier1_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
@@ -351,23 +127,20 @@ bad_fits = build_bad_fit_triage(tier1_df)
 param_df = extract_fitted_parameters(tier1_df, arms)
 param_df = compute_parameter_deltas(param_df)
 
-line_order = (
-    tier1_df[tier1_df["significant"]]
-    .groupby("line").size()
-    .reindex(sorted(param_df["line"].unique()), fill_value=0)
-    .sort_values(ascending=False).index.tolist()
-)
-
-fig, axes = plot_parameter_change_heatmaps(param_df, line_order=line_order)
-save_fig(fig, OUTPUT_DIR, "tier1_parameter_change_heatmaps")
+hits = tier1_df[tier1_df["significant"]].groupby("line").size()
+ntr_rows = sorted(NTR_LINES, key=lambda line: -hits.get(line, 0))
+rows = ["WT"] + ntr_rows + [line for line in MUTANT_REFERENCES if line in arms.contrasts]
+fig, _ = plot_tier1_map(param_df, tier1_df, BEHAVIORS, rows)
+save_fig(fig, OUTPUT_DIR, "tier1_map")
+param_df.to_csv(OUTPUT_DIR / "tier1_parameters.csv", index=False)
 
 generate_arm_surface_grids(tier1_df, arms, output_dir=OUTPUT_DIR / "arm_surface_grids")
 
-fig, axes = plot_volcano(tier1_df)
+fig, axes = plot_volcano(tier1_df[tier1_df["family"] == "ntr"])
 save_fig(fig, OUTPUT_DIR, "tier1_volcano_by_behavior")
 
-for line in NTR_LINES + ["WT"]:
-    fig = plot_fish_gain_correlation_vehicle_vs_drug(line, arms)
+for line in arms.contrasts:
+    fig = plot_fish_gain_correlation_reference_vs_test(line, arms)
     if fig is None:
         continue
     save_fig(fig, OUTPUT_DIR / "fish_gain_correlations", line)
@@ -389,7 +162,7 @@ for behavior in boot_delta_df["behavior"].unique():
 # Step 3: calibration checkpoint -- p-value histograms per behavior
 # ===========================================================================
 print("\nGenerating p-value histograms per behavior...")
-ok_df = tier1_df[tier1_df["status"] == "ok"]
+ok_df = tier1_df[(tier1_df["status"] == "ok") & (tier1_df["family"] == "ntr")]
 for behavior in BEHAVIORS:
     sub = ok_df[ok_df["behavior"] == behavior]["p_value"]
     if len(sub) < 5:
