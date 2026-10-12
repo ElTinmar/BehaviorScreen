@@ -36,6 +36,10 @@ def renewal(kernel: RateKernel) -> RenewalProcess:
     return RenewalProcess(kernel, RenewalKernelFactory.delayed_excitation())
 
 
+def dead_time_renewal(kernel: RateKernel, dead_time_s: float) -> RenewalProcess:
+    return RenewalProcess(kernel, RenewalKernelFactory.dead_time_delayed_excitation(dead_time_s))
+
+
 def hawkes(kernel: RateKernel) -> HawkesProcess:
     return HawkesProcess(kernel, HistoryKernelFactory.exponential())
 
@@ -49,11 +53,17 @@ def dataset(category: str, laterality, t_end: float, binning_dt: float = 0.05, *
     return dict(selection, category=category, laterality=laterality, binning_dt=binning_dt, t_start=0.0, t_end=t_end)
 
 
-def flat_models() -> List[PointProcess]:
-    return [poisson(flat()), gamma(poisson(flat())), zero_inflated(poisson(flat())), zero_inflated(renewal(flat()))]
+def flat_models(dead_time_s: float) -> List[PointProcess]:
+    return [
+        poisson(flat()),
+        gamma(poisson(flat())),
+        zero_inflated(poisson(flat())),
+        zero_inflated(renewal(flat())),
+        zero_inflated(dead_time_renewal(flat(), dead_time_s)),
+    ]
 
 
-def rate_models(kernel: Callable[[], RateKernel], flat_renewal: bool = True) -> List[PointProcess]:
+def rate_models(kernel: Callable[[], RateKernel], dead_time_s: float, flat_renewal: bool = True) -> List[PointProcess]:
     models = [
         poisson(flat()),
         poisson(kernel()),
@@ -62,7 +72,8 @@ def rate_models(kernel: Callable[[], RateKernel], flat_renewal: bool = True) -> 
         zero_inflated(poisson(kernel())),
         zero_inflated(renewal(kernel())),
     ]
-    return models + [zero_inflated(renewal(flat()))] if flat_renewal else models
+    models += [zero_inflated(renewal(flat()))] if flat_renewal else []
+    return models + [zero_inflated(dead_time_renewal(kernel(), dead_time_s))]
 
 
 def survival_models(*kernels: Callable[[], object]) -> List[PointProcess]:
@@ -83,8 +94,12 @@ def experiment(dataset_args: dict, models: List[PointProcess]) -> dict:
     return {"dataset": dataset_args, "null_model": null, "models": models}
 
 
-def get_model_config() -> Dict[str, dict]:
-    """Fresh (unfitted) models every call. Keep the model order: best_model.json stores an index."""
+def get_model_config(dead_time_s: float) -> Dict[str, dict]:
+    """
+    Fresh (unfitted) models every call. Keep the model order: best_model.json
+    stores an index (new models go at the end of a list). dead_time_s: the
+    dead time of the renewal models that have one (BehavioralDataLoader.dead_time).
+    """
     looming_bump = lambda: SurvivalKernelFactory.gaussian_bump_baseline(t_init=5, t_bounds=(4, 6))
     looming_habituating = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6))
     flash_bump = lambda: SurvivalKernelFactory.gaussian_bump_baseline(t_init=0.2, t_bounds=(0.01, 1))
@@ -145,18 +160,18 @@ def get_model_config() -> Dict[str, dict]:
         ),
         "phototaxis_contra": experiment(
             dataset("RT", CONTRA, 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER),
-            rate_models(RateKernelFactory.phototaxis_contra),
+            rate_models(RateKernelFactory.phototaxis_contra, dead_time_s),
         ),
-        "omr_lateral_ipsi": experiment(dataset("RT", IPSI, 9.0, epoch_name=gratings), flat_models()),
+        "omr_lateral_ipsi": experiment(dataset("RT", IPSI, 9.0, epoch_name=gratings), flat_models(dead_time_s)),
         "omr_lateral_contra": experiment(
-            dataset("RT", CONTRA, 9.0, epoch_name=gratings), rate_models(RateKernelFactory.omr_lateral_contra)
+            dataset("RT", CONTRA, 9.0, epoch_name=gratings), rate_models(RateKernelFactory.omr_lateral_contra, dead_time_s)
         ),
         "omr_forward": experiment(
             dataset("BS", NONDIRECTIONAL, 9.0, epoch_name="grating forward"),
-            rate_models(RateKernelFactory.omr_forward, flat_renewal=False),
+            rate_models(RateKernelFactory.omr_forward, dead_time_s, flat_renewal=False),
         ),
-        "okr_ipsi": experiment(dataset("S1", IPSI, 9.0, stim=Stim.OKR), flat_models()),
-        "okr_contra": experiment(dataset("S1", CONTRA, 9.0, stim=Stim.OKR), flat_models()),
+        "okr_ipsi": experiment(dataset("S1", IPSI, 9.0, stim=Stim.OKR), flat_models(dead_time_s)),
+        "okr_contra": experiment(dataset("S1", CONTRA, 9.0, stim=Stim.OKR), flat_models(dead_time_s)),
         "looming_ipsi": experiment(
             dataset("SLC", IPSI, 9.0, stim=Stim.LOOMING), survival_models(looming_bump, looming_habituating)
         ),
@@ -170,10 +185,10 @@ def get_model_config() -> Dict[str, dict]:
             ),
         ),
         "spont_dark": experiment(
-            dataset("RT", NONDIRECTIONAL, 24.0, epoch_name="spontaneous dark"), rate_models(RateKernelFactory.spont)
+            dataset("RT", NONDIRECTIONAL, 24.0, epoch_name="spontaneous dark"), rate_models(RateKernelFactory.spont, dead_time_s)
         ),
         "spont_bright": experiment(
-            dataset("RT", NONDIRECTIONAL, 24.0, epoch_name="spontaneous bright"), rate_models(RateKernelFactory.spont)
+            dataset("RT", NONDIRECTIONAL, 24.0, epoch_name="spontaneous bright"), rate_models(RateKernelFactory.spont, dead_time_s)
         ),
         "after_looming": experiment(
             dataset(

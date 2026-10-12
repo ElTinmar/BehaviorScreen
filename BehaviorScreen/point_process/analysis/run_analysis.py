@@ -41,16 +41,19 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    model_config = get_model_config()
+    loader = make_loader(args)
+    dead_time_s = loader.dead_time()
+    print(f"Dead time from all events: {dead_time_s:g} s")
+    model_config = get_model_config(dead_time_s)
 
     if args.mode == "consolidate":
-        run_consolidation_task(model_config, make_loader(args), args.output_dir)
+        run_consolidation_task(model_config, loader, args.output_dir)
         return
     if args.exp not in model_config:
         raise ValueError(f"--exp must be one of {list(model_config)} in {args.mode} mode, got {args.exp!r}")
 
     config = model_config[args.exp]
-    dataset = make_loader(args).prepare_dataset(**config["dataset"])
+    dataset = loader.prepare_dataset(**config["dataset"])
     if args.mode == "diagnostics":
         run_diagnostics_task(args.exp, dataset, args.output_dir)
     else:

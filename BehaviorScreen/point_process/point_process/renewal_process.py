@@ -239,6 +239,40 @@ class RenewalKernelFactory:
         )
 
 
+    @staticmethod
+    def dead_time_delayed_excitation(
+        dead_time_s: float,
+        shape_k: float = 2.0,
+        excitation_init: float = 1.0,
+        pulse_peak_lag_init: float = 1.0,
+        floor: float = 1e-3,
+    ) -> RenewalKernel:
+        """
+        delayed_excitation with a fixed dead time d after every event:
+
+            rho(lag) = floor                      for lag < d
+            rho(lag) = 1 + A_exc * pulse(lag)     for lag >= d
+
+        d is a constant, not a parameter (the likelihood jumps at every
+        observed gap as d moves); estimate it once from the data, e.g.
+        BehavioralDataLoader.dead_time. floor keeps a rare gap shorter than d
+        from having zero likelihood.
+        """
+        excitation = RenewalKernelFactory.delayed_excitation(shape_k, excitation_init, pulse_peak_lag_init)
+        return RenewalKernel(
+            name=f"DeadTime({dead_time_s:g}s)+{excitation.name}",
+            func=lambda lag, params: np.where(lag < dead_time_s, floor, excitation.func(lag, params)),
+            param_names=excitation.param_names,
+            initial_guesses=excitation.initial_guesses,
+            bounds=excitation.bounds,
+            latex_formula=(
+                rf"$\rho(\Delta t)=[\Delta t\geq {dead_time_s:g}]\,("
+                + excitation.latex_formula.strip("$").split("=", 1)[1]
+                + ")$"
+            ),
+        )
+
+
 class RenewalProcess(PointProcess):
     """
     Modulated renewal process: intensity depends on absolute time-in-trial

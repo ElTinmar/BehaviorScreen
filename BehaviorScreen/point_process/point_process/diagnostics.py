@@ -33,8 +33,8 @@ CHECK_LABELS = {
     "variance_stream_count": "Var events / trial",
     "variance_fish_total": "Var events / fish",
     "max_fish_total": "Max events / fish",
-    "gap_q10": "Post-event gap, 10th pct (s)",
-    "gap_median": "Post-event gap, median (s)",
+    "gap_q10": "Gap, 10th pct (s)",
+    "gap_median": "Gap, median (s)",
 }
 
 
