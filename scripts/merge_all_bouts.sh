@@ -1,0 +1,3 @@
+find /media/martin/DATA_18TB/Screen -name bouts.csv  | xargs python -m BehaviorScreen.merge_csv /media/martin/DATA_18TB/Screen -o bouts_all.csv
+find /media/martin/DATA_18TB/Screen -name qc.csv  | xargs python -m BehaviorScreen.merge_csv /media/martin/DATA_18TB/Screen -o qc_all.csv
+find /media/martin/DATA_18TB/Screen -name valid_trials.csv  | xargs python -m BehaviorScreen.merge_csv /media/martin/DATA_18TB/Screen -o valid_trials_all.csv

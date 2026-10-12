@@ -1,11 +1,13 @@
+import copy
 from dataclasses import dataclass
 from pathlib import Path
 from itertools import groupby
 from functools import cached_property
-from typing import List, Optional, Union, Tuple, ClassVar, Dict
+from typing import Any, List, Optional, Sequence, Union, Tuple, ClassVar, Dict
 import numpy as np
 import pandas as pd
 from BehaviorScreen.core import Stim, Laterality
+from BehaviorScreen.stim_specs import exclude_qc_fish
 from megabouts.utils import bouts_category_name_short
 from scipy.special import gammaln
 from scipy.stats import norm
@@ -24,10 +26,11 @@ class PointProcessDataset:
     fish_trial_mask: np.ndarray
 
     fish_ids: np.ndarray
-    bout_name: str = ""
+    category_label: str = ""
     laterality: str = ""
     duration_s: float = 24.0
     binning_dt: float = 0.02
+    event_marks: Optional[np.ndarray] = None  # event category, for marked models
 
     @property
     def num_fish(self) -> int:
@@ -261,6 +264,7 @@ class PointProcessDataset:
         boot_times = []
         boot_trials = []
         boot_fish = []
+        boot_marks = []
 
         for new_id, orig_id in enumerate(boot_fish_idx):
             mask = self.event_fish_idx == orig_id
@@ -268,6 +272,8 @@ class PointProcessDataset:
                 boot_times.append(self.event_times[mask])
                 boot_trials.append(self.event_trials_idx[mask])
                 boot_fish.append(np.full(np.sum(mask), new_id, dtype=int))
+                if self.event_marks is not None:
+                    boot_marks.append(self.event_marks[mask])
 
         return PointProcessDataset(
             event_times=(
@@ -283,173 +289,193 @@ class PointProcessDataset:
             fish_ids=self.fish_ids[boot_fish_idx],
             duration_s=self.duration_s,
             binning_dt=self.binning_dt,
-            bout_name=self.bout_name,
+            category_label=self.category_label,
             laterality=self.laterality,
+            event_marks=(
+                None
+                if self.event_marks is None
+                else np.concatenate(boot_marks) if boot_marks else np.array([], dtype=int)
+            ),
         )
 
 
 class BehavioralDataLoader:
+    """
+    Events (bouts or saccades) and the trial table (valid_trials.csv) they
+    belong to. Fish listed in any qc.csv are dropped from both.
+
+    A stream is one trial, (file, epoch_name, trial_num): epochs pooled into
+    one condition (left/right, ipsi/contra) never share a stream. Their trial
+    index is the order of presentation within the condition across the whole
+    screen, so it equals trial_num for a single epoch and is the same in
+    every subset.
+    """
+
     def __init__(
         self,
-        csv_path: Union[Path, str],
-        valid_trials_csv_path: Optional[Union[Path, str]] = None,
-    ):
-        self.raw_df = pd.read_csv(csv_path)
-        self.raw_df["line"] = self.raw_df["line"].astype(str)
+        events_csv: Path,
+        valid_trials_csvs: Sequence[Path],
+        qc_csvs: Sequence[Path] = (),
+        category_column: str = "category",
+        category_names: Optional[Sequence[str]] = bouts_category_name_short,
+    ) -> None:
+        read = lambda path: pd.read_csv(path, dtype={"line": str, "condition": str}, low_memory=False)
+        events = read(events_csv)
+        trials = pd.concat([read(p) for p in valid_trials_csvs], ignore_index=True)
+        for qc_csv in qc_csvs:
+            events = exclude_qc_fish(events, qc_csv)
+            trials = exclude_qc_fish(trials, qc_csv)
 
-        self.valid_trials_df: Optional[pd.DataFrame] = None
-        if valid_trials_csv_path is not None:
-            df = pd.read_csv(valid_trials_csv_path)
-            df["presented"] = df["presented"].astype(bool)
-            df["tracking_ok"] = df["tracking_ok"].astype(bool)
-            df["usable"] = df["presented"] & df["tracking_ok"]
-            self.valid_trials_df = df
-
-    def _active_pairs(
-        self,
-        sub_df: pd.DataFrame,
-        fish_map: Dict[str, int],
-        n_trials: int,
-    ) -> pd.DataFrame:
-        """
-        (file, trial_num) pairs entering the risk set: trials marked USABLE
-        in valid_trials.csv (BehaviorScreen.qc.quality_control), i.e. both
-        PRESENTED (epoch actually happened, with matching stimulus
-        parameters) AND TRACKING_OK (online/offline tracking agreed
-        throughout the trial window). These are independent axes computed
-        upstream -- see qc.py -- combined here into one risk-set filter.
-
-        Falls back to bout-derived presence if valid_trials_csv_path wasn't
-        provided (KNOWN LIMITATION: `sub_df` still contains one row per
-        detected bout EVENT of ANY category/laterality, so a (fish,
-        trial_num) pair is only marked present if that fish produced >=1
-        bout of ANY kind that trial -- indistinguishable from a trial that
-        was never presented or never properly tracked. This biases every
-        fitted rate UPWARD and every dispersion diagnostic DOWNWARD).
-        """
-        matched_epoch_names = sub_df["epoch_name"].unique().tolist()
-
-        if self.valid_trials_df is not None:
-            valid = self.valid_trials_df
-            valid = valid[valid.epoch_name.isin(matched_epoch_names)]
-            valid = valid[valid.usable]
-            active_pairs = valid[["file", "trial_num"]].drop_duplicates()
-        else:
+        if trials.duplicated(["file", "epoch_name", "trial_num"]).any():
+            raise ValueError("valid_trials lists the same (file, epoch_name, trial_num) twice")
+        without_trials = set(events["file"]) - set(trials["file"])
+        if without_trials:
             print(
-                "WARNING: no valid_trials_csv_path provided -- falling back to "
-                "bout-derived presence, which cannot distinguish 'never presented "
-                "/ untracked' from 'presented, tracked, genuinely zero bouts'."
+                f"[warn] {len(without_trials)} fish have events but no row in valid_trials; "
+                "their events are ignored"
             )
-            active_pairs = sub_df[["file", "trial_num"]].drop_duplicates()
 
-        active_pairs = active_pairs[active_pairs.file.isin(fish_map.keys())]
-        active_pairs = active_pairs[active_pairs.trial_num < n_trials]
-        return active_pairs
+        self.events = events.dropna(subset=["epoch_name", "trial_num"]).astype({"trial_num": int})
+        self.trials = trials.astype({"presented": bool, "tracking_ok": bool})
+        self.screen_trials = self.trials
+        self.category_column = category_column
+        self.category_names = category_names
+
+    def _category_codes(self, category: Union[str, int, Sequence[Union[str, int]]]) -> List[int]:
+        values = [category] if isinstance(category, (str, int)) else list(category)
+        if any(isinstance(v, str) for v in values) and self.category_names is None:
+            raise ValueError(f"category names unknown for {self.category_column}; use codes")
+        return [self.category_names.index(v) if isinstance(v, str) else int(v) for v in values]
+
+    @staticmethod
+    def _select_trials(
+        trials: pd.DataFrame,
+        stim: Optional[Union[Stim, int]],
+        epoch_name: Optional[Union[str, Sequence[str]]],
+        trial_filters: Optional[Dict[str, Any]],
+    ) -> pd.DataFrame:
+        if stim is not None:
+            trials = trials[trials["stim"] == int(stim)]
+        elif epoch_name is not None:
+            names = [epoch_name] if isinstance(epoch_name, str) else list(epoch_name)
+            trials = trials[trials["epoch_name"].isin(names)]
+        else:
+            raise ValueError("Either 'stim' or 'epoch_name' must be provided.")
+        for column, value in (trial_filters or {}).items():
+            trials = trials[trials[column] == value]
+        return trials
+
+    def _condition_trials(
+        self,
+        stim: Optional[Union[Stim, int]],
+        epoch_name: Optional[Union[str, Sequence[str]]],
+        trial_filters: Optional[Dict[str, Any]],
+    ) -> Tuple[pd.DataFrame, int]:
+        """Expected trials of the condition with their trial index `trial`, and the number of trials."""
+        keys = ["epoch_name", "trial_num"]
+        presentation_order = (
+            self._select_trials(self.screen_trials, stim, epoch_name, trial_filters)
+            .groupby(keys)["epoch_idx"]
+            .median()
+            .dropna()
+            .sort_values()
+        )
+        trials = self._select_trials(self.trials, stim, epoch_name, trial_filters)
+        if trials.empty or presentation_order.empty:
+            raise ValueError(
+                f"No trials for stim={stim!r}, epoch_name={epoch_name!r}, "
+                f"trial_filters={trial_filters!r}"
+            )
+        trial_index = pd.Series(
+            np.arange(len(presentation_order)), index=presentation_order.index, name="trial"
+        )
+        return trials.merge(trial_index.reset_index(), on=keys), len(trial_index)
+
+    def subset(
+        self, line: Optional[str] = None, conditions: Optional[Sequence[str]] = None
+    ) -> "BehavioralDataLoader":
+        """
+        The same screen restricted to a line and/or conditions (columns added
+        by merge_csv). Trial indices stay those of the whole screen.
+        """
+        def keep(table: pd.DataFrame) -> pd.DataFrame:
+            if "line" not in table.columns or "condition" not in table.columns:
+                raise ValueError("subset needs 'line' and 'condition' columns (merge with merge_csv)")
+            mask = np.ones(len(table), dtype=bool)
+            if line is not None:
+                mask &= table["line"].astype(str) == line
+            if conditions is not None:
+                mask &= table["condition"].isin(conditions)
+            return table[mask]
+
+        subset = copy.copy(self)
+        subset.events, subset.trials = keep(self.events), keep(self.trials)
+        return subset
 
     def prepare_dataset(
         self,
-        bout_name: Union[str, List[str]],
-        laterality: Union[Laterality, str, List[Union[Laterality, str]]],
-        stim: Optional[Union[Stim, str]] = None,
-        epoch_name: Optional[Union[str, List[str]]] = None,
+        category: Union[str, int, Sequence[Union[str, int]]],
+        laterality: Union[Laterality, Sequence[Laterality]],
+        stim: Optional[Union[Stim, int]] = None,
+        epoch_name: Optional[Union[str, Sequence[str]]] = None,
+        trial_filters: Optional[Dict[str, Any]] = None,
         binning_dt: float = 0.02,
         t_start: float = 0.0,
         t_end: float = 24.0,
     ) -> PointProcessDataset:
-
-        bout_names = [bout_name] if isinstance(bout_name, str) else list(bout_name)
-        lateralities = (
-            [laterality]
-            if isinstance(laterality, (str, Laterality))
-            else list(laterality)
+        """
+        Streams are the usable trials (presented and tracked) lasting at least
+        t_end; events are those of the requested categories and lateralities
+        within [t_start, t_end) of these trials.
+        """
+        codes = self._category_codes(category)
+        lateralities = [laterality] if isinstance(laterality, int) else list(laterality)
+        category_label = "+".join(
+            self.category_names[c] if self.category_names is not None else str(c) for c in codes
         )
-        bout_label = "+".join(bout_names)
-        laterality_label = "+".join(str(l) for l in lateralities)
+        laterality_label = "+".join(Laterality(int(l)).name for l in lateralities)
+        label = f"{category_label}/{laterality_label}"
 
-        sub_df = self.raw_df
-        if stim is not None:
-            sub_df = sub_df[sub_df["stim"] == stim]
-            if stim == Stim.PHOTOTAXIS or stim == "phototaxis":
-                sub_df = sub_df[sub_df["foreground_color"] == "[0.1, 0.1, 0.0, 1.0]"]
-        elif epoch_name is not None:
-            if isinstance(epoch_name, list):
-                sub_df = sub_df[sub_df["epoch_name"].isin(epoch_name)]
-            else:
-                sub_df = sub_df[sub_df["epoch_name"] == epoch_name]
-        else:
-            raise ValueError(
-                "Either 'stim' or 'epoch_name' must be provided to filter dataset."
-            )
+        trials, n_trials = self._condition_trials(stim, epoch_name, trial_filters)
+        usable = trials["presented"] & trials["tracking_ok"]
+        too_short = usable & (trials["trial_duration_s"] < t_end)
+        if too_short.any():
+            print(f"[{label}] {too_short.sum()} usable trials shorter than t_end={t_end}s left out")
+        streams = trials.loc[usable & ~too_short, ["file", "epoch_name", "trial_num", "trial"]]
+        if streams.empty:
+            raise ValueError(f"[{label}] no usable trial lasting at least t_end={t_end}s")
 
-        if sub_df.empty:
-            raise ValueError(
-                f"No rows remain after filtering by stim/epoch_name "
-                f"(stim={stim!r}, epoch_name={epoch_name!r}) -- check that this "
-                f"line/condition combination was actually run under this stimulus."
-            )
+        fish_ids = np.sort(streams["file"].unique())
+        fish_map = {f_id: idx for idx, f_id in enumerate(fish_ids)}
+        fish_trial_mask = np.zeros((len(fish_ids), n_trials), dtype=bool)
+        fish_trial_mask[streams["file"].map(fish_map).to_numpy(), streams["trial"].to_numpy()] = True
 
-        all_fish_ids = np.sort(sub_df["file"].unique())
-        unique_trials = np.sort(sub_df["trial_num"].unique())
+        events = self.events.merge(streams, on=["file", "epoch_name", "trial_num"])
+        events = events[
+            events[self.category_column].isin(codes)
+            & events["laterality"].isin([int(l) for l in lateralities])
+            & (events["trial_time"] >= t_start)
+            & (events["trial_time"] < t_end)
+        ]
 
-        n_trials = len(unique_trials)
-        expected = np.arange(n_trials)
-        if not np.array_equal(unique_trials, expected):
-            raise ValueError(
-                f"'trial_num' is expected to be a zero-based, contiguous index "
-                f"(0..{n_trials - 1}) after filtering by stim/epoch_name, but got "
-                f"unique values {unique_trials.tolist()}. This usually means a "
-                f"trial had zero surviving rows after filtering, breaking "
-                f"contiguity. PointProcessDataset and every RateKernel/HistoryKernel "
-                f"assume trial_num IS the positional trial index"
-            )
-
-        fish_map = {f_id: idx for idx, f_id in enumerate(all_fish_ids)}
-
-        n_fish = len(all_fish_ids)
-        fish_trial_mask = np.zeros((n_fish, n_trials), dtype=bool)
-
-        active_pairs = self._active_pairs(sub_df, fish_map, n_trials)
-
-        f_indices = active_pairs["file"].map(fish_map)
-        valid_idx = f_indices.notna()
-        f_indices = f_indices[valid_idx].astype(int).values
-        t_indices = active_pairs.loc[valid_idx, "trial_num"].values
-        fish_trial_mask[f_indices, t_indices] = True
-
-        occupancy = fish_trial_mask.mean()
-        min_fish_per_trial = fish_trial_mask.sum(axis=0).min()
-        min_trials_per_fish = fish_trial_mask.sum(axis=1).min()
         print(
-            f"[{bout_label}/{laterality_label}] fish_trial_mask occupancy: {occupancy:.1%} "
-            f"({n_fish} fish x {n_trials} trials); "
-            f"min fish/trial = {min_fish_per_trial}, min trials/fish = {min_trials_per_fish}"
+            f"[{label}] fish_trial_mask occupancy: {fish_trial_mask.mean():.1%} "
+            f"({len(fish_ids)} fish x {n_trials} trials); "
+            f"min fish/trial = {fish_trial_mask.sum(axis=0).min()}, "
+            f"min trials/fish = {fish_trial_mask.sum(axis=1).min()}"
         )
-
-        bout_idx = [bouts_category_name_short.index(b) for b in bout_names]
-        is_target_event = sub_df["category"].isin(bout_idx) & sub_df["laterality"].isin(
-            lateralities
-        )
-        event_mask = (
-            is_target_event
-            & (sub_df["trial_time"] >= t_start)
-            & (sub_df["trial_time"] < t_end)
-        )
-        events = sub_df[event_mask]
-
-        event_times = (events["trial_time"] - t_start).values.astype(float)
-        event_trials_idx = events["trial_num"].values.astype(int)
-        event_fish_idx = events["file"].map(fish_map).values.astype(int)
 
         return PointProcessDataset(
-            event_times=event_times,
-            event_trials_idx=event_trials_idx,
-            event_fish_idx=event_fish_idx,
+            event_times=(events["trial_time"] - t_start).to_numpy(float),
+            event_trials_idx=events["trial"].to_numpy(int),
+            event_fish_idx=events["file"].map(fish_map).to_numpy(int),
             fish_trial_mask=fish_trial_mask,
-            fish_ids=all_fish_ids,
+            fish_ids=fish_ids,
             duration_s=t_end - t_start,
             binning_dt=binning_dt,
-            bout_name=bout_label,
+            category_label=category_label,
             laterality=laterality_label,
+            event_marks=events[self.category_column].to_numpy(int),
         )
 
 
@@ -1171,9 +1197,8 @@ class DatasetPlotter:
         """
         Number of fish observed (per fish_trial_mask) in each trial.
 
-        Flags attrition across the session (lost tracking, or the
-        "zero-bout-of-any-category" masking gap noted in
-        BehavioralDataLoader.prepare_dataset). Trials with few observed fish
+        Flags attrition across the session (unusable or short trials).
+        Trials with few observed fish
         give unreliable rate estimates in plot_psth / plot_time_trial_rate_heatmap
         and should be discounted accordingly.
         """
@@ -1498,7 +1523,7 @@ class DatasetPlotter:
                 norm.pdf(x, p_pop, se_null),
                 "r--",
                 linewidth=2,
-                label=f"Binomial null (p={p_pop:.2f}, mean n={mean_n:.1f})",
+                label=f"Binomial null, normal approx. (p={p_pop:.2f}, mean n={mean_n:.1f})",
             )
         ax.set_xlabel("Fraction of trials responded")
         ax.set_ylabel("Density")

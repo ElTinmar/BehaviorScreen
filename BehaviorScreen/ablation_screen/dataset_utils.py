@@ -1,47 +1,29 @@
 """
-Line/condition subsetting on top of BehavioralDataLoader, plus model-free
-per-fish summary statistics used as a fallback when a parametric fit is
-flagged (see model_qc.py).
+Dataset building that tolerates missing data, plus model-free per-fish
+summary statistics used as a fallback when a parametric fit is flagged
+(see model_qc.py).
 """
 import warnings
-from typing import List, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
 
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader, PointProcessDataset
-
-
-def subset_loader(
-    loader: BehavioralDataLoader,
-    line: Optional[str] = None,
-    conditions: Optional[List[str]] = None,
-) -> BehavioralDataLoader:
-    """Cheap: shares/filters the underlying DataFrame, no CSV re-read."""
-    df = loader.raw_df
-    if line is not None:
-        df = df[df["line"] == line]
-    if conditions is not None:
-        df = df[df["condition"].isin(conditions)]
-
-    new_loader = BehavioralDataLoader.__new__(BehavioralDataLoader)
-    new_loader.raw_df = df.reset_index(drop=True)
-    return new_loader
+from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader, PointProcessDataset
 
 
 def safe_prepare_dataset(
     loader: BehavioralDataLoader, dataset_config: dict, context: str = ""
 ) -> Optional[PointProcessDataset]:
     """
-    prepare_dataset() raises ValueError on data problems (empty slice,
-    discontiguous trial_num after filtering). Catches broadly since a single
-    bad (line, condition, behavior) combination should never crash a
-    40-line x 12-behavior batch run.
+    None when the data cannot form a dataset (no trials, no usable trial):
+    one empty (line, condition, behavior) cell must not stop a batch run.
+    The loader raises ValueError for every such data problem.
     """
     try:
         return loader.prepare_dataset(**dataset_config)
-    except Exception as e:  # noqa: BLE001
-        warnings.warn(f"[{context}] skipped (data issue): {type(e).__name__}: {e}")
+    except ValueError as e:
+        warnings.warn(f"[{context}] skipped (data issue): {e}")
         return None
 
 

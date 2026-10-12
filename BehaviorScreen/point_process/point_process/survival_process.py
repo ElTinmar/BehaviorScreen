@@ -325,28 +325,36 @@ class SurvivalProcess(PointProcess):
 
     # -- Likelihood -----------------------------------------------------------
 
-    def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
-        total = 0.0
-        for f_idx, t_idx, t_ev in dataset.iter_streams():
-            t_obs, censored = self._first_event_or_censor(t_ev, dataset.duration_s)
-
-            H = float(
-                self.kernel.integrate(
-                    duration_s=t_obs,
-                    trial=t_idx,
-                    params=params,
-                    integration_dt=self.integration_dt,
+    def _first_passage(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """Per stream: fish, trial, observation time, censored, and cumulative hazard there."""
+        fish, trial, t_obs, censored = (
+            np.array(column)
+            for column in zip(
+                *(
+                    (f_idx, t_idx, *self._first_event_or_censor(t_ev, dataset.duration_s))
+                    for f_idx, t_idx, t_ev in dataset.iter_streams()
                 )
             )
+        )
+        H = np.empty(len(t_obs))
+        for tr in np.unique(trial):
+            in_trial = trial == tr
+            H[in_trial] = self.kernel.cumulative_integrate(
+                t_obs[in_trial], tr, params, integration_dt=self.integration_dt
+            )
+        return fish, trial, t_obs, censored, H
 
-            if censored:
-                total += H
-            else:
-                h = self.kernel.evaluate(
-                    np.array([t_obs]), np.array([float(t_idx)]), params
-                )[0]
-                total += H - np.log(max(h, 1e-12))
-        return total
+    def _log_hazard_at_events(
+        self, trial: np.ndarray, t_obs: np.ndarray, censored: np.ndarray, params: List[float]
+    ) -> float:
+        h = self.kernel.evaluate(t_obs[~censored], trial[~censored].astype(float), params)
+        return float(np.sum(np.log(np.maximum(h, 1e-12))))
+
+    def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
+        _, trial, t_obs, censored, H = self._first_passage(dataset, params)
+        return float(np.sum(H)) - self._log_hazard_at_events(trial, t_obs, censored, params)
 
     def mixed_effects_likelihood_terms(
         self, dataset: PointProcessDataset, params: List[float]
@@ -357,31 +365,10 @@ class SurvivalProcess(PointProcess):
         fish's trials of Lambda(t_obs) -- exactly the sufficient statistic
         a Gamma-frailty survival model needs (Vaupel, Manton & Stallard 1979).
         """
-        N_f = np.zeros(dataset.num_fish, dtype=float)
-        S_f = np.zeros(dataset.num_fish, dtype=float)
-        base_ll = 0.0
-
-        for f_idx, t_idx, t_ev in dataset.iter_streams():
-            t_obs, censored = self._first_event_or_censor(t_ev, dataset.duration_s)
-
-            H = float(
-                self.kernel.integrate(
-                    duration_s=t_obs,
-                    trial=t_idx,
-                    params=params,
-                    integration_dt=self.integration_dt,
-                )
-            )
-            S_f[f_idx] += H
-
-            if not censored:
-                N_f[f_idx] += 1.0
-                h = self.kernel.evaluate(
-                    np.array([t_obs]), np.array([float(t_idx)]), params
-                )[0]
-                base_ll += np.log(max(h, 1e-12))
-
-        return base_ll, N_f, S_f
+        fish, trial, t_obs, censored, H = self._first_passage(dataset, params)
+        N_f = np.bincount(fish[~censored], minlength=dataset.num_fish).astype(float)
+        S_f = np.bincount(fish, weights=H, minlength=dataset.num_fish)
+        return self._log_hazard_at_events(trial, t_obs, censored, params), N_f, S_f
 
     # -- Prediction / population-level curves --------------------------------
 

@@ -26,8 +26,8 @@ from typing import Callable, Dict, List, Optional
 import numpy as np
 import joblib
 
-from BehaviorScreen.point_process.point_process import PointProcess
-from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.point_process import PointProcess
+from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
 from .param_links import BoundedLink
 
 

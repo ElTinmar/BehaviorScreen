@@ -11,18 +11,15 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy as np
-import re
 
 from BehaviorScreen.core import Stim, Laterality
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader
-from BehaviorScreen.point_process.poisson_process import PoissonProcess, RateKernelFactory, PreyCapture
-from BehaviorScreen.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
-from BehaviorScreen.point_process.mixed_effects_process import GammaMixedEffectsProcess
-from BehaviorScreen.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
-from BehaviorScreen.point_process.io import save_fig
-
-
-from BehaviorScreen.point_process.partially_fixed_process import PartiallyFixedProcess
+from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
+from BehaviorScreen.point_process.point_process.poisson_process import PoissonProcess, RateKernelFactory, PreyCapture
+from BehaviorScreen.point_process.point_process.hawkes_process import HawkesProcess, HistoryKernelFactory
+from BehaviorScreen.point_process.point_process.mixed_effects_process import GammaMixedEffectsProcess
+from BehaviorScreen.point_process.point_process.survival_process import SurvivalProcess, SurvivalKernelFactory
+from BehaviorScreen.point_process.point_process.io import save_fig
+from BehaviorScreen.point_process.point_process.partially_fixed_process import PartiallyFixedProcess
 from BehaviorScreen.ablation_screen.tier1_omnibus import (
     run_tier1_screen, 
     tier1_permutation_test, 
@@ -39,29 +36,18 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
 )
 from BehaviorScreen.ablation_screen.fdr import add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
-from BehaviorScreen.ablation_screen.dataset_utils import subset_loader, safe_prepare_dataset
+from BehaviorScreen.ablation_screen.dataset_utils import safe_prepare_dataset
 from BehaviorScreen.ablation_screen.dataset_ops import select_fish
-
-
-def slugify(name: str) -> str:
-    """Turn an arbitrary model/condition name into a filesystem-safe filename fragment."""
-    name = name.strip()
-    name = re.sub(r"[^\w\-.]+", "_", name)   # anything not alnum/_/-/. -> underscore
-    return re.sub(r"_+", "_", name).strip("_")
-
-def save_fig(fig: plt.Figure, out_dir: Path, filename: str, dpi: int = 150) -> Path:
-    """Save fig as PNG under out_dir/filename (creating out_dir if needed) and return the path."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{slugify(filename)}.png"
-    fig.savefig(path, dpi=dpi, bbox_inches="tight")
-    return path
 
 
 OUTPUT_DIR = Path("./tier1_results")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 ROOT = Path('/media/martin/DATA_18TB/Screen')
-loader = BehavioralDataLoader(ROOT / "bouts_all.csv")
+# Tables merged across screen folders with merge_csv (adds line/condition columns)
+loader = BehavioralDataLoader(
+    ROOT / "bouts_all.csv", [ROOT / "valid_trials_all.csv"], [ROOT / "qc_all.csv"]
+)
 
 prey_stim_speed_deg_per_s = 90
 prey_stim_range_deg = 2 * 70
@@ -78,7 +64,7 @@ BEHAVIOR_CONFIG = {
 
     'prey_capture_ipsi': {
         'dataset': {
-            'stim': Stim.PREY_CAPTURE, 'bout_name': 'JT',
+            'stim': Stim.PREY_CAPTURE, 'category': 'JT',
             'laterality': Laterality.IPSILATERAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
         },
@@ -107,7 +93,7 @@ BEHAVIOR_CONFIG = {
 
     'prey_capture_contra': {
         'dataset': {
-            'stim': Stim.PREY_CAPTURE, 'bout_name': 'JT',
+            'stim': Stim.PREY_CAPTURE, 'category': 'JT',
             'laterality': Laterality.CONTRALATERAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
         },
@@ -121,7 +107,8 @@ BEHAVIOR_CONFIG = {
 
     'phototaxis_ipsi': {
         'dataset': {
-            'stim': Stim.PHOTOTAXIS, 'bout_name': 'RT',
+            'stim': Stim.PHOTOTAXIS, 'category': 'RT',
+            'trial_filters': {'foreground_color': '[0.1, 0.1, 0.0, 1.0]'},
             'laterality': Laterality.IPSILATERAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
         },
@@ -140,7 +127,8 @@ BEHAVIOR_CONFIG = {
 
     'phototaxis_contra': {
         'dataset': {
-            'stim': Stim.PHOTOTAXIS, 'bout_name': 'RT',
+            'stim': Stim.PHOTOTAXIS, 'category': 'RT',
+            'trial_filters': {'foreground_color': '[0.1, 0.1, 0.0, 1.0]'},
             'laterality': Laterality.CONTRALATERAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 24.0,
         },
@@ -159,7 +147,7 @@ BEHAVIOR_CONFIG = {
 
     'omr_lateral_ipsi': {
         'dataset': {
-            'epoch_name': ["grating right", "grating left"], 'bout_name': 'RT',
+            'epoch_name': ["grating right", "grating left"], 'category': 'RT',
             'laterality': Laterality.IPSILATERAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
@@ -181,7 +169,7 @@ BEHAVIOR_CONFIG = {
 
     'omr_lateral_contra': {
         'dataset': {
-            'epoch_name': ["grating right", "grating left"], 'bout_name': 'RT',
+            'epoch_name': ["grating right", "grating left"], 'category': 'RT',
             'laterality': Laterality.CONTRALATERAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
@@ -195,7 +183,7 @@ BEHAVIOR_CONFIG = {
 
     'omr_forward': {
         'dataset': {
-            'epoch_name': "grating forward", 'bout_name': 'BS',
+            'epoch_name': "grating forward", 'category': 'BS',
             'laterality': Laterality.NONDIRECTIONAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
@@ -209,7 +197,7 @@ BEHAVIOR_CONFIG = {
 
     'okr_ipsi': {
         'dataset': {
-            'stim': Stim.OKR, 'bout_name': 'S1',
+            'stim': Stim.OKR, 'category': 'S1',
             'laterality': Laterality.IPSILATERAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
@@ -226,7 +214,7 @@ BEHAVIOR_CONFIG = {
 
     'okr_contra': {
         'dataset': {
-            'stim': Stim.OKR, 'bout_name': 'S1',
+            'stim': Stim.OKR, 'category': 'S1',
             'laterality': Laterality.CONTRALATERAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
@@ -247,7 +235,7 @@ BEHAVIOR_CONFIG = {
 
     'looming_ipsi': {
         'dataset': {
-            'stim': Stim.LOOMING, 'bout_name': 'SLC',
+            'stim': Stim.LOOMING, 'category': 'SLC',
             'laterality': Laterality.IPSILATERAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
@@ -266,7 +254,7 @@ BEHAVIOR_CONFIG = {
 
     'looming_contra': {
         'dataset': {
-            'stim': Stim.LOOMING, 'bout_name': 'SLC',
+            'stim': Stim.LOOMING, 'category': 'SLC',
             'laterality': Laterality.CONTRALATERAL,
             'binning_dt': 0.1, 't_start': 0.0, 't_end': 9.0,
         },
@@ -285,7 +273,7 @@ BEHAVIOR_CONFIG = {
 
     'dark_flash': {
         'dataset': {
-            'epoch_name': "flash dark", 'bout_name': 'O',
+            'epoch_name': "flash dark", 'category': 'O',
             'laterality': Laterality.NONDIRECTIONAL,
             'binning_dt': 0.025, 't_start': 0.0, 't_end': 5.0,
         },
@@ -310,7 +298,7 @@ print("Per-behavior free parameters (everything else pinned in BEHAVIOR_CONFIG):
 for behavior in BEHAVIORS:
     print(f"  {behavior}: free={BEHAVIOR_PROCESS_FACTORY[behavior]().param_names}")
 
-all_lines = sorted(loader.raw_df["line"].astype(str).unique())
+all_lines = sorted(loader.trials["line"].astype(str).unique())
 STRAIGHT_MUTANTS = {"lak", "gr", "mecp2", "cort", "wik", "AB"}
 NTR_LINES = [l for l in all_lines if l not in STRAIGHT_MUTANTS and l != "WT"]
 LINE_LABELS = {"WT": ("danieau", "ronidazole")}
@@ -324,8 +312,8 @@ def find_first_valid_cell(loader, lines, behaviors, dataset_configs, line_labels
     for line in lines:
         veh_label, drug_label = line_labels.get(line, default_labels)
         for behavior in behaviors:
-            ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_configs[behavior])
-            ds_drug = safe_prepare_dataset(subset_loader(loader, line, [drug_label]), dataset_configs[behavior])
+            ds_veh = safe_prepare_dataset(loader.subset(line, [veh_label]), dataset_configs[behavior])
+            ds_drug = safe_prepare_dataset(loader.subset(line, [drug_label]), dataset_configs[behavior])
             if ds_veh is not None and ds_drug is not None and ds_veh.num_fish >= 3 and ds_drug.num_fish >= 3:
                 return line, behavior, ds_veh, ds_drug
     return None, None, None, None
@@ -428,7 +416,7 @@ for behavior in BEHAVIORS:
 # ===========================================================================
 print("\nRunning WT split-half negative control...")
 for behavior in BEHAVIORS:
-    ds_wt = safe_prepare_dataset(subset_loader(loader, "WT", ["danieau"]), DATASET_CONFIGS[behavior])
+    ds_wt = safe_prepare_dataset(loader.subset("WT", ["danieau"]), DATASET_CONFIGS[behavior])
     if ds_wt is None or ds_wt.num_fish < 10:
         continue
     null_ps = []

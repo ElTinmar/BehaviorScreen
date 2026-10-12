@@ -11,10 +11,8 @@ def collect_fish_gains(
     models_and_datasets: Dict[str, Tuple[PointProcess, PointProcessDataset]],
 ) -> pd.DataFrame:
     """
-    models_and_datasets: {behavior_name: (fitted_model, dataset)}. Only
-    models exposing estimate_fish_gains (GammaMixedEffectsProcess, or any
-    wrapper delegating to one) contribute rows; others are skipped
-    silently.
+    models_and_datasets: {behavior_name: (fitted_model, dataset)}. Models
+    without fish gains (estimate_fish_gains not implemented) are skipped.
 
     Returns long format: one row per (fish_id, behavior, estimated_gain).
     fish_id comes from dataset.fish_ids -- the real, dataset-independent
@@ -23,20 +21,12 @@ def collect_fish_gains(
     """
     records = []
     for behavior, (model, dataset) in models_and_datasets.items():
-        if not hasattr(model, "estimate_fish_gains"):
-            continue
-        if dataset.fish_ids is None:
-            raise ValueError(
-                f"[{behavior}] dataset.fish_ids is None -- this dataset was built "
-                f"without fish identity tracking. collect_fish_gains needs it to "
-                f"join fish correctly across behaviors."
-            )
         try:
             gains = model.estimate_fish_gains(dataset)
-        except Exception:
+        except NotImplementedError:
+            print(f"[{behavior}] {model.name} has no fish gains; skipped")
             continue
 
-        gains = gains.copy()
         gains["fish_id"] = dataset.fish_ids[gains["fish_idx"].values]
         gains["behavior"] = behavior
         records.append(gains[["fish_id", "behavior", "estimated_gain"]])

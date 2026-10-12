@@ -166,6 +166,7 @@ class HawkesProcess(PointProcess):
         self,
         t_events: np.ndarray,
         trial: float,
+        base_integral: float,
         duration_s: float,
         params_base: List[float],
         params_history: List[float],
@@ -184,12 +185,6 @@ class HawkesProcess(PointProcess):
         intensity = base_rates + history_rates
         sum_log_intensity = np.sum(np.log(intensity))
 
-        base_integral = self.kernel.integrate(
-            duration_s,
-            trial,
-            params_base,
-            integration_dt=self.integration_dt,
-        )
         remaining_time = duration_s - t_events
         history_integrals = self.history_kernel.integrate(
             remaining_time,
@@ -200,13 +195,27 @@ class HawkesProcess(PointProcess):
 
         return -(sum_log_intensity - (base_integral + total_history_integral))
 
+    def _trial_integrals(self, dataset: PointProcessDataset, params_base: List[float]) -> np.ndarray:
+        return self.kernel.integrate(
+            dataset.duration_s,
+            np.arange(dataset.num_trials),
+            params_base,
+            integration_dt=self.integration_dt,
+        )
+
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         params_base, params_history = self._split_params(params)
+        trial_integrals = self._trial_integrals(dataset, params_base)
         total_nll = 0.0
 
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             total_nll += self._hawkes_nll(
-                t_ev, t_idx, dataset.duration_s, params_base, params_history
+                t_ev,
+                t_idx,
+                trial_integrals[t_idx],
+                dataset.duration_s,
+                params_base,
+                params_history,
             )
 
         return total_nll
@@ -313,6 +322,7 @@ class HawkesProcess(PointProcess):
     ) -> Tuple[float, np.ndarray, np.ndarray]:
 
         params_base, params_history = self._split_params(params)
+        trial_integrals = self._trial_integrals(dataset, params_base)
 
         N_f = np.zeros(dataset.num_fish, dtype=float)
         S_f = np.zeros(dataset.num_fish, dtype=float)
@@ -328,19 +338,13 @@ class HawkesProcess(PointProcess):
                 intensity = np.maximum(base_rates + history_rates, 1e-12)
                 base_ll += float(np.sum(np.log(intensity)))
 
-            base_integral = self.kernel.integrate(
-                dataset.duration_s,
-                t_idx,
-                params_base,
-                integration_dt=self.integration_dt,
-            )
             remaining_time = dataset.duration_s - t_ev
             history_integrals = self.history_kernel.integrate(
                 remaining_time,
                 params_history,
                 integration_dt=self.integration_dt,
             )
-            S_f[f_idx] += base_integral + float(np.sum(history_integrals))
+            S_f[f_idx] += trial_integrals[t_idx] + float(np.sum(history_integrals))
 
         return base_ll, N_f, S_f
 
@@ -376,20 +380,32 @@ class HawkesProcess(PointProcess):
         below = np.where(vals < tol * peak)[0]
         return float(probe[below[0]]) if len(below) else max_horizon
 
-    def simulate_stream(self, dataset, t_idx, gain, rng) -> np.ndarray:
+    def _history_envelope(self, hist_params: List[float]) -> Tuple[float, np.ndarray]:
+        """Decay horizon and thinning envelope on an integration_dt lag grid (last value cached)."""
+        key = tuple(np.asarray(hist_params, dtype=float))
+        cached = self.__dict__.get("_envelope_cache")
+        if cached is None or cached[0] != key:
+            horizon = self._estimate_decay_horizon(hist_params)
+            lag_grid = np.arange(0.0, horizon + self.integration_dt, self.integration_dt)
+            envelope = (
+                self.history_kernel.decay_envelope(lag_grid, hist_params)
+                * self._THINNING_SAFETY_MARGIN
+            )
+            cached = self._envelope_cache = (key, (horizon, envelope))
+        return cached[1]
+
+    def simulate_stream(
+        self,
+        dataset: PointProcessDataset,
+        t_idx: int,
+        gain: float,
+        rng: np.random.Generator,
+    ) -> np.ndarray:
         """
         Ogata thinning WITH self-excitation, generic across any HistoryKernel
         shape, via history_kernel.decay_envelope() as the thinning bound.
 
-        CORRECTED: the envelope grid now spans [0, decay_horizon], NOT
-        [0, duration_s] -- decay_horizon is wherever the kernel has ACTUALLY
-        become negligible (see _estimate_decay_horizon), which may be smaller
-        OR LARGER than duration_s depending on the fitted history_kernel
-        params. Any lag beyond decay_horizon returns an explicit 0.0, so an
-        old event's contribution to the thinning bound genuinely vanishes
-        once it's old enough, instead of being floored at a small-but-
-        nonzero constant forever (the bug that previously caused hist_upper
-        to grow without bound as events accumulated over a stream).
+        The envelope spans [0, decay_horizon]; older events contribute 0.
         """
         base_params, hist_params = self._split_params(self.params_)
         hk = self.history_kernel
@@ -410,16 +426,7 @@ class HawkesProcess(PointProcess):
 
         base_upper = gain * self._intensity_upper_bound(dataset, t_idx)
 
-        # Envelope now spans [0, decay_horizon], not [0, duration_s] -- the
-        # fix. decay_horizon is a property of hist_params alone, independent
-        # of the trial length.
-        decay_horizon = self._estimate_decay_horizon(hist_params)
-        lag_grid = np.arange(
-            0.0, decay_horizon + self.integration_dt, self.integration_dt
-        )
-        envelope_grid = (
-            hk.decay_envelope(lag_grid, hist_params) * self._THINNING_SAFETY_MARGIN
-        )
+        decay_horizon, envelope_grid = self._history_envelope(hist_params)
 
         def _envelope(lag: float) -> float:
             if lag >= decay_horizon:

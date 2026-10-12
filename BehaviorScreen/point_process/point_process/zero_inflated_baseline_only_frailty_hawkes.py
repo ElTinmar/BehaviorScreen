@@ -3,12 +3,14 @@ from typing import List, Tuple, Dict, Optional
 
 import numpy as np
 import pandas as pd
-from scipy.special import gammaln, roots_genlaguerre, logsumexp
-
 from .point_process import PointProcess
 from .dataset import PointProcessDataset
 from .hawkes_process import HawkesProcess
-from .baseline_only_frailty_hawkes import BaselineOnlyFrailtyHawkesProcess
+from .baseline_only_frailty_hawkes import (
+    BaselineOnlyFrailtyHawkesProcess,
+    event_rate_arrays,
+    gamma_gain_evidence,
+)
 from .kernel_shapes import sigmoid_bounded, logit_bounded
 
 
@@ -28,15 +30,9 @@ class ZeroInflatedBaselineOnlyFrailtyHawkesProcess(BaselineOnlyFrailtyHawkesProc
     recovers it exactly (log_L_NR branch gets -inf mixing weight, beta -> r,
     mu_R -> 1) -- verify this if you ever touch _fish_log_likelihood.
 
-    NON-CONJUGACY IS UNCHANGED FROM THE PARENT: g_f multiplying only the
-    baseline term already broke the "uniform multiplicative gain" contract
-    that lets GammaMixedEffectsProcess/ZeroInflatedGammaMixedEffectsProcess
-    integrate out g_f in closed form. So EACH branch of this mixture is
-    computed the same way the parent computes its single Gamma branch:
-    the non-responder branch is closed-form (deterministic g=c, O(1), no
-    integral); the responder branch is the SAME generalized Gauss-Laguerre
-    quadrature as the parent, just with rate beta=r/mu_R instead of r. Total
-    added cost over the parent is negligible (one O(1) term per fish).
+    The non-responder branch is closed-form (g = c); the responder branch
+    uses the parent's quadrature (gamma_gain_evidence) with rate
+    beta = r / mu_R instead of r.
 
     "NON-RESPONDER" UNDER SELF-EXCITATION (read before setting fit_c=False
     for real): because gain scales ONLY the baseline term, a non-responder
@@ -47,26 +43,9 @@ class ZeroInflatedBaselineOnlyFrailtyHawkesProcess(BaselineOnlyFrailtyHawkesProc
     as separate, non-confounded phenomena, rather than forcing any fish
     with >=1 event into the responder branch. See _fish_log_likelihood.
 
-    COMPENSATOR CAVEAT (inherited, unchanged in spirit from the parent):
-    _stream_tau_values uses the same PLUG-IN posterior-mean-gain
-    approximation as BaselineOnlyFrailtyHawkesProcess -- not an exact
-    marginal survival compensator. The same non-conjugate structure that
-    forces quadrature in the likelihood also prevents an exact closed-form
-    compensator here; only the posterior-mean-gain computation itself is
-    now mixture-aware (_posterior_mean_gain below).
-
     IDENTIFIABILITY: pi=0 is a boundary-of-parameter-space test (Self &
     Liang 1987) -- treat a chi2 LRT against BaselineOnlyFrailtyHawkesProcess
     as conservative; prefer a parametric bootstrap of the LR statistic.
-
-    KNOWN GAP CARRIED FROM THE PARENT: BaselineOnlyFrailtyHawkesProcess does
-    not itself override _draw_fish_gains, so its own
-    plot_predicted_vs_observed silently uses gain=1 for every simulated
-    fish (PointProcess's no-frailty default) rather than actually sampling
-    its fitted frailty distribution. This class DOES override
-    _draw_fish_gains correctly (see below) -- but be aware the parent's own
-    diagnostic panel doesn't reflect its fitted heterogeneity if compared
-    side-by-side.
     """
 
     def __init__(
@@ -97,7 +76,9 @@ class ZeroInflatedBaselineOnlyFrailtyHawkesProcess(BaselineOnlyFrailtyHawkesProc
         self.c_upper = c_upper
         self._fixed_c = c_init
 
-        self.name = f"ZeroInflatedBaselineOnlyFrailty[{base_process.name}]"
+        self.name = f"ZeroInflatedBaselineOnlyFrailty[{base_process.name}]" + (
+            " (fit c)" if fit_c else ""
+        )
         base_formula = base_process.latex_formula.strip("$")
         self.latex_formula = (
             rf"${base_formula}$ (baseline $\times\, g_f$), "
@@ -167,9 +148,35 @@ class ZeroInflatedBaselineOnlyFrailtyHawkesProcess(BaselineOnlyFrailtyHawkesProc
 
     # -- Likelihood (OVERRIDES parent: mixture instead of single Gamma) ----
 
+    def _mixture_evidence(
+        self,
+        events: List[Tuple[float, float]],
+        S_base: float,
+        pi: float,
+        r: float,
+        c: float,
+        beta: float,
+    ) -> Tuple[float, float]:
+        """
+        log Z_mix(S) = log[pi Z_NR(S) + (1-pi) Z_R(S)] and E[g | events],
+        Z_NR at g = c, Z_R for g ~ Gamma(r, beta).
+        """
+        base_rates, history_rates = event_rate_arrays(events)
+        log_nr = -c * S_base + float(
+            np.sum(np.log(np.maximum(c * base_rates + history_rates, 1e-300)))
+        )
+        log_r, mean_r = gamma_gain_evidence(
+            base_rates, history_rates, S_base, r, beta, self.n_quad_nodes
+        )
+        log_weighted_nr = np.log(max(pi, 1e-300)) + log_nr
+        log_weighted_r = np.log(max(1.0 - pi, 1e-300)) + log_r
+        log_z = float(np.logaddexp(log_weighted_nr, log_weighted_r))
+        p_responder = float(np.exp(log_weighted_r - log_z))
+        return log_z, (1.0 - p_responder) * c + p_responder * mean_r
+
     def _fish_log_likelihood(
         self,
-        events,
+        events: List[Tuple[float, float]],
         S_base_f: float,
         S_hist_f: float,
         pi: float,
@@ -177,42 +184,7 @@ class ZeroInflatedBaselineOnlyFrailtyHawkesProcess(BaselineOnlyFrailtyHawkesProc
         c: float,
         beta: float,
     ) -> float:
-        """
-        Mixture generalization of the parent's _fish_log_likelihood: the
-        non-responder branch is closed-form (deterministic g=c); the
-        responder branch is IDENTICAL quadrature to the parent, generalized
-        from Gamma(r,r) to Gamma(r, beta).
-        """
-        if events:
-            br = np.array([e[0] for e in events])
-            hr = np.array([e[1] for e in events])
-            intensities_nr = np.maximum(c * br + hr, 1e-300)
-            log_L_NR_raw = -c * S_base_f + float(np.sum(np.log(intensities_nr)))
-        else:
-            br = hr = np.array([])
-            log_L_NR_raw = -c * S_base_f
-
-        alpha = max(r - 1.0, -0.999)
-        nodes, weights = roots_genlaguerre(self.n_quad_nodes, alpha)
-        denom = S_base_f + beta
-        g_vals = nodes / denom
-
-        log_terms_per_node = np.zeros(self.n_quad_nodes)
-        if events:
-            for k, g in enumerate(g_vals):
-                intensities = np.maximum(g * br + hr, 1e-300)
-                log_terms_per_node[k] = np.sum(np.log(intensities))
-
-        log_weighted = np.log(np.maximum(weights, 1e-300)) + log_terms_per_node
-        log_quad_sum = logsumexp(log_weighted)
-        log_prefactor = r * np.log(beta) - gammaln(r) - r * np.log(denom)
-        log_L_R_raw = log_prefactor + log_quad_sum
-
-        log_pi = np.log(max(pi, 1e-300))
-        log_1mpi = np.log(max(1.0 - pi, 1e-300))
-        log_mix_raw = np.logaddexp(log_pi + log_L_NR_raw, log_1mpi + log_L_R_raw)
-
-        return log_mix_raw - S_hist_f
+        return self._mixture_evidence(events, S_base_f, pi, r, c, beta)[0] - S_hist_f
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         base_params, pi, r, c = self._split_params(params)
@@ -235,56 +207,14 @@ class ZeroInflatedBaselineOnlyFrailtyHawkesProcess(BaselineOnlyFrailtyHawkesProc
 
     def _posterior_mean_gain(
         self,
-        events_so_far,
+        events_so_far: List[Tuple[float, float]],
         S_base_so_far: float,
         pi: float,
         r: float,
         c: float,
         beta: float,
     ) -> float:
-        """
-        OVERRIDES BaselineOnlyFrailtyHawkesProcess._posterior_mean_gain
-        (different signature: pi/r/c/beta instead of just r). Posterior
-        class responsibility combined with the responder branch's posterior
-        mean gain (quadrature, same style as the parent). Used identically
-        by _stream_tau_values (STRICTLY-before-current-point, predictable)
-        and estimate_fish_gains (whole-session).
-        """
-        if events_so_far:
-            br = np.array([e[0] for e in events_so_far])
-            hr = np.array([e[1] for e in events_so_far])
-            intensities_nr = np.maximum(c * br + hr, 1e-300)
-            log_L_NR_raw = -c * S_base_so_far + float(np.sum(np.log(intensities_nr)))
-        else:
-            br = hr = np.array([])
-            log_L_NR_raw = -c * S_base_so_far
-
-        alpha = max(r - 1.0, -0.999)
-        nodes, weights = roots_genlaguerre(self.n_quad_nodes, alpha)
-        denom = S_base_so_far + beta
-        g_vals = nodes / denom
-
-        log_terms = np.zeros(self.n_quad_nodes)
-        if events_so_far:
-            for k, g in enumerate(g_vals):
-                log_terms[k] = np.sum(np.log(np.maximum(g * br + hr, 1e-300)))
-
-        log_w = np.log(np.maximum(weights, 1e-300)) + log_terms
-        log_w_norm = log_w - logsumexp(log_w)
-        post_weights_R = np.exp(log_w_norm)
-        e_g_given_R = float(np.sum(post_weights_R * g_vals))
-
-        log_prefactor = r * np.log(beta) - gammaln(r) - r * np.log(denom)
-        log_L_R_raw = log_prefactor + logsumexp(log_w)
-
-        log_pi = np.log(max(pi, 1e-300))
-        log_1mpi = np.log(max(1.0 - pi, 1e-300))
-        log_post_NR = log_pi + log_L_NR_raw
-        log_post_R = log_1mpi + log_L_R_raw
-        log_norm = np.logaddexp(log_post_NR, log_post_R)
-        p_R = float(np.exp(log_post_R - log_norm))
-
-        return (1.0 - p_R) * c + p_R * e_g_given_R
+        return self._mixture_evidence(events_so_far, S_base_so_far, pi, r, c, beta)[1]
 
     # -- estimate_fish_gains (OVERRIDES: adds p_responder, mixture gain) ---
 
@@ -547,13 +477,7 @@ class ZeroInflatedBaselineOnlyFrailtyHawkesProcess(BaselineOnlyFrailtyHawkesProc
             return float(np.sum(hk.evaluate(lags, hist_params)))
 
         base_upper = gain * self.base_process._intensity_upper_bound(dataset, t_idx)
-        decay_horizon = self.base_process._estimate_decay_horizon(hist_params)
-        lag_grid = np.arange(
-            0.0, decay_horizon + self.integration_dt, self.integration_dt
-        )
-        envelope_grid = (
-            hk.decay_envelope(lag_grid, hist_params) * self._THINNING_SAFETY_MARGIN
-        )
+        decay_horizon, envelope_grid = self.base_process._history_envelope(hist_params)
 
         def _envelope(lag: float) -> float:
             if lag >= decay_horizon:
@@ -648,87 +572,5 @@ class ZeroInflatedBaselineOnlyFrailtyHawkesProcess(BaselineOnlyFrailtyHawkesProc
         c: float,
         beta: float,
     ) -> float:
-        """
-        Log gain-dependent marginal evidence for the point-mass/Gamma mixture.
-
-            Z_mix(S) =
-                pi Z_NR(S) + (1-pi) Z_R(S).
-
-        The exact marginal interval compensator is
-
-            tau = dH + log Z_mix(S) - log Z_mix(S + dB).
-
-        ``Z_NR`` is evaluated at deterministic gain c. ``Z_R`` is evaluated by
-        generalized Gauss-Laguerre quadrature for Gamma(r, beta).
-        """
-        S_base_so_far = float(S_base_so_far)
-        r = max(float(r), 1e-8)
-        beta = max(float(beta), 1e-12)
-
-        if events_so_far:
-            base_rates = np.asarray(
-                [event[0] for event in events_so_far],
-                dtype=float,
-            )
-            history_rates = np.asarray(
-                [event[1] for event in events_so_far],
-                dtype=float,
-            )
-        else:
-            base_rates = np.array([], dtype=float)
-            history_rates = np.array([], dtype=float)
-
-        # --------------------------------------------------------------
-        # Deterministic nonresponder branch
-        # --------------------------------------------------------------
-
-        log_nonresponder = -c * S_base_so_far
-
-        if len(base_rates) > 0:
-            intensities_nr = c * base_rates + history_rates
-
-            if np.any(intensities_nr <= 0.0):
-                log_nonresponder = -np.inf
-            else:
-                log_nonresponder += float(np.sum(np.log(intensities_nr)))
-
-        # --------------------------------------------------------------
-        # Gamma responder branch
-        # --------------------------------------------------------------
-
-        alpha = max(r - 1.0, -0.999)
-        nodes, weights = roots_genlaguerre(
-            self.n_quad_nodes,
-            alpha,
-        )
-
-        denom = beta + S_base_so_far
-        gains = nodes / denom
-
-        log_event_terms = np.zeros(
-            self.n_quad_nodes,
-            dtype=float,
-        )
-
-        if len(base_rates) > 0:
-            for q, gain in enumerate(gains):
-                intensities = gain * base_rates + history_rates
-
-                if np.any(intensities <= 0.0):
-                    log_event_terms[q] = -np.inf
-                else:
-                    log_event_terms[q] = float(np.sum(np.log(intensities)))
-
-        log_responder = (
-            r * np.log(beta)
-            - gammaln(r)
-            - r * np.log(denom)
-            + logsumexp(np.log(np.maximum(weights, 1e-300)) + log_event_terms)
-        )
-
-        return float(
-            np.logaddexp(
-                np.log(max(pi, 1e-300)) + log_nonresponder,
-                np.log(max(1.0 - pi, 1e-300)) + log_responder,
-            )
-        )
+        """log Z_mix(S); tau = dH + log Z_mix(S) - log Z_mix(S + dB)."""
+        return self._mixture_evidence(events_so_far, S_base_so_far, pi, r, c, beta)[0]

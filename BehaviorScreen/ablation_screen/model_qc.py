@@ -3,8 +3,8 @@ from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
-from BehaviorScreen.point_process.point_process import PointProcess, ModelComparator
-from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.point_process import PointProcess
+from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
 
 
 @dataclass
@@ -120,12 +120,11 @@ def assess_group_fit(
             f"than a fit problem."
         )
 
-    kernel = getattr(model_arch, "kernel", None)
-    if kernel is not None:
-        n_kernel_params = len(kernel.param_names)
-        for name, val, bound in zip(kernel.param_names, model_arch.params_[:n_kernel_params], kernel.bounds):
-            if _near_bound(val, bound):
-                qc.params_near_bound.append(name)
+    qc.params_near_bound = [
+        name
+        for name, val, bound in zip(model_arch.param_names, model_arch.params_, model_arch.bounds)
+        if _near_bound(val, bound)
+    ]
     if qc.params_near_bound:
         # Boundary-pinning invalidates Wald-style SEs on that parameter
         # (relevant for Tier 2 parameter inference) but does not by itself
@@ -135,21 +134,24 @@ def assess_group_fit(
         qc.informational_notes.append(f"params_near_bound: {qc.params_near_bound}")
 
     try:
+        # Parameters at a bound have NaN rows: definiteness is checked on the others.
         hessian = model_arch.estimate_hessian(dataset)
-        eigvals = np.linalg.eigvalsh(hessian)
+        interior = np.isfinite(np.diag(hessian))
+        eigvals = np.linalg.eigvalsh(hessian[np.ix_(interior, interior)])
         qc.hessian_positive_definite = bool(np.all(eigvals > 1e-8))
         if not qc.hessian_positive_definite:
             qc.informational_notes.append("hessian_not_positive_definite (flat/ridge likelihood)")
 
         corr = model_arch.estimate_parameter_correlation(dataset)
-        off_diag = corr - np.diag(np.diag(corr))
-        qc.max_abs_param_correlation = float(np.max(np.abs(off_diag))) if off_diag.size else np.nan
-        if qc.max_abs_param_correlation > corr_threshold:
-            i, j = np.unravel_index(np.argmax(np.abs(off_diag)), off_diag.shape)
-            qc.informational_notes.append(
-                f"near_collinear_parameters: {model_arch.param_names[i]}~{model_arch.param_names[j]} "
-                f"(r={off_diag[i,j]:.2f})"
-            )
+        off_diag = np.where(np.eye(len(corr), dtype=bool), np.nan, corr)
+        if np.isfinite(off_diag).any():
+            i, j = np.unravel_index(np.nanargmax(np.abs(off_diag)), off_diag.shape)
+            qc.max_abs_param_correlation = float(abs(off_diag[i, j]))
+            if qc.max_abs_param_correlation > corr_threshold:
+                qc.informational_notes.append(
+                    f"near_collinear_parameters: {model_arch.param_names[i]}~{model_arch.param_names[j]} "
+                    f"(r={off_diag[i, j]:.2f})"
+                )
     except Exception as e:
         qc.reasons_flagged.append(f"hessian_estimation_failed: {type(e).__name__}: {e}")
 

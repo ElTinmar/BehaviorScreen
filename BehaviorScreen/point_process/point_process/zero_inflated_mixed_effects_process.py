@@ -66,7 +66,9 @@ class ZeroInflatedGammaMixedEffectsProcess(PointProcess):
         self.c_upper = c_upper
         self._fixed_c = c_init  # used only when fit_c=False
 
-        self.name = f"ZeroInflatedGammaMixedEffects[{base_process.name}]"
+        self.name = f"ZeroInflatedGammaMixedEffects[{base_process.name}]" + (
+            " (fit c)" if fit_c else ""
+        )
         base_formula = base_process.latex_formula.strip("$")
         self.latex_formula = (
             rf"${base_formula} \times g_f,\ "

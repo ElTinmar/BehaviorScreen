@@ -1,4 +1,5 @@
 import argparse
+import json
 from pathlib import Path
 from typing import Dict
 
@@ -15,6 +16,10 @@ from BehaviorScreen.point_process.point_process.dataset import (
     DatasetPlotter,
     PointProcessDataset,
 )
+from BehaviorScreen.point_process.point_process.frailty_analysis import (
+    collect_fish_gains,
+    plot_fish_gain_correlation,
+)
 from BehaviorScreen.point_process.point_process.hawkes_process import (
     HawkesProcess,
     HistoryKernelFactory,
@@ -26,6 +31,7 @@ from BehaviorScreen.point_process.point_process.mixed_effects_process import (
 from BehaviorScreen.point_process.point_process.point_process import (
     ModelComparator,
     ModelPlotter,
+    PointProcess,
 )
 from BehaviorScreen.point_process.point_process.poisson_process import (
     PoissonProcess,
@@ -62,7 +68,7 @@ def get_model_config() -> dict:
         "prey_capture_ipsi": {
             "dataset": {
                 "stim": Stim.PREY_CAPTURE,
-                "bout_name": "JT",
+                "category": "JT",
                 "laterality": Laterality.IPSILATERAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -133,7 +139,7 @@ def get_model_config() -> dict:
         "prey_capture_contra": {
             "dataset": {
                 "stim": Stim.PREY_CAPTURE,
-                "bout_name": "JT",
+                "category": "JT",
                 "laterality": Laterality.CONTRALATERAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -175,7 +181,8 @@ def get_model_config() -> dict:
         "phototaxis_ipsi": {
             "dataset": {
                 "stim": Stim.PHOTOTAXIS,
-                "bout_name": "RT",
+                "trial_filters": {"foreground_color": "[0.1, 0.1, 0.0, 1.0]"},
+                "category": "RT",
                 "laterality": Laterality.IPSILATERAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -206,7 +213,8 @@ def get_model_config() -> dict:
         "phototaxis_contra": {
             "dataset": {
                 "stim": Stim.PHOTOTAXIS,
-                "bout_name": "RT",
+                "trial_filters": {"foreground_color": "[0.1, 0.1, 0.0, 1.0]"},
+                "category": "RT",
                 "laterality": Laterality.CONTRALATERAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -242,7 +250,7 @@ def get_model_config() -> dict:
         "omr_lateral_ipsi": {
             "dataset": {
                 "epoch_name": ["grating right", "grating left"],
-                "bout_name": "RT",
+                "category": "RT",
                 "laterality": Laterality.IPSILATERAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -268,7 +276,7 @@ def get_model_config() -> dict:
         "omr_lateral_contra": {
             "dataset": {
                 "epoch_name": ["grating right", "grating left"],
-                "bout_name": "RT",
+                "category": "RT",
                 "laterality": Laterality.CONTRALATERAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -304,7 +312,7 @@ def get_model_config() -> dict:
         "omr_forward": {
             "dataset": {
                 "epoch_name": "grating forward",
-                "bout_name": "BS",
+                "category": "BS",
                 "laterality": Laterality.NONDIRECTIONAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -334,7 +342,7 @@ def get_model_config() -> dict:
         "okr_ipsi": {
             "dataset": {
                 "stim": Stim.OKR,
-                "bout_name": "S1",
+                "category": "S1",
                 "laterality": Laterality.IPSILATERAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -360,7 +368,7 @@ def get_model_config() -> dict:
         "okr_contra": {
             "dataset": {
                 "stim": Stim.OKR,
-                "bout_name": "S1",
+                "category": "S1",
                 "laterality": Laterality.CONTRALATERAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -386,7 +394,7 @@ def get_model_config() -> dict:
         "looming_ipsi": {
             "dataset": {
                 "stim": Stim.LOOMING,
-                "bout_name": "SLC",
+                "category": "SLC",
                 "laterality": Laterality.IPSILATERAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -424,7 +432,7 @@ def get_model_config() -> dict:
         "looming_contra": {
             "dataset": {
                 "stim": Stim.LOOMING,
-                "bout_name": "SLC",
+                "category": "SLC",
                 "laterality": Laterality.CONTRALATERAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -462,7 +470,7 @@ def get_model_config() -> dict:
         "dark_flash": {
             "dataset": {
                 "epoch_name": "flash dark",
-                "bout_name": "O",
+                "category": "O",
                 "laterality": Laterality.NONDIRECTIONAL,
                 "binning_dt": 0.025,
                 "t_start": 0.0,
@@ -508,7 +516,7 @@ def get_model_config() -> dict:
         "spont_dark": {
             "dataset": {
                 "epoch_name": "spontaneous dark",
-                "bout_name": "RT",
+                "category": "RT",
                 "laterality": Laterality.NONDIRECTIONAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -542,7 +550,7 @@ def get_model_config() -> dict:
         "spont_bright": {
             "dataset": {
                 "epoch_name": "spontaneous bright",
-                "bout_name": "RT",
+                "category": "RT",
                 "laterality": Laterality.NONDIRECTIONAL,
                 "binning_dt": 0.05,
                 "t_start": 0.0,
@@ -576,7 +584,7 @@ def get_model_config() -> dict:
         "after_looming": {
             "dataset": {
                 "epoch_name": ["looming break after left", "looming break after right"],
-                "bout_name": "RT",
+                "category": "RT",
                 "laterality": [Laterality.IPSILATERAL, Laterality.CONTRALATERAL],
                 "binning_dt": 0.05,
                 "t_start": 0,
@@ -639,7 +647,7 @@ def run_diagnostics_task(
     exp_name: str,
     dataset: PointProcessDataset,
     output_root: Path,
-):
+) -> None:
     """Generates dataset diagnostic plots."""
     print(f"\n--- Running dataset diagnostics: {exp_name} ---")
     diag_dir = output_root / exp_name / "dataset_diagnostics"
@@ -700,7 +708,7 @@ def run_fit_task(
     config: dict,
     dataset: PointProcessDataset,
     output_root: Path,
-):
+) -> None:
     """Performs model fitting, AIC comparison, bootstrapping, and residual localization."""
     print(f"\n==================================================")
     print(f" PROCESSING FIT EXPERIMENT: {exp_name.upper()}")
@@ -718,6 +726,18 @@ def run_fit_task(
     save_csv(summary_table, model_dir, "model_comparison_table")
 
     best_model = fitted_models[0]
+    with open(model_dir / "best_model.json", "w") as f:
+        json.dump(
+            {
+                "model_index": next(
+                    i for i, m in enumerate(config["models"]) if m is best_model
+                ),
+                "name": best_model.name,
+                "params": best_model.params_.tolist(),
+            },
+            f,
+            indent=2,
+        )
 
     fig, _ = ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
     save_fig(fig, model_dir, "model_fits_overlay")
@@ -768,11 +788,25 @@ def run_fit_task(
     plt.close("all")
 
 
+def load_best_model(config: dict, model_dir: Path) -> PointProcess:
+    """The best model of a `fit` run, with its fitted parameters."""
+    with open(model_dir / "best_model.json") as f:
+        saved = json.load(f)
+    model = config["models"][saved["model_index"]]
+    if model.name != saved["name"]:
+        raise ValueError(
+            f"{model_dir}: model {saved['model_index']} is now {model.name!r}, "
+            f"was {saved['name']!r} when fitted; rerun the fit"
+        )
+    model.set_params(np.asarray(saved["params"], dtype=float))
+    return model
+
+
 def run_consolidation_task(
     model_config: dict,
     loader: BehavioralDataLoader,
     output_root: Path,
-):
+) -> None:
     """Consolidates cross-experiment results after cluster jobs finish."""
     print("\n================ CONSOLIDATING EXPERIMENT RESULTS ================")
     all_summaries = []
@@ -780,44 +814,45 @@ def run_consolidation_task(
     best_models = {}
 
     for exp_name, config in model_config.items():
-        summary_path = output_root / exp_name / "models" / "model_comparison_table.csv"
-        if summary_path.exists():
-            df = pd.read_csv(summary_path)
-            all_summaries.append(df)
+        model_dir = output_root / exp_name / "models"
+        if not (model_dir / "best_model.json").exists():
+            continue
+        all_summaries.append(pd.read_csv(model_dir / "model_comparison_table.csv"))
+        datasets[exp_name] = loader.prepare_dataset(**config["dataset"])
+        best_models[exp_name] = load_best_model(config, model_dir)
 
-            dataset = loader.prepare_dataset(**config["dataset"])
-            datasets[exp_name] = dataset
+    if not all_summaries:
+        return
 
-            best_model_name = df.iloc[0]["Model"]
-            best_model_obj = next(
-                m for m in config["models"] if m.name == best_model_name
-            )
-            best_models[exp_name] = best_model_obj
+    master_summary_df = pd.concat(all_summaries, ignore_index=True)
+    print("\n================ MASTER MODEL COMPARISON TABLE ================")
+    print(master_summary_df.to_string(index=False))
+    save_csv(master_summary_df, output_root, "master_model_comparison")
 
-    if all_summaries:
-        master_summary_df = pd.concat(all_summaries, ignore_index=True)
-        print("\n================ MASTER MODEL COMPARISON TABLE ================")
-        print(master_summary_df.to_string(index=False))
-        save_csv(master_summary_df, output_root, "master_model_comparison")
+    dispersion_summary = summarize_dispersion_across_conditions(datasets)
+    save_csv(dispersion_summary, output_root, "dispersion_summary")
 
-        dispersion_summary = summarize_dispersion_across_conditions(datasets)
-        save_csv(dispersion_summary, output_root, "dispersion_summary")
-
-        models_and_datasets = {
-            exp_name: (best_models[exp_name], datasets[exp_name])
-            for exp_name in best_models
-            if hasattr(best_models[exp_name], "estimate_fish_gains")
-        }
-        if models_and_datasets:
-            gain_df = collect_fish_gains(models_and_datasets)
-            fig, ax, corr = plot_fish_gain_correlation(
-                gain_df,
-                title="Pooled control population: cross-behavior frailty gain correlation",
-            )
-            save_fig(fig, output_root, "fish_gain_correlation_pooled_population")
+    gain_df = collect_fish_gains(
+        {name: (best_models[name], datasets[name]) for name in best_models}
+    )
+    if gain_df["behavior"].nunique() >= 2:
+        fig, ax, corr = plot_fish_gain_correlation(
+            gain_df,
+            title="Pooled control population: cross-behavior frailty gain correlation",
+        )
+        save_fig(fig, output_root, "fish_gain_correlation_pooled_population")
 
 
-def main():
+def make_loader(args: argparse.Namespace) -> BehavioralDataLoader:
+    return BehavioralDataLoader(
+        events_csv=args.data_root / args.events,
+        valid_trials_csvs=[args.data_root / p for p in args.valid_trials],
+        qc_csvs=[args.data_root / p for p in args.qc],
+        category_column=args.category_column,
+    )
+
+
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Parallel Point Process Analysis Suite"
     )
@@ -837,7 +872,28 @@ def main():
         "--data-root",
         type=Path,
         dest="data_root",
-        help="Path to data directory/directories (can specify multiple times).",
+        required=True,
+        help="Directory the file arguments below are relative to.",
+    )
+    parser.add_argument(
+        "--events", default="bouts_control.csv", help="Event table (bouts or saccades)."
+    )
+    parser.add_argument(
+        "--valid-trials",
+        nargs="+",
+        default=["valid_trials.csv"],
+        help="Trial tables from quality control, one per screen folder.",
+    )
+    parser.add_argument(
+        "--qc",
+        nargs="*",
+        default=["qc.csv"],
+        help="Fish-level exclusion tables from quality control.",
+    )
+    parser.add_argument(
+        "--category-column",
+        default="category",
+        help="Event category column (saccades: saccade_category).",
     )
     parser.add_argument(
         "-o",
@@ -848,14 +904,11 @@ def main():
     )
 
     args = parser.parse_args()
-    csv_filename = "bouts_control.csv"
-
     model_config = get_model_config()
     output_root = args.output_dir
 
     if args.mode == "consolidate":
-        loader = BehavioralDataLoader(args.data_root / csv_filename)
-        run_consolidation_task(model_config, loader, output_root)
+        run_consolidation_task(model_config, make_loader(args), output_root)
         return
 
     if not args.exp:
@@ -868,9 +921,8 @@ def main():
             f"Unknown experiment '{args.exp}'. Valid keys: {list(model_config.keys())}"
         )
 
-    loader = BehavioralDataLoader(args.data_root / csv_filename)
     config = model_config[args.exp]
-    dataset = loader.prepare_dataset(**config["dataset"])
+    dataset = make_loader(args).prepare_dataset(**config["dataset"])
 
     if args.mode == "diagnostics":
         run_diagnostics_task(args.exp, dataset, output_root)

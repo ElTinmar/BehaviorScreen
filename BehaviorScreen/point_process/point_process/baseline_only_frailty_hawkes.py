@@ -4,11 +4,58 @@ from collections import defaultdict
 
 import numpy as np
 import pandas as pd
-from scipy.special import gammaln, roots_genlaguerre, logsumexp
+from scipy.linalg import eigh_tridiagonal
+from scipy.special import gammaln, logsumexp
 
 from .point_process import PointProcess
 from .dataset import PointProcessDataset
 from .hawkes_process import HawkesProcess
+
+
+def gauss_laguerre(n: int, alpha: float) -> Tuple[np.ndarray, np.ndarray]:
+    """Nodes and log-weights for the weight x^alpha e^-x (Golub-Welsch, finite for large alpha)."""
+    k = np.arange(n)
+    nodes, vectors = eigh_tridiagonal(2 * k + alpha + 1, np.sqrt(k[1:] * (k[1:] + alpha)))
+    return nodes, 2 * np.log(np.abs(vectors[0])) + gammaln(alpha + 1)
+
+
+def gamma_gain_evidence(
+    base_rates: np.ndarray,
+    history_rates: np.ndarray,
+    exposure: float,
+    shape: float,
+    rate: float,
+    n_nodes: int = 30,
+) -> Tuple[float, float]:
+    """
+    log Z and E[g | events] for g ~ Gamma(shape, rate), with
+    Z = integral of p(g) exp(-g exposure) prod(g b_l + h_l) dg.
+
+    Generalized Gauss-Laguerre with exponent shape - 1 + k, where k is the
+    effective number of baseline-driven events: the remaining factor
+    prod(g b + h) / g^k is flat near the posterior mode, so the rule stays
+    accurate for fish with hundreds of events (exact when h = 0).
+    """
+    d = exposure + rate
+    driven = base_rates * (shape + len(base_rates)) / d
+    total = driven + history_rates
+    k = float(np.sum(np.divide(driven, total, out=np.zeros_like(total), where=total > 0)))
+    x, log_w = gauss_laguerre(n_nodes, shape - 1 + k)
+    g = x / d
+    log_terms = (
+        log_w
+        + np.log(np.maximum(np.outer(g, base_rates) + history_rates, 1e-300)).sum(axis=1)
+        - k * np.log(g)
+    )
+    log_quad = logsumexp(log_terms)
+    log_z = shape * np.log(rate) - gammaln(shape) - (shape + k) * np.log(d) + log_quad
+    return float(log_z), float(np.sum(np.exp(log_terms - log_quad) * g))
+
+
+def event_rate_arrays(events: List[Tuple[float, float]]) -> Tuple[np.ndarray, np.ndarray]:
+    """(base_rate, history_rate) pairs to two arrays."""
+    base_rates, history_rates = np.asarray(events, dtype=float).reshape(-1, 2).T
+    return base_rates, history_rates
 
 
 class BaselineOnlyFrailtyHawkesProcess(PointProcess):
@@ -32,13 +79,8 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
     directly to base_process with NO extra derivation needed (unlike
     GammaMixedEffectsProcess, which only needed this for the base rate).
 
-    COST: no closed-form marginal (that conjugacy needs g_f to scale the
-    ENTIRE intensity uniformly -- see HawkesProcess.mixed_effects_
-    likelihood_terms docstring). Integrates out g_f per fish via
-    GENERALIZED Gauss-Laguerre quadrature (weight x^(r-1)*e^-x, matching
-    Gamma(r,r)'s own g^(r-1) term exactly -- NOT plain alpha=0 Laguerre,
-    which converges poorly once r deviates from 1). Nodes/weights depend
-    on r, so they're recomputed every _nll call.
+    No closed-form marginal (conjugacy needs g_f to scale the whole
+    intensity): g_f is integrated out per fish by gamma_gain_evidence.
     """
 
     def __init__(
@@ -102,14 +144,13 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         idt = self.base_process.integration_dt
 
         event_pairs: Dict[int, List[Tuple[float, float]]] = defaultdict(list)
-        S_base = np.zeros(dataset.num_fish, dtype=float)
+        trial_integrals = kernel.integrate(
+            dataset.duration_s, np.arange(dataset.num_trials), kernel_params, integration_dt=idt
+        )
+        S_base = dataset.fish_trial_mask.astype(float) @ trial_integrals
         S_hist = np.zeros(dataset.num_fish, dtype=float)
 
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            S_base[f_idx] += kernel.integrate(
-                dataset.duration_s, t_idx, kernel_params, integration_dt=idt
-            )
-
             if len(t_ev) > 0:
                 trials_arr = np.full(t_ev.shape, t_idx, dtype=float)
                 base_rates = kernel.evaluate(t_ev, trials_arr, kernel_params)
@@ -125,27 +166,9 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         return event_pairs, S_base, S_hist
 
     def _fish_log_likelihood(
-        self, events, S_base_f: float, S_hist_f: float, r: float
+        self, events: List[Tuple[float, float]], S_base_f: float, S_hist_f: float, r: float
     ) -> float:
-        alpha = max(r - 1.0, -0.999)
-        nodes, weights = roots_genlaguerre(self.n_quad_nodes, alpha)
-
-        denom = S_base_f + r
-        g_vals = nodes / denom
-
-        log_terms_per_node = np.zeros(self.n_quad_nodes)
-        if events:
-            br = np.array([e[0] for e in events])
-            hr = np.array([e[1] for e in events])
-            for k, g in enumerate(g_vals):
-                intensities = np.maximum(g * br + hr, 1e-300)
-                log_terms_per_node[k] = np.sum(np.log(intensities))
-
-        log_weighted = np.log(np.maximum(weights, 1e-300)) + log_terms_per_node
-        log_quad_sum = logsumexp(log_weighted)
-        log_prefactor = r * np.log(r) - gammaln(r) - r * np.log(denom)
-
-        return log_prefactor + log_quad_sum - S_hist_f
+        return self._log_gain_evidence(events, S_base_f, r) - S_hist_f
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         base_params, r = self._split_params(params)
@@ -232,13 +255,7 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
             return float(np.sum(hk.evaluate(lags, hist_params)))
 
         base_upper = gain * self.base_process._intensity_upper_bound(dataset, t_idx)
-        decay_horizon = self.base_process._estimate_decay_horizon(hist_params)
-        lag_grid = np.arange(
-            0.0, decay_horizon + self.integration_dt, self.integration_dt
-        )
-        envelope_grid = (
-            hk.decay_envelope(lag_grid, hist_params) * self._THINNING_SAFETY_MARGIN
-        )
+        decay_horizon, envelope_grid = self.base_process._history_envelope(hist_params)
 
         def _envelope(lag: float) -> float:
             if lag >= decay_horizon:
@@ -281,30 +298,10 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
     def _posterior_mean_gain(
         self, events_so_far: List[Tuple[float, float]], S_base_so_far: float, r: float
     ) -> float:
-        """
-        E[g_f | events strictly before current point], via generalized
-        Gauss-Laguerre quadrature -- the quadrature analog of
-        GammaMixedEffectsProcess._fish_scale_factors's closed-form (r+N)/(r+S),
-        generalized to baseline-only scaling. Used ONLY with events/exposure
-        STRICTLY BEFORE the point being rescaled (see _stream_tau_values),
-        preserving Ogata's predictability requirement.
-        """
-        alpha = max(r - 1.0, -0.999)
-        nodes, weights = roots_genlaguerre(self.n_quad_nodes, alpha)
-        denom = S_base_so_far + r
-        g_vals = nodes / denom
-
-        log_terms = np.zeros(self.n_quad_nodes)
-        if events_so_far:
-            br = np.array([e[0] for e in events_so_far])
-            hr = np.array([e[1] for e in events_so_far])
-            for k, g in enumerate(g_vals):
-                log_terms[k] = np.sum(np.log(np.maximum(g * br + hr, 1e-300)))
-
-        log_w = np.log(np.maximum(weights, 1e-300)) + log_terms
-        log_w_norm = log_w - logsumexp(log_w)
-        post_weights = np.exp(log_w_norm)
-        return float(np.sum(post_weights * g_vals))
+        """E[g_f | events and baseline exposure so far]."""
+        return gamma_gain_evidence(
+            *event_rate_arrays(events_so_far), S_base_so_far, r, r, self.n_quad_nodes
+        )[1]
 
     def _history_compensator_segment(
         self,
@@ -587,64 +584,10 @@ class BaselineOnlyFrailtyHawkesProcess(PointProcess):
         r: float,
     ) -> float:
         """
-        Log marginal evidence for the gain-dependent part of one fish's history.
-
-        For prior event pairs (b_l, h_l),
-
-            Z(S) =
-                integral p(g) exp(-g S)
-                product_l (g b_l + h_l) dg,
-
-        with g ~ Gamma(r, r).
-
-        Terms involving only the Hawkes-history exposure do not depend on g and
-        are deliberately omitted. They cancel in the evidence ratio used for
-        the marginal no-event compensator.
-
-        The exact marginal compensator increment over an interval with baseline
-        exposure dB and history exposure dH is
-
-            tau = dH + log Z(S) - log Z(S + dB).
-
-        The computation is exact up to generalized Gauss-Laguerre quadrature.
+        log Z(S), Z(S) = integral of p(g) exp(-g S) prod_l (g b_l + h_l) dg,
+        g ~ Gamma(r, r). History exposure does not depend on g and cancels in
+        the compensator increment tau = dH + log Z(S) - log Z(S + dB).
         """
-        r = max(float(r), 1e-8)
-        S_base_so_far = float(S_base_so_far)
-
-        alpha = max(r - 1.0, -0.999)
-        nodes, weights = roots_genlaguerre(
-            self.n_quad_nodes,
-            alpha,
-        )
-
-        denom = r + S_base_so_far
-        gains = nodes / denom
-
-        log_event_terms = np.zeros(
-            self.n_quad_nodes,
-            dtype=float,
-        )
-
-        if events_so_far:
-            base_rates = np.asarray(
-                [event[0] for event in events_so_far],
-                dtype=float,
-            )
-            history_rates = np.asarray(
-                [event[1] for event in events_so_far],
-                dtype=float,
-            )
-
-            for q, gain in enumerate(gains):
-                intensities = gain * base_rates + history_rates
-
-                if np.any(intensities <= 0.0):
-                    log_event_terms[q] = -np.inf
-                else:
-                    log_event_terms[q] = float(np.sum(np.log(intensities)))
-
-        log_quadrature = logsumexp(
-            np.log(np.maximum(weights, 1e-300)) + log_event_terms
-        )
-
-        return float(r * np.log(r) - gammaln(r) - r * np.log(denom) + log_quadrature)
+        return gamma_gain_evidence(
+            *event_rate_arrays(events_so_far), S_base_so_far, r, r, self.n_quad_nodes
+        )[0]

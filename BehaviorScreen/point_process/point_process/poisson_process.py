@@ -62,7 +62,12 @@ class RateKernel:
         params: List[float],
         integration_dt: float = 0.02,
     ) -> np.ndarray:
-
+        """
+        Integral of the rate from 0 to each t in t_events: trapezoid on an
+        integration_dt grid, with the last partial interval ending exactly
+        at t (same value as integrate(t, trial, ...)).
+        """
+        t_events = np.asarray(t_events, dtype=float)
         if len(t_events) == 0:
             return np.array([], dtype=float)
 
@@ -73,16 +78,12 @@ class RateKernel:
         if t_max <= 0:
             return np.zeros_like(t_events, dtype=float)
 
-        t_grid = np.arange(0, t_max, integration_dt)
-        t_grid = np.append(t_grid, t_max)
-
-        trials_2d = np.atleast_1d(trial)[:, None]
-        rate_surface = self.evaluate(t_grid[None, :], trials_2d, params)
-        cum_integral = cumulative_trapezoid(
-            rate_surface, t_grid, initial=0.0, axis=1
-        ).squeeze()
-        return np.interp(t_events, t_grid, cum_integral)
-
+        t_grid = np.append(np.arange(0, t_max, integration_dt), t_max)
+        rate = self.evaluate(t_grid, np.full_like(t_grid, trial), params)
+        cumulative = cumulative_trapezoid(rate, t_grid, initial=0.0)
+        k = np.clip(np.searchsorted(t_grid, t_events, side="right") - 1, 0, len(t_grid) - 1)
+        rate_at_t = self.evaluate(t_events, np.full_like(t_events, trial), params)
+        return cumulative[k] + (t_events - t_grid[k]) * (rate[k] + rate_at_t) / 2
 
 class PreyCapture:
     """
@@ -684,7 +685,7 @@ class RateKernelFactory:
 
     @staticmethod
     def omr_lateral_contra() -> RateKernel:
-        """Identical parameterization/convention to omr_forward -- see there."""
+        """h(t) = B*(1 - f_dip*exp(-t/tau_dip)), f_dip box-bounded in [0, 0.99]."""
 
         def _func(t, trial, params):
             B, f_dip, tau_dip = params
@@ -718,14 +719,7 @@ class RateKernelFactory:
         (analogous to a Gaussian rise), tau_decay is an independent
         exponential-tail rate -- as tau_decay -> 0 this collapses toward a
         symmetric Gaussian peak; as sigma -> 0 it collapses toward a plain
-        exponential decay from t=mu. tau_dip is now free to differ from
-        tau_decay, removing the forced dip/peak timescale coupling.
-
-        Numerically stable formulation: computes exp(A - arg**2) * erfcx(arg)
-        instead of exp(A) * erfc(arg) to avoid overflow/underflow when
-        lam/2*(2*mu + lam*sigma**2 - 2*t) is large and positive (i.e. well
-        past the peak, where erfc(arg) underflows before the exponential
-        prefactor overflows).
+        exponential decay from t=mu. tau_dip is independent of tau_decay.
         """
 
         def _func(t, trial, params):

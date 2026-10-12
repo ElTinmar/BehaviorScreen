@@ -1,24 +1,24 @@
 from typing import List, Tuple, Dict, Optional, Any, Union, ClassVar
+from functools import partial
 import copy
 import re
 
 import numpy as np
 import pandas as pd
-import joblib
-from tqdm import tqdm
 from scipy.optimize import minimize
 from scipy.stats import norm, chi2
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from scipy.integrate import trapezoid
 
-from .tqdm_joblib import tqdm_joblib
+from .parallel import parallel_map, report_failures
 from .dataset import PointProcessDataset
 
 
 def _fit_single_bootstrap(
-    seed_seq, dataset: PointProcessDataset, model: "PointProcess"
-):
+    seed_seq: np.random.SeedSequence, dataset: PointProcessDataset, model: "PointProcess"
+) -> Union[np.ndarray, str]:
+    """Fitted parameters on a fish-resampled dataset, or the error message."""
     rng = np.random.default_rng(seed_seq)
     ds_boot = dataset.resample(rng)
     model_copy = copy.deepcopy(model)
@@ -26,19 +26,19 @@ def _fit_single_bootstrap(
     try:
         model_copy.fit(ds_boot)
         return model_copy.params_
-    except Exception:
-        return None
+    except Exception as exc:
+        return repr(exc)
 
 
 def _fit_single_parametric_gof(
-    seed_seq,
+    seed_seq: np.random.SeedSequence,
     dataset: PointProcessDataset,
     fitted_model: "PointProcess",
     u_grid: np.ndarray,
     acf_lags: int,
     min_km_at_risk: int,
     refit_n_starts: int,
-):
+) -> Dict[str, Any]:
     """
     One parametric-bootstrap GOF replicate:
 
@@ -85,13 +85,10 @@ def _fit_single_parametric_gof(
 
 
 class PointProcess:
-    # Heuristic: parameter names matching these patterns get log-uniform
-    # sampling and log-normal jitter instead of linear -- they are
-    # scale/time-constant-like quantities where the likelihood surface is
-    # naturally curved in log-space (tau, sigma, beta_hawkes, r_dispersion,
-    # A_ripple/tau_excitation, etc).
+    # Scale-like parameters (time constants, widths, dispersion, excitation
+    # amplitudes): log-uniform sampling and log-normal jitter in multistart.
     _LOG_SCALE_PATTERN = re.compile(
-        r"(tau|sigma|beta|r_dispersion|A_excitation|A_ripple)", re.IGNORECASE
+        r"(tau|sigma|beta|r_dispersion|excitation)", re.IGNORECASE
     )
 
     _THINNING_SAFETY_MARGIN: ClassVar[float] = 1.1
@@ -231,7 +228,7 @@ class PointProcess:
             rng, n_starts, log_scale_params=log_scale_params
         )
 
-        def _run_one(x0):
+        def _run_one(x0: np.ndarray) -> Any:
             try:
                 res = minimize(
                     self._nll,
@@ -241,15 +238,17 @@ class PointProcess:
                     bounds=self.bounds,
                     **kwargs,
                 )
-                ok = res.success and np.isfinite(res.fun) and np.all(np.isfinite(res.x))
-                return res if ok else None
-            except Exception:
-                return None
+            except Exception as exc:
+                return repr(exc)
+            if res.success and np.isfinite(res.fun) and np.all(np.isfinite(res.x)):
+                return res
+            return f"not converged: {res.message}"
 
-        with tqdm_joblib(tqdm(total=n_starts, desc="Fit multistart")):
-            results = joblib.Parallel(n_jobs=n_jobs)(
-                joblib.delayed(_run_one)(x0) for x0 in inits
-            )
+        results = parallel_map(_run_one, inits, n_jobs=n_jobs, desc="Fit multistart")
+        report_failures(
+            f"{self.name} multistart", [r for r in results if isinstance(r, str)], n_starts
+        )
+        results = [None if isinstance(r, str) else r for r in results]
 
         valid = [r for r in results if r is not None]
         if not valid:
@@ -308,12 +307,16 @@ class PointProcess:
 
         seeds = np.random.SeedSequence(seed).spawn(n_boot)
 
-        with tqdm_joblib(tqdm(total=n_boot, desc="Bootstrap")):
-            boot_results = joblib.Parallel(n_jobs=n_jobs)(
-                joblib.delayed(_fit_single_bootstrap)(s, dataset, self) for s in seeds
-            )
-
-        valid_boot_params = [p for p in boot_results if p is not None]
+        boot_results = parallel_map(
+            partial(_fit_single_bootstrap, dataset=dataset, model=self),
+            seeds,
+            n_jobs=n_jobs,
+            desc="Bootstrap",
+        )
+        report_failures(
+            f"{self.name} bootstrap", [r for r in boot_results if isinstance(r, str)], n_boot
+        )
+        valid_boot_params = [p for p in boot_results if not isinstance(p, str)]
         print(f"Bootstrap fit: {len(valid_boot_params)}/{n_boot}")
         if len(valid_boot_params) == 0:
             raise RuntimeError("All bootstrap optimization attempts failed.")
@@ -346,7 +349,13 @@ class PointProcess:
         k = len(self.params_)
         return 2 * k - 2 * self.log_likelihood
 
-    def estimate_fish_gains(self, dataset):
+    def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
+        raise NotImplementedError
+
+    def population_survival_curve(
+        self, dataset: PointProcessDataset, trial: Optional[int] = None
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        """Model first-event survival S(t); only processes without self-history define it."""
         raise NotImplementedError
 
     def mixed_effects_likelihood_terms(
@@ -428,7 +437,7 @@ class PointProcess:
             ),
             fish_trial_mask=template.fish_trial_mask.copy(),
             fish_ids=template.fish_ids.copy(),
-            bout_name=template.bout_name,
+            category_label=template.category_label,
             laterality=template.laterality,
             duration_s=template.duration_s,
             binning_dt=template.binning_dt,
@@ -696,19 +705,20 @@ class PointProcess:
 
         seeds = np.random.SeedSequence(seed).spawn(n_boot)
 
-        with tqdm_joblib(tqdm(total=n_boot, desc="Parametric GOF bootstrap")):
-            results = joblib.Parallel(n_jobs=n_jobs)(
-                joblib.delayed(_fit_single_parametric_gof)(
-                    seed_seq=s,
-                    dataset=dataset,
-                    fitted_model=self,
-                    u_grid=u_grid,
-                    acf_lags=acf_lags,
-                    min_km_at_risk=min_km_at_risk,
-                    refit_n_starts=refit_n_starts,
-                )
-                for s in seeds
-            )
+        results = parallel_map(
+            partial(
+                _fit_single_parametric_gof,
+                dataset=dataset,
+                fitted_model=self,
+                u_grid=u_grid,
+                acf_lags=acf_lags,
+                min_km_at_risk=min_km_at_risk,
+                refit_n_starts=refit_n_starts,
+            ),
+            seeds,
+            n_jobs=n_jobs,
+            desc="Parametric GOF bootstrap",
+        )
 
         failures = [
             result
@@ -721,9 +731,11 @@ class PointProcess:
             if result is not None and not result.get("_failed", False)
         ]
 
-        print(
-            f"Parametric GOF bootstrap: {len(valid)}/{n_boot} successful "
-            f"({len(failures)} failures)."
+        print(f"Parametric GOF bootstrap: {len(valid)}/{n_boot} successful.")
+        report_failures(
+            f"{self.name} parametric GOF",
+            [r.get("_error", "Unknown error") for r in failures if isinstance(r, dict)],
+            n_boot,
         )
 
         if not valid:
@@ -1101,46 +1113,39 @@ class PointProcess:
         dataset: PointProcessDataset,
         eps: float = 1e-5,
     ) -> np.ndarray:
+        """
+        Central-difference Hessian of the NLL. Rows and columns of parameters
+        within one step of a bound are NaN: the NLL may be undefined beyond
+        the bound, and the curvature there is not a standard error anyway.
+        """
         if self.params_ is None or self.fit_result is None:
             raise ValueError("Model must be fitted before estimating the Hessian.")
 
         params = np.array(self.params_, dtype=float)
         k = len(params)
+        h = eps * (1.0 + np.abs(params))
+        lower = np.array([-np.inf if lo is None else lo for lo, _ in self.bounds])
+        upper = np.array([np.inf if hi is None else hi for _, hi in self.bounds])
+        interior = (params - h >= lower) & (params + h <= upper)
 
-        def obj(p):
-            return self._nll(p, dataset)
+        def obj(step: np.ndarray) -> float:
+            return self._nll(params + step, dataset)
 
         f0 = self.fit_result.fun
-        hessian = np.zeros((k, k))
-        h = eps * (1.0 + np.abs(params))
+        hessian = np.full((k, k), np.nan)
+        unit = np.eye(k) * h
 
-        for i in range(k):
-            for j in range(i, k):
-                if i == j:
-                    p_plus = params.copy()
-                    p_plus[i] += h[i]
-                    p_minus = params.copy()
-                    p_minus[i] -= h[i]
-                    hessian[i, i] = (obj(p_plus) - 2 * f0 + obj(p_minus)) / (h[i] ** 2)
-                else:
-                    p_pp = params.copy()
-                    p_pp[i] += h[i]
-                    p_pp[j] += h[j]
-                    p_pm = params.copy()
-                    p_pm[i] += h[i]
-                    p_pm[j] -= h[j]
-                    p_mp = params.copy()
-                    p_mp[i] -= h[i]
-                    p_mp[j] += h[j]
-                    p_mm = params.copy()
-                    p_mm[i] -= h[i]
-                    p_mm[j] -= h[j]
-
-                    val = (obj(p_pp) - obj(p_pm) - obj(p_mp) + obj(p_mm)) / (
-                        4 * h[i] * h[j]
-                    )
-                    hessian[i, j] = val
-                    hessian[j, i] = val
+        for i in np.flatnonzero(interior):
+            hessian[i, i] = (obj(unit[i]) - 2 * f0 + obj(-unit[i])) / (h[i] ** 2)
+            for j in np.flatnonzero(interior[i + 1 :]) + i + 1:
+                val = (
+                    obj(unit[i] + unit[j])
+                    - obj(unit[i] - unit[j])
+                    - obj(-unit[i] + unit[j])
+                    + obj(-unit[i] - unit[j])
+                ) / (4 * h[i] * h[j])
+                hessian[i, j] = val
+                hessian[j, i] = val
 
         return hessian
 
@@ -1149,21 +1154,22 @@ class PointProcess:
         dataset: PointProcessDataset,
         eps: float = 1e-5,
     ) -> np.ndarray:
+        """Correlation from the inverse Hessian; NaN for parameters at a bound."""
         hessian = self.estimate_hessian(dataset, eps=eps)
+        interior = np.isfinite(np.diag(hessian))
+        sub_hessian = hessian[np.ix_(interior, interior)]
 
         try:
-            cov = np.linalg.inv(hessian)
+            cov = np.linalg.inv(sub_hessian)
         except np.linalg.LinAlgError:
-            cov = np.linalg.pinv(hessian)
+            cov = np.linalg.pinv(sub_hessian)
 
         std_devs = np.sqrt(np.maximum(0, np.diag(cov)))
-        outer_std = np.outer(std_devs, std_devs)
-
         with np.errstate(divide="ignore", invalid="ignore"):
-            corr = cov / outer_std
-            corr = np.nan_to_num(corr, nan=0.0)
-            np.clip(corr, -1.0, 1.0, out=corr)
+            sub_corr = np.clip(cov / np.outer(std_devs, std_devs), -1.0, 1.0)
 
+        corr = np.full_like(hessian, np.nan)
+        corr[np.ix_(interior, interior)] = sub_corr
         return corr
 
     def stream_compensator_profile(
@@ -1551,11 +1557,11 @@ class PointProcess:
             var_pred = mu_pred
         else:
             r_eff = r * dataset.n_fish_per_trial[:, None]
-            var_pred = mu_pred + mu_pred**2 / r_eff
-
-        pearson_res = (y_obs - mu_pred) / np.sqrt(var_pred)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                var_pred = mu_pred + mu_pred**2 / r_eff
 
         with np.errstate(divide="ignore", invalid="ignore"):
+            pearson_res = (y_obs - mu_pred) / np.sqrt(var_pred)
             term = np.where(y_obs > 0, y_obs * np.log(y_obs / mu_pred), 0.0)
 
             if np.isinf(r):
@@ -1568,6 +1574,10 @@ class PointProcess:
             deviance_res = np.sign(y_obs - mu_pred) * np.sqrt(
                 np.maximum(0.0, deviance_sq)
             )
+
+        no_fish = dataset.n_fish_per_trial == 0
+        pearson_res[no_fish] = np.nan
+        deviance_res[no_fish] = np.nan
 
         return {
             "y_obs": y_obs,
@@ -1813,7 +1823,7 @@ class PointProcess:
             _, ax = plt.subplots()
 
         deviance_res = diag_data["residuals"]["deviance_residuals"]
-        vmax = np.percentile(np.abs(deviance_res), 98)
+        vmax = np.nanpercentile(np.abs(deviance_res), 98)
         im = ax.imshow(
             deviance_res,
             aspect="auto",
@@ -1919,6 +1929,7 @@ class PointProcess:
             _, ax = plt.subplots()
 
         flat_dev = diag_data["residuals"]["deviance_residuals"].flatten()
+        flat_dev = flat_dev[np.isfinite(flat_dev)]
         ax.hist(
             flat_dev,
             bins=40,
@@ -2294,17 +2305,8 @@ class PointProcess:
         ax: Optional[plt.Axes] = None,
     ) -> plt.Axes:
         """
-        Empirical first-event survival curve (product-limit estimator, built
-        directly from dataset.iter_streams() -- needs no model), overlaid with
-        this model's own population_survival_curve() IF it defines one.
-        Checked via hasattr, not isinstance: this lets SurvivalProcess and
-        GammaMixedEffectsProcess(SurvivalProcess(...)) contribute a model
-        overlay without this base-class method (or diagnose(), which decides
-        to call this panel at all) referencing either class by name. Any
-        process that doesn't define population_survival_curve (Poisson/
-        Hawkes/Renewal) still gets the empirical curve alone -- a reasonable
-        fallback, though diagnose() should not normally route here for those
-        (see n_multi_residual_streams).
+        Empirical first-event survival curve (product-limit estimator),
+        overlaid with the model's population_survival_curve() when it has one.
         """
         if ax is None:
             _, ax = plt.subplots()
@@ -2328,8 +2330,11 @@ class PointProcess:
             label=r"Empirical $\hat{S}(t)$",
         )
 
-        if hasattr(self, "population_survival_curve"):
+        try:
             model_t, model_S = self.population_survival_curve(dataset)
+        except NotImplementedError:
+            pass
+        else:
             ax.plot(
                 model_t,
                 model_S,
@@ -2497,7 +2502,7 @@ class PointProcess:
                 ax.text(
                     j,
                     i,
-                    f"{val:.2f}",
+                    f"{val:.2f}" if np.isfinite(val) else "bound",
                     ha="center",
                     va="center",
                     color="white" if abs(val) > 0.6 else "black",
@@ -2770,6 +2775,10 @@ class ModelComparator:
         null_model: Optional[PointProcess] = None,
         **kwargs,
     ) -> Tuple[pd.DataFrame, List[PointProcess]]:
+        names = [m.name for m in models]
+        duplicated = sorted({n for n in names if names.count(n) > 1})
+        if duplicated:
+            raise ValueError(f"Model names must be unique: {duplicated}")
 
         if null_model is not None:
             null_fitted, null_error = _fit_one_model(
@@ -3030,7 +3039,7 @@ class ModelPlotter:
 
         # 3. Plot Formatting
         ax.set_title(
-            f"Bout: {dataset.bout_name} (Laterality: {dataset.laterality})",
+            f"{dataset.category_label} (Laterality: {dataset.laterality})",
             fontsize=12,
             fontweight="bold",
         )

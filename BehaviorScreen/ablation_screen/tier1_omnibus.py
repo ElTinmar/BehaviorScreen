@@ -11,27 +11,26 @@ dimensionality and with no risk of the optimizer fragility seen in the
 originally-attempted joint fits.
 """
 import math
+from functools import partial
 from typing import Callable, Dict, List, Optional, Tuple
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import joblib
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 
-from BehaviorScreen.point_process.point_process import PointProcess
-from BehaviorScreen.point_process.dataset import PointProcessDataset
-from BehaviorScreen.point_process.tqdm_joblib import tqdm_joblib
-from BehaviorScreen.point_process.io import save_fig
-from BehaviorScreen.point_process.frailty_analysis import (
-    collect_fish_gains, 
-    plot_fish_gain_correlation_dual, 
-    plot_fish_gain_correlation,
+from BehaviorScreen.point_process.point_process.point_process import PointProcess
+from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.parallel import parallel_map, report_failures
+from BehaviorScreen.point_process.point_process.io import save_fig
+from BehaviorScreen.point_process.point_process.frailty_analysis import (
+    collect_fish_gains,
+    plot_fish_gain_correlation_dual,
 )
 
 from .dataset_ops import pool_fish, select_fish
-from .dataset_utils import subset_loader, safe_prepare_dataset, per_fish_summary, compare_fish_metric
+from .dataset_utils import safe_prepare_dataset, per_fish_summary, compare_fish_metric
 from .arm_contrast import output_metric
 from .model_qc import assess_group_fit
 
@@ -77,20 +76,18 @@ def tier1_permutation_test(
     n_distinct = math.comb(pooled.num_fish, n_veh)
     seeds = np.random.SeedSequence(seed).spawn(n_perm)
 
-    def _one(s):
-        rng = np.random.default_rng(s)
-        perm = rng.permutation(pooled.num_fish)
+    def _one(s: np.random.SeedSequence) -> float | str:
+        perm = np.random.default_rng(s).permutation(pooled.num_fish)
         try:
             d, *_ = fit_tier1(process_factory,
                                select_fish(pooled, perm[:n_veh]), select_fish(pooled, perm[n_veh:]))
             return d
-        except Exception:
-            return None
+        except Exception as exc:
+            return repr(exc)
 
-    with tqdm_joblib(tqdm(total=n_perm, desc="Permutation", position=1, leave=False)):
-        results = joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(_one)(s) for s in seeds)
-
-    null_dist = np.array([v for v in results if v is not None])
+    results = parallel_map(_one, seeds, n_jobs=n_jobs, desc="Permutation")
+    report_failures("permutation", [r for r in results if isinstance(r, str)], n_perm)
+    null_dist = np.array([v for v in results if not isinstance(v, str)])
     n_failed = n_perm - len(null_dist)
 
     if len(null_dist) < max(20, 0.3 * n_perm):
@@ -167,8 +164,8 @@ def _tier1_one(
     min_fish: int = 6, n_perm: int = 500,
 ) -> Dict:
     ctx = f"{line}/{behavior}"
-    ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_config, ctx + "/veh")
-    ds_drug = safe_prepare_dataset(subset_loader(loader, line, [drug_label]), dataset_config, ctx + "/drug")
+    ds_veh = safe_prepare_dataset(loader.subset(line, [veh_label]), dataset_config, ctx + "/veh")
+    ds_drug = safe_prepare_dataset(loader.subset(line, [drug_label]), dataset_config, ctx + "/drug")
 
     if ds_veh is None or ds_drug is None:
         return {"line": line, "behavior": behavior, "status": "skipped_insufficient_data", "p_value": np.nan}
@@ -318,8 +315,8 @@ def extract_fitted_parameters(
         line, behavior = row["line"], row["behavior"]
         veh_label, drug_label = line_labels.get(line, default_labels)
 
-        ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_configs[behavior])
-        ds_drug = safe_prepare_dataset(subset_loader(loader, line, [drug_label]), dataset_configs[behavior])
+        ds_veh = safe_prepare_dataset(loader.subset(line, [veh_label]), dataset_configs[behavior])
+        ds_drug = safe_prepare_dataset(loader.subset(line, [drug_label]), dataset_configs[behavior])
         if ds_veh is None or ds_drug is None:
             continue
 
@@ -553,8 +550,8 @@ def generate_arm_surface_grids(
         line, behavior = row["line"], row["behavior"]
         veh_label, drug_label = line_labels.get(line, default_labels)
 
-        ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_configs[behavior])
-        ds_drug = safe_prepare_dataset(subset_loader(loader, line, [drug_label]), dataset_configs[behavior])
+        ds_veh = safe_prepare_dataset(loader.subset(line, [veh_label]), dataset_configs[behavior])
+        ds_drug = safe_prepare_dataset(loader.subset(line, [drug_label]), dataset_configs[behavior])
         if ds_veh is None or ds_drug is None:
             results.append({"line": line, "behavior": behavior, "plot_status": "no_data"})
             continue
@@ -778,7 +775,7 @@ def build_models_and_datasets_for_line(
     loader/line/label); frailty_analysis knows nothing about any of it.
     """
     behaviors = behaviors or list(dataset_configs.keys())
-    broad = subset_loader(loader, line, [label])
+    broad = loader.subset(line, [label])
     result = {}
 
     for behavior in behaviors:
@@ -884,8 +881,8 @@ def bootstrap_parameter_deltas(
         line, behavior = row["line"], row["behavior"]
         veh_label, drug_label = line_labels.get(line, default_labels)
 
-        ds_veh = safe_prepare_dataset(subset_loader(loader, line, [veh_label]), dataset_configs[behavior])
-        ds_drug = safe_prepare_dataset(subset_loader(loader, line, [drug_label]), dataset_configs[behavior])
+        ds_veh = safe_prepare_dataset(loader.subset(line, [veh_label]), dataset_configs[behavior])
+        ds_drug = safe_prepare_dataset(loader.subset(line, [drug_label]), dataset_configs[behavior])
         if ds_veh is None or ds_drug is None:
             continue
 
@@ -899,13 +896,19 @@ def bootstrap_parameter_deltas(
         param_names = m_veh0.param_names
         seeds = np.random.SeedSequence(seed).spawn(n_boot)
 
-        with tqdm_joblib(tqdm(total=n_boot, desc=f"  {line}/{behavior}", position=1, leave=False)):
-            results = joblib.Parallel(n_jobs=n_jobs)(
-                joblib.delayed(_bootstrap_one_delta_iteration)(
-                    s, ds_veh, ds_drug, behavior, base_process_factories, transform_lookup,
-                )
-                for s in seeds
-            )
+        results = parallel_map(
+            partial(
+                _bootstrap_one_delta_iteration,
+                ds_veh=ds_veh,
+                ds_drug=ds_drug,
+                behavior=behavior,
+                base_process_factories=base_process_factories,
+                transform_lookup=transform_lookup,
+            ),
+            seeds,
+            n_jobs=n_jobs,
+            desc=f"  {line}/{behavior}",
+        )
 
         boot_deltas = {p: [] for p in param_names}
         for r in results:
@@ -930,7 +933,8 @@ def bootstrap_parameter_deltas(
                 "n_boot_success": len(arr),
             })
 
-    return pd.DataFrame(records)
+    columns = ["line", "behavior", "parameter", "transform", "delta", "boot_mean", "ci_lo", "ci_hi", "n_boot_success"]
+    return pd.DataFrame(records, columns=columns)
 
 def plot_parameter_forest(
     boot_delta_df: pd.DataFrame,

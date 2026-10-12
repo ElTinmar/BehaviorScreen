@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import copy
 import warnings
+from functools import partial
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import joblib
@@ -38,10 +39,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy.integrate import trapezoid
-from tqdm import tqdm
 
 from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
-from BehaviorScreen.point_process.point_process.tqdm_joblib import tqdm_joblib
+from BehaviorScreen.point_process.point_process.parallel import parallel_map, report_failures
 
 # =============================================================================
 # Residual metadata
@@ -520,8 +520,8 @@ def localization_summary(
 
 
 def _run_localization_bootstrap_replicate(
-    seed_seq,
-    model,
+    seed_seq: np.random.SeedSequence,
+    model: Any,
     dataset: PointProcessDataset,
     refit: bool,
     refit_n_starts: int,
@@ -682,42 +682,34 @@ def bootstrap_localization(
     )
 
     seeds = np.random.SeedSequence(seed).spawn(n_boot)
-    progress = tqdm(
-        total=n_boot,
-        desc="Residual localization bootstrap",
-        disable=not verbose,
-    )
 
-    # The outer bootstrap is parallel. BLAS/OpenMP thread pools inside each
-    # worker are restricted to one thread to avoid CPU oversubscription.
+    # One BLAS/OpenMP thread per worker to avoid CPU oversubscription.
     with joblib.parallel_backend("loky", inner_max_num_threads=1):
-        with tqdm_joblib(progress):
-            worker_results = joblib.Parallel(
-                n_jobs=n_jobs,
-                batch_size=1,
-                pre_dispatch="n_jobs",
-            )(
-                joblib.delayed(_run_localization_bootstrap_replicate)(
-                    seed_seq=seed_seq,
-                    model=model,
-                    dataset=dataset,
-                    refit=refit,
-                    refit_n_starts=refit_n_starts,
-                    min_km_at_risk=min_km_at_risk,
-                    r_grid=r_grid,
-                    time_edges=time_edges,
-                    gap_edges=gap_edges,
-                )
-                for seed_seq in seeds
-            )
+        worker_results = parallel_map(
+            partial(
+                _run_localization_bootstrap_replicate,
+                model=model,
+                dataset=dataset,
+                refit=refit,
+                refit_n_starts=refit_n_starts,
+                min_km_at_risk=min_km_at_risk,
+                r_grid=r_grid,
+                time_edges=time_edges,
+                gap_edges=gap_edges,
+            ),
+            seeds,
+            n_jobs=n_jobs,
+            desc="Residual localization bootstrap",
+            progress=verbose,
+            batch_size=1,
+            pre_dispatch="n_jobs",
+        )
 
     replicates = [result["summary"] for result in worker_results if result["success"]]
     errors = [result["error"] for result in worker_results if not result["success"]]
 
-    print(
-        f"Residual localization bootstrap: {len(replicates)}/{n_boot} "
-        f"successful ({len(errors)} failures)."
-    )
+    print(f"Residual localization bootstrap: {len(replicates)}/{n_boot} successful.")
+    report_failures("residual localization", errors, n_boot)
 
     if not replicates:
         raise RuntimeError(

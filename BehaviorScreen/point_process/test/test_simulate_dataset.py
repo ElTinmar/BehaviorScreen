@@ -112,7 +112,7 @@ class TestSimulateDataset:
             event_fish_idx=np.array([], dtype=int),
             fish_trial_mask=fish_trial_mask,
             fish_ids=scaffold_original.fish_ids.copy(),
-            bout_name="test_bout",
+            category_label="test_bout",
             laterality="test_laterality",
             duration_s=scaffold_original.duration_s,
             binning_dt=scaffold_original.binning_dt,
@@ -137,7 +137,7 @@ class TestSimulateDataset:
 
         assert simulated.duration_s == scaffold.duration_s
         assert simulated.binning_dt == scaffold.binning_dt
-        assert simulated.bout_name == scaffold.bout_name
+        assert simulated.category_label == scaffold.category_label
         assert simulated.laterality == scaffold.laterality
 
         assert simulated.event_times.dtype.kind == "f"
