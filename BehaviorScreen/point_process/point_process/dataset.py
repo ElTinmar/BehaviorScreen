@@ -10,7 +10,6 @@ import pandas as pd
 from BehaviorScreen.core import Stim, Laterality
 from BehaviorScreen.stim_specs import exclude_qc_fish
 from .kaplan_meier import km_table
-from megabouts.utils import bouts_category_name_short
 from scipy.special import gammaln
 from scipy.stats import norm
 import matplotlib.pyplot as plt
@@ -354,7 +353,7 @@ class BehavioralDataLoader:
         valid_trials_csvs: Sequence[Path],
         qc_csvs: Sequence[Path] = (),
         category_column: str = "category",
-        category_names: Optional[Sequence[str]] = bouts_category_name_short,
+        category_names: Optional[Sequence[str]] = None,
     ) -> None:
         read = lambda path: pd.read_csv(path, dtype={"line": str, "condition": str}, low_memory=False)
         events = read(events_csv)
@@ -373,6 +372,10 @@ class BehavioralDataLoader:
         self.trials = trials.astype({"presented": bool, "tracking_ok": bool})
         self.screen_trials = self.trials
         self.category_column = category_column
+        if category_names is None and category_column == "category":
+            # Megabouts bout categories; imported here so worker processes, which
+            # only unpickle datasets, never load megabouts.
+            from megabouts.utils import bouts_category_name_short as category_names
         self.category_names = category_names
 
     def _category_codes(self, category: Union[str, int, Sequence[Union[str, int]]]) -> List[int]:

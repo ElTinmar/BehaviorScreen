@@ -49,13 +49,13 @@ def run_diagnostics_task(exp_name: str, dataset: PointProcessDataset, output_roo
         plt.close(fig)
 
 
-def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, output_root: Path) -> None:
+def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, output_root: Path, n_jobs: int = -1) -> None:
     """Fit and compare the candidates; goodness-of-fit dashboard and bootstrap of the best."""
     print(f"\n=== Fitting {exp_name} ===")
     model_dir = output_root / exp_name / "models"
 
     summary_table, fitted_models = ModelComparator.compare(
-        models=config["models"], dataset=dataset, null_model=config["null_model"], n_starts=40
+        models=config["models"], dataset=dataset, null_model=config["null_model"], n_starts=40, n_jobs=n_jobs
     )
     summary_table.insert(0, "Condition", exp_name)
     save_csv(summary_table, model_dir, "model_comparison_table")
@@ -70,13 +70,13 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
     fig, _ = ModelPlotter.plot_trial_traces(dataset=dataset, model=best)
     save_fig(fig, model_dir, f"trial_traces_{best.name}")
 
-    fig, diagnosis = best.diagnose(dataset)
+    fig, diagnosis = best.diagnose(dataset, gof_n_jobs=n_jobs)
     save_fig(fig, model_dir, f"diagnose_{best.name}")
     gof = diagnosis["parametric_gof"]
     save_csv(gof["summary"], model_dir, f"parametric_gof_summary_{best.name}")
     save_csv(gof["bootstrap_statistics"], model_dir, f"parametric_gof_replicates_{best.name}")
 
-    save_csv(best.bootstrap(dataset, n_boot=200), model_dir, f"bootstrap_{best.name}")
+    save_csv(best.bootstrap(dataset, n_boot=200, n_jobs=n_jobs), model_dir, f"bootstrap_{best.name}")
 
     plt.close("all")
 

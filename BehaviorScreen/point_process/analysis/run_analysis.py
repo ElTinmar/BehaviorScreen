@@ -36,6 +36,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--qc", nargs="*", default=["qc_control.csv"], help="Fish-level exclusion tables from quality control.")
     parser.add_argument("--category-column", default="category", help="Event category column (saccades: saccade_category).")
     parser.add_argument("-o", "--output-dir", type=Path, default=Path("./figures"), help="Output figures and CSVs.")
+    parser.add_argument("--n-jobs", type=int, default=-1, help="Worker processes for fits and bootstraps (-1: all cores).")
     return parser.parse_args()
 
 
@@ -55,7 +56,7 @@ def main() -> None:
     if args.mode == "diagnostics":
         run_diagnostics_task(args.exp, dataset, args.output_dir)
     else:
-        run_fit_task(args.exp, config, dataset, args.output_dir)
+        run_fit_task(args.exp, config, dataset, args.output_dir, n_jobs=args.n_jobs)
 
 
 if __name__ == "__main__":
