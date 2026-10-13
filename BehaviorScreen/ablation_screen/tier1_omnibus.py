@@ -363,8 +363,8 @@ def plot_tier1_map(
     shrinks with the standard error (half size at se_half_size log2 units).
     Frame: behavior significant for that contrast. Hollow dot: the cell could
     not reach significance with its fish ('testable' False). Grey x: no test.
-    With n_fish_ref / n_fish_test columns, a matching panel shows the smaller
-    arm's fish count per cell.
+    With n_fish_ref / n_fish_test columns, a matching panel shows both arms'
+    fish counts per cell (reference above test), shaded by the smaller.
     """
     present = param_df[param_df["parameter"].isin(PARAMETER_LABELS)]
     columns = [
@@ -382,7 +382,7 @@ def plot_tier1_map(
     x_of = {column: i for i, column in enumerate(columns)}
     cell_info = tier1_df.set_index(["line", "behavior"])
     show_n = {"n_fish_ref", "n_fish_test"} <= set(tier1_df.columns)
-    n_min = cell_info[["n_fish_ref", "n_fish_test"]].min(axis=1) if show_n else None
+    n_fish = cell_info[["n_fish_ref", "n_fish_test"]] if show_n else None
 
     def label(name: str) -> str:
         return (row_labels or {}).get(name) or (
@@ -466,17 +466,18 @@ def plot_tier1_map(
 
     if show_n:
         ax_n = axes[0, 1]
-        top_n = max(float(n_min.max()), 1.0)
+        top_n = max(float(n_fish.min(axis=1).max()), 1.0)
         for c, behavior in enumerate(shown):
             for name in rows:
-                if (name, behavior) in n_min.index and np.isfinite(n_min.loc[(name, behavior)]):
-                    n = n_min.loc[(name, behavior)]
-                    shade = 0.92 - 0.6 * n / top_n
-                    ax_n.add_patch(plt.Rectangle((c - 0.45, positions[name] - 0.45), 0.9, 0.9, color=str(shade)))
-                    ax_n.text(c, positions[name], f"{int(n)}", ha="center", va="center", fontsize=6,
-                              color="white" if shade < 0.55 else "black")
+                if (name, behavior) not in n_fish.index or not np.isfinite(n_fish.loc[(name, behavior)]).all():
+                    continue
+                n_ref, n_test = n_fish.loc[(name, behavior)]
+                shade = 0.92 - 0.6 * min(n_ref, n_test) / top_n
+                ax_n.add_patch(plt.Rectangle((c - 0.45, positions[name] - 0.45), 0.9, 0.9, color=str(shade)))
+                ax_n.text(c, positions[name], f"{int(n_ref)}\n{int(n_test)}", ha="center", va="center", fontsize=5,
+                          linespacing=0.9, color="white" if shade < 0.55 else "black")
         decorate(ax_n, [(b, "") for b in shown])
-        ax_n.set_xlabel("fish in the smaller arm", fontsize=8)
+        ax_n.set_xlabel("fish: reference (top), test (bottom)", fontsize=8)
     return fig, ax
 
 def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
