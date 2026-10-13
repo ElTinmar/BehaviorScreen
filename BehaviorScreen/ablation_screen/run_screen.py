@@ -12,7 +12,7 @@ from tqdm import tqdm
 import numpy as np
 
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
-from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, flat, gamma, poisson, prey
+from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, flat, gamma, get_model_config, poisson, prey
 from BehaviorScreen.point_process.point_process.poisson_process import RateKernelFactory
 from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
 from BehaviorScreen.point_process.point_process.io import save_fig
@@ -64,12 +64,18 @@ TIER1_MODELS = {
     "looming_ipsi": lambda: gamma(SurvivalProcess(looming())),
     "looming_contra": lambda: gamma(SurvivalProcess(looming())),
     "dark_flash": lambda: gamma(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
+    "spont_dark": lambda: gamma(poisson(RateKernelFactory.spont())),
+    "spont_bright": lambda: gamma(poisson(RateKernelFactory.spont())),
+    "after_looming": lambda: gamma(poisson(RateKernelFactory.after_looming())),
     "prey_capture_convergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
     "prey_capture_divergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
     "okr_conjugate_ipsi_saccades": lambda: gamma(poisson(flat())),
     "okr_conjugate_contra_saccades": lambda: gamma(poisson(flat())),
     "looming_divergent_saccade": lambda: gamma(SurvivalProcess(looming())),
 }
+untested = set(get_model_config()) - set(TIER1_MODELS)
+if untested:
+    print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")
 BEHAVIOR_CONFIG = tier1_behaviors(TIER1_MODELS, FITS_ROOT)
 BEHAVIORS = list(BEHAVIOR_CONFIG)
 DATASET_CONFIGS = {b: cfg['dataset'] for b, cfg in BEHAVIOR_CONFIG.items()}
