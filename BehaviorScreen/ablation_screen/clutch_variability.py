@@ -28,6 +28,7 @@ from .fdr import add_fdr
 from .tier1_omnibus import MAP_COLORS, PARAMETER_LABELS, plot_tier1_map
 
 KEYS = ["behavior", "parameter"]
+ABOLISHED_LOG2 = 4.0  # effects below -4 log2 (1/16): response abolished, its size not meaningful
 
 
 def _log2_amplitudes(param_df: pd.DataFrame) -> pd.DataFrame:
@@ -69,11 +70,13 @@ def line_report(param_df: pd.DataFrame, clutch_df: pd.DataFrame, alpha: float = 
     Per (line, behavior, parameter): the effect (delta, log2) in clutch SDs,
     how atypical the line's reference clutch is ('reference_offset_sd', NTR
     vehicles only) and, for mutants, the test with clutch variance
-    (z_clutch, p_clutch, q_clutch per behavior).
+    (z_clutch, p_clutch, q_clutch per behavior). 'abolished': the test arm
+    lost the response (delta < -ABOLISHED_LOG2).
     """
     df = param_df[param_df["parameter"].isin(PARAMETER_LABELS)].merge(clutch_df[[*KEYS, "mean_log2", "tau"]], on=KEYS)
     tau = df["tau"].where(df["tau"] > 0)  # no clutch spread detected: effects in SDs undefined
     df["effect_sd"] = df["delta"] / tau
+    df["abolished"] = df["delta"] < -ABOLISHED_LOG2
     ntr = df["family"] == "ntr"
     df["reference_offset"] = np.where(ntr, np.log2(df["value_reference"]) - df["mean_log2"], np.nan)
     df["reference_offset_sd"] = df["reference_offset"] / tau
@@ -93,6 +96,7 @@ def line_summary(report: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
         "columns": by_line.size(),
         "median_abs_effect_sd": by_line["effect_sd"].apply(lambda e: e.abs().median()),
         "columns_beyond_2sd": by_line["effect_sd"].apply(lambda e: int((e.abs() > 2).sum())),
+        "columns_abolished": by_line["abolished"].sum(),
         "median_abs_reference_offset_sd": by_line["reference_offset_sd"].apply(lambda e: e.abs().median()),
         "tier1_hits": tier1_df[tier1_df["significant"]].groupby("line").size(),
         "hits_with_clutch_variance": report[report["significant_clutch"] == True].groupby("line")["behavior"].nunique(),
@@ -101,7 +105,7 @@ def line_summary(report: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
     return out.fillna({"tier1_hits": 0}).sort_values(["family", "median_abs_effect_sd"], ascending=[False, False])
 
 
-def plot_clutch_vs_effects(report: pd.DataFrame, clutch_df: pd.DataFrame, behaviors: List[str], ylim: float = 4.0) -> plt.Figure:
+def plot_clutch_vs_effects(report: pd.DataFrame, clutch_df: pd.DataFrame, behaviors: List[str], ylim: float = ABOLISHED_LOG2) -> plt.Figure:
     """
     Per column: the NTR vehicle clutches around their mean (grey) and the
     effects of the NTR lines and mutants (log2), with the +-2 tau band.
@@ -169,6 +173,7 @@ def main(results_dir: Path) -> None:
     clutch_df.to_csv(out / "clutch_variability.csv", index=False)
     report.to_csv(out / "line_report.csv", index=False)
     line_summary(report, tier1_df).to_csv(out / "line_summary.csv")
+    report[report["abolished"]].to_csv(out / "abolished.csv", index=False)
     save_fig(plot_clutch_vs_effects(report, clutch_df, behaviors), out, "clutch_vs_effects")
     families = tier1_df.drop_duplicates("line").set_index("line")["family"]
     rows = [l for l in families.index if families[l] == "ntr"] + [l for l in families.index if families[l] != "ntr"]
