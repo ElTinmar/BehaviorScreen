@@ -76,7 +76,10 @@ TIER1_MODELS = {
 untested = set(get_model_config()) - set(TIER1_MODELS)
 if untested:
     print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")
-BEHAVIOR_CONFIG = tier1_behaviors(TIER1_MODELS, FITS_ROOT)
+# Amplitudes also pinned to the control fit: these baselines are near zero (about
+# one event a minute), so their per-arm log ratios are noise.
+PINNED_AMPLITUDES = {name: ["B"] for name in ("looming_ipsi", "looming_contra", "looming_divergent_saccade", "dark_flash")}
+BEHAVIOR_CONFIG = tier1_behaviors(TIER1_MODELS, FITS_ROOT, PINNED_AMPLITUDES)
 BEHAVIORS = list(BEHAVIOR_CONFIG)
 DATASET_CONFIGS = {b: cfg['dataset'] for b, cfg in BEHAVIOR_CONFIG.items()}
 BEHAVIOR_PROCESS_FACTORY = {b: cfg['architecture'] for b, cfg in BEHAVIOR_CONFIG.items()}
