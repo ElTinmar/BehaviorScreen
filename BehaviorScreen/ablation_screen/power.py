@@ -15,7 +15,8 @@ Then, two arms of n fish (Wald approximation of the test):
 and, solved for n, n = 2 sigma^2 / ((effect / z)^2 [- 2 tau^2]).
 
 alpha 0.05: one planned test (a follow-up). alpha 0.05 / m: the strongest
-hit of a behavior surviving BH among its m lines (the screen). Mutants add
+hit of a behavior surviving BH among its m tests (the screen; m counts the
+NTR lines, or the mutants for the mutant screen). Mutants add
 the between-clutch variance of clutch_variability.csv, a floor that more
 fish cannot lower: below it no number of fish is enough (inf).
 
@@ -47,9 +48,11 @@ def per_fish_sd(param_df: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
     )
     df["scaled"] = df["delta"] / np.sqrt(1 / df["n_fish_ref"] + 1 / df["n_fish_test"])
     df = df[np.isfinite(df["scaled"])]
-    return df.groupby(KEYS).agg(
+    sigma = df.groupby(KEYS).agg(
         sigma=("scaled", lambda x: stats.median_abs_deviation(x, scale="normal")), n_lines=("line", "nunique")
     ).reset_index()
+    mutants = tier1_df[(tier1_df["family"] != "ntr") & (tier1_df["status"] == "ok")].groupby("behavior")["line"].nunique()
+    return sigma.assign(n_mutants=sigma["behavior"].map(mutants))
 
 
 def mde(sigma: np.ndarray, n: np.ndarray, alpha: float, power: float = 0.8, tau: np.ndarray = 0.0) -> np.ndarray:
@@ -64,7 +67,7 @@ def _designs(sigma_df: pd.DataFrame, clutch_df: Optional[pd.DataFrame]) -> pd.Da
     return pd.concat([
         df.assign(design="planned", alpha=0.05, tau=0.0),
         df.assign(design="screen", alpha=screen_alpha, tau=0.0),
-        df.assign(design="mutant screen", alpha=screen_alpha).dropna(subset=["tau"]),
+        df.assign(design="mutant screen", alpha=0.05 / df["n_mutants"]).dropna(subset=["tau", "alpha"]),
     ], ignore_index=True)
 
 
