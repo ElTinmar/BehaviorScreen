@@ -1,9 +1,11 @@
 """Experiments: the dataset each one is built from and the candidate models, in a fixed order."""
 
+from pathlib import Path
 from typing import Callable, Dict, List
 
 from megabouts.utils import bouts_category_name_short
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, Laterality, Stim
+from BehaviorScreen.stim_specs import load_yaml_config
 from BehaviorScreen.point_process.point_process.frailty import (
     BaselineOnlyFrailtyHawkesProcess,
     GammaMixedEffectsProcess,
@@ -41,19 +43,44 @@ BOUT_DEAD_TIME_S = (
     0.25  # shortest bout onset-to-onset gap within a trial (control screen)
 )
 
+# Tracking-quality filters of screen.yaml applied to the models; classifier-confidence
+# filters are not (readouts merge neighbouring categories instead).
+SCREEN_CONFIG = load_yaml_config(Path(__file__).parents[2] / "screen.yaml")
+TRACKING_FILTERS = {
+    "bouts": ("bout_filters", ["distance_center", "centroid_mismatch_max"]),
+    "saccades": ("saccade_filters", ["distance_center", "features_valid"]),
+}
+
+
+def _filters(events: str) -> dict:
+    section, columns = TRACKING_FILTERS[events]
+    return {column: SCREEN_CONFIG[section][column] for column in columns}
+
+
 # BehavioralDataLoader arguments of each event table; an experiment names its table.
 EVENT_TABLES = {
     "bouts": dict(
         category_column="category",
         category_names=bouts_category_name_short,
         tracking_column="tracking_ok",
+        event_filters=_filters("bouts"),
+        recording_filters=SCREEN_CONFIG["common_filters"],
     ),
     "saccades": dict(
         category_column="saccade_category",
         category_names=SACCADE_CATEGORY_NAMES,
         tracking_column="tracking_ok",  # body tracking: switch to an eye-tracking flag once qc writes one
+        event_filters=_filters("saccades"),
+        recording_filters=SCREEN_CONFIG["common_filters"],
     ),
 }
+
+# Bout categories pooled into one response per stimulus.
+FLASH_ESCAPE = ["O", "SAT"]  # flash-evoked SATs match O-bends in angle, speed and latency
+LOOMING_ESCAPE = ["SLC", "LLC"]
+FORWARD_SWIMS = ["S1", "S2", "BS"]
+LATERAL_TURNS = ["RT", "HAT"]
+OKR_SWIMS = ["S1", "S2", "RT", "HAT"]
 
 flat = RateKernelFactory.homogeneous_poisson
 gamma = GammaMixedEffectsProcess
@@ -82,10 +109,8 @@ def prey(variant: str) -> RateKernel:
     return PreyCapture.variant(variant, PREY_STIM_FREQ)
 
 
-def dataset(
-    category: str, laterality, t_end: float, binning_dt: float = 0.05, **selection
-) -> dict:
-    """prepare_dataset arguments; selection is stim or epoch_name, and trial_filters."""
+def dataset(category, laterality, t_end: float, binning_dt: float = 0.05, **selection) -> dict:
+    """prepare_dataset arguments; category and laterality may be lists (pooled) or None (all)."""
     return dict(
         selection,
         category=category,
@@ -300,28 +325,24 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
             rate_models(RateKernelFactory.phototaxis_contra, dead_time_s),
         ),
         "omr_lateral_ipsi": experiment(
-            dataset("RT", IPSI, 9.0, epoch_name=gratings), flat_models(dead_time_s),
+            dataset(LATERAL_TURNS, IPSI, 9.0, epoch_name=gratings), flat_models(dead_time_s),
         ),
         "omr_lateral_contra": experiment(
-            dataset("RT", CONTRA, 9.0, epoch_name=gratings),
+            dataset(LATERAL_TURNS, CONTRA, 9.0, epoch_name=gratings),
             rate_models(RateKernelFactory.omr_lateral_contra, dead_time_s),
         ),
         "omr_forward": experiment(
-            dataset("BS", NONDIRECTIONAL, 9.0, epoch_name="grating forward"),
+            dataset(FORWARD_SWIMS, NONDIRECTIONAL, 9.0, epoch_name="grating forward"),
             rate_models(RateKernelFactory.omr_forward, dead_time_s, flat_renewal=False),
         ),
         "okr_ipsi": experiment(
-            dataset("S1", IPSI, 9.0, stim=Stim.OKR), flat_models(dead_time_s),
+            dataset(OKR_SWIMS, IPSI, 9.0, stim=Stim.OKR), flat_models(dead_time_s),
         ),
         "okr_contra": experiment(
-            dataset("S1", CONTRA, 9.0, stim=Stim.OKR), flat_models(dead_time_s),
+            dataset(OKR_SWIMS, CONTRA, 9.0, stim=Stim.OKR), flat_models(dead_time_s),
         ),
-        "looming_ipsi": experiment(
-            dataset("SLC", IPSI, 9.0, stim=Stim.LOOMING),
-            survival_models(looming_bump, looming_habituating),
-        ),
-        "looming_contra": experiment(
-            dataset("SLC", CONTRA, 9.0, stim=Stim.LOOMING),
+        "looming": experiment(
+            dataset(LOOMING_ESCAPE, [IPSI, CONTRA], 9.0, stim=Stim.LOOMING),
             survival_models(looming_bump, looming_habituating),
         ),
         "looming_divergent_saccade": experiment(
@@ -331,7 +352,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
         ),
         "dark_flash": experiment(
             dataset(
-                "O", NONDIRECTIONAL, 5.0, binning_dt=0.025, epoch_name="flash dark"
+                FLASH_ESCAPE, NONDIRECTIONAL, 5.0, binning_dt=0.025, epoch_name="flash dark"
             ),
             survival_models(
                 flash_bump,
@@ -340,17 +361,17 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
             ),
         ),
         "spont_dark": experiment(
-            dataset("RT", NONDIRECTIONAL, 24.0, epoch_name="spontaneous dark"),
+            dataset(None, None, 24.0, epoch_name="spontaneous dark"),
             rate_models(RateKernelFactory.spont, dead_time_s),
         ),
         "spont_bright": experiment(
-            dataset("RT", NONDIRECTIONAL, 24.0, epoch_name="spontaneous bright"),
+            dataset(None, None, 24.0, epoch_name="spontaneous bright"),
             rate_models(RateKernelFactory.spont, dead_time_s),
         ),
         "after_looming": experiment(
             dataset(
-                "RT",
-                [IPSI, CONTRA],
+                None,
+                None,
                 49.0,
                 epoch_name=["looming break after left", "looming break after right"],
             ),

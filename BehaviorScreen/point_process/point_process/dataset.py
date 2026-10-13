@@ -8,7 +8,7 @@ from typing import Any, Callable, ClassVar, Dict, List, Mapping, Optional, Seque
 import numpy as np
 import pandas as pd
 from BehaviorScreen.core import Stim, Laterality
-from BehaviorScreen.stim_specs import exclude_qc_fish
+from BehaviorScreen.stim_specs import apply_table_filters, exclude_qc_fish
 from .kaplan_meier import km_table
 from scipy.special import gammaln
 from scipy.stats import norm
@@ -343,7 +343,9 @@ SHORT_TRIAL_FRACTION = 0.95
 class BehavioralDataLoader:
     """
     Events (bouts or saccades) and the trial table (valid_trials.csv) they
-    belong to. Fish listed in any qc.csv are dropped from both.
+    belong to. Fish listed in any qc.csv are dropped from both, and so are
+    recordings failing `recording_filters`; events failing `event_filters` are
+    dropped (both in screen.yaml rule syntax, e.g. {"distance_center": {"<=": 10}}).
 
     A stream is one trial, (file, epoch_name, trial_num): epochs pooled into
     one condition (left/right, ipsi/contra) never share a stream. Their trial
@@ -360,6 +362,8 @@ class BehavioralDataLoader:
         category_column: str = "category",
         category_names: Optional[Union[Sequence[str], Mapping[int, str]]] = None,
         tracking_column: str = "tracking_ok",
+        event_filters: Optional[Mapping[str, Mapping[str, Any]]] = None,
+        recording_filters: Optional[Mapping[str, Mapping[str, Any]]] = None,
     ) -> None:
         read = lambda path: pd.read_csv(path, dtype={"line": str, "condition": str}, low_memory=False)
         events = read(events_csv)
@@ -367,6 +371,9 @@ class BehavioralDataLoader:
         for qc_csv in qc_csvs:
             events = exclude_qc_fish(events, qc_csv)
             trials = exclude_qc_fish(trials, qc_csv)
+        filters = {"recording": recording_filters, "event": event_filters}
+        events = apply_table_filters(events, filters, ("recording", "event"))
+        trials = apply_table_filters(trials, filters, ("recording",))
 
         if trials.duplicated(["file", "epoch_name", "trial_num"]).any():
             raise ValueError("valid_trials lists the same (file, epoch_name, trial_num) twice")

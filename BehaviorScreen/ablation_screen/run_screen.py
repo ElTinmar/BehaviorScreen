@@ -61,8 +61,7 @@ TIER1_MODELS = {
     "omr_forward": lambda: gamma(poisson(RateKernelFactory.omr_forward())),
     "okr_ipsi": lambda: gamma(poisson(flat())),
     "okr_contra": lambda: gamma(poisson(flat())),
-    "looming_ipsi": lambda: gamma(SurvivalProcess(looming())),
-    "looming_contra": lambda: gamma(SurvivalProcess(looming())),
+    "looming": lambda: gamma(SurvivalProcess(looming())),
     "dark_flash": lambda: gamma(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
     "spont_dark": lambda: gamma(poisson(RateKernelFactory.spont())),
     "spont_bright": lambda: gamma(poisson(RateKernelFactory.spont())),
@@ -78,7 +77,7 @@ if untested:
     print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")
 # Amplitudes also pinned to the control fit: these baselines are near zero (about
 # one event a minute), so their per-arm log ratios are noise.
-PINNED_AMPLITUDES = {name: ["B"] for name in ("looming_ipsi", "looming_contra", "looming_divergent_saccade", "dark_flash")}
+PINNED_AMPLITUDES = {name: ["B"] for name in ("looming", "looming_divergent_saccade", "dark_flash")}
 BEHAVIOR_CONFIG = tier1_behaviors(TIER1_MODELS, FITS_ROOT, PINNED_AMPLITUDES)
 BEHAVIORS = list(BEHAVIOR_CONFIG)
 DATASET_CONFIGS = {b: cfg['dataset'] for b, cfg in BEHAVIOR_CONFIG.items()}

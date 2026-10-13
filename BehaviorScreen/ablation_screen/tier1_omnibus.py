@@ -40,7 +40,7 @@ from .model_qc import assess_group_fit
 # low-base-rate behaviors need a much stricter floor.
 DEFAULT_MIN_EVENTS = 40
 MIN_EVENTS_BY_BEHAVIOR: Dict[str, int] = {
-    "looming_ipsi": 15, "looming_contra": 15, "dark_flash": 15,
+    "looming": 15, "dark_flash": 15,
 }
 
 

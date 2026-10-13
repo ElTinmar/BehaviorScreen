@@ -7,8 +7,7 @@ omr_lateral_contra
 omr_forward
 okr_ipsi
 okr_contra
-looming_ipsi
-looming_contra
+looming
 dark_flash
 spont_dark
 spont_bright
