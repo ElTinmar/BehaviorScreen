@@ -430,7 +430,7 @@ def plot_tier1_map(
             ax.add_patch(plt.Rectangle((min(xs_b) - 0.45, positions[name] - 0.45), max(xs_b) - min(xs_b) + 0.9, 0.9,
                                        fill=False, edgecolor="black", linewidth=1.2))
 
-    handles = [plt.scatter([], [], s=_dot_size(se, se_half_size), color=MISSING, label=f"SE {se:g} log2")
+    handles = [plt.scatter([], [], s=_dot_size(se, se_half_size), color=MISSING, label=f"SE {se:g}")
                for se in (0.1, se_half_size, 2 * se_half_size)]
     handles += [
         plt.Line2D([], [], marker="s", markersize=11, markerfacecolor="none", markeredgecolor="black", linestyle="", label="significant (q < 0.05)"),
