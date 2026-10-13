@@ -364,7 +364,8 @@ def plot_tier1_map(
     Frame: behavior significant for that contrast. Hollow dot: the cell could
     not reach significance with its fish ('testable' False). Grey x: no test.
     With n_fish_ref / n_fish_test columns, a matching panel shows both arms'
-    fish counts per cell (reference above test), shaded by the smaller.
+    fish counts per cell: reference in the upper-left triangle, test in the
+    lower-right one, each shaded by its count.
     """
     present = param_df[param_df["parameter"].isin(PARAMETER_LABELS)]
     columns = [
@@ -466,18 +467,20 @@ def plot_tier1_map(
 
     if show_n:
         ax_n = axes[0, 1]
-        top_n = max(float(n_fish.min(axis=1).max()), 1.0)
+        top_n = max(float(n_fish.max().max()), 1.0)
         for c, behavior in enumerate(shown):
             for name in rows:
                 if (name, behavior) not in n_fish.index or not np.isfinite(n_fish.loc[(name, behavior)]).all():
                     continue
-                n_ref, n_test = n_fish.loc[(name, behavior)]
-                shade = 0.92 - 0.6 * min(n_ref, n_test) / top_n
-                ax_n.add_patch(plt.Rectangle((c - 0.45, positions[name] - 0.45), 0.9, 0.9, color=str(shade)))
-                ax_n.text(c, positions[name], f"{int(n_ref)}\n{int(n_test)}", ha="center", va="center", fontsize=5,
-                          linespacing=0.9, color="white" if shade < 0.55 else "black")
+                x0, x1, top, bottom = c - 0.45, c + 0.45, positions[name] - 0.45, positions[name] + 0.45
+                triangles = (((x0, top), (x1, top), (x0, bottom)), ((x1, top), (x1, bottom), (x0, bottom)))
+                for n, corners, sign in zip(n_fish.loc[(name, behavior)], triangles, (-1, 1)):
+                    shade = 0.92 - 0.6 * n / top_n
+                    ax_n.add_patch(plt.Polygon(corners, color=str(shade), linewidth=0))
+                    ax_n.text(c + sign * 0.2, positions[name] + sign * 0.2, f"{int(n)}", ha="center", va="center",
+                              fontsize=5.5, color="white" if shade < 0.55 else "black")
         decorate(ax_n, [(b, "") for b in shown])
-        ax_n.set_xlabel("fish: reference (top), test (bottom)", fontsize=8)
+        ax_n.set_xlabel("fish: ↖ reference, test ↘", fontsize=8)
     return fig, ax
 
 def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
