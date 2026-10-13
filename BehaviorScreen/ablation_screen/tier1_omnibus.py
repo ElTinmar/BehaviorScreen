@@ -328,7 +328,7 @@ def _dot_size(se: float, se_half_size: float) -> float:
 
 
 # Column label of each amplitude parameter in the map.
-PARAMETER_LABELS = {"B": "baseline", "A": "evoked", "A_peak": "evoked", "H": "evoked"}
+PARAMETER_LABELS = {"B": "baseline", "A": "evoked", "A_peak": "evoked", "H": "evoked", "P": "direction"}
 MAP_COLORS = LinearSegmentedColormap.from_list("blue_grey_red", ["#2166ac", "#d9d9d9", "#b2182b"])
 MISSING = "#9e9e9e"
 

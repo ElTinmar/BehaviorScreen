@@ -10,6 +10,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy as np
+import pandas as pd
 
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
 from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, flat, gamma, get_model_config, poisson, prey
@@ -34,6 +35,7 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
 from BehaviorScreen.ablation_screen.fdr import add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.ablation_screen.dataset_utils import Arms, mutant_contrast, ntr_contrast
+from BehaviorScreen.ablation_screen.direction import DIRECTION_READOUTS, run_direction_screen
 from BehaviorScreen.ablation_screen.tier1_config import tier1_behaviors
 from BehaviorScreen.ablation_screen.tier2_interaction import plot_tier2_map, run_tier2_screen
 
@@ -146,20 +148,26 @@ tier1_df = run_tier1_screen(
     arms, behaviors=BEHAVIORS, null_process_factories=NULL_PROCESS_FACTORY, n_perm=1000,
 )
 tier1_df = add_testability(add_fdr_per_behavior(tier1_df, alpha=0.05))
-tier1_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
 print(tier1_df["status"].value_counts())
+
+# Direction readouts: model-free, tested alongside Tier 1 (own FDR family per readout).
+direction_df, direction_params = run_direction_screen(loaders["bouts"], CONTRASTS)
+direction_df = add_testability(add_fdr_per_behavior(direction_df, alpha=0.05))
+screen_df = pd.concat([tier1_df, direction_df], ignore_index=True)
+screen_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
 
 bad_fits = build_bad_fit_triage(tier1_df)
 
 param_df = extract_fitted_parameters(tier1_df, arms)
 param_df = compute_parameter_deltas(param_df)
+screen_params = compute_parameter_deltas(pd.concat([param_df, direction_params], ignore_index=True))
 
-hits = tier1_df[tier1_df["significant"]].groupby("line").size()
+hits = screen_df[screen_df["significant"]].groupby("line").size()
 ntr_rows = sorted(NTR_LINES, key=lambda line: -hits.get(line, 0))
 rows = ["WT"] + ntr_rows + [line for line in MUTANT_REFERENCES if line in arms.contrasts]
-fig, _ = plot_tier1_map(param_df, tier1_df, BEHAVIORS, rows)
+fig, _ = plot_tier1_map(screen_params, screen_df, BEHAVIORS + list(DIRECTION_READOUTS), rows)
 save_fig(fig, OUTPUT_DIR, "tier1_map")
-param_df.to_csv(OUTPUT_DIR / "tier1_parameters.csv", index=False)
+screen_params.to_csv(OUTPUT_DIR / "tier1_parameters.csv", index=False)
 
 # Tier 2: is a hit's drug effect different from the drug's effect on WT?
 tier2_df = add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, reference="WT", n_boot=200))
