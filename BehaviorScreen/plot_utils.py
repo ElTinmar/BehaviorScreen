@@ -19,6 +19,8 @@ from BehaviorScreen.event_rates import (
 )
 from BehaviorScreen.stim_specs import stimulus_name_order
 
+CATEGORY_PERCENTILE = 99.5  # top of each category's own colour scale
+
 # average_trial, average_time_bin, filename suffix, title
 HEATMAP_VARIANTS = [
     (False, False, "", "trial_x_time bin"),
@@ -231,6 +233,34 @@ def build_grouped_heatmap_matrix(
     )
 
 
+def annotate_columns(
+    axis: plt.Axes,
+    column_groups: list[tuple[int, int, str]],
+    column_subgroups: list[tuple[int, int, str]],
+    labels: bool = True,
+) -> None:
+    """Stimulus and laterality separators, with their names above the axis if `labels`."""
+    for groups, linewidth, alpha, offset, fontsize in (
+        (column_groups, 1.6, 1.0, 38, 10),
+        (column_subgroups, 0.6, 0.7, 16, 8),
+    ):
+        for start, stop, label in groups:
+            if start > 0:
+                axis.axvline(start - 0.5, color="white", linewidth=linewidth, alpha=alpha)
+            if labels:
+                axis.annotate(
+                    label,
+                    xy=((start + stop - 1) / 2, 1),
+                    xycoords=("data", "axes fraction"),
+                    xytext=(0, offset),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=fontsize,
+                    annotation_clip=False,
+                )
+
+
 def plot_grouped_heatmap(
     figure: plt.Figure,
     axis: plt.Axes,
@@ -283,58 +313,7 @@ def plot_grouped_heatmap(
     else:
         axis.set_yticks([])
 
-    for start, stop, label in column_groups:
-        if start > 0:
-            axis.axvline(
-                start - 0.5,
-                color="white",
-                linewidth=1.6,
-            )
-
-        axis.annotate(
-            label,
-            xy=(
-                (start + stop - 1) / 2,
-                1,
-            ),
-            xycoords=(
-                "data",
-                "axes fraction",
-            ),
-            xytext=(0, 38),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
-            fontsize=10,
-            annotation_clip=False,
-        )
-
-    for start, stop, label in column_subgroups:
-        if start > 0:
-            axis.axvline(
-                start - 0.5,
-                color="white",
-                linewidth=0.6,
-                alpha=0.7,
-            )
-
-        axis.annotate(
-            label,
-            xy=(
-                (start + stop - 1) / 2,
-                1,
-            ),
-            xycoords=(
-                "data",
-                "axes fraction",
-            ),
-            xytext=(0, 16),
-            textcoords="offset points",
-            ha="center",
-            va="bottom",
-            fontsize=8,
-            annotation_clip=False,
-        )
+    annotate_columns(axis, column_groups, column_subgroups)
 
     for group_index, group_label in enumerate(row_group_labels):
         row_start = group_index * number_of_trials
@@ -374,6 +353,47 @@ def plot_grouped_heatmap(
     axis.set_ylabel("")
 
 
+def plot_grouped_heatmap_per_category(
+    figure: plt.Figure,
+    axes: Sequence[plt.Axes],
+    pivot: pd.DataFrame,
+    row_group_labels: Sequence[str],
+    column_groups: list[tuple[int, int, str]],
+    column_subgroups: list[tuple[int, int, str]],
+    time_labels: list[str],
+    number_of_trials: int,
+    title: str,
+    colorbar_label: str,
+    percentile: float = CATEGORY_PERCENTILE,
+) -> None:
+    """The grouped heatmap with one axis per category, each on its own scale: 0 to its `percentile` percentile."""
+    data = pivot.to_numpy(dtype=float)
+    has_trial = isinstance(pivot.index, pd.MultiIndex)
+    for index, (axis, label) in enumerate(zip(axes, row_group_labels)):
+        block = data[index * number_of_trials : (index + 1) * number_of_trials]
+        finite = block[np.isfinite(block)]
+        vmax = np.percentile(finite, percentile) if finite.size else 0.0
+        image = axis.imshow(block, aspect="auto", cmap="inferno", vmin=0.0, vmax=vmax if vmax > 0 else 1.0)
+        figure.colorbar(image, ax=axis, fraction=0.015, pad=0.01)
+        annotate_columns(axis, column_groups, column_subgroups, labels=index == 0)
+        axis.set_yticks(range(len(block)) if has_trial else [])
+        if has_trial:
+            axis.set_yticklabels(range(len(block)), fontsize=7)
+        axis.set_ylabel(str(label), rotation=0, ha="right", va="center", fontsize=9)
+        axis.tick_params(labelbottom=False)
+    if any(label != "avg" for label in time_labels):
+        axes[-1].set_xticks(range(data.shape[1]))
+        axes[-1].set_xticklabels(time_labels, rotation=90, fontsize=7)
+        axes[-1].tick_params(labelbottom=True)
+    else:
+        axes[-1].set_xticks([])
+    axes[0].set_title(
+        f"{title}\n{colorbar_label}: colour scale per category, 0 to its {percentile:g}th percentile",
+        fontsize=12,
+        pad=62,
+    )
+
+
 def grouped_heatmap_figure_size(
     shape: tuple[int, int],
     minimum_width: float = 16,
@@ -406,7 +426,11 @@ def save_rate_heatmap(
     interactive: bool,
     **figure_size: float,
 ) -> None:
-    """Grouped heatmap of an aggregated rate table, one row block per category."""
+    """
+    Grouped heatmap of an aggregated rate table, one row block per category:
+    once on the shared scale (0 to vmax), once with a scale per category
+    (`_per_category` file).
+    """
     pivot, groups, subgroups, labels, number_of_trials = build_grouped_heatmap_matrix(
         averaged=averaged,
         row_column=kind.category,
@@ -418,10 +442,8 @@ def save_rate_heatmap(
         print(f"Skipping {path.name}: only NaN values")
         return
 
-    figure, axis = plt.subplots(
-        figsize=grouped_heatmap_figure_size(pivot.shape, **figure_size),
-        layout="constrained",
-    )
+    size = grouped_heatmap_figure_size(pivot.shape, **figure_size)
+    figure, axis = plt.subplots(figsize=size, layout="constrained")
     plot_grouped_heatmap(
         figure=figure,
         axis=axis,
@@ -435,6 +457,34 @@ def save_rate_heatmap(
         color_limit=(0.0, vmax),
         colorbar_label=f"{kind.name} frequency (s⁻¹)",
     )
+    _save(figure, path, interactive)
+
+    number_of_categories = len(kind.categories)
+    figure, axes = plt.subplots(
+        number_of_categories,
+        1,
+        sharex=True,
+        squeeze=False,
+        figsize=(size[0], size[1] + 0.3 * number_of_categories),
+        layout="constrained",
+        gridspec_kw={"height_ratios": [number_of_trials] * number_of_categories},
+    )
+    plot_grouped_heatmap_per_category(
+        figure=figure,
+        axes=axes[:, 0],
+        pivot=pivot,
+        row_group_labels=kind.labels,
+        column_groups=groups,
+        column_subgroups=subgroups,
+        time_labels=labels,
+        number_of_trials=number_of_trials,
+        title=title,
+        colorbar_label=f"{kind.name} frequency (s⁻¹)",
+    )
+    _save(figure, path.with_name(f"{path.stem}_per_category{path.suffix}"), interactive)
+
+
+def _save(figure: plt.Figure, path: Path, interactive: bool) -> None:
     figure.savefig(path, dpi=180, bbox_inches="tight")
     if not interactive:
         plt.close(figure)
