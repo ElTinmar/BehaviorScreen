@@ -47,7 +47,7 @@ from .tier1_omnibus import PARAMETER_LABELS
 KEYS = ["behavior", "parameter"]
 FOLD_CHANGES = (1.5, 2.0, 3.0)
 COMPONENTS = {"counting": "#2a78d6", "fish": "#1baf7a", "model": "#eb6834", "arm": "#6250d6", "clutch": "#eda100"}
-FOLD_MARKERS = ("o", "s", "^", "D")
+SHADES = {"now": "#9ec5f4", "3x": "#e3eefb"}
 INK, MUTED = "#333333", "#8c8c8c"
 MAX_FISH = 1000
 
@@ -145,20 +145,28 @@ def fish_table(components: pd.DataFrame, fold_changes: Sequence[float] = FOLD_CH
     return pd.concat(rows, ignore_index=True)
 
 
+def _fish_text(n: float) -> str:
+    return "∞" if not np.isfinite(n) else f">{MAX_FISH}" if n > MAX_FISH else f"{n:.0f}"
+
+
 def plot_power_panel(
     components: pd.DataFrame, fish: pd.DataFrame, order: List[str], labels: Optional[Dict[str, str]] = None
 ) -> plt.Figure:
-    """Left: share of each noise source (NTR screen above, mutant screen below). Right: fish per arm per fold change."""
+    """
+    Left: share of each noise source (NTR screen above, mutant screen below).
+    Right: a table of fish per arm per design and fold change, shaded by
+    whether the current fish number reaches it.
+    """
     rank = {b: i for i, b in enumerate(order)}
     rows = components.assign(r=components["behavior"].map(rank).fillna(len(order)),
                              p=components["parameter"].map(["A", "A_peak", "H", "B"].index))
     rows = rows.sort_values(["r", "p"]).reset_index(drop=True)
     y = np.arange(len(rows))[::-1].astype(float)
     folds = sorted(fish["fold_change"].unique())
-    whisker = min(folds, key=lambda f: abs(np.log(f / 2)))
-    fig, (left, right) = plt.subplots(1, 2, figsize=(12, 0.42 * len(rows) + 1.6), sharey=True,
+    designs = ("NTR screen", "mutant screen")
+    fig, (left, right) = plt.subplots(1, 2, figsize=(13, 0.42 * len(rows) + 1.8), sharey=True,
                                       gridspec_kw={"width_ratios": [1.1, 1]})
-    for offset, design, parts in ((0.2, "NTR screen", list(COMPONENTS)[:-1]), (-0.2, "mutant screen", list(COMPONENTS))):
+    for offset, design, parts in ((0.2, designs[0], list(COMPONENTS)[:-1]), (-0.2, designs[1], list(COMPONENTS))):
         total = rows[parts].sum(axis=1)
         start = np.zeros(len(rows))
         for part in parts:
@@ -166,39 +174,50 @@ def plot_power_panel(
             left.barh(y + offset, width, left=start, height=0.36, color=COMPONENTS[part], edgecolor="white", linewidth=1,
                       hatch="//" if part == "clutch" else None, label=part if offset < 0 else None)
             start += width
-        cells = fish[fish["design"] == design].merge(rows[[*KEYS]].assign(y=y), on=KEYS)
-        for fold, marker in zip(folds, FOLD_MARKERS):
-            c = cells[cells["fold_change"] == fold]
-            filled = design == "NTR screen"
-            if fold == whisker:
-                right.hlines(c["y"] + offset, np.minimum(c["fish_low"], MAX_FISH), np.minimum(c["fish_high"], MAX_FISH),
-                             color=MUTED, linewidth=0.8, zorder=1)
-            c = c[c["fish_per_arm"] < MAX_FISH]
-            right.scatter(c["fish_per_arm"], c["y"] + offset, marker=marker, s=28, linewidths=1,
-                          facecolors=INK if filled else "white", edgecolors=INK,
-                          label=f"×{fold:g}" if filled else None, zorder=3)
-        now = cells.drop_duplicates(KEYS)
-        for _, r in now.iterrows():
-            now_text = f"×{r['detectable_now']:.1f}" if r["detectable_now"] < 100 else ">×100"
-            left.text(1.01, r["y"] + offset, now_text, fontsize=6, va="center", color=MUTED)
-    right.scatter(rows["fish_now"], y, marker="|", s=120, color=MUTED, label="fish now", zorder=2)
+    cells = fish.merge(rows[KEYS].assign(y=y), on=KEYS)
+    for (design, offset), g in cells.drop_duplicates([*KEYS, "design"]).groupby(["design", cells["design"].map({designs[0]: 0.2, designs[1]: -0.2})]):
+        for _, r in g.iterrows():
+            text = f"×{r['detectable_now']:.1f}" if r["detectable_now"] < 100 else ">×100"
+            left.text(1.01, r["y"] + offset, text, fontsize=6, va="center", color=MUTED)
+
+    columns = [(d, f) for d in designs for f in folds]
+    x = {c: i + 1.3 * (c[0] == designs[1]) + 1 for i, c in enumerate(columns)}
+    for _, r in rows.assign(y=y).iterrows():
+        right.text(0, r["y"], f"{r['fish_now']:.0f}", ha="center", va="center", fontsize=7, color=MUTED)
+    for _, r in cells.iterrows():
+        n, now, cx = r["fish_per_arm"], r["fish_now"], x[(r["design"], r["fold_change"])]
+        fill = SHADES["now"] if n <= now else SHADES["3x"] if n <= 3 * now else "white"
+        right.add_patch(plt.Rectangle((cx - 0.47, r["y"] - 0.45), 0.94, 0.9, facecolor=fill, edgecolor="#e6e6e6", linewidth=0.6))
+        right.text(cx, r["y"] + 0.12, _fish_text(n), ha="center", va="center", fontsize=7, color=INK if np.isfinite(n) else MUTED)
+        span = f"{_fish_text(r['fish_low'])}–{_fish_text(r['fish_high'])}"
+        if r["fish_low"] != r["fish_high"]:
+            right.text(cx, r["y"] - 0.24, span, ha="center", va="center", fontsize=5, color=MUTED)
+    top = y.max() + 0.6
+    right.text(0, top, "fish\nnow", ha="center", va="bottom", fontsize=7, color=MUTED)
+    for c, cx in x.items():
+        right.text(cx, top, f"×{c[1]:g}", ha="center", va="bottom", fontsize=7, color=INK)
+    for design in designs:
+        centre = np.mean([cx for c, cx in x.items() if c[0] == design])
+        right.text(centre, top + 0.8, design, ha="center", va="bottom", fontsize=8, color=INK, weight="bold")
+    right.set_xlim(-0.6, max(x.values()) + 0.6)
+    right.set_ylim(y.min() - 0.7, top + 1.6)
+    right.axis("off")
+    right.legend(handles=[plt.Rectangle((0, 0), 1, 1, facecolor=SHADES["now"]), plt.Rectangle((0, 0), 1, 1, facecolor=SHADES["3x"])],
+                 labels=["reachable with the fish now", "within 3× the fish now"], fontsize=7, frameon=False,
+                 ncol=2, loc="upper center", bbox_to_anchor=(0.5, 0.0))
+    right.text(0.5, -0.035, "fish per arm to detect the fold change, either way (80% power)\n"
+               "small: range over the 95% interval of the arm variance; ∞: the floors alone exceed the effect",
+               transform=right.transAxes, ha="center", va="top", fontsize=6, color=MUTED)
+
     left.set_xlim(0, 1)
     left.set_xlabel("share of the variance of a log2 effect at current fish and trials\n"
                     "(upper bar: NTR screen; lower: mutant screen; grey: fold detectable now)", fontsize=7)
-    right.set_xscale("log")
-    right.set_xlim(3, MAX_FISH * 1.15)
-    right.axvline(MAX_FISH, color=MUTED, linewidth=0.6, linestyle=":")
-    right.set_xlabel("fish per arm to detect the fold change, either way (80% power); none drawn: over "
-                     f"{MAX_FISH} or unreachable\nfilled: NTR screen; hollow: mutant screen; "
-                     f"line: ×{whisker:g} over the 95% interval of the arm variance", fontsize=7)
-    names = (labels or {})
+    names = labels or {}
     left.set_yticks(y, [f"{names.get(b, b)} · {PARAMETER_LABELS[p]} ({p})" for b, p in zip(rows["behavior"], rows["parameter"])], fontsize=7)
     left.legend(fontsize=7, frameon=False, ncol=5, loc="lower left", bbox_to_anchor=(0, 1.0))
-    right.legend(fontsize=7, frameon=False, ncol=len(folds) + 1, loc="lower left", bbox_to_anchor=(0, 1.0))
-    for ax in (left, right):
-        ax.tick_params(labelsize=7)
-        for spine in ("top", "right"):
-            ax.spines[spine].set_visible(False)
+    left.tick_params(labelsize=7)
+    for spine in ("top", "right"):
+        left.spines[spine].set_visible(False)
     fig.tight_layout()
     return fig
 
