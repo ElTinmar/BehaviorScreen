@@ -328,7 +328,7 @@ def _dot_size(se: float, se_half_size: float) -> float:
 
 
 # Column label of each amplitude parameter in the map.
-PARAMETER_LABELS = {"B": "baseline", "A": "evoked", "A_peak": "evoked", "H": "evoked", "P": "direction"}
+PARAMETER_LABELS = {"B": "baseline", "A": "evoked", "A_peak": "evoked", "H": "evoked", "P": "direction", "E": "escape", "G": "evoked gain"}
 MAP_COLORS = LinearSegmentedColormap.from_list("blue_grey_red", ["#2166ac", "#d9d9d9", "#b2182b"])
 MISSING = "#9e9e9e"
 
@@ -355,6 +355,7 @@ def plot_tier1_map(
     se_half_size: float = 0.5,
     row_labels: Optional[Dict[str, str]] = None,
     colorbar_label: str = "log2(test / reference)",
+    column_labels: Optional[Dict[str, str]] = None,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Dot matrix of the screen: rows are contrasts (in the given order, a gap
@@ -395,7 +396,8 @@ def plot_tier1_map(
     widths = [len(columns), len(shown)] if show_n else [len(columns)]
     unit, gap, right, bottom = 0.32, 0.4, 1.3, 1.3
     left = 0.2 + 0.065 * max(len(label(n)) for n in rows)
-    top = 0.3 + 0.065 * max(len(b) for b in shown)
+    title = lambda behavior: (column_labels or {}).get(behavior, behavior)
+    top = 0.3 + 0.065 * max(len(title(b)) for b in shown)
     content_w, bar_h = unit * sum(widths) + gap * (len(widths) - 1), max(1.2, min(2.5, unit * y))
     fig_w, fig_h = max(left + content_w + right, 6.5), top + max(unit * y, bar_h) + bottom
     right = fig_w - left - content_w
@@ -452,7 +454,7 @@ def plot_tier1_map(
         top.spines["top"].set_visible(False)
         top.tick_params(length=0)
         top.set_xticks([(i + j - 1) / 2 for i, j in zip(starts, starts[1:] + [len(cols)])],
-                       [cols[i][0] for i in starts], rotation=90, fontsize=8)
+                       [title(cols[i][0]) for i in starts], rotation=90, fontsize=8)
         axis.set_xlim(-0.6, len(cols) - 0.4)
         axis.tick_params(length=0)
         for spine in axis.spines.values():

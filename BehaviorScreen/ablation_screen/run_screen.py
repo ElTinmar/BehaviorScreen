@@ -13,7 +13,9 @@ import numpy as np
 import pandas as pd
 
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
-from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, flat, gamma, get_model_config, poisson, prey
+from BehaviorScreen.point_process.analysis.model_config import (
+    EVENT_TABLES, FLASH_ESCAPE, FORWARD_SWIMS, LATERAL_TURNS, LOOMING_ESCAPE, OKR_SWIMS, flat, gamma, get_model_config, poisson, prey,
+)
 from BehaviorScreen.point_process.point_process.poisson_process import RateKernelFactory
 from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
 from BehaviorScreen.point_process.point_process.io import save_fig
@@ -35,7 +37,7 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
 from BehaviorScreen.ablation_screen.fdr import add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.ablation_screen.dataset_utils import Arms, mutant_contrast, ntr_contrast
-from BehaviorScreen.ablation_screen.direction import DIRECTION_READOUTS, run_direction_screen
+# from BehaviorScreen.ablation_screen.count_readouts import COUNT_READOUTS, run_count_screen
 from BehaviorScreen.ablation_screen.tier1_config import tier1_behaviors
 from BehaviorScreen.ablation_screen.tier2_interaction import plot_tier2_map, run_tier2_screen
 
@@ -74,6 +76,30 @@ TIER1_MODELS = {
     "okr_conjugate_contra_saccades": lambda: gamma(poisson(flat())),
     "looming_divergent_saccade": lambda: gamma(SurvivalProcess(looming())),
 }
+# Map columns in protocol order, labelled "stimulus · response" with the stimulus names
+# of screen.yaml and the bout or saccade categories each experiment counts.
+cats = "+".join
+MAP_COLUMNS = {
+    "prey_capture_ipsi": "prey · JT ipsi",
+    "prey_capture_contra": "prey · JT contra",
+    "prey_capture_convergent_saccade": "prey · Convergent",
+    "prey_capture_divergent_saccade": "prey · Divergent",
+    "phototaxis_ipsi": "dark | bright · RT ipsi",
+    "phototaxis_contra": "dark | bright · RT contra",
+    "spont_dark": "dark · all bouts",
+    "dark_flash": f"bright -> dark · {cats(FLASH_ESCAPE)}",
+    "omr_lateral_ipsi": f"grating lateral · {cats(LATERAL_TURNS)} ipsi",
+    "omr_lateral_contra": f"grating lateral · {cats(LATERAL_TURNS)} contra",
+    "omr_forward": f"grating forward · {cats(FORWARD_SWIMS)}",
+    "spont_bright": "bright · all bouts",
+    "okr_ipsi": f"pinwheel · {cats(OKR_SWIMS)} ipsi",
+    "okr_contra": f"pinwheel · {cats(OKR_SWIMS)} contra",
+    "okr_conjugate_ipsi_saccades": "pinwheel · Conjugate ipsi",
+    "okr_conjugate_contra_saccades": "pinwheel · Conjugate contra",
+    "looming": f"looming · {cats(LOOMING_ESCAPE)}",
+    "looming_divergent_saccade": "looming · Divergent",
+    "after_looming": "looming break · all bouts",
+}
 untested = set(get_model_config()) - set(TIER1_MODELS)
 if untested:
     print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")
@@ -82,6 +108,7 @@ if untested:
 PINNED_AMPLITUDES = {name: ["B"] for name in ("looming", "looming_divergent_saccade", "dark_flash")}
 BEHAVIOR_CONFIG = tier1_behaviors(TIER1_MODELS, FITS_ROOT, PINNED_AMPLITUDES)
 BEHAVIORS = list(BEHAVIOR_CONFIG)
+MAP_ORDER = [b for b in MAP_COLUMNS if b in BEHAVIORS] + [b for b in BEHAVIORS if b not in MAP_COLUMNS]
 DATASET_CONFIGS = {b: cfg['dataset'] for b, cfg in BEHAVIOR_CONFIG.items()}
 BEHAVIOR_PROCESS_FACTORY = {b: cfg['architecture'] for b, cfg in BEHAVIOR_CONFIG.items()}
 NULL_PROCESS_FACTORY = {b: cfg['null'] for b, cfg in BEHAVIOR_CONFIG.items()}
@@ -150,22 +177,25 @@ tier1_df = run_tier1_screen(
 tier1_df = add_testability(add_fdr_per_behavior(tier1_df, alpha=0.05))
 print(tier1_df["status"].value_counts())
 
-# Direction readouts: model-free, tested alongside Tier 1 (own FDR family per readout).
-direction_df, direction_params = run_direction_screen(loaders["bouts"], CONTRASTS)
-direction_df = add_testability(add_fdr_per_behavior(direction_df, alpha=0.05))
-screen_df = pd.concat([tier1_df, direction_df], ignore_index=True)
+# Count readouts (direction, escape, evoked gain): model-free, tested alongside Tier 1 (own FDR family per readout).
+# Off for now: the map shows only the model amplitudes. To restore, swap the commented lines back in here and below.
+# count_df, count_params = run_count_screen(loaders, CONTRASTS)
+# count_df = add_testability(add_fdr_per_behavior(count_df, alpha=0.05))
+# screen_df = pd.concat([tier1_df, count_df], ignore_index=True)
+screen_df = tier1_df
 screen_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
 
 bad_fits = build_bad_fit_triage(tier1_df)
 
 param_df = extract_fitted_parameters(tier1_df, arms)
 param_df = compute_parameter_deltas(param_df)
-screen_params = compute_parameter_deltas(pd.concat([param_df, direction_params], ignore_index=True))
+# screen_params = compute_parameter_deltas(pd.concat([param_df, count_params], ignore_index=True))
+screen_params = param_df
 
 hits = screen_df[screen_df["significant"]].groupby("line").size()
 ntr_rows = sorted(NTR_LINES, key=lambda line: -hits.get(line, 0))
 rows = ["WT"] + ntr_rows + [line for line in MUTANT_REFERENCES if line in arms.contrasts]
-fig, _ = plot_tier1_map(screen_params, screen_df, BEHAVIORS + list(DIRECTION_READOUTS), rows)
+fig, _ = plot_tier1_map(screen_params, screen_df, MAP_ORDER, rows, column_labels=MAP_COLUMNS)  # + list(COUNT_READOUTS)
 save_fig(fig, OUTPUT_DIR, "tier1_map")
 screen_params.to_csv(OUTPUT_DIR / "tier1_parameters.csv", index=False)
 
@@ -173,7 +203,7 @@ screen_params.to_csv(OUTPUT_DIR / "tier1_parameters.csv", index=False)
 tier2_df = add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, reference="WT", n_boot=200))
 tier2_df.to_csv(OUTPUT_DIR / "tier2_results.csv", index=False)
 if (tier2_df["status"] == "ok").any():
-    fig, _ = plot_tier2_map(param_df, tier2_df, BEHAVIORS)
+    fig, _ = plot_tier2_map(param_df, tier2_df, MAP_ORDER)
     save_fig(fig, OUTPUT_DIR, "tier2_map")
 
 generate_arm_surface_grids(tier1_df, arms, output_dir=OUTPUT_DIR / "arm_surface_grids")
