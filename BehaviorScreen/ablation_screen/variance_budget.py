@@ -3,12 +3,13 @@ Variance budget of each Tier 1 column, from the vehicle arms and without a
 model: how many events a fish contributes, how its fish-to-fish noise splits
 into counting noise (falls with trials) and real fish differences (a floor
 only more fish lower), how the response habituates over the session, and the
-fish this implies, next to the power analysis.
+fish this implies, next to the power analysis. vehicle_arms.csv has each
+readout per vehicle arm (arms with no response stand out there).
 
 Per fish and trial, the readout matching the column's free amplitude:
-    evoked  events in the response window minus the fish's own baseline there (A, A_peak)
-    rate    events in a window: the whole trial (B), or the late baseline of an evoked column
-    escape  share of trials with an event in the response window (H)
+    transient  events in the response window minus the fish's own sustained rate there (A, A_peak)
+    sustained  events in a window: the whole trial (B), or the late part of a transient column
+    escape     share of trials with an event in the response window (H)
 
 Counting variance is Poisson for counts and binomial for escapes. The CV^2
 across fish, pooled over arms before dividing, is fitted against trials per fish:
@@ -17,7 +18,7 @@ across fish, pooled over arms before dividing, is fitted against trials per fish
 
 b: real fish differences. a above its Poisson value: events come in clusters
 (a hunt is several J-turns). On the log2 scale the per-fish SD is about
-CV / ln 2 (delta method, rough when CV is large), comparable to power.py's
+CV / ln 2 (delta method, rough when CV is large, as for the transients), comparable to power.py's
 sigma: the power analysis' sigma well above it means noise beyond fish
 sampling (clutches, lines, fits), which more trials cannot remove.
 
@@ -44,7 +45,7 @@ EVENTS_CSV = {"bouts": "bouts_all.csv", "saccades": "saccades_augmented_all.csv"
 MIN_FISH = 10
 DRAWS = 50
 # Response windows, read off the WT PSTHs: adjust here
-EVOKED: Dict[str, Tuple[Window, Window, str]] = {  # (response, baseline, parameter)
+TRANSIENT: Dict[str, Tuple[Window, Window, str]] = {  # (response, baseline, parameter)
     "prey_capture_ipsi": ((0.0, 2.5), (10.0, 24.0), "A"),
     "prey_capture_convergent_saccade": ((0.0, 2.5), (10.0, 24.0), "A"),
     "prey_capture_divergent_saccade": ((0.0, 2.5), (10.0, 24.0), "A"),
@@ -56,7 +57,7 @@ ESCAPES: Dict[str, Window] = {"looming": (4.0, 7.0), "looming_divergent_saccade"
 @dataclass(frozen=True)
 class Readout:
     behavior: str
-    kind: str  # "evoked", "rate" or "escape"
+    kind: str  # "transient", "sustained" or "escape"
     parameter: str
     window: Window
     baseline: Optional[Window] = None
@@ -65,13 +66,13 @@ class Readout:
 def readouts(config: Dict[str, dict]) -> List[Readout]:
     out = []
     for behavior, cfg in config.items():
-        if behavior in EVOKED:
-            window, baseline, parameter = EVOKED[behavior]
-            out += [Readout(behavior, "evoked", parameter, window, baseline), Readout(behavior, "rate", "B", baseline)]
+        if behavior in TRANSIENT:
+            window, baseline, parameter = TRANSIENT[behavior]
+            out += [Readout(behavior, "transient", parameter, window, baseline), Readout(behavior, "sustained", "B", baseline)]
         elif behavior in ESCAPES:
             out.append(Readout(behavior, "escape", "H", ESCAPES[behavior]))
         else:
-            out.append(Readout(behavior, "rate", "B", (cfg["dataset"]["t_start"], cfg["dataset"]["t_end"])))
+            out.append(Readout(behavior, "sustained", "B", (cfg["dataset"]["t_start"], cfg["dataset"]["t_end"])))
     return out
 
 
@@ -181,14 +182,18 @@ def main(root: Path, results_dir: Path) -> None:
     loaders = {e: BehavioralDataLoader(root / csv, [root / "valid_trials_all.csv"], [root / "qc_all.csv"], **EVENT_TABLES[e])
                for e, csv in EVENTS_CSV.items()}
     rng = np.random.default_rng(0)
-    rows, curves, arms = [], {}, {}
+    rows, arm_rows, curves, arms = [], [], {}, {}
     for r in readouts(config):
         if r.behavior not in arms:
             loader = loaders[config[r.behavior]["events"]]
-            datasets = (safe_prepare_dataset(loader.subset(line, ["vehicle"]), config[r.behavior]["dataset"], f"{line}/{r.behavior}")
-                        for line in sorted(loader.trials["line"].astype(str).unique()))
-            arms[r.behavior] = [ds for ds in datasets if ds is not None and ds.num_fish >= MIN_FISH]
-        result = budget(arms[r.behavior], r, rng) if arms[r.behavior] else None
+            lines = sorted(loader.trials["line"].astype(str).unique())
+            datasets = {line: safe_prepare_dataset(loader.subset(line, ["vehicle"]), config[r.behavior]["dataset"], f"{line}/{r.behavior}") for line in lines}
+            arms[r.behavior] = {line: ds for line, ds in datasets.items() if ds is not None and ds.num_fish >= MIN_FISH}
+        for line, ds in arms[r.behavior].items():
+            value, _ = per_fish(ds, r, np.arange(ds.num_trials))
+            arm_rows.append({"behavior": r.behavior, "readout": r.kind, "line": line, "fish": len(value), "trials": ds.num_trials,
+                             "per fish per trial": value.mean(), "SD across fish": value.std(ddof=1), "fish above 0": (value > 0).mean()})
+        result = budget(list(arms[r.behavior].values()), r, rng) if arms[r.behavior] else None
         if result:
             rows.append(result[0])
             curves[r] = result[1]
@@ -200,6 +205,7 @@ def main(root: Path, results_dir: Path) -> None:
     out = results_dir / "variance_budget"
     out.mkdir(parents=True, exist_ok=True)
     table.to_csv(out / "variance_budget.csv", index=False)
+    pd.DataFrame(arm_rows).to_csv(out / "vehicle_arms.csv", index=False)
     save_fig(plot_curves(curves), out, "cv2_vs_trials")
     save_fig(plot_habituation(curves), out, "habituation")
     with pd.option_context("display.width", 250, "display.max_columns", None):
