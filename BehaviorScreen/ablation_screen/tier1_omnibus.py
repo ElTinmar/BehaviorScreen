@@ -356,6 +356,7 @@ def plot_tier1_map(
     row_labels: Optional[Dict[str, str]] = None,
     colorbar_label: str = "log2(test / reference)",
     column_labels: Optional[Dict[str, str]] = None,
+    frame_label: str = "significant (q < 0.05)",
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Dot matrix of the screen: rows are contrasts (in the given order, a gap
@@ -436,7 +437,7 @@ def plot_tier1_map(
     handles = [plt.scatter([], [], s=_dot_size(se, se_half_size), color=MISSING, label=f"SE {se:g}")
                for se in (0.1, se_half_size, 2 * se_half_size)]
     handles += [
-        plt.Line2D([], [], marker="s", markersize=11, markerfacecolor="none", markeredgecolor="black", linestyle="", label="significant (q < 0.05)"),
+        plt.Line2D([], [], marker="s", markersize=11, markerfacecolor="none", markeredgecolor="black", linestyle="", label=frame_label),
         plt.Line2D([], [], marker="o", markersize=8, markerfacecolor="white", markeredgecolor=MISSING, markeredgewidth=2.4,
                    linestyle="", label="too few fish to reach q < 0.05"),
         plt.Line2D([], [], marker="x", color=MISSING, linestyle="", label="not tested"),

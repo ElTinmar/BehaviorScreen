@@ -11,11 +11,15 @@ Each line's effect is then expressed in clutch SDs. NTR contrasts compare
 siblings (one clutch), so their within-clutch test stands; a mutant and its
 reference are two clutches, so 'z_clutch' adds 2 tau^2 to its variance.
 
+The vehicle map shows each NTR line's untreated fish against the mean of all
+vehicle arms, framing atypical controls: a parameter offset beyond
+OUTLIER_Z x sqrt(tau^2 + SE^2), the spread expected of one more clutch.
+
     python -m BehaviorScreen.ablation_screen.clutch_variability ./tier1_results
 """
 import sys
 from pathlib import Path
-from typing import List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -29,6 +33,7 @@ from .tier1_omnibus import MAP_COLORS, PARAMETER_LABELS, plot_tier1_map
 
 KEYS = ["behavior", "parameter"]
 ABOLISHED_LOG2 = 4.0  # effects below -4 log2 (1/16): response abolished, its size not meaningful
+OUTLIER_Z = 3.0  # about 1 false frame per 400 cells
 
 
 def _log2_amplitudes(param_df: pd.DataFrame) -> pd.DataFrame:
@@ -162,7 +167,26 @@ def plot_effect_sd_map(report: pd.DataFrame, tier1_df: pd.DataFrame, behaviors: 
     return fig, ax
 
 
+def plot_vehicle_map(
+    report: pd.DataFrame, tier1_df: pd.DataFrame, behaviors: List[str], column_labels: Optional[Dict[str, str]] = None
+) -> Tuple[plt.Figure, plt.Axes]:
+    """Each NTR line's vehicle arm against the mean vehicle arm (log2); frame: an atypical control in that behavior."""
+    v = report[report["family"] == "ntr"].dropna(subset=["reference_offset"])
+    v = v.assign(delta=v["reference_offset"], delta_se=v["se_reference"] / v["value_reference"] / np.log(2))
+    z = v["delta"] / np.sqrt(v["tau"] ** 2 + v["delta_se"].fillna(np.inf) ** 2)  # arms at a bound (no SE): never framed
+    atypical = set(map(tuple, v.loc[np.abs(z) > OUTLIER_Z, ["line", "behavior"]].to_numpy()))
+    status = tier1_df.loc[tier1_df["family"] == "ntr", ["line", "behavior", "family", "status"]].drop_duplicates(["line", "behavior"])
+    status["significant"] = [(l, b) in atypical for l, b in zip(status["line"], status["behavior"])]
+    rows = ["WT"] * ("WT" in set(v["line"])) + sorted(set(v["line"]) - {"WT"})
+    fig, ax = plot_tier1_map(v, status, behaviors, rows, colorbar_label="log2(vehicle / mean vehicle)", column_labels=column_labels,
+                             frame_label=f"atypical control (beyond {OUTLIER_Z:g} clutch SDs)")
+    fig.suptitle("Untreated fish of each line against the mean vehicle arm", fontsize=9, y=1.0)
+    return fig, ax
+
+
 def main(results_dir: Path) -> None:
+    from .tier1_config import MAP_COLUMNS
+
     tier1_df = pd.read_csv(results_dir / "tier1_results.csv")
     param_df = pd.read_csv(results_dir / "tier1_parameters.csv")
     out = results_dir / "clutch_variability"
@@ -179,6 +203,9 @@ def main(results_dir: Path) -> None:
     rows = [l for l in families.index if families[l] == "ntr"] + [l for l in families.index if families[l] != "ntr"]
     fig, _ = plot_effect_sd_map(report, tier1_df, behaviors, [r for r in rows if r in set(report["line"])])
     save_fig(fig, out, "effect_sd_map")
+    order = [b for b in MAP_COLUMNS if b in behaviors] + [b for b in behaviors if b not in MAP_COLUMNS]
+    fig, _ = plot_vehicle_map(report, tier1_df, order, MAP_COLUMNS)
+    save_fig(fig, out, "vehicle_map")
     print(clutch_df.round(3).to_string(index=False))
 
 
