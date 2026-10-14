@@ -6,10 +6,36 @@ import copy
 from pathlib import Path
 from typing import Callable, Dict, Optional, Sequence
 
-from BehaviorScreen.point_process.analysis.model_config import get_model_config
+from BehaviorScreen.point_process.analysis.model_config import (
+    FLASH_ESCAPE, FORWARD_SWIMS, LATERAL_TURNS, LOOMING_ESCAPE, OKR_SWIMS, get_model_config,
+)
 from BehaviorScreen.point_process.analysis.tasks import load_fitted_params
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.wrappers import PartiallyFixedProcess
+
+# Map column labels (stimulus · events), in protocol order: responses to one stimulus side by side
+cats = "+".join
+MAP_COLUMNS = {
+    "prey_capture_ipsi": "prey · JT ipsi",
+    "prey_capture_contra": "prey · JT contra",
+    "prey_capture_convergent_saccade": "prey · Convergent",
+    "prey_capture_divergent_saccade": "prey · Divergent",
+    "phototaxis_ipsi": "dark | bright · RT ipsi",
+    "phototaxis_contra": "dark | bright · RT contra",
+    "spont_dark": "dark · all bouts",
+    "dark_flash": f"bright -> dark · {cats(FLASH_ESCAPE)}",
+    "omr_lateral_ipsi": f"grating lateral · {cats(LATERAL_TURNS)} ipsi",
+    "omr_lateral_contra": f"grating lateral · {cats(LATERAL_TURNS)} contra",
+    "omr_forward": f"grating forward · {cats(FORWARD_SWIMS)}",
+    "spont_bright": "bright · all bouts",
+    "okr_ipsi": f"pinwheel · {cats(OKR_SWIMS)} ipsi",
+    "okr_contra": f"pinwheel · {cats(OKR_SWIMS)} contra",
+    "okr_conjugate_ipsi_saccades": "pinwheel · Conjugate ipsi",
+    "okr_conjugate_contra_saccades": "pinwheel · Conjugate contra",
+    "looming": f"looming · {cats(LOOMING_ESCAPE)}",
+    "looming_divergent_saccade": "looming · Divergent",
+    "after_looming": "looming break · all bouts",
+}
 
 # Rate scales (baseline, evoked peak, hazard bump): fitted per arm.
 AMPLITUDE_PARAMETERS = ("B", "A", "A_peak", "H")

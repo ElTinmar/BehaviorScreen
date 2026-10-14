@@ -14,7 +14,7 @@ import pandas as pd
 
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
 from BehaviorScreen.point_process.analysis.model_config import (
-    EVENT_TABLES, FLASH_ESCAPE, FORWARD_SWIMS, LATERAL_TURNS, LOOMING_ESCAPE, OKR_SWIMS, flat, gamma, get_model_config, poisson, prey,
+    EVENT_TABLES, flat, gamma, get_model_config, poisson, prey,
 )
 from BehaviorScreen.point_process.point_process.poisson_process import RateKernelFactory
 from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
@@ -38,7 +38,7 @@ from BehaviorScreen.ablation_screen.fdr import add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.ablation_screen.dataset_utils import Arms, mutant_contrast, ntr_contrast
 # from BehaviorScreen.ablation_screen.count_readouts import COUNT_READOUTS, run_count_screen
-from BehaviorScreen.ablation_screen.tier1_config import tier1_behaviors
+from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS, tier1_behaviors
 from BehaviorScreen.ablation_screen.tier2_interaction import plot_tier2_map, run_tier2_screen
 
 
@@ -78,28 +78,6 @@ TIER1_MODELS = {
 }
 # Map columns in protocol order, labelled "stimulus · response" with the stimulus names
 # of screen.yaml and the bout or saccade categories each experiment counts.
-cats = "+".join
-MAP_COLUMNS = {
-    "prey_capture_ipsi": "prey · JT ipsi",
-    "prey_capture_contra": "prey · JT contra",
-    "prey_capture_convergent_saccade": "prey · Convergent",
-    "prey_capture_divergent_saccade": "prey · Divergent",
-    "phototaxis_ipsi": "dark | bright · RT ipsi",
-    "phototaxis_contra": "dark | bright · RT contra",
-    "spont_dark": "dark · all bouts",
-    "dark_flash": f"bright -> dark · {cats(FLASH_ESCAPE)}",
-    "omr_lateral_ipsi": f"grating lateral · {cats(LATERAL_TURNS)} ipsi",
-    "omr_lateral_contra": f"grating lateral · {cats(LATERAL_TURNS)} contra",
-    "omr_forward": f"grating forward · {cats(FORWARD_SWIMS)}",
-    "spont_bright": "bright · all bouts",
-    "okr_ipsi": f"pinwheel · {cats(OKR_SWIMS)} ipsi",
-    "okr_contra": f"pinwheel · {cats(OKR_SWIMS)} contra",
-    "okr_conjugate_ipsi_saccades": "pinwheel · Conjugate ipsi",
-    "okr_conjugate_contra_saccades": "pinwheel · Conjugate contra",
-    "looming": f"looming · {cats(LOOMING_ESCAPE)}",
-    "looming_divergent_saccade": "looming · Divergent",
-    "after_looming": "looming break · all bouts",
-}
 untested = set(get_model_config()) - set(TIER1_MODELS)
 if untested:
     print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")

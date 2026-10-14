@@ -1,175 +1,232 @@
 """
-Power of the screen, both ways round: the smallest amplitude change each
-behavior can detect with n fish per arm (sensitivity), and the fish per arm
-needed to detect a given fold change (sample size).
+How many fish Tier 1 needs per arm, and where the noise comes from.
 
-Per-fish SD sigma of each (behavior, parameter): the robust spread (MAD)
-across NTR lines of the log2 effects, each scaled to one fish per arm by
-sqrt(1/n_ref + 1/n_test). Most lines have no effect in a given column, so
-this is the noise of a typical cell as the screen sees it (fish, misfit,
-clutch-to-clutch variation of the drug effect), insensitive to the few hits.
-Then, two arms of n fish (Wald approximation of the test):
+A Tier 1 effect is the log2 change of a free amplitude between two arms of n
+fish. Its variance splits into
 
-    MDE(n) = (z_{1 - alpha/2} + z_power) * sqrt(2 sigma^2 / n  [+ 2 tau^2 for mutants])
+    counting  2 sigma_c^2 share / n         few events per trial: more trials lower it
+    fish      2 sigma_c^2 (1 - share) / n   real fish differences: only more fish lower it
+    model     2 (sigma_m^2 - sigma_c^2) / n the fitted amplitude noisier than plain counts
+    arm       2 v                           sibling arms differing beyond their SEs (day, plate,
+                                            drug; or SEs too optimistic): a floor
+    clutch    2 tau^2                       mutant design only (two clutches): a floor
 
-and, solved for n, n = 2 sigma^2 / ((effect / z)^2 [- 2 tau^2]).
+sigma_c and its counting share: per-fish count noise in the vehicle arms at the
+current trials (variance_budget.csv: CV^2 = a / trials + b, log2 by CV / ln 2).
+sigma_m: per-fish noise of the fitted amplitude, the median over NTR vehicle
+arms of its Hessian SE x sqrt(fish); when below sigma_c, the model does better
+than counts and there is no model term. v: the arm variance making the NTR
+sibling deltas over sqrt(delta_se^2 + 2 v) have a robust SD (MAD) of 1,
+with a 95% interval from resampling the lines: about 25 lines pin it down
+loosely, and at the screen alpha a small v already caps what is detectable.
+tau: clutch_variability.csv.
 
-alpha 0.05: one planned test (a follow-up). alpha 0.05 / m: the strongest
-hit of a behavior surviving BH among its m tests (the screen; m counts the
-NTR lines, or the mutants for the mutant screen). Mutants add
-the between-clutch variance of clutch_variability.csv, a floor that more
-fish cannot lower: below it no number of fish is enough (inf).
+Fish per arm to detect a fold change f either way (80% power, Wald):
 
-    python -m BehaviorScreen.ablation_screen.power ./tier1_results [fold changes, default 1.25 1.5 2 3]
+    n = 2 z^2 sigma_m^2 / (log2(f)^2 - 2 z^2 (v [+ tau^2]))
+
+inf when the floors alone exceed the effect. alpha: 0.05 / lines (NTR screen)
+or 0.05 / mutants (mutant screen), the strongest hit surviving BH.
+
+Run after run_screen, clutch_variability and variance_budget:
+    python -m BehaviorScreen.ablation_screen.power ./tier1_results [fold changes, default 1.5 2 3]
 """
 import sys
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Sequence
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from scipy import stats
+from scipy import optimize, stats
 
 from BehaviorScreen.point_process.point_process.io import save_fig
 
 from .tier1_omnibus import PARAMETER_LABELS
 
 KEYS = ["behavior", "parameter"]
-FISH = np.array([6, 10, 15, 20, 30, 50])
-FOLD_CHANGES = (1.25, 1.5, 2.0, 3.0)
+FOLD_CHANGES = (1.5, 2.0, 3.0)
+COMPONENTS = {"counting": "#2a78d6", "fish": "#1baf7a", "model": "#eb6834", "arm": "#6250d6", "clutch": "#eda100"}
+FOLD_MARKERS = ("o", "s", "^", "D")
+INK, MUTED = "#333333", "#8c8c8c"
+MAX_FISH = 1000
 
 
 def per_fish_sd(param_df: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
-    """sigma per (behavior, parameter): MAD across NTR lines of the per-fish-scaled log2 effects."""
-    # Sibling contrasts only: mutant cells carry clutch variance on top of fish noise.
+    """sigma per (behavior, parameter): MAD across NTR lines of the per-fish-scaled log2 effects (all noise, lumped)."""
     df = param_df[(param_df["family"] == "ntr") & param_df["parameter"].isin(PARAMETER_LABELS)].merge(
         tier1_df[["line", "behavior", "n_fish_ref", "n_fish_test"]], on=["line", "behavior"]
     )
     df["scaled"] = df["delta"] / np.sqrt(1 / df["n_fish_ref"] + 1 / df["n_fish_test"])
     df = df[np.isfinite(df["scaled"])]
-    sigma = df.groupby(KEYS).agg(
+    return df.groupby(KEYS).agg(
         sigma=("scaled", lambda x: stats.median_abs_deviation(x, scale="normal")), n_lines=("line", "nunique")
     ).reset_index()
-    mutants = tier1_df[(tier1_df["family"] != "ntr") & (tier1_df["status"] == "ok")].groupby("behavior")["line"].nunique()
-    return sigma.assign(n_mutants=sigma["behavior"].map(mutants))
-
-
-def mde(sigma: np.ndarray, n: np.ndarray, alpha: float, power: float = 0.8, tau: np.ndarray = 0.0) -> np.ndarray:
-    z = stats.norm.ppf(1 - alpha / 2) + stats.norm.ppf(power)
-    return z * np.sqrt(2 * sigma**2 / n + 2 * tau**2)
-
-
-def _designs(sigma_df: pd.DataFrame, clutch_df: Optional[pd.DataFrame]) -> pd.DataFrame:
-    """One row per (behavior, parameter, design) with its alpha and clutch SD."""
-    df = sigma_df.merge(clutch_df[[*KEYS, "tau"]], on=KEYS, how="left") if clutch_df is not None else sigma_df.assign(tau=np.nan)
-    screen_alpha = 0.05 / df["n_lines"]
-    return pd.concat([
-        df.assign(design="planned", alpha=0.05, tau=0.0),
-        df.assign(design="screen", alpha=screen_alpha, tau=0.0),
-        df.assign(design="mutant screen", alpha=0.05 / df["n_mutants"]).dropna(subset=["tau", "alpha"]),
-    ], ignore_index=True)
-
-
-def power_table(
-    sigma_df: pd.DataFrame, clutch_df: Optional[pd.DataFrame] = None, fish: np.ndarray = FISH, power: float = 0.8
-) -> pd.DataFrame:
-    """MDE (log2) per behavior, parameter, design (planned / screen / mutant screen) and fish per arm."""
-    df = _designs(sigma_df, clutch_df).merge(pd.DataFrame({"fish_per_arm": fish}), how="cross")
-    return df.assign(mde_log2=mde(df["sigma"], df["fish_per_arm"], df["alpha"], power, df["tau"]))
 
 
 def fish_needed(
     sigma: np.ndarray, effect_log2: float, alpha: np.ndarray, power: float = 0.8, tau: np.ndarray = 0.0, whole: bool = True
 ) -> np.ndarray:
-    """Fish per arm to detect `effect_log2` (rounded up if `whole`); inf when clutch variance alone is larger than the effect."""
+    """Fish per arm to detect `effect_log2` (rounded up if `whole`); inf when the per-arm floor tau alone is larger than the effect."""
     z = stats.norm.ppf(1 - np.asarray(alpha) / 2) + stats.norm.ppf(power)
     room = (effect_log2 / z) ** 2 - 2 * np.asarray(tau) ** 2
     n = 2 * np.asarray(sigma) ** 2 / np.where(room > 0, room, 1)
     return np.where(room > 0, np.ceil(n) if whole else n, np.inf)
 
 
-def sample_size_table(
-    sigma_df: pd.DataFrame, clutch_df: Optional[pd.DataFrame] = None, fold_changes=FOLD_CHANGES, power: float = 0.8
-) -> pd.DataFrame:
-    """Fish per arm per behavior, parameter, design and fold change (either direction)."""
-    df = _designs(sigma_df, clutch_df).merge(pd.DataFrame({"fold_change": fold_changes}), how="cross")
-    return df.assign(fish_per_arm=fish_needed(df["sigma"], np.log2(df["fold_change"]), df["alpha"], power, df["tau"]))
+def _arm_variance(delta: np.ndarray, delta_se: np.ndarray) -> float:
+    """v >= 0 such that delta / sqrt(delta_se^2 + 2 v) has a MAD-based SD of 1."""
+    spread = lambda v: stats.median_abs_deviation(delta / np.sqrt(delta_se**2 + 2 * v), scale="normal") - 1
+    if spread(0.0) <= 0:
+        return 0.0
+    return optimize.brentq(spread, 0.0, 2 * stats.median_abs_deviation(delta, scale="normal") ** 2)
 
 
-def plot_fish_needed(sizes: pd.DataFrame, behaviors: List[str], current_fish: float, design: str = "planned") -> plt.Figure:
-    """Fish per arm against the fold change to detect, one line per behavior and parameter."""
-    fig, ax = plt.subplots(figsize=(6.5, 4.5))
-    sub = sizes[sizes["design"] == design]
-    columns = [(b, p) for b in behaviors for p in PARAMETER_LABELS if ((sub["behavior"] == b) & (sub["parameter"] == p)).any()]
-    folds = np.geomspace(1.15, 4, 60)
-    for (b, p), color in zip(columns, plt.cm.viridis(np.linspace(0, 0.9, len(columns)))):
-        row = sub[(sub["behavior"] == b) & (sub["parameter"] == p)].iloc[0]
-        ax.plot(folds, fish_needed(row["sigma"], np.log2(folds), row["alpha"], tau=row["tau"], whole=False), color=color, linewidth=1,
-                label=f"{b} {PARAMETER_LABELS[p]}")
-    ax.axhline(current_fish, color="#bdbdbd", linestyle="--", linewidth=0.8)
-    ax.text(4, current_fish, "median now ", fontsize=7, ha="right", va="bottom", color="#8c8c8c")
-    ax.set_xscale("log", base=2)
-    ax.set_yscale("log")
-    ax.set_ylim(3, 1000)
-    ax.set_xticks([1.25, 1.5, 2, 3, 4], ["×1.25", "×1.5", "×2", "×3", "×4"])
-    ax.set_xlabel("fold change to detect (either direction)")
-    ax.set_ylabel("fish per arm (80% power)")
-    ax.set_title(f"Fish needed: {design} design", fontsize=9)
-    ax.legend(fontsize=5, frameon=False, ncol=2, bbox_to_anchor=(1.02, 1), loc="upper left")
-    for spine in ("top", "right"):
-        ax.spines[spine].set_visible(False)
+def model_noise(param_df: pd.DataFrame, tier1_df: pd.DataFrame, min_lines: int = 5, n_boot: int = 200) -> pd.DataFrame:
+    """
+    Per (behavior, parameter): sigma_m, arm variance v with its 95% interval
+    over resampled lines, current fish per arm, NTR lines and mutants tested.
+    """
+    rng = np.random.default_rng(0)
+    ntr = param_df[(param_df["family"] == "ntr") & param_df["parameter"].isin(PARAMETER_LABELS)].merge(
+        tier1_df[["line", "behavior", "n_fish_ref", "n_fish_test"]], on=["line", "behavior"]
+    )
+    ntr["sigma"] = ntr["se_reference"] / ntr["value_reference"] / np.log(2) * np.sqrt(ntr["n_fish_ref"])
+    mutants = tier1_df[(tier1_df["family"] != "ntr") & (tier1_df["status"] == "ok")].groupby("behavior")["line"].nunique()
+    records = []
+    for (behavior, parameter), g in ntr.groupby(KEYS):
+        sigma = g["sigma"][np.isfinite(g["sigma"]) & (g["sigma"] > 0)]
+        pairs = g[np.isfinite(g["delta"]) & np.isfinite(g["delta_se"])]
+        if min(len(sigma), len(pairs)) < min_lines:
+            continue
+        delta, delta_se = pairs["delta"].to_numpy(), pairs["delta_se"].to_numpy()
+        boot = [_arm_variance(delta[i], delta_se[i]) for i in rng.integers(0, len(delta), (n_boot, len(delta)))]
+        records.append({
+            "behavior": behavior, "parameter": parameter, "sigma_m": sigma.median(),
+            "arm_var": _arm_variance(delta, delta_se), "arm_var_low": np.percentile(boot, 2.5), "arm_var_high": np.percentile(boot, 97.5),
+            "fish_now": float(np.median(np.minimum(g["n_fish_ref"], g["n_fish_test"]))),
+            "lines": g["line"].nunique(), "mutants": mutants.get(behavior, np.nan),
+        })
+    return pd.DataFrame(records)
+
+
+def variance_components(noise: pd.DataFrame, budget: pd.DataFrame, clutch: Optional[pd.DataFrame]) -> pd.DataFrame:
+    """Each component's variance of a log2 effect between two arms at the current fish and trials."""
+    df = noise.merge(budget[[*KEYS, "counting slope", "fish floor", "trials now"]], on=KEYS)
+    df = df.merge(clutch[[*KEYS, "tau"]], on=KEYS, how="left") if clutch is not None else df.assign(tau=np.nan)
+    counting = df["counting slope"].clip(lower=0) / df["trials now"]
+    fish = df["fish floor"].clip(lower=0)
+    sampled = np.minimum(df["sigma_m"] ** 2, (counting + fish) / np.log(2) ** 2)
+    share = counting / (counting + fish)
+    n = df["fish_now"]
+    return df.assign(
+        counting=2 * sampled * share / n, fish=2 * sampled * (1 - share) / n,
+        model=2 * (df["sigma_m"] ** 2 - sampled) / n, arm=2 * df["arm_var"], clutch=2 * df["tau"].fillna(0) ** 2,
+    )
+
+
+def fish_table(components: pd.DataFrame, fold_changes: Sequence[float] = FOLD_CHANGES, power: float = 0.8) -> pd.DataFrame:
+    """
+    Fish per arm per (behavior, parameter), design and fold change, also at the
+    ends of the arm variance interval, with the smallest fold detectable now.
+    """
+    c = components
+    designs = {"NTR screen": (0.05 / c["lines"], 0.0), "mutant screen": (0.05 / c["mutants"], c["tau"] ** 2)}
+    rows = []
+    for design, (alpha, clutch) in designs.items():
+        z = stats.norm.ppf(1 - alpha / 2) + stats.norm.ppf(power)
+        now = 2 ** (z * np.sqrt(2 * c["sigma_m"] ** 2 / c["fish_now"] + 2 * (c["arm_var"] + clutch)))
+        needed = lambda fold, v: fish_needed(c["sigma_m"], np.log2(fold), alpha, power, np.sqrt(v + clutch))
+        for fold in fold_changes:
+            rows.append(c[[*KEYS, "fish_now"]].assign(
+                design=design, fold_change=fold, detectable_now=now, fish_per_arm=needed(fold, c["arm_var"]),
+                fish_low=needed(fold, c["arm_var_low"]), fish_high=needed(fold, c["arm_var_high"]),
+            ))
+    return pd.concat(rows, ignore_index=True)
+
+
+def plot_power_panel(
+    components: pd.DataFrame, fish: pd.DataFrame, order: List[str], labels: Optional[Dict[str, str]] = None
+) -> plt.Figure:
+    """Left: share of each noise source (NTR screen above, mutant screen below). Right: fish per arm per fold change."""
+    rank = {b: i for i, b in enumerate(order)}
+    rows = components.assign(r=components["behavior"].map(rank).fillna(len(order)),
+                             p=components["parameter"].map(["A", "A_peak", "H", "B"].index))
+    rows = rows.sort_values(["r", "p"]).reset_index(drop=True)
+    y = np.arange(len(rows))[::-1].astype(float)
+    folds = sorted(fish["fold_change"].unique())
+    whisker = min(folds, key=lambda f: abs(np.log(f / 2)))
+    fig, (left, right) = plt.subplots(1, 2, figsize=(12, 0.42 * len(rows) + 1.6), sharey=True,
+                                      gridspec_kw={"width_ratios": [1.1, 1]})
+    for offset, design, parts in ((0.2, "NTR screen", list(COMPONENTS)[:-1]), (-0.2, "mutant screen", list(COMPONENTS))):
+        total = rows[parts].sum(axis=1)
+        start = np.zeros(len(rows))
+        for part in parts:
+            width = (rows[part] / total).to_numpy()
+            left.barh(y + offset, width, left=start, height=0.36, color=COMPONENTS[part], edgecolor="white", linewidth=1,
+                      hatch="//" if part == "clutch" else None, label=part if offset < 0 else None)
+            start += width
+        cells = fish[fish["design"] == design].merge(rows[[*KEYS]].assign(y=y), on=KEYS)
+        for fold, marker in zip(folds, FOLD_MARKERS):
+            c = cells[cells["fold_change"] == fold]
+            filled = design == "NTR screen"
+            if fold == whisker:
+                right.hlines(c["y"] + offset, np.minimum(c["fish_low"], MAX_FISH), np.minimum(c["fish_high"], MAX_FISH),
+                             color=MUTED, linewidth=0.8, zorder=1)
+            c = c[c["fish_per_arm"] < MAX_FISH]
+            right.scatter(c["fish_per_arm"], c["y"] + offset, marker=marker, s=28, linewidths=1,
+                          facecolors=INK if filled else "white", edgecolors=INK,
+                          label=f"×{fold:g}" if filled else None, zorder=3)
+        now = cells.drop_duplicates(KEYS)
+        for _, r in now.iterrows():
+            now_text = f"×{r['detectable_now']:.1f}" if r["detectable_now"] < 100 else ">×100"
+            left.text(1.01, r["y"] + offset, now_text, fontsize=6, va="center", color=MUTED)
+    right.scatter(rows["fish_now"], y, marker="|", s=120, color=MUTED, label="fish now", zorder=2)
+    left.set_xlim(0, 1)
+    left.set_xlabel("share of the variance of a log2 effect at current fish and trials\n"
+                    "(upper bar: NTR screen; lower: mutant screen; grey: fold detectable now)", fontsize=7)
+    right.set_xscale("log")
+    right.set_xlim(3, MAX_FISH * 1.15)
+    right.axvline(MAX_FISH, color=MUTED, linewidth=0.6, linestyle=":")
+    right.set_xlabel("fish per arm to detect the fold change, either way (80% power); none drawn: over "
+                     f"{MAX_FISH} or unreachable\nfilled: NTR screen; hollow: mutant screen; "
+                     f"line: ×{whisker:g} over the 95% interval of the arm variance", fontsize=7)
+    names = (labels or {})
+    left.set_yticks(y, [f"{names.get(b, b)} · {PARAMETER_LABELS[p]} ({p})" for b, p in zip(rows["behavior"], rows["parameter"])], fontsize=7)
+    left.legend(fontsize=7, frameon=False, ncol=5, loc="lower left", bbox_to_anchor=(0, 1.0))
+    right.legend(fontsize=7, frameon=False, ncol=len(folds) + 1, loc="lower left", bbox_to_anchor=(0, 1.0))
+    for ax in (left, right):
+        ax.tick_params(labelsize=7)
+        for spine in ("top", "right"):
+            ax.spines[spine].set_visible(False)
     fig.tight_layout()
     return fig
 
 
-def plot_mde(table: pd.DataFrame, behaviors: List[str], current_fish: float) -> plt.Figure:
-    """MDE against fish per arm for the screen design, one line per behavior and parameter."""
-    screen = table[table["design"] == "screen"]
-    fig, ax = plt.subplots(figsize=(6.5, 4.5))
-    columns = [(b, p) for b in behaviors for p in PARAMETER_LABELS if ((screen["behavior"] == b) & (screen["parameter"] == p)).any()]
-    colors = plt.cm.viridis(np.linspace(0, 0.9, len(columns)))
-    for (b, p), color in zip(columns, colors):
-        cell = screen[(screen["behavior"] == b) & (screen["parameter"] == p)]
-        ax.plot(cell["fish_per_arm"], 2 ** cell["mde_log2"], color=color, linewidth=1, label=f"{b} {PARAMETER_LABELS[p]}")
-    ax.axvline(current_fish, color="#bdbdbd", linestyle="--", linewidth=0.8)
-    ax.text(current_fish, ax.get_ylim()[1], " median now", fontsize=7, va="top", color="#8c8c8c")
-    ax.set_yscale("log", base=2)
-    ax.set_xlabel("fish per arm")
-    ax.set_ylabel("smallest detectable fold change (80% power)")
-    ax.set_title("Screen design: strongest hit surviving FDR", fontsize=9)
-    ax.legend(fontsize=5, frameon=False, ncol=2, bbox_to_anchor=(1.02, 1), loc="upper left")
-    for spine in ("top", "right"):
-        ax.spines[spine].set_visible(False)
-    fig.tight_layout()
-    return fig
+def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES) -> None:
+    from .tier1_config import MAP_COLUMNS
 
-
-def main(results_dir: Path, fold_changes=FOLD_CHANGES) -> None:
     tier1_df = pd.read_csv(results_dir / "tier1_results.csv")
     param_df = pd.read_csv(results_dir / "tier1_parameters.csv")
+    budget = pd.read_csv(results_dir / "variance_budget" / "variance_budget.csv")
     clutch_path = results_dir / "clutch_variability" / "clutch_variability.csv"
-    clutch_df = pd.read_csv(clutch_path) if clutch_path.exists() else None
+    clutch = pd.read_csv(clutch_path) if clutch_path.exists() else None
     out = results_dir / "power"
     out.mkdir(exist_ok=True)
-    sigma_df = per_fish_sd(param_df, tier1_df)
-    ok = tier1_df[(tier1_df["status"] == "ok") & (tier1_df["family"] == "ntr")]
-    current = float(np.median(np.minimum(ok["n_fish_ref"], ok["n_fish_test"])))
-    table = power_table(sigma_df, clutch_df, np.unique(np.append(FISH, current)))
-    table.to_csv(out / "power_table.csv", index=False)
-    sizes = sample_size_table(sigma_df, clutch_df, fold_changes)
-    sizes.to_csv(out / "fish_needed.csv", index=False)
-    behaviors = list(dict.fromkeys(tier1_df["behavior"]))
-    save_fig(plot_mde(table, behaviors, current), out, "mde_vs_fish")
-    for design in ("planned", "screen"):
-        save_fig(plot_fish_needed(sizes, behaviors, current, design), out, f"fish_needed_{design.replace(' ', '_')}")
-    now = table[table["fish_per_arm"] == current].pivot_table(index=KEYS, columns="design", values="mde_log2")
-    print(f"Smallest detectable fold change with {current:g} fish per arm (80% power):")
-    print((2 ** now).round(2).to_string())
-    for design in ("planned", "screen", "mutant screen"):
-        table_n = sizes[sizes["design"] == design].pivot_table(index=KEYS, columns="fold_change", values="fish_per_arm")
-        print(f"\nFish per arm to detect each fold change, {design} design (80% power):")
-        print(table_n.rename(columns=lambda f: f"x{f:g}").to_string())
+    components = variance_components(model_noise(param_df, tier1_df), budget, clutch)
+    fish = fish_table(components, fold_changes)
+    components.to_csv(out / "variance_components.csv", index=False)
+    fish.to_csv(out / "fish_needed.csv", index=False)
+    order = list(MAP_COLUMNS) + [b for b in dict.fromkeys(tier1_df["behavior"]) if b not in MAP_COLUMNS]
+    save_fig(plot_power_panel(components, fish, order, MAP_COLUMNS), out, "power_panel")
+    parts = list(COMPONENTS)
+    shares = components.set_index(KEYS)[parts[:-1]]
+    with pd.option_context("display.width", 250):
+        print("Share of the NTR-screen variance at current fish and trials:")
+        print(shares.div(shares.sum(axis=1), axis=0).round(2).to_string())
+        table = fish.pivot_table(index=[*KEYS, "design"], columns="fold_change", values="fish_per_arm")
+        print("\nFish per arm to detect each fold change, either way (80% power):")
+        print(table.rename(columns=lambda f: f"x{f:g}").to_string())
 
 
 if __name__ == "__main__":
