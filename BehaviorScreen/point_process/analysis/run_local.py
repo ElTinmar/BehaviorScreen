@@ -43,8 +43,8 @@ ENV = os.environ | {
     "OPENBLAS_NUM_THREADS": "1",
     "MKL_NUM_THREADS": "1",
 }
-#MODES = ["diagnostics", "fit"]
-MODES = ["diagnostics"]
+MODES = ["diagnostics", "fit"]
+#MODES = ["diagnostics"]
 
 def run_experiment(exp_name: str) -> int:
     for mode in MODES:
