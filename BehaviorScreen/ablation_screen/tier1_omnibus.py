@@ -20,6 +20,7 @@ import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.patches import Patch
 
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
@@ -346,6 +347,21 @@ def add_testability(tier1_df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame
     return df
 
 
+MIN_FOLD = 1.5  # smallest change called a hit: significant cells below it get SMALL_FRAME on the map
+SMALL_FRAME = {"edgecolor": "#a6a6a6", "linestyle": "-"}
+
+
+def add_effect_size(tier1_df: pd.DataFrame, param_df: pd.DataFrame, min_fold: float = MIN_FOLD) -> pd.DataFrame:
+    """
+    'max_abs_log2': each cell's largest |log2 change| over its free
+    parameters; 'beyond_min_fold': that change is at least min_fold, either way.
+    """
+    largest = param_df.assign(size=param_df["delta"].abs()).groupby(["line", "behavior"])["size"].max().rename("max_abs_log2")
+    df = tier1_df.drop(columns=["max_abs_log2", "beyond_min_fold"], errors="ignore").merge(
+        largest.reset_index(), on=["line", "behavior"], how="left")
+    return df.assign(beyond_min_fold=df["max_abs_log2"] >= np.log2(min_fold))
+
+
 def map_rows(tier1_df: pd.DataFrame, contrasts: Iterable[Contrast]) -> List[str]:
     """Rows of the map: WT, the NTR lines with the most hits first, then the mutants."""
     contrasts = list(contrasts)
@@ -365,13 +381,15 @@ def plot_tier1_map(
     colorbar_label: str = "log2(test / reference)",
     column_labels: Optional[Dict[str, str]] = None,
     frame_label: str = "significant (q < 0.05)",
+    min_fold: float = MIN_FOLD,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Dot matrix of the screen: rows are contrasts (in the given order, a gap
     between families), columns are each behavior's free parameters.
     Colour: log2(test / reference) on a fixed scale centred on 0. Dot area
     shrinks with the standard error (half size at se_half_size log2 units).
-    Frame: behavior significant for that contrast. Hollow dot: the cell could
+    Frame: behavior significant for that contrast; SMALL_FRAME when tier1_df has
+    'beyond_min_fold' (add_effect_size) and no parameter changed by min_fold. Hollow dot: the cell could
     not reach significance with its fish ('testable' False). Grey x: no test.
     With n_fish_ref / n_fish_test columns, a matching panel shows both arms'
     fish counts per cell: reference in the upper-left triangle, test in the
@@ -439,13 +457,16 @@ def plot_tier1_map(
             continue
         xs_b = [x_of[c] for c in columns if c[0] == behavior]
         if xs_b:
+            small = not bool(row.get("beyond_min_fold", True))
             ax.add_patch(plt.Rectangle((min(xs_b) - 0.45, positions[name] - 0.45), max(xs_b) - min(xs_b) + 0.9, 0.9,
-                                       fill=False, edgecolor="black", linewidth=1.2))
+                                       fill=False, linewidth=1.2, **(SMALL_FRAME if small else {"edgecolor": "black"})))
 
     handles = [plt.scatter([], [], s=_dot_size(se, se_half_size), color=MISSING, label=f"SE {se:g}")
                for se in (0.1, se_half_size, 2 * se_half_size)]
     handles += [
         plt.Line2D([], [], marker="s", markersize=11, markerfacecolor="none", markeredgecolor="black", linestyle="", label=frame_label),
+        *([Patch(fill=False, linewidth=1.2, **SMALL_FRAME, label=f"significant, change < ×{min_fold:g}")]
+          if "beyond_min_fold" in tier1_df.columns else []),
         plt.Line2D([], [], marker="o", markersize=8, markerfacecolor="white", markeredgecolor=MISSING, markeredgewidth=2.4,
                    linestyle="", label="too few fish to reach q < 0.05"),
         plt.Line2D([], [], marker="x", color=MISSING, linestyle="", label="not tested"),
