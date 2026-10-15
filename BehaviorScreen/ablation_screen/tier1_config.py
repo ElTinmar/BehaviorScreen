@@ -13,18 +13,18 @@ from BehaviorScreen.point_process.analysis.tasks import load_fitted_params
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.wrappers import PartiallyFixedProcess
 
-# Map column labels (stimulus · events), in protocol order: responses to one stimulus side by side
+# Map column labels (stimulus · events): spontaneous activity first, then protocol order with responses to one stimulus side by side
 cats = "+".join
 MAP_COLUMNS = {
+    "spont_dark": "dark · all bouts",
+    "spont_bright": "bright · all bouts",
     "prey_capture": "prey · JT",
     "prey_capture_convergent_saccade": "prey · Convergent",
     "prey_capture_divergent_saccade": "prey · Divergent",
     "phototaxis": "dark | bright · RT",
-    "spont_dark": "dark · all bouts",
     "dark_flash": f"bright -> dark · {cats(FLASH_ESCAPE)}",
     "omr_lateral": f"grating lateral · {cats(LATERAL_TURNS)}",
     "omr_forward": f"grating forward · {cats(FORWARD_SWIMS)}",
-    "spont_bright": "bright · all bouts",
     "okr": f"pinwheel · {cats(OKR_SWIMS)}",
     "okr_conjugate_saccades": "pinwheel · Conjugate",
     "looming": f"looming · {cats(LOOMING_ESCAPE)}",
@@ -32,8 +32,9 @@ MAP_COLUMNS = {
     "after_looming": "looming break · all bouts",
 }
 
-# Rate scales (sustained, transient, hazard bump) and the directionality of sided models: fitted per arm.
-AMPLITUDE_PARAMETERS = ("B", "A", "A_peak", "H", "D")
+# Fitted per arm: sustained rate, escape hazard bump and the directionality of sided models.
+# Transient amplitudes (A, A_peak) are pinned with the shapes: too few evoked events per fish to be reliable.
+AMPLITUDE_PARAMETERS = ("B", "H", "D")
 
 
 class PinnedArchitecture:
