@@ -43,10 +43,14 @@
 <body>
 
 <h1>Behavioral Kernel Explorer</h1>
-<p class="sub">The rate/hazard kernel of every Tier 1 column (run_screen.TIER1_MODELS), in map order. Each fish's
+<p class="sub">The rate/hazard kernel of every Tier 1 column (run_screen.TIER1_MODELS), in map order. Directional
+behaviours are sided models: the ipsi kernel, and a contra kernel whose baseline is the ipsi B over the
+directionality D (D &gt; 1: more turns to the stimulus side); looming escapes split one hazard between away and
+towards with odds D. Each fish's
 rate is the kernel times its own gain g ~ Gamma(mean 1), so the curves shown are the population mean. Amplitudes
 (★) start at the mean vehicle arm of the Tier 1 fits; shape parameters start at an earlier pooled control fit and
-may differ slightly from the values Tier 1 pins. Dashed gray = same kernel at trial m=0. Rate/hazard axes are fixed
+may differ slightly from the values Tier 1 pins. Dashed = same kernel at trial m=0. D starts at the ratio of the earlier one-sided fits
+(looming: 2, a placeholder until the sided fits). Rate/hazard axes are fixed
 at 2 (4 for looming).</p>
 
 <div id="tabs"></div>
@@ -180,14 +184,56 @@ function loomingKernel(id, title, d) {
   };
 }
 
-// Tabs in map order. Amplitude defaults: the mean vehicle arm of the Tier 1 fits
-// (clutch_variability mean_log2); shape defaults: an earlier pooled control fit.
-const KERNELS = [
-  preyKernel("prey_capture_ipsi", "prey · JT ipsi -- PreyCapture(Peak_Baseline_Ripple)", {A:0.287, B:0.201}),
-  flatKernel("prey_capture_contra", "prey · JT contra -- Homogeneous Poisson", 0.059, 24),
-  preyKernel("prey_capture_convergent_saccade", "prey · Convergent saccades -- PreyCapture(Peak_Baseline_Ripple)", {A:0.158, B:0.047}),
-  preyKernel("prey_capture_divergent_saccade", "prey · Divergent saccades -- PreyCapture(Peak_Baseline_Ripple)", {A:0.01, B:0.046}),
-  {
+// Sided models (sided_process.py): both sides in one model. The ipsi kernel keeps its own
+// parameters; the contra kernel's B is the ipsi B over the directionality D, its shape
+// parameters (prefixed contra) are its own. One fish gain scales both sides.
+const IPSI_COLOR = "#2563eb", CONTRA_COLOR = "#dc2626", TOTAL_COLOR = "#334155";
+
+function onSide(latex, side) {
+  return latex.replace(/^\\lambda|^h/, (s)=> `${s}_{\\text{${side}}}`);
+}
+
+function sidedKernel(id, title, ipsi, contra, D) {
+  const contraParams = contra.params.filter(p=> p.key !== "B")
+    .map(p=> Object.assign({}, p, {key:"contra_"+p.key, label:"contra "+p.label, derived:undefined}));
+  const contraState = (p)=> {
+    const s = {B: p.B/p.D};
+    contra.params.forEach(q=> { if (q.key !== "B") s[q.key] = p["contra_"+q.key]; });
+    return s;
+  };
+  // In the contra formula, B is the contra baseline B/D.
+  const contraLatex = onSide(contra.formulaLatex, "contra").replace(/(^|[^A-Za-z\\_{])B(?![A-Za-z_}])/g, "$1\\tfrac{B}{D}");
+  return {
+    id, title, sided:true,
+    formulaLatex: `\\begin{aligned}${onSide(ipsi.formulaLatex, "ipsi").replace(" = ", " &= ")} \\\\ `
+                + `${contraLatex.replace(" = ", " &= ")}\\end{aligned}`,
+    whereLatex: [...(ipsi.whereLatex||[]), ...(contra.whereLatex||[])],
+    durationS: ipsi.durationS, trialMax: 25, hasTrial: ipsi.hasTrial || contra.hasTrial,
+    isSurvival:false, hasHistory:false, free:[...ipsi.free, "D"],
+    params:[
+      ...ipsi.params,
+      {key:"D", label:"D (directionality, ipsi B / contra B)", min:0.05, max:10, step:0.01, default:D,
+        derived:(p)=> `contra B = ${(p.B/p.D).toFixed(3)} Hz`},
+      ...contraParams,
+    ],
+    rateFn: ipsi.rateFn,
+    contraFn: (t,m,p)=> contra.rateFn(t, m, contraState(p)),
+  };
+}
+
+// Escapes: one hazard for an escape to either side, split as competing risks with odds D (away = contra).
+function sidedSurvivalKernel(id, title, kernel, D) {
+  return Object.assign({}, kernel, {
+    id, title, sidedSurvival:true, free:[...kernel.free, "D"],
+    whereLatex:[...(kernel.whereLatex||[]),
+      "h_{\\text{away}} = h\\,\\tfrac{D}{1+D},\\qquad h_{\\text{towards}} = h\\,\\tfrac{1}{1+D}"],
+    params:[...kernel.params,
+      {key:"D", label:"D (odds of escaping away)", min:0.05, max:10, step:0.01, default:D,
+        derived:(p)=> `P(away | escape) = ${(p.D/(1+p.D)).toFixed(3)}`}],
+  });
+}
+
+const phototaxisIpsi = {
     id:"phototaxis_ipsi",
     title:"dark | bright · RT ipsi -- Dip + ExGaussian Peak",
     formulaLatex:"\\lambda(t,m) = B e^{\\alpha_B m}\\left(1-f_{\\text{dip}} e^{-t/\\tau_{\\text{dip}}}\\right) + A_{\\text{peak}} e^{\\alpha_{\\text{peak}} m}\\,\\text{exG}(t;\\mu,\\sigma,\\tau_{\\text{decay}})",
@@ -208,9 +254,32 @@ const KERNELS = [
       const sustained = p.B*Math.exp(p.alpha_B*m)*(1-p.f_dip*Math.exp(-t/p.tau_dip));
       return sustained + p.A_peak*Math.exp(p.alpha_peak*m)*exGaussianPdf(t,p.mu,p.sigma,p.tau_decay);
     },
-  },
-  recoveringDipKernel("phototaxis_contra", "dark | bright · RT contra -- Trial-modulated Dip",
-    {B:0.212, z0_dip:1.44, tau_dip:0.87, alpha_B:0.037, alpha_dip:-0.15}, 24, 5),
+};
+
+const omrLateralContra = {
+    id:"omr_lateral_contra",
+    title:"grating lateral · RT+HAT contra -- Dip",
+    formulaLatex:"\\lambda(t) = B\\left(1 - f_{\\text{dip}}\\,e^{-t/\\tau_{\\text{dip}}}\\right)",
+    durationS:9, hasTrial:false, isSurvival:false, hasHistory:false, free:["B"],
+    params:[
+      {key:"B",label:"B (Hz)",min:0,max:2,step:0.005,default:0.255},
+      {key:"f_dip",label:"f_dip",min:0,max:0.99,step:0.01,default:0.343},
+      {key:"tau_dip",label:"τ_dip (s)",min:0.01,max:5,step:0.01,default:1.668},
+    ],
+    rateFn:(t,m,p)=> p.B*(1-p.f_dip*Math.exp(-t/p.tau_dip)),
+};
+
+// Tabs in map order. Amplitude defaults: the mean vehicle arm of the Tier 1 fits
+// (clutch_variability mean_log2); D: ratio of the ipsi and contra B of those one-sided
+// fits (looming: placeholder); shape defaults: an earlier pooled control fit.
+const KERNELS = [
+  sidedKernel("prey_capture", "prey · JT -- Sided[PreyCapture(Peak_Baseline_Ripple) | Homogeneous Poisson]",
+    preyKernel("", "", {A:0.287, B:0.201}), flatKernel("", "", 0.059, 24), 3.41),
+  preyKernel("prey_capture_convergent_saccade", "prey · Convergent saccades -- PreyCapture(Peak_Baseline_Ripple)", {A:0.158, B:0.047}),
+  preyKernel("prey_capture_divergent_saccade", "prey · Divergent saccades -- PreyCapture(Peak_Baseline_Ripple)", {A:0.01, B:0.046}),
+  sidedKernel("phototaxis", "dark | bright · RT -- Sided[Dip + ExGaussian Peak | Trial-modulated Dip]",
+    phototaxisIpsi,
+    recoveringDipKernel("", "", {B:0.212, z0_dip:1.44, tau_dip:0.87, alpha_B:0.037, alpha_dip:-0.15}, 24, 5), 0.887),
   spontKernel("spont_dark", "dark · all bouts -- Trial-modulated rate", 1.55, -0.020),
   {
     id:"dark_flash",
@@ -228,19 +297,8 @@ const KERNELS = [
     ],
     rateFn:(t,m,p)=> p.H*Math.exp(p.alpha*m)*exGaussianPdf(t,p.mu,p.sigma,p.tau) + p.B,
   },
-  flatKernel("omr_lateral_ipsi", "grating lateral · RT+HAT ipsi -- Homogeneous Poisson", 0.447, 9),
-  {
-    id:"omr_lateral_contra",
-    title:"grating lateral · RT+HAT contra -- Dip",
-    formulaLatex:"\\lambda(t) = B\\left(1 - f_{\\text{dip}}\\,e^{-t/\\tau_{\\text{dip}}}\\right)",
-    durationS:9, hasTrial:false, isSurvival:false, hasHistory:false, free:["B"],
-    params:[
-      {key:"B",label:"B (Hz)",min:0,max:2,step:0.005,default:0.255},
-      {key:"f_dip",label:"f_dip",min:0,max:0.99,step:0.01,default:0.343},
-      {key:"tau_dip",label:"τ_dip (s)",min:0.01,max:5,step:0.01,default:1.668},
-    ],
-    rateFn:(t,m,p)=> p.B*(1-p.f_dip*Math.exp(-t/p.tau_dip)),
-  },
+  sidedKernel("omr_lateral", "grating lateral · RT+HAT -- Sided[Homogeneous Poisson | Dip]",
+    flatKernel("", "", 0.447, 9), omrLateralContra, 1.75),
   {
     id:"omr_forward",
     title:"grating forward · S1+S2+BS -- Dip (reparametrized)",
@@ -256,12 +314,12 @@ const KERNELS = [
     rateFn:(t,m,p)=> p.B*(1-sigmoidBounded(p.z_dip,0.995)*Math.exp(-t/p.tau_dip)),
   },
   spontKernel("spont_bright", "bright · all bouts -- Trial-modulated rate", 1.42, 0.008),
-  flatKernel("okr_ipsi", "pinwheel · S1+S2+RT+HAT ipsi -- Homogeneous Poisson", 0.61, 9),
-  flatKernel("okr_contra", "pinwheel · S1+S2+RT+HAT contra -- Homogeneous Poisson", 0.46, 9),
-  flatKernel("okr_conjugate_ipsi_saccades", "pinwheel · Conjugate ipsi -- Homogeneous Poisson", 0.129, 9),
-  flatKernel("okr_conjugate_contra_saccades", "pinwheel · Conjugate contra -- Homogeneous Poisson", 0.248, 9),
-  loomingKernel("looming", "looming · SLC+LLC (both sides) -- Gaussian Bump + Baseline, Habituating (SURVIVAL)",
-    {H:2.82, B:0.02, alpha:-0.13}),
+  sidedKernel("okr", "pinwheel · S1+S2+RT+HAT -- Sided[Homogeneous Poisson | Homogeneous Poisson]",
+    flatKernel("", "", 0.61, 9), flatKernel("", "", 0.46, 9), 1.33),
+  sidedKernel("okr_conjugate_saccades", "pinwheel · Conjugate -- Sided[Homogeneous Poisson | Homogeneous Poisson]",
+    flatKernel("", "", 0.129, 9), flatKernel("", "", 0.248, 9), 0.52),
+  sidedSurvivalKernel("looming", "looming · SLC+LLC -- SidedSurvival Gaussian Bump + Baseline, Habituating (SURVIVAL)",
+    loomingKernel("", "", {H:2.82, B:0.02, alpha:-0.13}), 2.0),
   loomingKernel("looming_divergent_saccade", "looming · Divergent saccade -- Gaussian Bump + Baseline, Habituating (SURVIVAL)",
     {H:0.538, B:0.01, alpha:-0.04}),
   recoveringDipKernel("after_looming", "looming break · all bouts -- Trial-modulated Dip",
@@ -362,6 +420,22 @@ function plotLine(canvas, xs, seriesList, opts) {
     ctx.stroke();
   });
   ctx.setLineDash([]);
+
+  // Legend in the plot: [colour, label, dash?] per row.
+  if (opts.legend && opts.legend.length) {
+    ctx.font = "11px sans-serif"; ctx.textAlign = "left";
+    const rowH = 16, w = Math.max(...opts.legend.map(([, label])=> ctx.measureText(label).width)) + 40;
+    const h = opts.legend.length*rowH + 8, x0 = padL + plotW - w - 6;
+    const y0 = opts.legendAt === "bottom" ? padT + plotH - h - 6 : padT + 6;
+    ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.strokeStyle = "#e2e8f0"; ctx.lineWidth = 1;
+    ctx.fillRect(x0, y0, w, h); ctx.strokeRect(x0, y0, w, h);
+    opts.legend.forEach(([color, label, dash], i)=> {
+      const y = y0 + 4 + rowH*i + rowH/2;
+      ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.setLineDash(dash || []);
+      ctx.beginPath(); ctx.moveTo(x0 + 8, y); ctx.lineTo(x0 + 30, y); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = "#334155"; ctx.fillText(label, x0 + 36, y + 4);
+    });
+  }
 }
 
 function estimateMaxHistory(cfg) {
@@ -386,6 +460,7 @@ function estimateMaxHistory(cfg) {
   });
   return maxVal * 1.15;
 }
+
 
 // ---------------------------------------------------------------------
 // Widget builder
@@ -415,11 +490,12 @@ function buildWidget(cfg) {
         <div class="plot-block">
           <div class="plot-title">${cfg.isSurvival ? "Hazard h(t)" : "Rate λ(t)"} (axis up to ${cfg.yMax || 2} ${cfg.isSurvival ? "1/s" : "Hz"})</div>
           <canvas id="rateplot-${cfg.id}"></canvas>
-          ${cfg.hasTrial ? `<div class="legend">
-            <span><span class="swatch" style="background:#2563eb"></span>current m</span>
-            <span><span class="swatch" style="background:#94a3b8;border-top:2px dashed #94a3b8;height:0;"></span>m = 0</span>
-          </div>` : ``}
         </div>
+        ${cfg.sided ? `
+        <div class="plot-block">
+          <div class="plot-title">Share of events that are ipsi: λ_ipsi / (λ_ipsi + λ_contra)</div>
+          <canvas id="shareplot-${cfg.id}"></canvas>
+        </div>` : ``}
         ${cfg.hasHistory ? `
         <div class="plot-block">
           <div class="plot-title">Self-excitation kernel</div>
@@ -428,12 +504,8 @@ function buildWidget(cfg) {
         </div>` : ``}
         ${cfg.isSurvival ? `
         <div class="plot-block">
-          <div class="plot-title">Population survival curve S(t) = P(no response by t)</div>
+          <div class="plot-title">${cfg.sidedSurvival ? "S(t) = P(no escape by t), and P(escaped to each side by t)" : "Population survival curve S(t) = P(no response by t)"}</div>
           <canvas id="survplot-${cfg.id}"></canvas>
-          <div class="legend">
-            <span><span class="swatch" style="background:#2563eb"></span>current m</span>
-            <span><span class="swatch" style="background:#94a3b8;border-top:2px dashed #94a3b8;height:0;"></span>m = 0</span>
-          </div>
         </div>` : ``}
       </div>
     </div>
@@ -460,16 +532,35 @@ function buildWidget(cfg) {
     paramsDiv.appendChild(row);
   });
 
+  // (rate function, colour) of every curve; m = 0 is drawn dashed behind the current trial.
+  const awayShare = ()=> state.D/(1+state.D);
+  const curves = cfg.sided ? [[cfg.rateFn, IPSI_COLOR], [cfg.contraFn, CONTRA_COLOR]]
+    : cfg.sidedSurvival ? [[cfg.rateFn, TOTAL_COLOR],
+                           [(t,mm,p)=> cfg.rateFn(t,mm,p)*awayShare(), CONTRA_COLOR],
+                           [(t,mm,p)=> cfg.rateFn(t,mm,p)*(1-awayShare()), IPSI_COLOR]]
+    : [[cfg.rateFn, "#2563eb"]];
+  const withBaseline = (ys, color)=> (mm)=> [
+    ...(cfg.hasTrial && mm!==0 ? [{ys:ys(0), color, width:1.2, dash:[5,4]}] : []),
+    {ys:ys(mm), color, width:2},
+  ];
+
   function render() {
     const t_grid = linspace(0, cfg.durationS, 300);
-    const y_current = t_grid.map(t=> cfg.rateFn(t, m, state));
-    const series = [{ys:y_current, color:"#2563eb", width:2}];
-    if (cfg.hasTrial && m!==0) {
-      const y_base = t_grid.map(t=> cfg.rateFn(t, 0, state));
-      series.push({ys:y_base, color:"#94a3b8", width:1.5, dash:[5,4]});
+    const atM0 = cfg.hasTrial && m!==0 ? [["#94a3b8", "same, trial m = 0", [5,4]]] : [];
+    const series = curves.flatMap(([fn, color])=> withBaseline((mm)=> t_grid.map(t=> fn(t, mm, state)), color)(m));
+    if (cfg.sided) {
+      const share = (mm)=> t_grid.map(t=> { const i = cfg.rateFn(t, mm, state), c = cfg.contraFn(t, mm, state); return i/(i+c); });
+      plotLine(panel.querySelector(`#shareplot-${cfg.id}`), t_grid,
+        [{ys:t_grid.map(()=>0.5), color:"#cbd5e1", width:1}, ...withBaseline(share, IPSI_COLOR)(m)],
+        {yLabel:"ipsi share", yMax:1, legendAt:"bottom",
+         legend:[[IPSI_COLOR, "ipsi share of events"], ["#cbd5e1", "0.5 = no side preference"], ...atM0]});
     }
     plotLine(panel.querySelector(`#rateplot-${cfg.id}`), t_grid, series,
-      {yLabel: cfg.isSurvival ? "Hazard (1/s)" : "Rate (Hz)", yMax: fixedRateYMax});
+      {yLabel: cfg.isSurvival ? "Hazard (1/s)" : "Rate (Hz)", yMax: fixedRateYMax,
+       legend:[...(cfg.sided ? [[IPSI_COLOR, "ipsi (towards stimulus side)"], [CONTRA_COLOR, "contra (other side)"]]
+                 : cfg.sidedSurvival ? [[TOTAL_COLOR, "escape to either side"], [CONTRA_COLOR, "escape away (contra)"],
+                                        [IPSI_COLOR, "escape towards (ipsi)"]]
+                 : atM0.length ? [["#2563eb", `trial m = ${m}`]] : []), ...atM0]});
 
     if (cfg.hasHistory) {
       const dt_grid = linspace(0, Math.max(1, 6/Math.max(state.beta_hawkes,0.05)), 200);
@@ -489,10 +580,16 @@ function buildWidget(cfg) {
         }
         return S;
       };
-      const S_current = cumIntegral(m);
-      const survSeries = [{ys:S_current, color:"#2563eb", width:2}];
-      if (m!==0) survSeries.push({ys:cumIntegral(0), color:"#94a3b8", width:1.5, dash:[5,4]});
-      plotLine(panel.querySelector(`#survplot-${cfg.id}`), fine, survSeries, {yLabel:"S(t)", yMax: fixedSurvYMax});
+      const survSeries = withBaseline(cumIntegral, cfg.sidedSurvival ? TOTAL_COLOR : "#2563eb")(m);
+      if (cfg.sidedSurvival) {
+        const escaped = (share)=> (mm)=> cumIntegral(mm).map(S=> share*(1-S));
+        survSeries.push(...withBaseline(escaped(awayShare()), CONTRA_COLOR)(m),
+                        ...withBaseline(escaped(1-awayShare()), IPSI_COLOR)(m));
+      }
+      plotLine(panel.querySelector(`#survplot-${cfg.id}`), fine, survSeries, {yLabel:"probability", yMax: fixedSurvYMax,
+        legend:[...(cfg.sidedSurvival ? [[TOTAL_COLOR, "S(t): no escape yet"], [CONTRA_COLOR, "escaped away by t"],
+                                         [IPSI_COLOR, "escaped towards by t"]]
+                  : atM0.length ? [["#2563eb", `trial m = ${m}`]] : []), ...atM0]});
     }
   }
 
