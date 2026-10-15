@@ -50,14 +50,9 @@ TIER1_MODELS = {
 untested = set(get_model_config()) - set(TIER1_MODELS)
 if untested:
     print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")
-# Amplitudes also pinned to the control fit. Escape baselines are near zero (about
-# one event a minute), so their per-arm log ratios are noise; the prey saccade
-# transients have too few evoked events per fish. Transients stay free for prey
-# J-turns (A) and phototaxis (A_peak).
-PINNED_AMPLITUDES = {
-    **{name: ["B"] for name in ("looming", "looming_divergent_saccade", "dark_flash")},
-    **{name: ["A"] for name in ("prey_capture_convergent_saccade", "prey_capture_divergent_saccade")},
-}
+# Amplitudes also pinned to the control fit: these baselines are near zero (about
+# one event a minute), so their per-arm log ratios are noise.
+PINNED_AMPLITUDES = {name: ["B"] for name in ("looming", "looming_divergent_saccade", "dark_flash")}
 BEHAVIOR_CONFIG = tier1_behaviors(TIER1_MODELS, FITS_ROOT, PINNED_AMPLITUDES)
 BEHAVIORS = list(BEHAVIOR_CONFIG)
 MAP_ORDER = [b for b in MAP_COLUMNS if b in BEHAVIORS] + [b for b in BEHAVIORS if b not in MAP_COLUMNS]
