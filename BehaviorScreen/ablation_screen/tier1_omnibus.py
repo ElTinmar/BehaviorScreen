@@ -12,7 +12,7 @@ originally-attempted joint fits.
 """
 import math
 from functools import partial
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 from pathlib import Path
 
 import numpy as np
@@ -30,7 +30,7 @@ from BehaviorScreen.point_process.point_process.frailty_analysis import (
     plot_fish_gain_correlation_dual,
 )
 
-from .dataset_utils import Arms, per_fish_summary, compare_fish_metric
+from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric
 from .arm_contrast import output_metric
 from .model_qc import assess_group_fit
 
@@ -344,6 +344,14 @@ def add_testability(tier1_df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame
     n_tests = df.groupby(keys)["p_value"].transform("count")
     df["testable"] = (df["p_value_floor"] * n_tests < alpha).fillna(False)
     return df
+
+
+def map_rows(tier1_df: pd.DataFrame, contrasts: Iterable[Contrast]) -> List[str]:
+    """Rows of the map: WT, the NTR lines with the most hits first, then the mutants."""
+    contrasts = list(contrasts)
+    hits = tier1_df[tier1_df["significant"]].groupby("line").size()
+    ntr = [c.name for c in contrasts if c.family == "ntr" and c.name != "WT"]
+    return ["WT"] + sorted(ntr, key=lambda line: -hits.get(line, 0)) + [c.name for c in contrasts if c.family == "mutant"]
 
 
 def plot_tier1_map(
