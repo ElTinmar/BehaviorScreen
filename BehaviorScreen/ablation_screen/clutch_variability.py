@@ -5,7 +5,9 @@ The vehicle arm of every NTR line is one clutch recorded on one day, so the
 spread of their log2 amplitudes (beyond their standard errors) estimates the
 between-clutch SD tau of each (behavior, parameter); random effects,
 DerSimonian-Laird. It also holds any effect of background or transgene on the
-untreated fish, so tau is an upper bound.
+untreated fish, so tau is an upper bound. The standard errors come from the
+fish bootstrap of arm_absolute when it has run, from the Hessian otherwise:
+too small SEs inflate tau.
 
 Each line's effect is then expressed in clutch SDs. NTR contrasts compare
 siblings (one clutch), so their within-clutch test stands; a mutant and its
@@ -28,6 +30,7 @@ from scipy import stats
 
 from BehaviorScreen.point_process.point_process.io import save_fig
 
+from .arm_absolute import with_bootstrap_se
 from .fdr import add_fdr
 from .tier1_omnibus import MAP_COLORS, PARAMETER_LABELS, plot_tier1_map
 
@@ -187,12 +190,13 @@ def plot_vehicle_map(
 def main(results_dir: Path) -> None:
     from .tier1_config import MAP_COLUMNS
 
-    tier1_df = pd.read_csv(results_dir / "tier1_results.csv")
-    param_df = pd.read_csv(results_dir / "tier1_parameters.csv")
+    tier1_df = pd.read_csv(results_dir / "tier1_results.csv", dtype={"line": str})
+    param_df, se_source = with_bootstrap_se(pd.read_csv(results_dir / "tier1_parameters.csv", dtype={"line": str}), results_dir)
+    print(f"SEs: {se_source}")
     out = results_dir / "clutch_variability"
     out.mkdir(exist_ok=True)
     behaviors = list(dict.fromkeys(param_df["behavior"]))
-    clutch_df = clutch_variability(param_df)
+    clutch_df = clutch_variability(param_df).assign(se_source=se_source)
     report = line_report(param_df, clutch_df)
     clutch_df.to_csv(out / "clutch_variability.csv", index=False)
     report.to_csv(out / "line_report.csv", index=False)

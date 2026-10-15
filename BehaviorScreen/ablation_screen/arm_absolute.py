@@ -4,10 +4,11 @@ bootstrap intervals, drawn as one dumbbell figure per behavior: each test arm
 next to its own control, rows in map order, the spread of the control arms
 behind them.
 
-    python -m BehaviorScreen.ablation_screen.arm_absolute [--n-boot 200] [--plot-only]
+    python -m BehaviorScreen.ablation_screen.arm_absolute [--n-boot 200] [--resume] [--plot-only]
 
-Run after run_screen (hits come from tier1_results.csv). The bootstrap is
-resumable: arms already in arm_bootstrap.csv are skipped.
+Run after run_screen (hits come from tier1_results.csv). By default an
+existing arm_bootstrap.csv is replaced; --resume keeps it and skips the arms
+already in it (after an interruption). Either way the run says which it does.
 """
 import argparse
 import zlib
@@ -21,6 +22,7 @@ import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import FuncFormatter
+from scipy import stats
 from tqdm import tqdm
 
 from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
@@ -30,7 +32,7 @@ from BehaviorScreen.point_process.point_process.point_process import PointProces
 
 from .dataset_utils import Arms, Contrast
 from .tier1_config import MAP_COLUMNS
-from .tier1_omnibus import PARAMETER_LABELS, map_rows
+from .tier1_omnibus import PARAMETER_LABELS, compute_parameter_deltas, map_rows
 
 ARM_KEYS = ["line", "condition", "behavior"]
 CONTROL, UP, DOWN, NEUTRAL, TEST = "#4d4d4d", "#b2182b", "#2166ac", "#bdbdbd", "#8c8c8c"
@@ -69,24 +71,49 @@ def bootstrap_arm(factory: Callable[[], PointProcess], model: PointProcess, data
     return pd.DataFrame(records)
 
 
-def bootstrap_arms(arms: Arms, tier1_df: pd.DataFrame, path: Path, n_boot: int = 200, n_jobs: int = -1) -> pd.DataFrame:
-    """Every arm of the map's cells (status ok), each bootstrapped once and appended to `path` as it finishes."""
-    done = set(map(tuple, read_bootstrap(path)[ARM_KEYS].values)) if path.exists() else set()
+def bootstrap_arms(arms: Arms, tier1_df: pd.DataFrame, path: Path, n_boot: int = 200, n_jobs: int = -1,
+                   resume: bool = False) -> pd.DataFrame:
+    """
+    Every arm of the map's cells (status ok), each bootstrapped and appended to
+    `path` as it finishes. An existing `path` is replaced, or with `resume`
+    kept, its arms skipped.
+    """
     keys = []
     for _, cell in tier1_df[tier1_df["status"] == "ok"].iterrows():
         contrast = arms.contrasts[cell["line"]]
         keys += [(*arm, cell["behavior"]) for arm in (contrast.reference, contrast.test)]
-    todo = [k for k in dict.fromkeys(keys) if k not in done]
+    keys = list(dict.fromkeys(keys))
+    done = set()
+    if path.exists():
+        previous = read_bootstrap(path)
+        n_previous = previous[ARM_KEYS].drop_duplicates().shape[0]
+        if resume:
+            done = set(map(tuple, previous[ARM_KEYS].values)) & set(keys)
+            print(f"RESUMING {path}: skipping {len(done)} of {len(keys)} arms already bootstrapped, "
+                  f"bootstrapping the other {len(keys) - len(done)}.")
+            other = sorted(set(previous["n_boot"]) - {n_boot})
+            if other:
+                print(f"WARNING: the kept arms were bootstrapped with n_boot {other}, this run uses {n_boot}.")
+        else:
+            path.unlink()
+            print(f"OVERWRITING {path}: discarding {n_previous} arms from an earlier run "
+                  f"(--resume keeps them); bootstrapping all {len(keys)}.")
+    else:
+        print(f"Bootstrapping {len(keys)} arms into {path}.")
+    todo, failed = [k for k in keys if k not in done], []
     for key in tqdm(todo, desc="Bootstrapping arms"):
         try:
             model, dataset = arms.model(*key), arms.dataset(*key)
         except Exception as e:
             tqdm.write(f"[{'/'.join(key)}] fit failed, skipped: {e}")
+            failed.append("/".join(key))
             continue
         seed = zlib.crc32("/".join(key).encode())
         result = bootstrap_arm(arms.process_factories[key[2]], model, dataset, n_boot, seed, n_jobs, desc="/".join(key))
         result.insert(0, "line", key[0]); result.insert(1, "condition", key[1]); result.insert(2, "behavior", key[2])
         result.to_csv(path, mode="a", header=not path.exists(), index=False)
+    print(f"Done: {len(todo) - len(failed)} arms bootstrapped, {len(done)} kept, {len(failed)} skipped (fit failed)"
+          + (f": {', '.join(failed)}" if failed else "") + f". -> {path}")
     return read_bootstrap(path)
 
 
@@ -102,6 +129,29 @@ def save_contrasts(contrasts: List[Contrast], path: Path) -> None:
 def load_contrasts(path: Path) -> List[Contrast]:
     return [Contrast(r.name, r.family, (r.reference_line, r.reference_condition), (r.test_line, r.test_condition))
             for r in pd.read_csv(path, dtype=str).itertuples()]
+
+
+def with_bootstrap_se(param_df: pd.DataFrame, results_dir: Path) -> Tuple[pd.DataFrame, str]:
+    """
+    (param_df, SE source): se_reference, se_test and delta_se from the fish
+    bootstrap when arm_bootstrap.csv exists (log-scale 95% interval / 3.92,
+    back on the parameter's scale), else unchanged (Hessian). Arms without a
+    usable bootstrap (a fit on a bound, too few successful refits) get no SE.
+    """
+    boot_path, contrasts_path = results_dir / "arm_bootstrap.csv", results_dir / "contrasts.csv"
+    if not (boot_path.exists() and contrasts_path.exists()):
+        return param_df, "Hessian"
+    boot = read_bootstrap(boot_path)
+    usable = boot[~boot["at_bound"].astype(bool) & (boot["n_success"] >= MIN_SUCCESS * boot["n_boot"]) & (boot["ci_lo"] > 0)]
+    log_se = (np.log(usable["ci_hi"] / usable["ci_lo"]) / (2 * stats.norm.ppf(0.975))).to_numpy()
+    log_se = dict(zip(map(tuple, usable[[*ARM_KEYS, "parameter"]].to_numpy()), log_se))
+    contrasts = {c.name: c for c in load_contrasts(contrasts_path)}
+    df = param_df.copy()
+    keys = list(zip(df["line"].astype(str), df["behavior"], df["parameter"]))
+    for arm, column in (("reference", "se_reference"), ("test", "se_test")):
+        se = [log_se.get((*getattr(contrasts[l], arm), b, p), np.nan) if l in contrasts else np.nan for l, b, p in keys]
+        df[column] = np.array(se) * df[f"value_{arm}"]
+    return compute_parameter_deltas(df), "fish bootstrap"
 
 
 # ---------------------------------------------------------------------------
@@ -249,6 +299,7 @@ def main() -> None:
     parser.add_argument("--results", type=Path, default=Path("./tier1_results"), help="run_screen output folder")
     parser.add_argument("--n-boot", type=int, default=200)
     parser.add_argument("--n-jobs", type=int, default=-1)
+    parser.add_argument("--resume", action="store_true", help="keep arm_bootstrap.csv and skip the arms already in it (default: overwrite)")
     parser.add_argument("--plot-only", action="store_true", help="redraw from arm_bootstrap.csv without refitting")
     args = parser.parse_args()
 
@@ -256,7 +307,7 @@ def main() -> None:
     if not args.plot_only:
         from .screen_setup import arms  # loads the event tables
         save_contrasts(list(arms.contrasts.values()), args.results / "contrasts.csv")
-        bootstrap_arms(arms, tier1_df, args.results / "arm_bootstrap.csv", args.n_boot, args.n_jobs)
+        bootstrap_arms(arms, tier1_df, args.results / "arm_bootstrap.csv", args.n_boot, args.n_jobs, args.resume)
     plot_all(read_bootstrap(args.results / "arm_bootstrap.csv"), load_contrasts(args.results / "contrasts.csv"),
              tier1_df, args.results / "tier1_absolute")
 
