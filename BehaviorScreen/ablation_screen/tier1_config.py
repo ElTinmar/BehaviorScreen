@@ -16,29 +16,24 @@ from BehaviorScreen.point_process.point_process.wrappers import PartiallyFixedPr
 # Map column labels (stimulus · events), in protocol order: responses to one stimulus side by side
 cats = "+".join
 MAP_COLUMNS = {
-    "prey_capture_ipsi": "prey · JT ipsi",
-    "prey_capture_contra": "prey · JT contra",
+    "prey_capture": "prey · JT",
     "prey_capture_convergent_saccade": "prey · Convergent",
     "prey_capture_divergent_saccade": "prey · Divergent",
-    "phototaxis_ipsi": "dark | bright · RT ipsi",
-    "phototaxis_contra": "dark | bright · RT contra",
+    "phototaxis": "dark | bright · RT",
     "spont_dark": "dark · all bouts",
     "dark_flash": f"bright -> dark · {cats(FLASH_ESCAPE)}",
-    "omr_lateral_ipsi": f"grating lateral · {cats(LATERAL_TURNS)} ipsi",
-    "omr_lateral_contra": f"grating lateral · {cats(LATERAL_TURNS)} contra",
+    "omr_lateral": f"grating lateral · {cats(LATERAL_TURNS)}",
     "omr_forward": f"grating forward · {cats(FORWARD_SWIMS)}",
     "spont_bright": "bright · all bouts",
-    "okr_ipsi": f"pinwheel · {cats(OKR_SWIMS)} ipsi",
-    "okr_contra": f"pinwheel · {cats(OKR_SWIMS)} contra",
-    "okr_conjugate_ipsi_saccades": "pinwheel · Conjugate ipsi",
-    "okr_conjugate_contra_saccades": "pinwheel · Conjugate contra",
+    "okr": f"pinwheel · {cats(OKR_SWIMS)}",
+    "okr_conjugate_saccades": "pinwheel · Conjugate",
     "looming": f"looming · {cats(LOOMING_ESCAPE)}",
     "looming_divergent_saccade": "looming · Divergent",
     "after_looming": "looming break · all bouts",
 }
 
-# Rate scales (baseline, evoked peak, hazard bump): fitted per arm.
-AMPLITUDE_PARAMETERS = ("B", "A", "A_peak", "H")
+# Rate scales (sustained, transient, hazard bump) and the directionality of sided models: fitted per arm.
+AMPLITUDE_PARAMETERS = ("B", "A", "A_peak", "H", "D")
 
 
 class PinnedArchitecture:

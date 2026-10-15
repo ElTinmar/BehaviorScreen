@@ -23,6 +23,7 @@ from BehaviorScreen.point_process.point_process.poisson_process import (
     RateKernel,
     RateKernelFactory,
 )
+from BehaviorScreen.point_process.point_process.sided_process import SidedPoissonProcess, SidedSurvivalProcess
 from BehaviorScreen.point_process.point_process.renewal_process import (
     RenewalKernelFactory,
     RenewalProcess,
@@ -107,6 +108,20 @@ def hawkes(kernel: RateKernel) -> HawkesProcess:
 
 def prey(variant: str) -> RateKernel:
     return PreyCapture.variant(variant, PREY_STIM_FREQ)
+
+
+def sided(ipsi: RateKernel, contra: RateKernel) -> SidedPoissonProcess:
+    return SidedPoissonProcess(ipsi, contra)
+
+
+def sided_survival(kernel: RateKernel) -> SidedSurvivalProcess:
+    """Escapes to either side as competing risks; D: odds of escaping away (contra)."""
+    return SidedSurvivalProcess(kernel)
+
+
+def sided_models(ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel]) -> List[PointProcess]:
+    """Both sides of a stimulus in one model, without and with a fish gain."""
+    return [sided(ipsi(), contra()), gamma(sided(ipsi(), contra()))]
 
 
 def dataset(category, laterality, t_end: float, binning_dt: float = 0.05, **selection) -> dict:
@@ -341,9 +356,29 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
         "okr_contra": experiment(
             dataset(OKR_SWIMS, CONTRA, 9.0, stim=Stim.OKR), flat_models(dead_time_s),
         ),
+        # Both sides of a directional stimulus: strength (ipsi amplitudes) and directionality D
+        "prey_capture": experiment(
+            dataset("JT", [IPSI, CONTRA], 24.0, stim=Stim.PREY_CAPTURE),
+            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat),
+        ),
+        "phototaxis": experiment(
+            dataset("RT", [IPSI, CONTRA], 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER),
+            sided_models(RateKernelFactory.phototaxis_dip_exgaussian_peak, RateKernelFactory.phototaxis_contra),
+        ),
+        "omr_lateral": experiment(
+            dataset(LATERAL_TURNS, [IPSI, CONTRA], 9.0, epoch_name=gratings),
+            sided_models(flat, RateKernelFactory.omr_lateral_contra),
+        ),
+        "okr": experiment(
+            dataset(OKR_SWIMS, [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat),
+        ),
+        "okr_conjugate_saccades": experiment(
+            dataset("Conjugate", [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat), events="saccades",
+        ),
         "looming": experiment(
             dataset(LOOMING_ESCAPE, [IPSI, CONTRA], 9.0, stim=Stim.LOOMING),
-            survival_models(looming_bump, looming_habituating),
+            survival_models(looming_bump, looming_habituating)
+            + [sided_survival(looming_habituating()), gamma(sided_survival(looming_habituating()))],
         ),
         "looming_divergent_saccade": experiment(
             dataset("Divergent", NONDIRECTIONAL, 9.0, stim=Stim.LOOMING),

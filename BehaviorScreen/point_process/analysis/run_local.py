@@ -2,25 +2,33 @@ import os
 import subprocess
 
 EXPERIMENTS = [
-    "prey_capture_ipsi",
-    "prey_capture_contra",
+    # Directional stimuli: both sides in one sided model (Tier 1 columns)
+    "prey_capture",
+    "phototaxis",
+    "omr_lateral",
+    "okr",
+    "okr_conjugate_saccades",
+    "looming",  # gained the sided candidates
+    # Non-directional
     "prey_capture_convergent_saccade",
     "prey_capture_divergent_saccade",
-    "phototaxis_ipsi",
-    "phototaxis_contra",
-    "omr_lateral_ipsi",
-    "omr_lateral_contra",
     "omr_forward",
-    "okr_ipsi",
-    "okr_contra",
-    "okr_conjugate_ipsi_saccades",
-    "okr_conjugate_contra_saccades",
-    "looming",
     "looming_divergent_saccade",
     "after_looming",
     "dark_flash",
     "spont_dark",
     "spont_bright",
+    # One side at a time: no longer used by Tier 1; uncomment to refit
+    # "prey_capture_ipsi",
+    # "prey_capture_contra",
+    # "phototaxis_ipsi",
+    # "phototaxis_contra",
+    # "omr_lateral_ipsi",
+    # "omr_lateral_contra",
+    # "okr_ipsi",
+    # "okr_contra",
+    # "okr_conjugate_ipsi_saccades",
+    # "okr_conjugate_contra_saccades",
 ]
 
 DATA_DIR = "/media/martin/DATA_18TB/Screen"
@@ -35,23 +43,25 @@ ENV = os.environ | {
     "OPENBLAS_NUM_THREADS": "1",
     "MKL_NUM_THREADS": "1",
 }
-
+#MODES = ["diagnostics", "fit"]
+MODES = ["diagnostics"]
 
 def run_experiment(exp_name: str) -> int:
-    cmd = [
-        "python", "-m", "BehaviorScreen.point_process.analysis.run_analysis",
-        "--exp", exp_name,
-        "--mode", "fit",
-        "--data-root", DATA_DIR,
-        "--events", EVENTS,
-        "--valid-trials", VALID_TRIALS,
-        "--qc", QC,
-        "--output-dir", OUT_DIR,
-        "--n-jobs", str(PROCESSES),
-    ]
-    print(f"Starting {exp_name}")
-    code = subprocess.run(cmd, env=ENV).returncode
-    print(f"{'Finished' if code == 0 else f'FAILED ({code})'} {exp_name}")
+    for mode in MODES:
+        cmd = [
+            "python", "-m", "BehaviorScreen.point_process.analysis.run_analysis",
+            "--exp", exp_name,
+            "--mode", mode,
+            "--data-root", DATA_DIR,
+            "--events", EVENTS,
+            "--valid-trials", VALID_TRIALS,
+            "--qc", QC,
+            "--output-dir", OUT_DIR,
+            "--n-jobs", str(PROCESSES),
+        ]
+        print(f"Starting {mode}")
+        code = subprocess.run(cmd, env=ENV).returncode
+        print(f"{'Finished' if code == 0 else f'FAILED ({code})'} {exp_name}: {mode}")
     return code
 
 

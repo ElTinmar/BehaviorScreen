@@ -120,7 +120,8 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         """
         One dataset from the current parameters with the design of `template`
         (fish, trials, mask, duration): one gain per fish shared by its
-        trials, history reset in every trial.
+        trials, history reset in every trial. A marked process's streams come
+        as (times, marks) and keep their marks.
         """
         self._require_fitted()
         rng = rng or np.random.default_rng()
@@ -130,6 +131,8 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
             (f_idx, t_idx, self.simulate_stream(template, t_idx, float(fish_gains[f_idx]), rng))
             for f_idx, t_idx, _ in template.iter_streams()
         ]
+        marks = [ev[1] for _, _, ev in streams if isinstance(ev, tuple)]
+        streams = [(f, t, ev[0] if isinstance(ev, tuple) else ev) for f, t, ev in streams]
         return PointProcessDataset(
             event_times=np.concatenate([[]] + [ev for _, _, ev in streams]).astype(float),
             event_trials_idx=np.concatenate([[]] + [np.full(len(ev), t) for _, t, ev in streams]).astype(int),
@@ -140,6 +143,7 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
             laterality=template.laterality,
             duration_s=template.duration_s,
             binning_dt=template.binning_dt,
+            marks={key: np.concatenate([m[key] for m in marks]) for key in (marks[0] if marks else {})},
         )
 
     def stream_compensator_profile(

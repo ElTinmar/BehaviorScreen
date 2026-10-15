@@ -1,5 +1,6 @@
 """The three run modes: dataset diagnostics, model fitting, consolidation across experiments."""
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Dict
 
@@ -7,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from BehaviorScreen.core import Laterality
 from BehaviorScreen.point_process.point_process.dataset import (
     BehavioralDataLoader,
     DatasetPlotter,
@@ -20,6 +22,8 @@ from BehaviorScreen.point_process.point_process.frailty_analysis import (
 from BehaviorScreen.point_process.point_process.inference import ModelComparator
 from BehaviorScreen.point_process.point_process.io import save_csv, save_fig
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
+from BehaviorScreen.point_process.point_process.side_diagnostics import plot_side_diagnostics
+from BehaviorScreen.point_process.point_process.sided_process import CONTRA, IPSI, SIDE_NAMES, SideView, sided_base
 
 # (subdirectory, figure name, plot function, keyword arguments)
 DATASET_PLOTS = [
@@ -42,11 +46,19 @@ DATASET_PLOTS = [
 
 
 def run_diagnostics_task(exp_name: str, dataset: PointProcessDataset, output_root: Path) -> None:
+    """Dataset plots of all events and, in a two-sided experiment, of each side in its own subfolder."""
     print(f"\n--- Dataset diagnostics: {exp_name} ---")
-    for subdirectory, name, plot, kwargs in DATASET_PLOTS:
-        fig, _ = plot(dataset, **kwargs)
-        save_fig(fig, output_root / exp_name / subdirectory, name)
-        plt.close(fig)
+    views = {"": dataset}
+    if {Laterality(IPSI).name, Laterality(CONTRA).name} <= set(dataset.laterality.split("+")):
+        views |= {
+            side_name: replace(dataset.select(laterality=side), laterality=Laterality(side).name)
+            for side, side_name in SIDE_NAMES.items()
+        }
+    for side_name, data in views.items():
+        for subdirectory, name, plot, kwargs in DATASET_PLOTS:
+            fig, _ = plot(data, **kwargs)
+            save_fig(fig, output_root / exp_name / subdirectory / side_name, name)
+            plt.close(fig)
 
 
 def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, output_root: Path, n_jobs: int = -1) -> None:
@@ -70,6 +82,9 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
     save_fig(fig, model_dir, f"histogram_surface_{best.name}")
     fig, _ = ModelPlotter.plot_trial_traces(dataset=dataset, model=best)
     save_fig(fig, model_dir, f"trial_traces_{best.name}")
+    sided = next((m for m in fitted_models if sided_base(m) is not None), None)
+    if sided is not None:
+        plot_sides(dataset, sided, model_dir)
 
     fig, diagnosis = best.diagnose(dataset, gof_n_jobs=n_jobs)
     save_fig(fig, model_dir, f"diagnose_{best.name}")
@@ -80,6 +95,17 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
     save_csv(best.bootstrap(dataset, n_boot=200, n_jobs=n_jobs), model_dir, f"bootstrap_{best.name}")
 
     plt.close("all")
+
+
+def plot_sides(dataset: PointProcessDataset, model: PointProcess, model_dir: Path) -> None:
+    """Each side's events against that side's fitted rate; side calibration by time, trial and fish."""
+    for side, side_name in SIDE_NAMES.items():
+        events, view = replace(dataset.select(laterality=side), laterality=side), SideView(model, side)
+        fig, _ = ModelPlotter.plot_model_fits(dataset=events, models=[view])
+        save_fig(fig, model_dir, f"model_fits_overlay_{side_name}")
+        fig, _ = ModelPlotter.plot_histogram(dataset=events, model=view)
+        save_fig(fig, model_dir, f"histogram_surface_{side_name}_{model.name}")
+    save_fig(plot_side_diagnostics(dataset, model), model_dir, f"side_diagnostics_{model.name}")
 
 
 def save_best_model(config: dict, model: PointProcess, model_dir: Path) -> None:
