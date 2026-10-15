@@ -161,7 +161,7 @@ def with_bootstrap_se(param_df: pd.DataFrame, results_dir: Path) -> Tuple[pd.Dat
 def axis_label(parameter: str, model_name: str) -> str:
     if parameter == "D":
         return "D: away / towards odds (log)" if "SidedSurvival" in model_name else "D: ipsi / contra baseline (log)"
-    unit = {"B": "Hz", "H": "1/s"}.get(parameter, "")
+    unit = {"B": "Hz", "A": "Hz at onset", "A_peak": "extra turns per trial", "H": "1/s"}.get(parameter, "")
     return f"{parameter} ({unit}, log)" if unit else f"{parameter} (log)"
 
 

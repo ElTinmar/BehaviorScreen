@@ -48,8 +48,8 @@ behaviours are sided models: the ipsi kernel, and a contra kernel whose baseline
 directionality D (D &gt; 1: more turns to the stimulus side); looming escapes split one hazard between away and
 towards with odds D. Each fish's
 rate is the kernel times its own gain g ~ Gamma(mean 1), so the curves shown are the population mean. Parameters fitted
-per arm in Tier 1 (★: sustained rate B, escape hazard H, directionality D) start at the mean vehicle arm of the Tier 1
-fits; transient amplitudes (A, A_peak) are pinned with the shapes; shape parameters start at an earlier pooled control fit and
+per arm in Tier 1 (★: sustained rate B, transient amplitude A / A_peak, escape hazard H, directionality D)
+start at the mean vehicle arm of the Tier 1 fits; shape parameters start at an earlier pooled control fit and
 may differ slightly from the values Tier 1 pins. Dashed = same kernel at trial m=0. D starts at the ratio of the earlier one-sided fits
 (looming: 2, a placeholder until the sided fits). Rate/hazard axes are fixed
 at 2 (4 for looming).</p>
@@ -105,7 +105,7 @@ function preyKernel(id, title, d) {
       "d(m) = \\dfrac{0.95}{1+e^{-(z_{0,\\text{ripple}} + \\alpha_{\\text{ripple}} m)}}",
       "w(t) = \\tfrac{1}{2}\\left[\\sin(\\omega t+\\phi_1)+\\sin(2\\omega t+\\phi_2)\\right],\\quad \\omega = 2\\pi f_{\\text{stim}} \\approx 4.04\\,\\text{rad/s (fixed)}",
     ],
-    durationS:24, trialMax:25, hasTrial:true, isSurvival:false, hasHistory:false, free:["B"],
+    durationS:24, trialMax:25, hasTrial:true, isSurvival:false, hasHistory:false, free:["A","B"],
     params:[
       {key:"A",label:"A (transient amplitude, Hz)",min:0,max:3,step:0.005,default:d.A},
       {key:"tau",label:"τ (transient decay, s)",min:0.05,max:3,step:0.01,default:0.81},
@@ -239,7 +239,7 @@ const phototaxisIpsi = {
     title:"dark | bright · RT ipsi -- Dip + ExGaussian Peak",
     formulaLatex:"\\lambda(t,m) = B e^{\\alpha_B m}\\left(1-f_{\\text{dip}} e^{-t/\\tau_{\\text{dip}}}\\right) + A_{\\text{peak}} e^{\\alpha_{\\text{peak}} m}\\,\\text{exG}(t;\\mu,\\sigma,\\tau_{\\text{decay}})",
     whereLatex:[EXG_WHERE],
-    durationS:24, trialMax:25, hasTrial:true, isSurvival:false, hasHistory:false, free:["B"],
+    durationS:24, trialMax:25, hasTrial:true, isSurvival:false, hasHistory:false, free:["B","A_peak"],
     params:[
       {key:"B",label:"B (sustained rate, Hz)",min:0,max:1,step:0.005,default:0.188},
       {key:"f_dip",label:"f_dip (dip depth, fraction of B)",min:0,max:0.99,step:0.01,default:0.33},

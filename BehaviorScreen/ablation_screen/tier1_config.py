@@ -32,9 +32,9 @@ MAP_COLUMNS = {
     "after_looming": "looming break · all bouts",
 }
 
-# Fitted per arm: sustained rate, escape hazard bump and the directionality of sided models.
-# Transient amplitudes (A, A_peak) are pinned with the shapes: too few evoked events per fish to be reliable.
-AMPLITUDE_PARAMETERS = ("B", "H", "D")
+# Fitted per arm: sustained rate, transient amplitude, escape hazard bump and the directionality
+# of sided models; screen_setup.PINNED_AMPLITUDES pins some of them per experiment.
+AMPLITUDE_PARAMETERS = ("B", "A", "A_peak", "H", "D")
 
 
 class PinnedArchitecture:
