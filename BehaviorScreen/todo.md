@@ -2,6 +2,11 @@
 
 - make a GUI to preprocess the data so that someone else than me can do it? Be able to visualize the results from each step in the GUI?
 
+- check stimulus.get_shader_trial_time() rollover calculation
+
+- Should I use unwrap_angle in extract_raw_eye_angles()?
+
+- plot distribution of fish excluded by QC (health status, etc.)
 
 - generate overlay videos at different scales (whole field for stimulus, zoomed on fish for tail and eyes pose) that show everything the pre-processing extracted:
     - stimulus reconstruction (RN in regular python, can it be accelerated?)
