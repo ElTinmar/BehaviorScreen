@@ -10,6 +10,9 @@
     - eye timeseries
     - accumulating (x,y) trajectories
 
+- add 1s before the start of the stimulus. Might be nice both for plotting and for the modelling
+of the response onset?
+
 - try to transform bout and saccade frequency heamtaps into one global series of PSTHs per bout/saccade category x stimulus x time 
 showing trials on top of each other (stacked? maybe color coded? TBD). Maybe also add stimulus
 related variables when they make sense (e.g. phase of the stimulus for prey capture). 
