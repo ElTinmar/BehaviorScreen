@@ -48,8 +48,25 @@ STIM, FRAME = 2, 3
 DATASET, PROTOCOL, AGE = 2, 3, 10
 
 
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Accept": "*/*",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+
+def open_url(url: str, referer: str = "https://data.mendeley.com/"):
+    return urllib.request.urlopen(urllib.request.Request(url, headers={**BROWSER_HEADERS, "Referer": referer}), timeout=60)
+
+
+def save(url: str, target: Path, referer: str = "https://data.mendeley.com/") -> None:
+    with open_url(url, referer) as response, target.open("wb") as f:
+        while chunk := response.read(1 << 20):
+            f.write(chunk)
+
+
 def get_json(url: str) -> list:
-    with urllib.request.urlopen(url, timeout=60) as response:
+    with open_url(url) as response:
         return json.load(response)
 
 
@@ -60,43 +77,43 @@ def download_folder(dataset: str, folder_id: str, out: Path) -> None:
         if target.exists() and target.stat().st_size == f["size"]:
             continue
         print(f"  {target} ({f['size'] / 1e6:.0f} MB)")
-        urllib.request.urlretrieve(f["content_details"]["download_url"], target)
+        save(f["content_details"]["download_url"], target)
 
 
-BROWSER_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
-    "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://www.cell.com/current-biology/fulltext/S0960-9822(17)31631-6",
-}
-
-
-def download_table_s2(out: Path) -> None:
-    target = out / TABLE_S2
-    if target.exists():
-        return
+def subfolders(dataset: str) -> dict[str, Path]:
+    """{folder id: path} of a dataset's subfolders; empty if the API refuses to list them."""
     try:
-        with urllib.request.urlopen(urllib.request.Request(TABLE_S2_URL, headers=BROWSER_HEADERS), timeout=60) as r:
-            target.write_bytes(r.read())
+        folders = get_json(f"{API}/{dataset}/folders/{VERSION}")
     except urllib.error.HTTPError as error:
-        print(f"Table S2: {error} from cell.com. Save it from a browser as {target}:\n  {TABLE_S2_URL}")
+        print(f"  folder listing: {error}; downloading the top folder only")
+        return {}
+    names = {f["id"]: f["name"] for f in folders}
+    parents = {f["id"]: f.get("parent_id") for f in folders}
+
+    def path(fid: str) -> Path:
+        return path(parents[fid]) / names[fid] if parents.get(fid) in names else Path(names[fid])
+
+    return {fid: path(fid) for fid in names}
 
 
 def download(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    download_table_s2(out)
+    table = out / TABLE_S2
+    if not table.exists():
+        try:
+            save(TABLE_S2_URL, table, referer="https://www.cell.com/current-biology/fulltext/S0960-9822(17)31631-6")
+        except urllib.error.HTTPError as error:
+            print(f"Table S2: {error}. Save it from a browser as {table}:\n  {TABLE_S2_URL}")
     for dataset in PARTS:
         print(dataset)
-        folders = get_json(f"{API}/{dataset}/folders/{VERSION}")
-        names = {f["id"]: f["name"] for f in folders}
-        parents = {f["id"]: f.get("parent_id") for f in folders}
-
-        def path(fid: str) -> Path:
-            return path(parents[fid]) / names[fid] if parents.get(fid) in names else Path(names[fid])
-
-        download_folder(dataset, "root", out / dataset)
-        for fid in names:
-            download_folder(dataset, fid, out / dataset / path(fid))
+        try:
+            download_folder(dataset, "root", out / dataset)
+        except urllib.error.HTTPError as error:
+            print(f"  {error}. Use 'Download All' on https://data.mendeley.com/datasets/{dataset}/{VERSION} "
+                  f"and unzip into {out / dataset}")
+            continue
+        for fid, path in subfolders(dataset).items():
+            download_folder(dataset, fid, out / dataset / path)
 
 
 def load_fish(mat: Path) -> list[dict]:
