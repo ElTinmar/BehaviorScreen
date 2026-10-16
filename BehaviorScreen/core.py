@@ -15,7 +15,7 @@ class EventDirection(MyIntEnum):
     LEFT = -1
     RIGHT = 1
 
-
+# Event laterality with respect to stimulus
 class Laterality(MyIntEnum):
     IPSILATERAL = 1
     NONDIRECTIONAL = 0
