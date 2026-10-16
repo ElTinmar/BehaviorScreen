@@ -37,4 +37,4 @@ Figure 3. Screen heatmap
 
 Figure 4. Parameters with bootstrap
 
-Figure 5/6/7 example of hits?
+Figure 5/6/7 example of hits? PSTH for the affected behavior for hit vs control?
