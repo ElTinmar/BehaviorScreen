@@ -1,6 +1,7 @@
 # Ideas
 
-- make a GUI to preprocess the data so that someone else than me can do it?
+- make a GUI to preprocess the data so that someone else than me can do it? Be able to visualize the results from each step in the GUI?
+
 
 - generate overlay videos at different scales (whole field for stimulus, zoomed on fish for tail and eyes pose) that show everything the pre-processing extracted:
     - stimulus reconstruction (RN in regular python, can it be accelerated?)
