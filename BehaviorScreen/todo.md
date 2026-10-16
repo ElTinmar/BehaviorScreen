@@ -12,7 +12,8 @@
 
 - try to transform bout and saccade frequency heamtaps into one global series of PSTHs per bout/saccade category x stimulus x time 
 showing trials on top of each other (stacked? maybe color coded? TBD). Maybe also add stimulus
-related variables when they make sense (e.g. phase of the stimulus for prey capture) 
+related variables when they make sense (e.g. phase of the stimulus for prey capture). 
+Would be nice to be able to include 1s pre-stimulus onset 
 
 - look at correlation between tail bouts and saccades
 
