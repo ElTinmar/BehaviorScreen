@@ -26,6 +26,7 @@ out of the summary, as their c is biased towards zero.
 """
 import argparse
 import json
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -62,11 +63,28 @@ def download_folder(dataset: str, folder_id: str, out: Path) -> None:
         urllib.request.urlretrieve(f["content_details"]["download_url"], target)
 
 
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+    "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.cell.com/current-biology/fulltext/S0960-9822(17)31631-6",
+}
+
+
+def download_table_s2(out: Path) -> None:
+    target = out / TABLE_S2
+    if target.exists():
+        return
+    try:
+        with urllib.request.urlopen(urllib.request.Request(TABLE_S2_URL, headers=BROWSER_HEADERS), timeout=60) as r:
+            target.write_bytes(r.read())
+    except urllib.error.HTTPError as error:
+        print(f"Table S2: {error} from cell.com. Save it from a browser as {target}:\n  {TABLE_S2_URL}")
+
+
 def download(out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    request = urllib.request.Request(TABLE_S2_URL, headers={"User-Agent": "Mozilla/5.0"})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        (out / TABLE_S2).write_bytes(response.read())
+    download_table_s2(out)
     for dataset in PARTS:
         print(dataset)
         folders = get_json(f"{API}/{dataset}/folders/{VERSION}")
