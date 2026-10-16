@@ -1,3 +1,5 @@
+# Ideas
+
 - generate overlay videos at different scales (whole field for stimulus, zoomed on fish for tail and eyes pose) that show everything the pre-processing extracted:
     - stimulus reconstruction (RN in regular python, can it be accelerated?)
     - online tracking
@@ -28,18 +30,35 @@ Would be nice to be able to include 1s pre-stimulus onset
 
 - Can pooling across vehicles be justified? Record more WT, check if vehicle pool has same variability as WT across clutches to justify pooling? 
 
-Figure 1. Setup, protocol and pre-processing
+# Figures
+
+## Main figures
+
+### Figure 1. Setup, protocol and pre-processing
 A. Setup (reuse render on Github?)
 B. Protocol
 C. Pose estimation
 D. Bout detection and classification
 E. Saccade detection and classification
 
-Figure 2. Heatmaps/PSTHs for bout/saccade categories x stimulus presented on the control
+### Figure 2. Heatmaps/PSTHs for bout/saccade categories x stimulus presented on the control
 pool
 
-Figure 3. Screen heatmap
+Figure 2b (decide to include or not). Maybe extra descriptive statistics
+on the control set?
+    - bout categories x stimulius
+    - interbouts distribution x stimulius
+    - speed distribution x stimulius
+    - markov chain bout sequence x stimulus
 
-Figure 4. Parameters with bootstrap
 
-Figure 5/6/7 example of hits? PSTH for the affected behavior for hit vs control?
+### Figure 3. Screen heatmap
+
+### Figure 4. Parameters with bootstrap
+
+### Figure 5/6/7 example of hits? PSTH for the affected behavior for hit vs control?
+
+
+## Fig supp. 
+
+### Figure S1. Confocal stacks to confirm ablation (for the hits only?)
