@@ -34,6 +34,7 @@ import json
 import re
 import tempfile
 import zipfile
+import zlib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -128,19 +129,38 @@ def download(out: Path) -> None:
 
 
 def mat_files(root: Path) -> Iterator[tuple[str, str, bytes]]:
-    """(experiment, member, bytes) of every .mat in the continuous-tracking zips."""
+    """
+    (experiment, member, bytes) of every .mat in the continuous-tracking zips. A zip
+    extracted next to itself (folder named after the zip) is read from the folder instead;
+    members Python's zipfile cannot read are reported and skipped.
+    """
     for archive_path in sorted(root.rglob("*.zip")):
         if archive_path.parent.name != CONTINUOUS:
             continue
+        extracted = archive_path.with_suffix("")
+        if extracted.is_dir():
+            for mat in sorted(extracted.rglob("*.mat")):
+                if "__MACOSX" not in mat.parts:
+                    yield archive_path.stem, str(mat.relative_to(root)), mat.read_bytes()
+            continue
         with zipfile.ZipFile(archive_path) as archive:
             for name in sorted(n for n in archive.namelist() if n.endswith(".mat") and "__MACOSX" not in n):
-                yield archive_path.stem, f"{archive_path.name}/{name}", archive.read(name)
+                try:
+                    data = archive.read(name)
+                except (zipfile.BadZipFile, zlib.error) as error:
+                    print(f"  {archive_path.name}/{name}: {error}, skipped (extract the zip to {extracted.name}/)")
+                    continue
+                yield archive_path.stem, f"{archive_path.name}/{name}", data
 
 
 def load_fish(data: bytes) -> list[dict]:
     """boutStructure as a list of {field: array}, for both pre-7.3 and 7.3 (HDF5) .mat files."""
     try:
-        s = np.atleast_1d(scipy.io.loadmat(io.BytesIO(data), squeeze_me=True, struct_as_record=False)["boutStructure"])
+        content = scipy.io.loadmat(io.BytesIO(data), squeeze_me=True, struct_as_record=False)
+        if "boutStructure" not in content:
+            print(f"    no boutStructure, skipped (variables: {[k for k in content if not k.startswith('__')]})")
+            return []
+        s = np.atleast_1d(content["boutStructure"])
         return [{"BoutInf": np.atleast_2d(f.BoutInf), "FishInf": np.ravel(f.FishInf)} for f in s]
     except NotImplementedError:
         import mat73
