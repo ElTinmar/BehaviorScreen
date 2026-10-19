@@ -4,9 +4,13 @@ Between-fish variability of bout rates in the Marques et al. 2018 tracking data.
     python marques_cv.py download ./marques_data
     python marques_cv.py analyze ./marques_data ./marques_cv
 
-`download` fetches the five Mendeley parts and Table S2 (mmc2.xlsx), which `analyze`
-uses to label conditions. If the API refuses, use "Download All"
-on each dataset page (links in PARTS) and unzip everything into one folder.
+`download` fetches the five Mendeley parts and Table S2 (mmc2.xlsx). If the API
+refuses, use "Download All" on each dataset page (links in PARTS).
+
+`analyze` reads the .mat files straight from the zips in each "Experiments with
+Continuous Tracking" folder (discontinuous tracking is skipped). Conditions are
+labelled by experiment (zip name), dataset and protocol names (EnumeratorDataSet.m and
+EnumeratorProtocol.m, if found under ROOT) and Table S2 rows matched by bout count.
 
 `analyze` estimates, per fish and stimulus, the bout rate from runs of consecutive
 bouts under the same stimulus number: (bouts - 1) / (last onset - first onset) per
@@ -14,7 +18,7 @@ run, pooled over runs. Interbout data are not in the files, so the time before t
 first and after the last bout of a run is unknown; fish without two bouts in a run
 are missing, which biases the CV down for low-rate conditions.
 
-Per (dataset, protocol, stimulus) with enough fish, the observed CV of rates is split
+Per (experiment, dataset, protocol, stimulus) with enough fish, the observed CV of rates is split
 into Poisson noise and between-fish heterogeneity (method of moments):
 
     Var(rate) = c^2 m^2 + mean(rate_i / T_i)   ->   c^2 = (Var - mean(rate_i / T_i)) / m^2
@@ -25,10 +29,15 @@ fewer than MIN_BOUTS_PER_RUN bouts per run (rare-event stimuli) are reported but
 out of the summary, as their c is biased towards zero.
 """
 import argparse
+import io
 import json
+import re
+import tempfile
+import zipfile
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import Iterator
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -42,6 +51,8 @@ API = "https://data.mendeley.com/public-api/datasets"
 VERSION = 1
 FPS = 700.0
 MIN_BOUTS_PER_RUN = 5
+CONTINUOUS = "Experiments with Continuous Tracking"
+KEYS = ["experiment", "dataset", "protocol", "stimulus"]
 
 # BoutInf / FishInf columns (0-based), from Tracking_Data_Information
 STIM, FRAME = 2, 3
@@ -116,15 +127,39 @@ def download(out: Path) -> None:
             download_folder(dataset, fid, out / dataset / path)
 
 
-def load_fish(mat: Path) -> list[dict]:
+def mat_files(root: Path) -> Iterator[tuple[str, str, bytes]]:
+    """(experiment, member, bytes) of every .mat in the continuous-tracking zips."""
+    for archive_path in sorted(root.rglob("*.zip")):
+        if archive_path.parent.name != CONTINUOUS:
+            continue
+        with zipfile.ZipFile(archive_path) as archive:
+            for name in sorted(n for n in archive.namelist() if n.endswith(".mat") and "__MACOSX" not in n):
+                yield archive_path.stem, f"{archive_path.name}/{name}", archive.read(name)
+
+
+def load_fish(data: bytes) -> list[dict]:
     """boutStructure as a list of {field: array}, for both pre-7.3 and 7.3 (HDF5) .mat files."""
     try:
-        s = np.atleast_1d(scipy.io.loadmat(mat, squeeze_me=True, struct_as_record=False)["boutStructure"])
+        s = np.atleast_1d(scipy.io.loadmat(io.BytesIO(data), squeeze_me=True, struct_as_record=False)["boutStructure"])
         return [{"BoutInf": np.atleast_2d(f.BoutInf), "FishInf": np.ravel(f.FishInf)} for f in s]
     except NotImplementedError:
         import mat73
-        s = mat73.loadmat(str(mat))["boutStructure"]
+        with tempfile.NamedTemporaryFile(suffix=".mat") as tmp:
+            tmp.write(data)
+            tmp.flush()
+            s = mat73.loadmat(tmp.name)["boutStructure"]
         return [{"BoutInf": np.atleast_2d(b), "FishInf": np.ravel(i)} for b, i in zip(s["BoutInf"], s["FishInf"])]
+
+
+def parse_enumerator(root: Path, name: str) -> dict[int, str]:
+    """{number: name} from a MATLAB enumerator class (several names for one number are joined)."""
+    path = next(root.rglob(f"{name}.m"), None)
+    if path is None:
+        return {}
+    names: dict[int, list[str]] = {}
+    for key, value in re.findall(r"^\s*(\w+)\s*=\s*(\d+)", path.read_text(errors="ignore"), flags=re.M):
+        names.setdefault(int(value), []).append(key)
+    return {number: "/".join(keys) for number, keys in names.items()}
 
 
 def fish_rates(bout_inf: np.ndarray) -> pd.DataFrame:
@@ -146,15 +181,20 @@ def fish_rates(bout_inf: np.ndarray) -> pd.DataFrame:
 
 def collect(root: Path) -> pd.DataFrame:
     rows = []
-    for mat in sorted(root.rglob("*.mat")):
-        fish = load_fish(mat)
+    for experiment, member, data in mat_files(root):
+        print(f"  {member}")
+        fish = load_fish(data)
         for i, f in enumerate(fish):
+            if f["BoutInf"].size == 0:
+                continue
             info = f["FishInf"]
             rows.append(fish_rates(f["BoutInf"]).assign(
-                file=str(mat.relative_to(root)), fish=i, fish_in_file=len(fish),
+                experiment=experiment, file=member, fish=i, fish_in_file=len(fish),
                 dataset=int(info[DATASET]), protocol=int(info[PROTOCOL]), age=int(info[AGE]),
             ))
-    return pd.concat(rows, ignore_index=True)
+    rates = pd.concat(rows, ignore_index=True)
+    datasets, protocols = parse_enumerator(root, "EnumeratorDataSet"), parse_enumerator(root, "EnumeratorProtocol")
+    return rates.assign(dataset_name=rates["dataset"].map(datasets), protocol_name=rates["protocol"].map(protocols))
 
 
 def parse_table_s2(path: Path) -> pd.DataFrame:
@@ -178,8 +218,8 @@ def parse_table_s2(path: Path) -> pd.DataFrame:
 
 
 def label_conditions(rates: pd.DataFrame, table: pd.DataFrame, tolerance: float = 0.02) -> pd.DataFrame:
-    """Match each (dataset, protocol, stimulus) to the Table S2 rows whose bout count is within `tolerance`."""
-    totals = rates.groupby(["dataset", "protocol", "stimulus"])["n_raw"].sum().reset_index()
+    """Match each condition to the Table S2 rows whose bout count is within `tolerance`."""
+    totals = rates.groupby(KEYS)["n_raw"].sum().reset_index()
 
     def match(n: int) -> str:
         close = table[(table["n_bouts"] - n).abs() <= tolerance * n]
@@ -197,10 +237,12 @@ def heterogeneity(rates: pd.DataFrame, min_fish: int) -> pd.DataFrame:
             "cv_observed": np.sqrt(var) / m, "c_frailty": np.sqrt(max(var - poisson, 0) / m**2),
             "bouts_per_run": (g["bouts"] + g["runs"]).sum() / g["runs"].sum(),
             "single_fish_arena": (g["fish_in_file"] == 1).all(),
+            "dataset_name": g["dataset_name"].iloc[0], "protocol_name": g["protocol_name"].iloc[0],
         })
 
-    groups = rates.dropna(subset=["rate"]).groupby(["dataset", "protocol", "stimulus"])
-    return groups.filter(lambda g: len(g) >= min_fish).groupby(["dataset", "protocol", "stimulus"]).apply(summarize).reset_index()
+    rates = rates.dropna(subset=["rate"])
+    rates = rates.groupby(KEYS).filter(lambda g: len(g) >= min_fish)
+    return rates.groupby(KEYS).apply(summarize).reset_index()
 
 
 def plot(summary: pd.DataFrame, out: Path) -> None:
@@ -229,15 +271,15 @@ def analyze(root: Path, out: Path, ages: tuple[int, ...], min_fish: int, table_s
     plot(summary, out)
     summary["reliable"] = summary["bouts_per_run"] >= MIN_BOUTS_PER_RUN
     if labels is not None:
-        summary = summary.merge(labels, on=["dataset", "protocol", "stimulus"], how="left")
+        summary = summary.merge(labels, on=KEYS, how="left")
         labels.to_csv(out / "table_s2_matches.csv", index=False)
     summary.to_csv(out / "cv_by_condition.csv", index=False)
     single = summary[summary["single_fish_arena"] & summary["reliable"]]
     print(f"{len(summary)} conditions, {len(single)} reliable with one fish per arena; ages {ages}, >= {min_fish} fish")
     columns = ["rate_hz", "mu_bouts", "cv_observed", "c_frailty"]
     print(single[columns].describe(percentiles=[0.1, 0.25, 0.5, 0.75, 0.9]).round(2))
-    if labels is not None:
-        print(single[["dataset", "protocol", "stimulus", "n_fish", *columns, "table_s2"]].round(2).to_string(index=False))
+    shown = ["experiment", "protocol_name", "stimulus", "n_fish", *columns] + (["table_s2"] if labels is not None else [])
+    print(single[shown].round(2).to_string(index=False))
 
 
 if __name__ == "__main__":
