@@ -4,8 +4,9 @@ Between-fish variability of bout rates in the Marques et al. 2018 tracking data.
     python marques_cv.py download ./marques_data
     python marques_cv.py analyze ./marques_data ./marques_cv
 
-`download` fetches the five Mendeley parts and Table S2 (mmc2.xlsx). If the API
-refuses, use "Download All" on each dataset page (links in PARTS).
+`download` fetches the five Mendeley parts and Table S2 (mmc2.xlsx). Run it again to
+re-download only the files that are missing, of the wrong size, or zips failing their
+CRC check. If the API refuses, use "Download All" on each dataset page (links in PARTS).
 
 `analyze` reads the .mat files straight from the zips in each "Experiments with
 Continuous Tracking" folder (discontinuous tracking is skipped). Conditions are
@@ -72,9 +73,25 @@ def open_url(url: str, referer: str = "https://data.mendeley.com/"):
 
 
 def save(url: str, target: Path, referer: str = "https://data.mendeley.com/") -> None:
-    with open_url(url, referer) as response, target.open("wb") as f:
+    """Download to a .part file renamed on completion, so an interrupted download never looks complete."""
+    partial = target.with_name(target.name + ".part")
+    with open_url(url, referer) as response, partial.open("wb") as f:
         while chunk := response.read(1 << 20):
             f.write(chunk)
+    partial.replace(target)
+
+
+def intact(path: Path, size: int) -> bool:
+    """Expected size, and for a zip every member passing its CRC check."""
+    if not path.exists() or path.stat().st_size != size:
+        return False
+    if path.suffix != ".zip":
+        return True
+    try:
+        with zipfile.ZipFile(path) as archive:
+            return archive.testzip() is None
+    except (zipfile.BadZipFile, zlib.error, OSError):
+        return False
 
 
 def get_json(url: str) -> list:
@@ -86,10 +103,13 @@ def download_folder(dataset: str, folder_id: str, out: Path) -> None:
     out.mkdir(parents=True, exist_ok=True)
     for f in get_json(f"{API}/{dataset}/files?folder_id={folder_id}&version={VERSION}"):
         target = out / f["filename"]
-        if target.exists() and target.stat().st_size == f["size"]:
+        if intact(target, f["size"]):
             continue
-        print(f"  {target} ({f['size'] / 1e6:.0f} MB)")
+        action = "broken, downloading again" if target.exists() else "downloading"
+        print(f"  {target} ({f['size'] / 1e6:.0f} MB): {action}")
         save(f["content_details"]["download_url"], target)
+        if not intact(target, f["size"]):
+            print(f"  {target}: still fails the integrity check after download")
 
 
 def subfolders(dataset: str) -> dict[str, Path]:
@@ -143,7 +163,12 @@ def mat_files(root: Path) -> Iterator[tuple[str, str, bytes]]:
                 if "__MACOSX" not in mat.parts:
                     yield archive_path.stem, str(mat.relative_to(root)), mat.read_bytes()
             continue
-        with zipfile.ZipFile(archive_path) as archive:
+        try:
+            archive = zipfile.ZipFile(archive_path)
+        except zipfile.BadZipFile as error:
+            print(f"  {archive_path.name}: {error}, skipped (incomplete download?)")
+            continue
+        with archive:
             for name in sorted(n for n in archive.namelist() if n.endswith(".mat") and "__MACOSX" not in n):
                 try:
                     data = archive.read(name)
