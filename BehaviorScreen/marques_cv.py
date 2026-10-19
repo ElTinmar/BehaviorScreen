@@ -660,7 +660,7 @@ def dim_column(experiment: str, stimulus: int, positions: tuple[int, ...]) -> in
     return block - 1 + (0 if experiment.endswith("3") else 5)
 
 
-DIM_POSITIONS = (1, 3)  # chosen from fig3a_hypotheses.csv: where in each block the dims are
+DIM_POSITIONS = (1,)  # from fig3a_hypotheses.csv: the dim is the first stimulus of each block
 DIM_HYPOTHESES = {
     f"dims at block positions {positions}": (lambda positions: lambda e, s: dim_column(e, s, positions))(positions)
     for positions in [(1,), (1, 3), (1, 3, 5), (1, 3, 5, 7, 9, 11)]
