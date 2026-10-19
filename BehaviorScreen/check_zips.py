@@ -4,7 +4,7 @@ import zipfile
 import zlib
 from pathlib import Path
 
-from marques_cv import API, PARTS, VERSION, get_json, subfolders
+from BehaviorScreen.marques_cv import API, PARTS, VERSION, get_json, subfolders
 
 root = Path(sys.argv[1])
 listed = {}
