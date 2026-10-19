@@ -1,5 +1,5 @@
 """
-Between-fish variability of bout rates in the Marques et al. 2018 tracking data.
+Between-fish variability of bout rates and screen readouts in the Marques et al. 2018 tracking data.
 
     python marques_cv.py download ./marques_data
     python marques_cv.py analyze ./marques_data ./marques_cv
@@ -31,6 +31,21 @@ to detect a FOLD change of a rate at 80% power, two-sided, at alpha = 0.05 and
 alpha = 0.05 / LINES (log-normal approximation, variance ln(1 + CV^2) per fish):
 
     n = 2 (z_alpha + z_0.8)^2 ln(1 + CV^2) / ln(FOLD)^2
+
+Stimulus numbers are labelled from a cross-reference with Table S1/S2 and the methods
+(STIMULUS_LABELS); turn_bias.csv gives, per experiment and stimulus, the mean sign of
+the turn angle (BoutKinematicParameters column 10), to check the directional mapping.
+
+Readouts of the screen (READOUTS, named and pooled as in model_config) are measured per
+fish with the same bout categories (BoutInf column 11) and windows, from the first bout
+of each presentation (stimulus onsets are not in the files):
+    strength   rate of the readout's bouts in the window, or for escapes the fraction
+               of presentations with one; its CV across fish gives the fish needed
+    direction  for sided readouts, fraction of turning events toward the side the
+               population prefers for that stimulus (stimuli with |bias| < MIN_SIDE_BIAS
+               are frontal/rear and left out); the SD of its log-odds across fish gives
+               the fish needed for a FOLD change of the odds
+Only arenas with one fish are used. dark_flash has no protocol in these data.
 """
 import argparse
 import io
@@ -42,7 +57,8 @@ import zlib
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Iterator
+from dataclasses import dataclass
+from typing import Callable, Iterator
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -63,8 +79,63 @@ CONTINUOUS = "Experiments with Continuous Tracking"
 KEYS = ["experiment", "dataset", "protocol", "stimulus"]
 
 # BoutInf / FishInf columns (0-based), from Tracking_Data_Information
-STIM, FRAME = 2, 3
+STIM, FRAME, CATEGORY = 2, 3, 10
 DATASET, PROTOCOL, AGE = 2, 3, 10
+TURN_ANGLE = 9  # BoutKinematicParameters: angle turned during tail motion (deg, clockwise negative)
+CATEGORIES = {
+    "SCS": 1, "LCS": 2, "BS": 3, "O": 4, "JT": 5, "SLC": 6, "S1": 7, "RT": 8, "S2": 9, "LLC": 10, "AS": 11, "SAT": 12, "HAT": 13,
+}
+MIN_TURN_DEG = 10.0  # bouts turning less are left out of turn bias and direction
+MIN_SIDE_BIAS = 0.2  # stimuli with a weaker population bias count as frontal/rear: no direction
+
+# Stimulus numbers, cross-referenced with Table S1/S2 and the methods of Marques et al. 2018
+# (see README in the docstring). -1 is the recording before or between stimuli.
+OMR_SPEEDS_MM_S = [0, 2.5, 5, 7.5, 10, 15, 20, 30, 40, 50]
+STIMULUS_LABELS: dict[str, Callable[[int], str]] = {
+    "OMRSpeed": lambda s: f"forward grating {OMR_SPEEDS_MM_S[s]} mm/s",
+    "OMRTurns": lambda s: "static grating / pre-stimulus (?)" if s == 0 else f"grating {(s - 1) * 15} deg",
+    "LoomingDifferentDirections": lambda s: "loom (one of 8 angles)" if s % 2 else "interval",
+    "LoomingDifferentSpeeds": lambda s: "loom (6 speeds x 4 directions)" if s % 2 else "interval",
+    "Phototaxis": lambda s: "phototaxis" if s % 2 else "1 s pre-flash",
+    "3minLightDark": lambda s: ("dark", "light")[s],
+    "DarkLightTransitions": lambda s: "dark" if s == 0 else "light epoch (intensity unknown)",
+    "AcousticLightDark": lambda s: "tone" if s % 3 == 1 else "background",
+    "SpontaneousMultiFishDark": lambda s: "dark",
+    "SpontaneousMultiFishLight": lambda s: "light",
+    "SpontaneousWEyeTracking": lambda s: "spontaneous",
+    "PreyCapture": lambda s: "prey session",
+}
+
+
+def stimulus_label(experiment: str, stimulus: int) -> str:
+    if stimulus == -1:
+        return "before/between stimuli"
+    label = next((f for prefix, f in STIMULUS_LABELS.items() if experiment.startswith(prefix)), None)
+    return label(stimulus) if label else ""
+
+
+@dataclass(frozen=True)
+class Readout:
+    """A readout of the screen (model_config names), measured in the Marques experiments that have it."""
+
+    name: str
+    experiments: tuple[str, ...]  # zip-name prefixes
+    stimuli: Callable[[str, int], bool]
+    categories: tuple[str, ...] | None  # None: all bouts
+    window_s: float | None  # from the first bout of each presentation; None: whole run, as a rate
+    escape: bool = False  # strength = fraction of presentations with >= 1 event, instead of a rate
+    sided: bool = False  # also: fraction of turning events toward the stimulus side's preferred direction
+
+
+READOUTS = [
+    Readout("omr_forward", ("OMRSpeed",), lambda e, s: 1 <= s <= 9, ("S1", "S2", "BS"), 9.0),
+    Readout("omr_lateral", ("OMRTurns",), lambda e, s: 2 <= s <= 24 and s != 13, ("RT", "HAT"), 9.0, sided=True),
+    Readout("phototaxis", ("Phototaxis",), lambda e, s: s % 2 == 1, ("RT",), 24.0, sided=True),
+    Readout("looming", ("LoomingDifferent",), lambda e, s: s % 2 == 1, ("SLC", "LLC"), 9.0, escape=True, sided=True),
+    Readout("spont_dark", ("3minLightDark", "DarkLightTransitions"), lambda e, s: s == 0, None, None),
+    Readout("spont_bright", ("3minLightDark",), lambda e, s: s == 1, None, None),
+    Readout("prey_capture", ("PreyCapture",), lambda e, s: True, ("JT",), None),
+]
 
 
 BROWSER_HEADERS = {
@@ -214,20 +285,20 @@ def mat_files(root: Path) -> Iterator[tuple[str, str, bytes]]:
 
 def load_fish(data: bytes) -> list[dict]:
     """boutStructure as a list of {field: array}, for both pre-7.3 and 7.3 (HDF5) .mat files."""
+    fields = ("BoutInf", "FishInf", "BoutKinematicParameters")
     try:
         content = scipy.io.loadmat(io.BytesIO(data), squeeze_me=True, struct_as_record=False)
         if "boutStructure" not in content:
             print(f"    no boutStructure, skipped (variables: {[k for k in content if not k.startswith('__')]})")
             return []
-        s = np.atleast_1d(content["boutStructure"])
-        return [{"BoutInf": np.atleast_2d(f.BoutInf), "FishInf": np.ravel(f.FishInf)} for f in s]
+        return [{k: getattr(f, k) for k in fields} for f in np.atleast_1d(content["boutStructure"])]
     except NotImplementedError:
         import mat73
         with tempfile.NamedTemporaryFile(suffix=".mat") as tmp:
             tmp.write(data)
             tmp.flush()
             s = mat73.loadmat(tmp.name)["boutStructure"]
-        return [{"BoutInf": np.atleast_2d(b), "FishInf": np.ravel(i)} for b, i in zip(s["BoutInf"], s["FishInf"])]
+        return [dict(zip(fields, values)) for values in zip(*(s[k] for k in fields))]
 
 
 def parse_enumerator(root: Path, name: str) -> dict[int, str]:
@@ -241,25 +312,9 @@ def parse_enumerator(root: Path, name: str) -> dict[int, str]:
     return {number: "/".join(keys) for number, keys in names.items()}
 
 
-def fish_rates(bout_inf: np.ndarray) -> pd.DataFrame:
-    """Bouts, observed time and rate per stimulus, from runs of consecutive bouts under one stimulus."""
-    bouts = bout_inf[np.argsort(bout_inf[:, FRAME])] if bout_inf.size else bout_inf
-    t, stim = bouts[:, FRAME] / FPS, bouts[:, STIM]
-    run = np.concatenate([[0], np.cumsum(stim[1:] != stim[:-1])])
-    runs = pd.DataFrame({"stimulus": stim, "t": t, "run": run}).groupby("run").agg(
-        stimulus=("stimulus", "first"), n=("t", "size"), span=("t", lambda x: x.max() - x.min())
-    )
-    runs = runs[runs["n"] >= 2]
-    per_stim = runs.groupby("stimulus").agg(
-        bouts=("n", lambda n: (n - 1).sum()), runs=("n", "size"), T=("span", "sum")
-    ).reset_index()
-    per_stim = per_stim[per_stim["T"] > 0].assign(rate=lambda d: d["bouts"] / d["T"])
-    counts = pd.Series(stim).value_counts().rename_axis("stimulus").rename("n_raw").reset_index()
-    return counts.merge(per_stim, on="stimulus", how="left")
-
-
-def collect(root: Path) -> pd.DataFrame:
-    rows = []
+def collect(root: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """(bouts, fish): one row per bout (fish, stimulus, onset, category, turn angle), one row per fish."""
+    bouts, fish_rows = [], []
     for experiment, member, data in mat_files(root):
         print(f"  {member}")
         try:
@@ -268,16 +323,44 @@ def collect(root: Path) -> pd.DataFrame:
             print(f"    unreadable ({type(error).__name__}: {error}), skipped")
             continue
         for i, f in enumerate(fish):
-            if f["BoutInf"].size == 0:
+            bout_inf = np.atleast_2d(f["BoutInf"])
+            if bout_inf.size == 0:
                 continue
-            info = f["FishInf"]
-            rows.append(fish_rates(f["BoutInf"]).assign(
-                experiment=experiment, file=member, fish=i, fish_in_file=len(fish),
-                dataset=int(info[DATASET]), protocol=int(info[PROTOCOL]), age=int(info[AGE]),
-            ))
-    rates = pd.concat(rows, ignore_index=True)
+            info, key = np.ravel(f["FishInf"]), len(fish_rows)
+            kinematics = np.atleast_2d(f["BoutKinematicParameters"])
+            fish_rows.append({
+                "fish_key": key, "experiment": experiment, "file": member, "fish": i, "fish_in_file": len(fish),
+                "dataset": int(info[DATASET]), "protocol": int(info[PROTOCOL]), "age": int(info[AGE]),
+            })
+            bouts.append(pd.DataFrame({
+                "fish_key": key, "stimulus": bout_inf[:, STIM].astype(int), "t": bout_inf[:, FRAME] / FPS,
+                "category": bout_inf[:, CATEGORY].astype(int), "angle": kinematics[:, TURN_ANGLE],
+            }))
+    fish = pd.DataFrame(fish_rows)
     datasets, protocols = parse_enumerator(root, "EnumeratorDataSet"), parse_enumerator(root, "EnumeratorProtocol")
-    return rates.assign(dataset_name=rates["dataset"].map(datasets), protocol_name=rates["protocol"].map(protocols))
+    fish = fish.assign(dataset_name=fish["dataset"].map(datasets), protocol_name=fish["protocol"].map(protocols))
+    bouts = pd.concat(bouts, ignore_index=True).sort_values(["fish_key", "t"], ignore_index=True)
+    new_run = (bouts["fish_key"].diff() != 0) | (bouts["stimulus"].diff() != 0)
+    bouts["run"] = new_run.cumsum()
+    bouts["t0"] = bouts.groupby("run")["t"].transform("min")
+    return bouts, fish
+
+
+def fish_rates(bouts: pd.DataFrame, fish: pd.DataFrame) -> pd.DataFrame:
+    """Bouts, observed time and rate per fish and stimulus, from runs of consecutive bouts under one stimulus."""
+    runs = bouts.groupby("run").agg(
+        fish_key=("fish_key", "first"), stimulus=("stimulus", "first"), n=("t", "size"),
+        span=("t", lambda t: t.max() - t.min()),
+    )
+    counts = runs.groupby(["fish_key", "stimulus"])["n"].sum().rename("n_raw")
+    usable = runs[runs["n"] >= 2].groupby(["fish_key", "stimulus"]).agg(
+        bouts=("n", lambda n: (n - 1).sum()), runs=("n", "size"), T=("span", "sum")
+    )
+    usable = usable[usable["T"] > 0].assign(rate=lambda d: d["bouts"] / d["T"])
+    rates = pd.concat([counts, usable], axis=1).reset_index()
+    return rates.merge(fish, on="fish_key").assign(label=lambda d: [
+        stimulus_label(e, s) for e, s in zip(d["experiment"], d["stimulus"])
+    ])
 
 
 def parse_table_s2(path: Path) -> pd.DataFrame:
@@ -301,7 +384,7 @@ def parse_table_s2(path: Path) -> pd.DataFrame:
 
 
 def label_conditions(rates: pd.DataFrame, table: pd.DataFrame, tolerance: float = 0.02) -> pd.DataFrame:
-    """Match each condition to the Table S2 rows whose bout count is within `tolerance`."""
+    """Match each condition to the Table S2 rows whose bout count (all ages) is within `tolerance`."""
     totals = rates.groupby(KEYS)["n_raw"].sum().reset_index()
 
     def match(n: int) -> str:
@@ -314,8 +397,8 @@ def label_conditions(rates: pd.DataFrame, table: pd.DataFrame, tolerance: float 
 def cv_by_condition(rates: pd.DataFrame, min_fish: int) -> pd.DataFrame:
     def summarize(g: pd.DataFrame) -> pd.Series:
         return pd.Series({
-            "n_fish": len(g), "rate_hz": g["rate"].mean(), "T_s": g["T"].median(), "mu_bouts": g["bouts"].mean(),
-            "cv_observed": g["rate"].std(ddof=1) / g["rate"].mean(),
+            "label": g["label"].iloc[0], "n_fish": len(g), "rate_hz": g["rate"].mean(), "T_s": g["T"].median(),
+            "mu_bouts": g["bouts"].mean(), "cv_observed": g["rate"].std(ddof=1) / g["rate"].mean(),
             "bouts_per_run": (g["bouts"] + g["runs"]).sum() / g["runs"].sum(),
             "single_fish_arena": (g["fish_in_file"] == 1).all(),
             "dataset_name": g["dataset_name"].iloc[0], "protocol_name": g["protocol_name"].iloc[0],
@@ -326,9 +409,77 @@ def cv_by_condition(rates: pd.DataFrame, min_fish: int) -> pd.DataFrame:
     return summary.assign(reliable=(summary["bouts_per_run"] >= MIN_BOUTS_PER_RUN) & (summary["mu_bouts"] >= MIN_BOUTS))
 
 
-def fish_needed(cv: float, fold: float, alpha: float) -> int:
+def turn_bias(bouts: pd.DataFrame, fish: pd.DataFrame) -> pd.DataFrame:
+    """Per experiment and stimulus: mean sign of the turn angle over bouts turning more than MIN_TURN_DEG."""
+    turns = bouts[bouts["angle"].abs() >= MIN_TURN_DEG].merge(fish[["fish_key", "experiment"]], on="fish_key")
+    bias = turns.assign(sign=np.sign(turns["angle"])).groupby(["experiment", "stimulus"]).agg(
+        turns=("sign", "size"), bias=("sign", "mean"), fish=("fish_key", "nunique")
+    ).reset_index()
+    return bias.assign(label=[stimulus_label(e, s) for e, s in zip(bias["experiment"], bias["stimulus"])])
+
+
+def readout_per_fish(spec: Readout, bouts: pd.DataFrame, fish: pd.DataFrame, bias: pd.DataFrame) -> pd.DataFrame:
+    """One row per fish: presentations, events, strength (rate or escape probability) and, if sided, direction."""
+    keys = fish.loc[fish["experiment"].str.startswith(spec.experiments), ["fish_key", "experiment"]]
+    b = bouts.merge(keys, on="fish_key")
+    b = b[np.array([spec.stimuli(e, s) for e, s in zip(b["experiment"], b["stimulus"])], dtype=bool)]
+    events = b if spec.categories is None else b[b["category"].isin([CATEGORIES[c] for c in spec.categories])]
+    if spec.window_s is not None:
+        events = events[events["t"] - events["t0"] <= spec.window_s]
+    runs = b.groupby("run").agg(fish_key=("fish_key", "first"), span=("t", lambda t: t.max() - t.min()))
+    per_fish = runs.groupby("fish_key").agg(presentations=("span", "size"), T=("span", "sum"))
+    per_fish["events"] = events.groupby("fish_key").size().reindex(per_fish.index, fill_value=0)
+    if spec.escape:
+        responded = events.groupby("fish_key")["run"].nunique().reindex(per_fish.index, fill_value=0)
+        per_fish["strength"] = responded / per_fish["presentations"]
+    elif spec.window_s is not None:
+        per_fish["strength"] = per_fish["events"] / (per_fish["presentations"] * spec.window_s)
+    else:
+        per_fish["strength"] = per_fish["events"] / per_fish["T"].where(per_fish["T"] > 0)
+    if spec.sided:
+        preferred = bias.set_index(["experiment", "stimulus"])["bias"]
+        side = preferred.reindex(pd.MultiIndex.from_arrays([events["experiment"], events["stimulus"]])).to_numpy()
+        events = events.assign(side=side)
+        turning = events[(events["side"].abs() >= MIN_SIDE_BIAS) & (events["angle"].abs() >= MIN_TURN_DEG)]
+        toward = turning.assign(toward=np.sign(turning["angle"]) == np.sign(turning["side"])).groupby("fish_key")["toward"]
+        per_fish["sided_events"] = toward.size().reindex(per_fish.index, fill_value=0)
+        per_fish["toward"] = toward.sum().reindex(per_fish.index, fill_value=0)
+    return per_fish.reset_index().merge(fish, on="fish_key")
+
+
+def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, bias: pd.DataFrame, min_fish: int, fold: float, lines: int) -> pd.DataFrame:
+    """Per readout of the screen and Marques experiment: CV of strength across fish, spread of direction, fish needed."""
+    rows = []
+    for spec in READOUTS:
+        per_fish = readout_per_fish(spec, bouts, fish, bias)
+        per_fish = per_fish[per_fish["fish_in_file"] == 1].dropna(subset=["strength"])
+        for experiment, g in per_fish.groupby("experiment"):
+            if len(g) < min_fish:
+                continue
+            cv = g["strength"].std(ddof=1) / g["strength"].mean()
+            row = {
+                "readout": spec.name, "experiment": experiment, "n_fish": len(g),
+                "presentations": g["presentations"].median(), "events_per_fish": g["events"].mean(),
+                "strength_mean": g["strength"].mean(), "cv_strength": cv,
+                "fish_strength": fish_needed(np.log1p(cv**2), fold, 0.05),
+                f"fish_strength_alpha/{lines}": fish_needed(np.log1p(cv**2), fold, 0.05 / lines),
+            }
+            if spec.sided:
+                d = g[g["sided_events"] > 0]
+                logit = np.log((d["toward"] + 0.5) / (d["sided_events"] - d["toward"] + 0.5))
+                row |= {
+                    "direction_mean": (d["toward"] / d["sided_events"]).mean(), "sd_logit_direction": logit.std(ddof=1),
+                    "fish_direction": fish_needed(logit.var(ddof=1), fold, 0.05),
+                    f"fish_direction_alpha/{lines}": fish_needed(logit.var(ddof=1), fold, 0.05 / lines),
+                }
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def fish_needed(log_variance: float, fold: float, alpha: float) -> int:
+    """Fish per group to detect a FOLD change of a log-normal quantity with this per-fish log variance."""
     z = stats.norm.ppf(1 - alpha / 2) + stats.norm.ppf(POWER)
-    return int(np.ceil(2 * z**2 * np.log(1 + cv**2) / np.log(fold) ** 2))
+    return int(np.ceil(2 * z**2 * log_variance / np.log(fold) ** 2))
 
 
 def plot(summary: pd.DataFrame, out: Path) -> None:
@@ -350,11 +501,14 @@ def analyze(
     root: Path, out: Path, ages: tuple[int, ...], min_fish: int, table_s2: Path | None, fold: float, lines: int
 ) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    rates = collect(root)
+    bouts, fish = collect(root)
+    rates = fish_rates(bouts, fish)
     table_s2 = table_s2 or root / TABLE_S2
     labels = label_conditions(rates, parse_table_s2(table_s2)) if table_s2.exists() else None
-    rates = rates[rates["age"].isin(ages)]
+    fish = fish[fish["age"].isin(ages)]
+    bouts, rates = bouts[bouts["fish_key"].isin(fish["fish_key"])], rates[rates["age"].isin(ages)]
     rates.to_csv(out / "fish_rates.csv", index=False)
+
     summary = cv_by_condition(rates, min_fish)
     plot(summary, out)
     if labels is not None:
@@ -369,11 +523,23 @@ def analyze(
     table.loc["all"] = single["cv_observed"].describe(percentiles=[0.5, 0.9])[["count", "50%", "90%", "max"]]
     print("\nCV of bout rate across fish, by mean bouts per fish:")
     print(table.round(2).to_string())
-    quantiles = {"median": table.loc["all", "50%"], "90th percentile": table.loc["all", "90%"], "max": table.loc["all", "max"]}
     print(f"\nFish per group for a {fold:g}-fold change, {POWER:.0%} power:")
-    for name, cv in quantiles.items():
-        print(f"  CV {cv:.2f} ({name}): alpha 0.05 -> {fish_needed(cv, fold, 0.05)}, "
-              f"alpha 0.05/{lines} -> {fish_needed(cv, fold, 0.05 / lines)}")
+    for name, column in [("median", "50%"), ("90th percentile", "90%"), ("max", "max")]:
+        cv = table.loc["all", column]
+        print(f"  CV {cv:.2f} ({name}): alpha 0.05 -> {fish_needed(np.log1p(cv**2), fold, 0.05)}, "
+              f"alpha 0.05/{lines} -> {fish_needed(np.log1p(cv**2), fold, 0.05 / lines)}")
+
+    bias = turn_bias(bouts, fish)
+    bias.to_csv(out / "turn_bias.csv", index=False)
+    directional = bias[bias["experiment"].isin(["OMRTurns", "LoomingDifferentDirections", "LoomingDifferentSpeeds", "Phototaxis"])]
+    print("\nTurn bias per stimulus (mean sign of turns; check the stimulus mapping):")
+    print(directional[["experiment", "stimulus", "label", "fish", "turns", "bias"]].round(2).to_string(index=False))
+
+    result = readouts(bouts, fish, bias, min_fish, fold, lines)
+    result.to_csv(out / "readouts.csv", index=False)
+    print(f"\nScreen readouts (one fish per arena), fish per group for a {fold:g}-fold change, {POWER:.0%} power:")
+    print(result.round(2).to_string(index=False))
+    print("dark_flash: no dark-flash protocol in the continuous data; not estimated.")
 
 
 if __name__ == "__main__":
