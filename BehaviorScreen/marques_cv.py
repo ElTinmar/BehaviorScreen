@@ -18,15 +18,19 @@ run, pooled over runs. Interbout data are not in the files, so the time before t
 first and after the last bout of a run is unknown; fish without two bouts in a run
 are missing, which biases the CV down for low-rate conditions.
 
-Per (experiment, dataset, protocol, stimulus) with enough fish, the observed CV of rates is split
-into Poisson noise and between-fish heterogeneity (method of moments):
+Per (experiment, dataset, protocol, stimulus) with enough fish, the CV of these rates
+across fish is reported as observed: it holds both true differences between fish and
+counting noise at the number of bouts each fish produced, with no model of the bout
+process. It is valid for a protocol giving each fish a similar number of bouts.
+Conditions with fewer than MIN_BOUTS_PER_RUN bouts per run or MIN_BOUTS bouts per fish
+(rare-event stimuli) are reported but left out of the summary: their run-based rates
+are unreliable.
 
-    Var(rate) = c^2 m^2 + mean(rate_i / T_i)   ->   c^2 = (Var - mean(rate_i / T_i)) / m^2
+The summary gives the CV distribution by bouts per fish, and the fish per group needed
+to detect a FOLD change of a rate at 80% power, two-sided, at alpha = 0.05 and
+alpha = 0.05 / LINES (log-normal approximation, variance ln(1 + CV^2) per fish):
 
-c is the frailty CV used in the power analysis; mu is the mean number of bouts per fish.
-The run-based rate is only trustworthy when runs hold many bouts: conditions with
-fewer than MIN_BOUTS_PER_RUN bouts per run (rare-event stimuli) are reported but left
-out of the summary, as their c is biased towards zero.
+    n = 2 (z_alpha + z_0.8)^2 ln(1 + CV^2) / ln(FOLD)^2
 """
 import argparse
 import io
@@ -44,6 +48,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy.io
+from scipy import stats
 
 TABLE_S2_URL = "https://www.cell.com/cms/10.1016/j.cub.2017.12.002/attachment/d751b425-5672-4343-b3d3-f86449108bf9/mmc2.xlsx"
 TABLE_S2 = "mmc2.xlsx"
@@ -52,6 +57,8 @@ API = "https://data.mendeley.com/public-api/datasets"
 VERSION = 1
 FPS = 700.0
 MIN_BOUTS_PER_RUN = 5
+MIN_BOUTS = 10
+POWER = 0.8
 CONTINUOUS = "Experiments with Continuous Tracking"
 KEYS = ["experiment", "dataset", "protocol", "stimulus"]
 
@@ -304,58 +311,69 @@ def label_conditions(rates: pd.DataFrame, table: pd.DataFrame, tolerance: float 
     return totals.assign(table_s2=totals["n_raw"].map(match))
 
 
-def heterogeneity(rates: pd.DataFrame, min_fish: int) -> pd.DataFrame:
+def cv_by_condition(rates: pd.DataFrame, min_fish: int) -> pd.DataFrame:
     def summarize(g: pd.DataFrame) -> pd.Series:
-        m, var = g["rate"].mean(), g["rate"].var(ddof=1)
-        poisson = (g["rate"] / g["T"]).mean()
         return pd.Series({
-            "n_fish": len(g), "rate_hz": m, "T_s": g["T"].median(), "mu_bouts": g["bouts"].mean(),
-            "cv_observed": np.sqrt(var) / m, "c_frailty": np.sqrt(max(var - poisson, 0) / m**2),
+            "n_fish": len(g), "rate_hz": g["rate"].mean(), "T_s": g["T"].median(), "mu_bouts": g["bouts"].mean(),
+            "cv_observed": g["rate"].std(ddof=1) / g["rate"].mean(),
             "bouts_per_run": (g["bouts"] + g["runs"]).sum() / g["runs"].sum(),
             "single_fish_arena": (g["fish_in_file"] == 1).all(),
             "dataset_name": g["dataset_name"].iloc[0], "protocol_name": g["protocol_name"].iloc[0],
         })
 
-    rates = rates.dropna(subset=["rate"])
-    rates = rates.groupby(KEYS).filter(lambda g: len(g) >= min_fish)
-    return rates.groupby(KEYS).apply(summarize).reset_index()
+    rates = rates.dropna(subset=["rate"]).groupby(KEYS).filter(lambda g: len(g) >= min_fish)
+    summary = rates.groupby(KEYS).apply(summarize).reset_index()
+    return summary.assign(reliable=(summary["bouts_per_run"] >= MIN_BOUTS_PER_RUN) & (summary["mu_bouts"] >= MIN_BOUTS))
+
+
+def fish_needed(cv: float, fold: float, alpha: float) -> int:
+    z = stats.norm.ppf(1 - alpha / 2) + stats.norm.ppf(POWER)
+    return int(np.ceil(2 * z**2 * np.log(1 + cv**2) / np.log(fold) ** 2))
 
 
 def plot(summary: pd.DataFrame, out: Path) -> None:
-    summary = summary[summary["bouts_per_run"] >= MIN_BOUTS_PER_RUN]
+    summary = summary[summary["reliable"]]
     fig, (ax_hist, ax_mu) = plt.subplots(1, 2, figsize=(10, 4))
-    bins = np.linspace(0, max(2.0, summary["c_frailty"].max()), 30)
+    bins = np.linspace(0, summary["cv_observed"].max() * 1.05, 30)
     for single, label in [(True, "one fish per arena"), (False, "several fish (identity swaps)")]:
         sub = summary[summary["single_fish_arena"] == single]
-        ax_hist.hist(sub["c_frailty"], bins=bins, alpha=0.6, label=f"{label} (n={len(sub)})")
-        ax_mu.scatter(sub["mu_bouts"], sub["c_frailty"], s=12, alpha=0.7, label=label)
-    ax_hist.set(xlabel="between-fish CV of bout rate (c)", ylabel="stimulus conditions")
-    ax_mu.set(xscale="log", xlabel="mean bouts per fish (mu)", ylabel="c")
+        ax_hist.hist(sub["cv_observed"], bins=bins, alpha=0.6, label=f"{label} (n={len(sub)})")
+        ax_mu.scatter(sub["mu_bouts"], sub["cv_observed"], s=12, alpha=0.7, label=label)
+    ax_hist.set(xlabel="CV of bout rate across fish", ylabel="stimulus conditions")
+    ax_mu.set(xscale="log", xlabel="mean bouts per fish", ylabel="CV across fish")
     ax_hist.legend(frameon=False)
     fig.tight_layout()
     fig.savefig(out / "cv_distribution.png", dpi=150)
 
 
-def analyze(root: Path, out: Path, ages: tuple[int, ...], min_fish: int, table_s2: Path | None) -> None:
+def analyze(
+    root: Path, out: Path, ages: tuple[int, ...], min_fish: int, table_s2: Path | None, fold: float, lines: int
+) -> None:
     out.mkdir(parents=True, exist_ok=True)
     rates = collect(root)
     table_s2 = table_s2 or root / TABLE_S2
     labels = label_conditions(rates, parse_table_s2(table_s2)) if table_s2.exists() else None
     rates = rates[rates["age"].isin(ages)]
     rates.to_csv(out / "fish_rates.csv", index=False)
-    summary = heterogeneity(rates, min_fish)
+    summary = cv_by_condition(rates, min_fish)
     plot(summary, out)
-    summary["reliable"] = summary["bouts_per_run"] >= MIN_BOUTS_PER_RUN
     if labels is not None:
         summary = summary.merge(labels, on=KEYS, how="left")
         labels.to_csv(out / "table_s2_matches.csv", index=False)
     summary.to_csv(out / "cv_by_condition.csv", index=False)
+
     single = summary[summary["single_fish_arena"] & summary["reliable"]]
-    print(f"{len(summary)} conditions, {len(single)} reliable with one fish per arena; ages {ages}, >= {min_fish} fish")
-    columns = ["rate_hz", "mu_bouts", "cv_observed", "c_frailty"]
-    print(single[columns].describe(percentiles=[0.1, 0.25, 0.5, 0.75, 0.9]).round(2))
-    shown = ["experiment", "protocol_name", "stimulus", "n_fish", *columns] + (["table_s2"] if labels is not None else [])
-    print(single[shown].round(2).to_string(index=False))
+    print(f"\n{len(summary)} conditions, {len(single)} reliable with one fish per arena; ages {ages}, >= {min_fish} fish")
+    by_bouts = single.groupby(pd.cut(single["mu_bouts"], [MIN_BOUTS, 50, 200, np.inf]), observed=True)["cv_observed"]
+    table = by_bouts.describe(percentiles=[0.5, 0.9])[["count", "50%", "90%", "max"]]
+    table.loc["all"] = single["cv_observed"].describe(percentiles=[0.5, 0.9])[["count", "50%", "90%", "max"]]
+    print("\nCV of bout rate across fish, by mean bouts per fish:")
+    print(table.round(2).to_string())
+    quantiles = {"median": table.loc["all", "50%"], "90th percentile": table.loc["all", "90%"], "max": table.loc["all", "max"]}
+    print(f"\nFish per group for a {fold:g}-fold change, {POWER:.0%} power:")
+    for name, cv in quantiles.items():
+        print(f"  CV {cv:.2f} ({name}): alpha 0.05 -> {fish_needed(cv, fold, 0.05)}, "
+              f"alpha 0.05/{lines} -> {fish_needed(cv, fold, 0.05 / lines)}")
 
 
 if __name__ == "__main__":
@@ -368,8 +386,10 @@ if __name__ == "__main__":
     a.add_argument("--ages", type=int, nargs="+", default=[6, 7])
     a.add_argument("--min-fish", type=int, default=8)
     a.add_argument("--table-s2", type=Path, help="Table S2 (default: ROOT/mmc2.xlsx), to label conditions by bout count")
+    a.add_argument("--fold", type=float, default=2.0, help="fold change to detect (default 2)")
+    a.add_argument("--lines", type=int, default=60, help="tests to correct alpha for (default 60 lines)")
     args = parser.parse_args()
     if args.command == "download":
         download(args.out)
     else:
-        analyze(args.root, args.out, tuple(args.ages), args.min_fish, args.table_s2)
+        analyze(args.root, args.out, tuple(args.ages), args.min_fish, args.table_s2, args.fold, args.lines)
