@@ -141,6 +141,7 @@ class Readout:
     window_s: float | None  # from the first bout of each presentation; None: whole run, as a rate
     escape: bool = False  # strength = fraction of presentations with >= 1 event, instead of a rate
     sided: bool = False  # also: fraction of turning events toward the stimulus side's preferred direction
+    multi_fish: bool = False  # keep arenas with several fish (only these exist for this readout; identities may swap)
 
 
 READOUTS = [
@@ -151,6 +152,7 @@ READOUTS = [
     Readout("spont_dark", ("3minLightDark", "DarkLightTransitions"), lambda e, s: s >= 0 and s % 2 == 0, None, None),
     Readout("spont_bright", ("3minLightDark",), lambda e, s: s == 1, None, None),
     Readout("prey_capture", ("PreyCapture",), lambda e, s: True, ("JT",), None),
+    Readout("flash_escape", ("multiFlash3min1sManyInt",), lambda e, s: s % 2 == 1, ("O", "SAT"), None, escape=True, multi_fish=True),
 ]
 
 
@@ -488,7 +490,7 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, bias: pd.DataFrame, min_fi
     rows = []
     for spec in READOUTS:
         per_fish = readout_per_fish(spec, bouts, fish, bias)
-        per_fish = per_fish[per_fish["fish_in_file"] == 1].dropna(subset=["strength"])
+        per_fish = per_fish[spec.multi_fish | (per_fish["fish_in_file"] == 1)].dropna(subset=["strength"])
         for experiment, g in per_fish.groupby("experiment"):
             if len(g) < min_fish:
                 continue
@@ -631,6 +633,24 @@ PHOTOTAXIS_HYPOTHESES = {  # 36 stimuli, 4 intensities; guesses at how they cycl
 }
 
 
+def beep_column(experiment: str, stimulus: int, phase: int, reverse: bool = False) -> int:
+    """Frequency column (200-2000 Hz) of a beep: from the name for one-frequency experiments, else the
+    block of 5 stimulus numbers (stimuli 5, 10 ... never occur); -1 if not at `phase` within the block."""
+    if stimulus % 5 != phase:
+        return -1
+    if match := re.search(r"(\d+)Hz", experiment):
+        return int(match[1]) // 200 - 1
+    block = (stimulus - 1) // 5
+    return 9 - block if reverse else block
+
+
+BEEP_HYPOTHESES = {
+    f"beep at stimulus {phase} of each block of 5, frequencies {'descending' if reverse else 'ascending'}":
+        (lambda phase, reverse: lambda e, s: beep_column(e, s, phase, reverse))(phase, reverse)
+    for phase in range(1, 5) for reverse in (False, True)
+}
+
+
 def fold_angle(stimulus: int) -> int:
     angle = (stimulus - 1) * 15
     return min(angle, 360 - angle) // 15
@@ -650,6 +670,12 @@ PANELS = [
           lambda e, s: None, window_s=lambda c: LOOM_START_MM / 20, hypotheses=LOOM_ANGLE_HYPOTHESES),
     Panel("expanding spot, speed (2.5-25 mm/s)", ("LoomingDifferentSpeeds",), range(43, 49), lambda e, s: s > 0 and s % 2 == 1,
           lambda e, s: None, window_s=lambda c: LOOM_START_MM / LOOM_SPEEDS_MM_S[c], hypotheses=LOOM_SPEED_HYPOTHESES),
+    Panel("acoustic (200-2000 Hz)", ("Beeps200to2000", "multiBeep"), range(49, 59), lambda e, s: "Flash" not in e,
+          lambda e, s: None, first_bouts=1, hypotheses=BEEP_HYPOTHESES),
+    Panel("flash + acoustic (200-2000 Hz)", ("FlashBeeps200to2000", "multiBeepFlash"), range(59, 69), lambda e, s: True,
+          lambda e, s: None, first_bouts=1, hypotheses=BEEP_HYPOTHESES),
+    Panel("dimming (10 conditions)", ("multiFlash3min1sManyInt",), range(69, 79), lambda e, s: s % 2 == 1,
+          lambda e, s: None, first_bouts=1),
 ]
 
 
