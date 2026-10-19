@@ -3,6 +3,7 @@ Between-fish variability of bout rates and screen readouts in the Marques et al.
 
     python marques_cv.py download ./marques_data
     python marques_cv.py analyze ./marques_data ./marques_cv
+    python marques_cv.py fig3a ./marques_data ./marques_fig3a
 
 `download` fetches the five Mendeley parts and Table S2 (mmc2.xlsx). Run it again to
 resume interrupted downloads: only files missing or shorter than listed are fetched. If the API refuses, use "Download All" on each dataset page (links in PARTS).
@@ -46,6 +47,12 @@ of each presentation (stimulus onsets are not in the files):
                are frontal/rear and left out); the SD of its log-odds across fish gives
                the fish needed for a FOLD change of the odds
 Only arenas with one fish are used. dark_flash has no protocol in these data.
+
+`fig3a` checks the stimulus mapping against Fig. 3A, using the paper's numbers
+(firstOrderStatisticsOfFig3A.mat, in part 5): per stimulus number, the bout-type
+distribution (mean over fish of each fish's fractions, with the paper's filters
+approximated from the first bout of each presentation) is matched to the closest paper
+column of its panel and compared with the column the mapping predicts.
 """
 import argparse
 import io
@@ -543,6 +550,128 @@ def analyze(
     print("dark_flash: no dark-flash protocol in the continuous data; not estimated.")
 
 
+
+# --- Fig. 3A check of the stimulus mapping ------------------------------------------------
+FIG3A_STATS = "firstOrderStatisticsOfFig3A.mat"
+FIG3A_TYPES = ["AS", "S1", "S2", "SCS", "LCS", "BS", "JT", "HAT", "RT", "SAT", "O", "LLC", "SLC"]  # stats file order
+LOOM_START_MM = 40  # the spot starts 4 cm from the fish; bouts count until it reaches the fish
+LOOM_SPEEDS_MM_S = [2.5, 5, 10, 15, 20, 25]
+
+
+@dataclass(frozen=True)
+class Panel:
+    """A Fig. 3A panel: its columns in the stats file and the Marques units (experiment, stimulus) behind them."""
+
+    name: str
+    experiments: tuple[str, ...]  # zip-name prefixes
+    columns: range  # rows of firstOrderStatisticsSortedFig3A
+    stimuli: Callable[[str, int], bool]
+    predicted: Callable[[str, int], int | None]  # column (0-based within the panel) our mapping predicts
+    window_s: Callable[[int], float | None] = lambda column: None  # per paper column: bouts this long after onset
+    first_bouts: int | None = None  # or: only the first bouts of each presentation
+
+
+def fold_angle(stimulus: int) -> int:
+    angle = (stimulus - 1) * 15
+    return min(angle, 360 - angle) // 15
+
+
+PANELS = [
+    Panel("spontaneous (0-4700 lux)", ("DarkLightTransitions",), range(0, 9), lambda e, s: s >= 0,
+          lambda e, s: 0 if s == 0 else None),
+    Panel("social (1000 lux, 0 lux)", ("SpontaneousMultiFish",), range(9, 11), lambda e, s: s >= 0,
+          lambda e, s: 1 if "Dark" in e else 0),
+    Panel("forward OMR (0-50 mm/s)", ("OMRSpeed",), range(11, 21), lambda e, s: 0 <= s <= 9, lambda e, s: s),
+    Panel("directional OMR (0-180 deg)", ("OMRTurns",), range(21, 34), lambda e, s: 1 <= s <= 24,
+          lambda e, s: fold_angle(s)),
+    Panel("phototaxis (4 intensities)", ("Phototaxis",), range(34, 38), lambda e, s: s % 2 == 1,
+          lambda e, s: None, first_bouts=3),
+    Panel("expanding spot, angle (0-180 deg)", ("LoomingDifferentDirections",), range(38, 43), lambda e, s: s % 2 == 1,
+          lambda e, s: None, window_s=lambda c: LOOM_START_MM / 20),
+    Panel("expanding spot, speed (2.5-25 mm/s)", ("LoomingDifferentSpeeds",), range(43, 49), lambda e, s: s % 2 == 1,
+          lambda e, s: None, window_s=lambda c: LOOM_START_MM / LOOM_SPEEDS_MM_S[c]),
+]
+
+
+def type_fractions(bouts: pd.DataFrame) -> pd.DataFrame:
+    """Mean over fish of each fish's fraction of bouts per type, per (experiment, stimulus), in FIG3A_TYPES order."""
+    codes = [CATEGORIES[t] for t in FIG3A_TYPES]
+    counts = pd.crosstab([bouts["experiment"], bouts["stimulus"], bouts["fish_key"]], bouts["category"])
+    counts = counts.reindex(columns=codes, fill_value=0)
+    per_fish = counts.div(counts.sum(axis=1), axis=0)
+    mean = per_fish.groupby(level=[0, 1]).mean()
+    mean.columns = FIG3A_TYPES
+    return mean.assign(n_fish=per_fish.groupby(level=[0, 1]).size())
+
+
+def panel_fractions(panel: Panel, bouts: pd.DataFrame, fish: pd.DataFrame, column: int) -> pd.DataFrame:
+    keys = fish.loc[fish["experiment"].str.startswith(panel.experiments), ["fish_key", "experiment"]]
+    b = bouts.merge(keys, on="fish_key")
+    b = b[np.array([panel.stimuli(e, s) for e, s in zip(b["experiment"], b["stimulus"])], dtype=bool)]
+    if panel.first_bouts is not None:
+        b = b[b.groupby("run").cumcount() < panel.first_bouts]
+    window = panel.window_s(column)
+    if window is not None:
+        b = b[b["t"] - b["t0"] <= window]
+    return type_fractions(b)
+
+
+def fig3a_check(bouts: pd.DataFrame, fish: pd.DataFrame, stats_path: Path, out: Path) -> pd.DataFrame:
+    """
+    For each panel and Marques unit (experiment, stimulus): the paper column whose bout-type
+    distribution is closest (total variation distance), against the column our mapping predicts.
+    """
+    paper = scipy.io.loadmat(stats_path)["firstOrderStatisticsSortedFig3A"][:, :, 0]
+    rows = []
+    fig, axes = plt.subplots(2, len(PANELS), figsize=(3.2 * len(PANELS), 6), squeeze=False)
+    for i, panel in enumerate(PANELS):
+        windows = {panel.window_s(c) for c in range(len(panel.columns))}
+        by_column = {c: panel_fractions(panel, bouts, fish, c) for c in range(len(panel.columns))} if len(windows) > 1 \
+            else dict.fromkeys(range(len(panel.columns)), panel_fractions(panel, bouts, fish, 0))
+        ours = by_column[0]
+        aligned = {c: f.reindex(ours.index)[FIG3A_TYPES].fillna(0).to_numpy() for c, f in by_column.items()}
+        for k, unit in enumerate(ours.index):
+            distance = [0.5 * np.abs(aligned[c][k] - paper[col]).sum() for c, col in enumerate(panel.columns)]
+            best, predicted = int(np.argmin(distance)), panel.predicted(*unit)
+            rows.append({
+                "panel": panel.name, "experiment": unit[0], "stimulus": unit[1], "label": stimulus_label(*unit),
+                "n_fish": int(ours.loc[unit, "n_fish"]), "best_column": best, "best_distance": distance[best],
+                "predicted_column": predicted,
+                "predicted_distance": distance[predicted] if predicted is not None else np.nan,
+                "match": (best == predicted) if predicted is not None else None,
+            })
+        best = {(r["experiment"], r["stimulus"]): r["best_column"] for r in rows if r["panel"] == panel.name}
+        order = sorted(ours.index, key=best.get)
+        axes[0, i].imshow(paper[panel.columns].T, aspect="auto", cmap="hot", vmin=0, vmax=0.8)
+        axes[1, i].imshow(ours.loc[order, FIG3A_TYPES].to_numpy().T, aspect="auto", cmap="hot", vmin=0, vmax=0.8)
+        axes[0, i].set_title(panel.name, fontsize=8)
+        axes[1, i].set_xlabel("our stimuli, by best column", fontsize=7)
+        for ax in axes[:, i]:
+            ax.set_yticks(range(13), FIG3A_TYPES if i == 0 else [""] * 13, fontsize=6)
+            ax.set_xticks([])
+    axes[0, 0].set_ylabel("paper (Fig. 3A)")
+    axes[1, 0].set_ylabel("this mapping")
+    fig.tight_layout()
+    fig.savefig(out / "fig3a_check.png", dpi=150)
+    return pd.DataFrame(rows)
+
+
+def fig3a(root: Path, out: Path, ages: tuple[int, ...], stats: Path | None) -> None:
+    out.mkdir(parents=True, exist_ok=True)
+    stats = stats or next(root.rglob(FIG3A_STATS))
+    bouts, fish = collect(root)
+    fish = fish[fish["age"].isin(ages)]
+    bouts = bouts[bouts["fish_key"].isin(fish["fish_key"])]
+    result = fig3a_check(bouts, fish, stats, out)
+    result.to_csv(out / "fig3a_check.csv", index=False)
+    for panel, g in result.groupby("panel", sort=False):
+        checked = g.dropna(subset=["predicted_column"])
+        verdict = f"{int(checked['match'].sum())}/{len(checked)} stimuli at their predicted column" if len(checked) else "no prediction"
+        print(f"\n{panel}: {verdict}")
+        print(g[["experiment", "stimulus", "label", "n_fish", "best_column", "best_distance",
+                 "predicted_column", "predicted_distance"]].round(2).to_string(index=False))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -555,8 +684,15 @@ if __name__ == "__main__":
     a.add_argument("--table-s2", type=Path, help="Table S2 (default: ROOT/mmc2.xlsx), to label conditions by bout count")
     a.add_argument("--fold", type=float, default=2.0, help="fold change to detect (default 2)")
     a.add_argument("--lines", type=int, default=60, help="tests to correct alpha for (default 60 lines)")
+    f = sub.add_parser("fig3a", help="check the stimulus mapping against Fig. 3A of the paper")
+    f.add_argument("root", type=Path)
+    f.add_argument("out", type=Path)
+    f.add_argument("--ages", type=int, nargs="+", default=[6, 7])
+    f.add_argument("--stats", type=Path, help=f"{FIG3A_STATS} (default: found under ROOT)")
     args = parser.parse_args()
     if args.command == "download":
         download(args.out)
+    elif args.command == "fig3a":
+        fig3a(args.root, args.out, tuple(args.ages), args.stats)
     else:
         analyze(args.root, args.out, tuple(args.ages), args.min_fish, args.table_s2, args.fold, args.lines)
