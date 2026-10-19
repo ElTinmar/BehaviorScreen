@@ -98,6 +98,13 @@ MIN_SIDE_BIAS = 0.2  # stimuli with a weaker population bias count as frontal/re
 # Stimulus numbers, cross-referenced with Table S1/S2 and the methods of Marques et al. 2018
 # (see README in the docstring). -1 is the recording before or between stimuli.
 OMR_SPEEDS_MM_S = [0, 2.5, 5, 7.5, 10, 15, 20, 30, 40, 50]
+SPONT_LUX = [12, 44, 104, 232, 447, 790, 1890, 4700]  # Table S2; matched to stimuli by Fig. 3A (fig3a)
+
+
+def spont_intensity(stimulus: int) -> int | None:
+    """DarkLightTransitions: odd stimuli are 3-min light epochs, two per intensity in increasing order (index into SPONT_LUX)."""
+    return (stimulus - 1) // 4 if stimulus > 0 and stimulus % 2 == 1 else None
+
 STIMULUS_LABELS: dict[str, Callable[[int], str]] = {
     "OMRSpeed": lambda s: f"forward grating {OMR_SPEEDS_MM_S[s]} mm/s",
     "OMRTurns": lambda s: "static grating / pre-stimulus (?)" if s == 0 else f"grating {(s - 1) * 15} deg",
@@ -105,7 +112,7 @@ STIMULUS_LABELS: dict[str, Callable[[int], str]] = {
     "LoomingDifferentSpeeds": lambda s: "loom (6 speeds x 4 directions)" if s % 2 else "interval",
     "Phototaxis": lambda s: "phototaxis" if s % 2 else "1 s pre-flash",
     "3minLightDark": lambda s: ("dark", "light")[s],
-    "DarkLightTransitions": lambda s: "dark" if s == 0 else "light epoch (intensity unknown)",
+    "DarkLightTransitions": lambda s: f"light {SPONT_LUX[spont_intensity(s)]} lux" if s % 2 else "dark",
     "AcousticLightDark": lambda s: "tone" if s % 3 == 1 else "background",
     "SpontaneousMultiFishDark": lambda s: "dark",
     "SpontaneousMultiFishLight": lambda s: "light",
@@ -137,9 +144,9 @@ class Readout:
 READOUTS = [
     Readout("omr_forward", ("OMRSpeed",), lambda e, s: 1 <= s <= 9, ("S1", "S2", "BS"), 9.0),
     Readout("omr_lateral", ("OMRTurns",), lambda e, s: 2 <= s <= 24 and s != 13, ("RT", "HAT"), 9.0, sided=True),
-    Readout("phototaxis", ("Phototaxis",), lambda e, s: s % 2 == 1, ("RT",), 24.0, sided=True),
-    Readout("looming", ("LoomingDifferent",), lambda e, s: s % 2 == 1, ("SLC", "LLC"), 9.0, escape=True, sided=True),
-    Readout("spont_dark", ("3minLightDark", "DarkLightTransitions"), lambda e, s: s == 0, None, None),
+    Readout("phototaxis", ("Phototaxis",), lambda e, s: s > 0 and s % 2 == 1, ("RT",), 24.0, sided=True),
+    Readout("looming", ("LoomingDifferent",), lambda e, s: s > 0 and s % 2 == 1, ("SLC", "LLC"), 9.0, escape=True, sided=True),
+    Readout("spont_dark", ("3minLightDark", "DarkLightTransitions"), lambda e, s: s >= 0 and s % 2 == 0, None, None),
     Readout("spont_bright", ("3minLightDark",), lambda e, s: s == 1, None, None),
     Readout("prey_capture", ("PreyCapture",), lambda e, s: True, ("JT",), None),
 ]
@@ -578,17 +585,17 @@ def fold_angle(stimulus: int) -> int:
 
 PANELS = [
     Panel("spontaneous (0-4700 lux)", ("DarkLightTransitions",), range(0, 9), lambda e, s: s >= 0,
-          lambda e, s: 0 if s == 0 else None),
+          lambda e, s: 0 if s % 2 == 0 else spont_intensity(s) + 1),
     Panel("social (1000 lux, 0 lux)", ("SpontaneousMultiFish",), range(9, 11), lambda e, s: s >= 0,
           lambda e, s: 1 if "Dark" in e else 0),
     Panel("forward OMR (0-50 mm/s)", ("OMRSpeed",), range(11, 21), lambda e, s: 0 <= s <= 9, lambda e, s: s),
     Panel("directional OMR (0-180 deg)", ("OMRTurns",), range(21, 34), lambda e, s: 1 <= s <= 24,
           lambda e, s: fold_angle(s)),
-    Panel("phototaxis (4 intensities)", ("Phototaxis",), range(34, 38), lambda e, s: s % 2 == 1,
+    Panel("phototaxis (4 intensities)", ("Phototaxis",), range(34, 38), lambda e, s: s > 0 and s % 2 == 1,
           lambda e, s: None, first_bouts=3),
-    Panel("expanding spot, angle (0-180 deg)", ("LoomingDifferentDirections",), range(38, 43), lambda e, s: s % 2 == 1,
+    Panel("expanding spot, angle (0-180 deg)", ("LoomingDifferentDirections",), range(38, 43), lambda e, s: s > 0 and s % 2 == 1,
           lambda e, s: None, window_s=lambda c: LOOM_START_MM / 20),
-    Panel("expanding spot, speed (2.5-25 mm/s)", ("LoomingDifferentSpeeds",), range(43, 49), lambda e, s: s % 2 == 1,
+    Panel("expanding spot, speed (2.5-25 mm/s)", ("LoomingDifferentSpeeds",), range(43, 49), lambda e, s: s > 0 and s % 2 == 1,
           lambda e, s: None, window_s=lambda c: LOOM_START_MM / LOOM_SPEEDS_MM_S[c]),
 ]
 
