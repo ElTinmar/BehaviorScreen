@@ -600,67 +600,91 @@ PANELS = [
 ]
 
 
-def type_fractions(bouts: pd.DataFrame) -> pd.DataFrame:
-    """Mean over fish of each fish's fraction of bouts per type, per (experiment, stimulus), in FIG3A_TYPES order."""
+def type_fractions(bouts: pd.DataFrame, keys: list[str]) -> pd.DataFrame:
+    """Per `keys`: mean over fish of each fish's fraction of bouts per type (FIG3A_TYPES order), and the fish count."""
     codes = [CATEGORIES[t] for t in FIG3A_TYPES]
-    counts = pd.crosstab([bouts["experiment"], bouts["stimulus"], bouts["fish_key"]], bouts["category"])
-    counts = counts.reindex(columns=codes, fill_value=0)
+    counts = pd.crosstab([bouts[k] for k in [*keys, "fish_key"]], bouts["category"]).reindex(columns=codes, fill_value=0)
     per_fish = counts.div(counts.sum(axis=1), axis=0)
-    mean = per_fish.groupby(level=[0, 1]).mean()
+    levels = list(range(len(keys)))
+    mean = per_fish.groupby(level=levels).mean()
     mean.columns = FIG3A_TYPES
-    return mean.assign(n_fish=per_fish.groupby(level=[0, 1]).size())
+    return mean.assign(n_fish=per_fish.groupby(level=levels).size())
 
 
-def panel_fractions(panel: Panel, bouts: pd.DataFrame, fish: pd.DataFrame, column: int) -> pd.DataFrame:
+def panel_bouts(panel: Panel, bouts: pd.DataFrame, fish: pd.DataFrame, column: int) -> pd.DataFrame:
+    """The panel's bouts, filtered as the paper did for this column (first bouts, or bouts until the spot arrives)."""
     keys = fish.loc[fish["experiment"].str.startswith(panel.experiments), ["fish_key", "experiment"]]
     b = bouts.merge(keys, on="fish_key")
     b = b[np.array([panel.stimuli(e, s) for e, s in zip(b["experiment"], b["stimulus"])], dtype=bool)]
     if panel.first_bouts is not None:
         b = b[b.groupby("run").cumcount() < panel.first_bouts]
     window = panel.window_s(column)
-    if window is not None:
-        b = b[b["t"] - b["t0"] <= window]
-    return type_fractions(b)
+    return b if window is None else b[b["t"] - b["t0"] <= window]
 
 
-def fig3a_check(bouts: pd.DataFrame, fish: pd.DataFrame, stats_path: Path, out: Path) -> pd.DataFrame:
+def tv_distance(a: np.ndarray, b: np.ndarray) -> float:
+    return 0.5 * float(np.abs(a - b).sum())
+
+
+def fig3a_check(bouts: pd.DataFrame, fish: pd.DataFrame, stats_path: Path, out: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    For each panel and Marques unit (experiment, stimulus): the paper column whose bout-type
-    distribution is closest (total variation distance), against the column our mapping predicts.
+    (units, columns). units: per panel and Marques stimulus, the closest paper column (total
+    variation distance) against the column the mapping predicts. columns: where the mapping
+    predicts every stimulus, the stimuli pooled per predicted column, as the paper pooled
+    them (repeats, both directions), and their distance to that column. The figure shows the
+    pooled columns, or else each stimulus at its best column.
     """
-    paper = scipy.io.loadmat(stats_path)["firstOrderStatisticsSortedFig3A"][:, :, 0]
-    rows = []
+    stats = scipy.io.loadmat(stats_path)["firstOrderStatisticsSortedFig3A"]
+    paper, n_fish = stats[:, :, 0], stats[:, 0, 5]
+    units, columns = [], []
     fig, axes = plt.subplots(2, len(PANELS), figsize=(3.2 * len(PANELS), 6), squeeze=False)
     for i, panel in enumerate(PANELS):
-        windows = {panel.window_s(c) for c in range(len(panel.columns))}
-        by_column = {c: panel_fractions(panel, bouts, fish, c) for c in range(len(panel.columns))} if len(windows) > 1 \
-            else dict.fromkeys(range(len(panel.columns)), panel_fractions(panel, bouts, fish, 0))
-        ours = by_column[0]
-        aligned = {c: f.reindex(ours.index)[FIG3A_TYPES].fillna(0).to_numpy() for c, f in by_column.items()}
-        for k, unit in enumerate(ours.index):
-            distance = [0.5 * np.abs(aligned[c][k] - paper[col]).sum() for c, col in enumerate(panel.columns)]
+        n = len(panel.columns)
+        same_window = len({panel.window_s(c) for c in range(n)}) == 1
+        filtered = [panel_bouts(panel, bouts, fish, 0)] * n if same_window else [panel_bouts(panel, bouts, fish, c) for c in range(n)]
+        if filtered[0].empty:
+            axes[0, i].axis("off")
+            axes[1, i].axis("off")
+            continue
+        by_column = [type_fractions(b, ["experiment", "stimulus"]) for b in filtered]
+        index = by_column[0].index
+        aligned = [f.reindex(index)[FIG3A_TYPES].fillna(0).to_numpy() for f in by_column]
+        best_rows = []
+        for k, unit in enumerate(index):
+            distance = [tv_distance(aligned[c][k], paper[col]) for c, col in enumerate(panel.columns)]
             best, predicted = int(np.argmin(distance)), panel.predicted(*unit)
-            rows.append({
+            best_rows.append(aligned[best][k])
+            units.append({
                 "panel": panel.name, "experiment": unit[0], "stimulus": unit[1], "label": stimulus_label(*unit),
-                "n_fish": int(ours.loc[unit, "n_fish"]), "best_column": best, "best_distance": distance[best],
+                "n_fish": int(by_column[0].loc[unit, "n_fish"]), "best_column": best, "best_distance": distance[best],
                 "predicted_column": predicted,
                 "predicted_distance": distance[predicted] if predicted is not None else np.nan,
                 "match": (best == predicted) if predicted is not None else None,
             })
-        best = {(r["experiment"], r["stimulus"]): r["best_column"] for r in rows if r["panel"] == panel.name}
-        order = sorted(ours.index, key=best.get)
+        predicted = [panel.predicted(*u) for u in index]
+        if same_window and None not in predicted:
+            b = filtered[0].assign(column=[panel.predicted(e, s) for e, s in zip(filtered[0]["experiment"], filtered[0]["stimulus"])])
+            pooled = type_fractions(b, ["column"]).reindex(range(n))
+            shown = pooled[FIG3A_TYPES].fillna(0).to_numpy()
+            columns += [{"panel": panel.name, "column": c, "n_fish": pooled.loc[c, "n_fish"], "paper_n_fish": int(n_fish[col]),
+                         "distance": tv_distance(shown[c], paper[col])} for c, col in enumerate(panel.columns)]
+            label = "this mapping, pooled per paper column"
+        else:
+            order = np.argsort([u["best_column"] for u in units[-len(index):]], kind="stable")
+            shown = np.array(best_rows)[order]
+            label = "each stimulus, at its best column"
         axes[0, i].imshow(paper[panel.columns].T, aspect="auto", cmap="hot", vmin=0, vmax=0.8)
-        axes[1, i].imshow(ours.loc[order, FIG3A_TYPES].to_numpy().T, aspect="auto", cmap="hot", vmin=0, vmax=0.8)
+        axes[1, i].imshow(shown.T, aspect="auto", cmap="hot", vmin=0, vmax=0.8)
         axes[0, i].set_title(panel.name, fontsize=8)
-        axes[1, i].set_xlabel("our stimuli, by best column", fontsize=7)
+        axes[1, i].set_xlabel(label, fontsize=7)
         for ax in axes[:, i]:
             ax.set_yticks(range(13), FIG3A_TYPES if i == 0 else [""] * 13, fontsize=6)
             ax.set_xticks([])
     axes[0, 0].set_ylabel("paper (Fig. 3A)")
-    axes[1, 0].set_ylabel("this mapping")
+    axes[1, 0].set_ylabel("Marques data")
     fig.tight_layout()
     fig.savefig(out / "fig3a_check.png", dpi=150)
-    return pd.DataFrame(rows)
+    return pd.DataFrame(units), pd.DataFrame(columns)
 
 
 def fig3a(root: Path, out: Path, ages: tuple[int, ...], stats: Path | None) -> None:
@@ -669,8 +693,11 @@ def fig3a(root: Path, out: Path, ages: tuple[int, ...], stats: Path | None) -> N
     bouts, fish = collect(root)
     fish = fish[fish["age"].isin(ages)]
     bouts = bouts[bouts["fish_key"].isin(fish["fish_key"])]
-    result = fig3a_check(bouts, fish, stats, out)
+    result, pooled = fig3a_check(bouts, fish, stats, out)
     result.to_csv(out / "fig3a_check.csv", index=False)
+    pooled.to_csv(out / "fig3a_pooled.csv", index=False)
+    print("\nStimuli pooled per predicted paper column (distance 0 = identical, 1 = disjoint):")
+    print(pooled.round(3).to_string(index=False))
     for panel, g in result.groupby("panel", sort=False):
         checked = g.dropna(subset=["predicted_column"])
         verdict = f"{int(checked['match'].sum())}/{len(checked)} stimuli at their predicted column" if len(checked) else "no prediction"
