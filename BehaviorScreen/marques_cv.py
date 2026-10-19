@@ -55,6 +55,7 @@ approximated from the first bout of each presentation) is matched to the closest
 column of its panel and compared with the column the mapping predicts.
 """
 import argparse
+import itertools
 import io
 import json
 import re
@@ -64,7 +65,7 @@ import zlib
 import urllib.error
 import urllib.request
 from pathlib import Path
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Iterator
 
 import matplotlib.pyplot as plt
@@ -576,6 +577,37 @@ class Panel:
     predicted: Callable[[str, int], int | None]  # column (0-based within the panel) our mapping predicts
     window_s: Callable[[int], float | None] = lambda column: None  # per paper column: bouts this long after onset
     first_bouts: int | None = None  # or: only the first bouts of each presentation
+    hypotheses: dict[str, Callable[[str, int], int]] = field(default_factory=dict)  # candidate mappings, if none is predicted
+
+
+def odd_index(stimulus: int) -> int:
+    """0, 1, 2 ... for the odd stimulus numbers 1, 3, 5 ..."""
+    return (stimulus - 1) // 2
+
+
+# Candidate orderings of the odd stimuli, tested against Fig. 3A where the paper gives no mapping.
+LOOM_ANGLE_HYPOTHESES = {  # 8 angles in 45 deg steps, in stimulus order, starting at 45 r; folded to 0-180
+    f"angles in order, stimulus 1 = {45 * r} deg": (lambda r: lambda e, s: min((odd_index(s) + r) % 8, 8 - (odd_index(s) + r) % 8))(r)
+    for r in range(8)
+}
+LOOM_SPEED_HYPOTHESES = {  # 24 looms = 6 speeds x 4 directions
+    "speed-major, slow to fast": lambda e, s: odd_index(s) // 4,
+    "speed-major, fast to slow": lambda e, s: 5 - odd_index(s) // 4,
+    "direction-major, slow to fast": lambda e, s: odd_index(s) % 6,
+    "direction-major, fast to slow": lambda e, s: 5 - odd_index(s) % 6,
+}
+# Same two layouts with the speed order left free: all 720 orders are tried, and the best one is reported.
+# A free order fits better by construction, so it only counts if all four directions agree (low distance).
+for layout, position in {"speed-major": lambda j: j // 4, "direction-major": lambda j: j % 6}.items():
+    for order in itertools.permutations(range(6)):
+        LOOM_SPEED_HYPOTHESES[f"{layout}, speed order {''.join(map(str, order))}"] = (
+            lambda position, order: lambda e, s: order[position(odd_index(s))])(position, order)
+PHOTOTAXIS_HYPOTHESES = {  # 36 stimuli, 4 intensities; guesses at how they cycle
+    "intensity cycles every stimulus": lambda e, s: odd_index(s) % 4,
+    "intensity cycles every 2 stimuli (left/right pairs)": lambda e, s: odd_index(s) // 2 % 4,
+    "intensity in blocks of 9": lambda e, s: odd_index(s) // 9,
+    "intensity in blocks of 8 then repeated": lambda e, s: odd_index(s) % 8 // 2,
+}
 
 
 def fold_angle(stimulus: int) -> int:
@@ -592,11 +624,11 @@ PANELS = [
     Panel("directional OMR (0-180 deg)", ("OMRTurns",), range(21, 34), lambda e, s: 1 <= s <= 24,
           lambda e, s: fold_angle(s)),
     Panel("phototaxis (4 intensities)", ("Phototaxis",), range(34, 38), lambda e, s: s > 0 and s % 2 == 1,
-          lambda e, s: None, first_bouts=3),
+          lambda e, s: None, first_bouts=3, hypotheses=PHOTOTAXIS_HYPOTHESES),
     Panel("expanding spot, angle (0-180 deg)", ("LoomingDifferentDirections",), range(38, 43), lambda e, s: s > 0 and s % 2 == 1,
-          lambda e, s: None, window_s=lambda c: LOOM_START_MM / 20),
+          lambda e, s: None, window_s=lambda c: LOOM_START_MM / 20, hypotheses=LOOM_ANGLE_HYPOTHESES),
     Panel("expanding spot, speed (2.5-25 mm/s)", ("LoomingDifferentSpeeds",), range(43, 49), lambda e, s: s > 0 and s % 2 == 1,
-          lambda e, s: None, window_s=lambda c: LOOM_START_MM / LOOM_SPEEDS_MM_S[c]),
+          lambda e, s: None, window_s=lambda c: LOOM_START_MM / LOOM_SPEEDS_MM_S[c], hypotheses=LOOM_SPEED_HYPOTHESES),
 ]
 
 
@@ -626,17 +658,33 @@ def tv_distance(a: np.ndarray, b: np.ndarray) -> float:
     return 0.5 * float(np.abs(a - b).sum())
 
 
-def fig3a_check(bouts: pd.DataFrame, fish: pd.DataFrame, stats_path: Path, out: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+def pooled(filtered: list[pd.DataFrame], mapping: Callable[[str, int], int]) -> pd.DataFrame:
+    """Bouts pooled per paper column under `mapping`, each column's bouts filtered as for that column."""
+    parts = []
+    for c, b in enumerate(filtered):
+        column = np.array([mapping(e, s) for e, s in zip(b["experiment"], b["stimulus"])])
+        parts.append(b[column == c].assign(column=c))
+    return type_fractions(pd.concat(parts), ["column"]).reindex(range(len(filtered)))
+
+
+def pooled_distances(fractions: pd.DataFrame, paper: np.ndarray, panel: Panel) -> list[float]:
+    shown = fractions[FIG3A_TYPES].fillna(0).to_numpy()
+    return [tv_distance(shown[c], paper[col]) for c, col in enumerate(panel.columns)]
+
+
+def fig3a_check(bouts: pd.DataFrame, fish: pd.DataFrame, stats_path: Path, out: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     (units, columns). units: per panel and Marques stimulus, the closest paper column (total
     variation distance) against the column the mapping predicts. columns: where the mapping
     predicts every stimulus, the stimuli pooled per predicted column, as the paper pooled
-    them (repeats, both directions), and their distance to that column. The figure shows the
-    pooled columns, or else each stimulus at its best column.
+    them (repeats, both directions), and their distance to that column; where it does not, the
+    candidate mapping (Panel.hypotheses) whose pooled columns are closest to the paper's.
+    hypotheses: the mean pooled distance of every mapping tested. The figure shows the pooled
+    columns, or else each stimulus at its best column.
     """
     stats = scipy.io.loadmat(stats_path)["firstOrderStatisticsSortedFig3A"]
     paper, n_fish = stats[:, :, 0], stats[:, 0, 5]
-    units, columns = [], []
+    units, columns, hypotheses = [], [], []
     fig, axes = plt.subplots(2, len(PANELS), figsize=(3.2 * len(PANELS), 6), squeeze=False)
     for i, panel in enumerate(PANELS):
         n = len(panel.columns)
@@ -661,14 +709,19 @@ def fig3a_check(bouts: pd.DataFrame, fish: pd.DataFrame, stats_path: Path, out: 
                 "predicted_distance": distance[predicted] if predicted is not None else np.nan,
                 "match": (best == predicted) if predicted is not None else None,
             })
-        predicted = [panel.predicted(*u) for u in index]
-        if same_window and None not in predicted:
-            b = filtered[0].assign(column=[panel.predicted(e, s) for e, s in zip(filtered[0]["experiment"], filtered[0]["stimulus"])])
-            pooled = type_fractions(b, ["column"]).reindex(range(n))
-            shown = pooled[FIG3A_TYPES].fillna(0).to_numpy()
-            columns += [{"panel": panel.name, "column": c, "n_fish": pooled.loc[c, "n_fish"], "paper_n_fish": int(n_fish[col]),
-                         "distance": tv_distance(shown[c], paper[col])} for c, col in enumerate(panel.columns)]
-            label = "this mapping, pooled per paper column"
+        mappings = {"mapping": panel.predicted} if None not in [panel.predicted(*u) for u in index] else panel.hypotheses
+        if mappings:
+            scored = {name: pooled(filtered, m) for name, m in mappings.items()}
+            mean = {name: float(np.mean(pooled_distances(f, paper, panel))) for name, f in scored.items()}
+            chosen = min(mean, key=mean.get)
+            hypotheses += [{"panel": panel.name, "hypothesis": name, "mean_distance": d, "chosen": name == chosen}
+                           for name, d in mean.items()]
+            fractions = scored[chosen]
+            shown = fractions[FIG3A_TYPES].fillna(0).to_numpy()
+            columns += [{"panel": panel.name, "mapping": chosen, "column": c, "n_fish": fractions.loc[c, "n_fish"],
+                         "paper_n_fish": int(n_fish[col]), "distance": d}
+                        for c, (col, d) in enumerate(zip(panel.columns, pooled_distances(fractions, paper, panel)))]
+            label = f"pooled: {chosen}"
         else:
             order = np.argsort([u["best_column"] for u in units[-len(index):]], kind="stable")
             shown = np.array(best_rows)[order]
@@ -684,7 +737,7 @@ def fig3a_check(bouts: pd.DataFrame, fish: pd.DataFrame, stats_path: Path, out: 
     axes[1, 0].set_ylabel("Marques data")
     fig.tight_layout()
     fig.savefig(out / "fig3a_check.png", dpi=150)
-    return pd.DataFrame(units), pd.DataFrame(columns)
+    return pd.DataFrame(units), pd.DataFrame(columns), pd.DataFrame(hypotheses)
 
 
 def fig3a(root: Path, out: Path, ages: tuple[int, ...], stats: Path | None) -> None:
@@ -693,11 +746,15 @@ def fig3a(root: Path, out: Path, ages: tuple[int, ...], stats: Path | None) -> N
     bouts, fish = collect(root)
     fish = fish[fish["age"].isin(ages)]
     bouts = bouts[bouts["fish_key"].isin(fish["fish_key"])]
-    result, pooled = fig3a_check(bouts, fish, stats, out)
+    result, columns, hypotheses = fig3a_check(bouts, fish, stats, out)
     result.to_csv(out / "fig3a_check.csv", index=False)
-    pooled.to_csv(out / "fig3a_pooled.csv", index=False)
-    print("\nStimuli pooled per predicted paper column (distance 0 = identical, 1 = disjoint):")
-    print(pooled.round(3).to_string(index=False))
+    columns.to_csv(out / "fig3a_pooled.csv", index=False)
+    hypotheses.to_csv(out / "fig3a_hypotheses.csv", index=False)
+    print("\nMappings tested, best 5 per panel (mean distance of the pooled columns to the paper's):")
+    top = hypotheses.sort_values("mean_distance").groupby("panel", sort=False).head(5) if len(hypotheses) else hypotheses
+    print(top.round(3).to_string(index=False))
+    print("\nStimuli pooled per paper column under the chosen mapping (distance 0 = identical, 1 = disjoint):")
+    print(columns.round(3).to_string(index=False))
     for panel, g in result.groupby("panel", sort=False):
         checked = g.dropna(subset=["predicted_column"])
         verdict = f"{int(checked['match'].sum())}/{len(checked)} stimuli at their predicted column" if len(checked) else "no prediction"
