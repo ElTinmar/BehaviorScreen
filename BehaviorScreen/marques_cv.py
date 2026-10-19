@@ -5,8 +5,7 @@ Between-fish variability of bout rates in the Marques et al. 2018 tracking data.
     python marques_cv.py analyze ./marques_data ./marques_cv
 
 `download` fetches the five Mendeley parts and Table S2 (mmc2.xlsx). Run it again to
-re-download only the files that are missing, of the wrong size, or zips failing their
-CRC check. If the API refuses, use "Download All" on each dataset page (links in PARTS).
+resume interrupted downloads: only files missing or shorter than listed are fetched. If the API refuses, use "Download All" on each dataset page (links in PARTS).
 
 `analyze` reads the .mat files straight from the zips in each "Experiments with
 Continuous Tracking" folder (discontinuous tracking is skipped). Conditions are
@@ -68,30 +67,42 @@ BROWSER_HEADERS = {
 }
 
 
-def open_url(url: str, referer: str = "https://data.mendeley.com/"):
-    return urllib.request.urlopen(urllib.request.Request(url, headers={**BROWSER_HEADERS, "Referer": referer}), timeout=60)
+def open_url(url: str, referer: str = "https://data.mendeley.com/", start: int = 0):
+    headers = {**BROWSER_HEADERS, "Referer": referer} | ({"Range": f"bytes={start}-"} if start else {})
+    return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60)
 
 
-def save(url: str, target: Path, referer: str = "https://data.mendeley.com/") -> None:
-    """Download to a .part file renamed on completion, so an interrupted download never looks complete."""
+def save(url: str, target: Path, size: int | None = None, referer: str = "https://data.mendeley.com/") -> None:
+    """
+    Download to a .part file renamed on completion, so an interrupted download never
+    looks complete. An existing .part file, or a target shorter than `size` (left by an
+    earlier interrupted run), is resumed with an HTTP Range request; if the server
+    ignores the range, the download restarts from zero.
+    """
     partial = target.with_name(target.name + ".part")
-    with open_url(url, referer) as response, partial.open("wb") as f:
-        while chunk := response.read(1 << 20):
-            f.write(chunk)
+    if size and target.exists() and target.stat().st_size < size:
+        target.replace(partial)
+    start = partial.stat().st_size if partial.exists() else 0
+    if size and start > size:
+        start = 0
+    if size is None or start < size:
+        with open_url(url, referer, start) as response:
+            resumed = response.status == 206
+            if start:
+                print(f"    {'resuming at' if resumed else 'server cannot resume, restarting from'} "
+                      f"{start / 1e6 if resumed else 0:.0f} MB")
+            with partial.open("ab" if resumed else "wb") as f:
+                while chunk := response.read(1 << 20):
+                    f.write(chunk)
     partial.replace(target)
 
 
 def intact(path: Path, size: int) -> bool:
-    """Expected size, and for a zip every member passing its CRC check."""
-    if not path.exists() or path.stat().st_size != size:
-        return False
-    if path.suffix != ".zip":
-        return True
-    try:
-        with zipfile.ZipFile(path) as archive:
-            return archive.testzip() is None
-    except (zipfile.BadZipFile, zlib.error, OSError):
-        return False
+    """
+    Same size as listed by Mendeley. Zips are not CRC-checked: some large archives on
+    Mendeley fail Python's check as served, and downloading them again cannot change that.
+    """
+    return path.exists() and path.stat().st_size == size
 
 
 def get_json(url: str) -> list:
@@ -105,11 +116,10 @@ def download_folder(dataset: str, folder_id: str, out: Path) -> None:
         target = out / f["filename"]
         if intact(target, f["size"]):
             continue
-        action = "broken, downloading again" if target.exists() else "downloading"
-        print(f"  {target} ({f['size'] / 1e6:.0f} MB): {action}")
-        save(f["content_details"]["download_url"], target)
+        print(f"  {target} ({f['size'] / 1e6:.0f} MB)")
+        save(f["content_details"]["download_url"], target, f["size"])
         if not intact(target, f["size"]):
-            print(f"  {target}: still fails the integrity check after download")
+            print(f"    {target}: {target.stat().st_size} bytes, {f['size']} expected")
 
 
 def subfolders(dataset: str) -> dict[str, Path]:
@@ -148,6 +158,22 @@ def download(out: Path) -> None:
             download_folder(dataset, fid, out / dataset / path)
 
 
+def read_member(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
+    """
+    Read one member. Some zips over 4 GB store member offsets modulo 4 GiB (e.g. made
+    with macOS Archive Utility); members past 4 GB are then found at offset + k * 4 GiB.
+    """
+    offset = info.header_offset
+    for k in range(4):
+        info.header_offset = offset + k * 2**32
+        try:
+            return archive.read(info)
+        except zipfile.BadZipFile:
+            continue
+    info.header_offset = offset
+    return archive.read(info)
+
+
 def mat_files(root: Path) -> Iterator[tuple[str, str, bytes]]:
     """
     (experiment, member, bytes) of every .mat in the continuous-tracking zips. A zip
@@ -166,16 +192,17 @@ def mat_files(root: Path) -> Iterator[tuple[str, str, bytes]]:
         try:
             archive = zipfile.ZipFile(archive_path)
         except zipfile.BadZipFile as error:
-            print(f"  {archive_path.name}: {error}, skipped (incomplete download?)")
+            print(f"  {archive_path.name}: {error}, skipped (extract it with unzip or 7z to {extracted.name}/)")
             continue
         with archive:
-            for name in sorted(n for n in archive.namelist() if n.endswith(".mat") and "__MACOSX" not in n):
+            members = [i for i in archive.infolist() if i.filename.endswith(".mat") and "__MACOSX" not in i.filename]
+            for info in sorted(members, key=lambda i: i.filename):
                 try:
-                    data = archive.read(name)
+                    data = read_member(archive, info)
                 except (zipfile.BadZipFile, zlib.error) as error:
-                    print(f"  {archive_path.name}/{name}: {error}, skipped (extract the zip to {extracted.name}/)")
+                    print(f"  {archive_path.name}/{info.filename}: {error}, skipped (extract the zip to {extracted.name}/)")
                     continue
-                yield archive_path.stem, f"{archive_path.name}/{name}", data
+                yield archive_path.stem, f"{archive_path.name}/{info.filename}", data
 
 
 def load_fish(data: bytes) -> list[dict]:
@@ -228,7 +255,11 @@ def collect(root: Path) -> pd.DataFrame:
     rows = []
     for experiment, member, data in mat_files(root):
         print(f"  {member}")
-        fish = load_fish(data)
+        try:
+            fish = load_fish(data)
+        except Exception as error:  # truncated or otherwise unreadable .mat: report, keep going
+            print(f"    unreadable ({type(error).__name__}: {error}), skipped")
+            continue
         for i, f in enumerate(fish):
             if f["BoutInf"].size == 0:
                 continue
