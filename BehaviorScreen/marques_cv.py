@@ -84,6 +84,7 @@ MIN_BOUTS_PER_RUN = 5
 MIN_BOUTS = 10
 POWER = 0.8
 CONTINUOUS = "Experiments with Continuous Tracking"
+DISCONTINUOUS = "Experiments with Discontinuous Tracking"  # bouts captured around stimuli only
 KEYS = ["experiment", "dataset", "protocol", "stimulus"]
 
 # BoutInf / FishInf columns (0-based), from Tracking_Data_Information
@@ -267,35 +268,55 @@ def read_member(archive: zipfile.ZipFile, info: zipfile.ZipInfo) -> bytes:
     return archive.read(info)
 
 
-def mat_files(root: Path) -> Iterator[tuple[str, str, bytes]]:
-    """
-    (experiment, member, bytes) of every .mat in the continuous-tracking zips. A zip
-    extracted next to itself (folder named after the zip) is read from the folder instead;
-    members Python's zipfile cannot read are reported and skipped.
-    """
-    for archive_path in sorted(root.rglob("*.zip")):
-        if archive_path.parent.name != CONTINUOUS:
-            continue
-        extracted = archive_path.with_suffix("")
-        if extracted.is_dir():
-            for mat in sorted(extracted.rglob("*.mat")):
-                if "__MACOSX" not in mat.parts:
-                    yield archive_path.stem, str(mat.relative_to(root)), mat.read_bytes()
-            continue
+def zip_mats(archive: zipfile.ZipFile, label: str) -> Iterator[tuple[str, bytes]]:
+    """(member, bytes) of every .mat in a zip, opening nested zips; unreadable members are reported and skipped."""
+    with archive:
+        members = [i for i in archive.infolist() if i.filename.endswith((".mat", ".zip")) and "__MACOSX" not in i.filename]
+        for info in sorted(members, key=lambda i: i.filename):
+            name = f"{label}/{info.filename}"
+            try:
+                data = read_member(archive, info)
+                if info.filename.endswith(".zip"):
+                    yield from zip_mats(zipfile.ZipFile(io.BytesIO(data)), name)
+                else:
+                    yield name, data
+            except (zipfile.BadZipFile, zlib.error) as error:
+                print(f"  {name}: {error}, skipped (extract the zip with unzip or 7z next to itself)")
+
+
+def archive_mats(path: Path, label: str) -> Iterator[tuple[str, bytes]]:
+    """(member, bytes) of every .mat in a zip, or in the folder it was extracted to (same name, next to it)."""
+    extracted = path.with_suffix("")
+    if not extracted.is_dir():
         try:
-            archive = zipfile.ZipFile(archive_path)
+            yield from zip_mats(zipfile.ZipFile(path), label)
         except zipfile.BadZipFile as error:
-            print(f"  {archive_path.name}: {error}, skipped (extract it with unzip or 7z to {extracted.name}/)")
+            print(f"  {path.name}: {error}, skipped (extract it with unzip or 7z to {extracted.name}/)")
+        return
+    for f in sorted(extracted.rglob("*")):
+        name = f"{label}/{f.relative_to(extracted)}"
+        if "__MACOSX" in f.parts:
             continue
-        with archive:
-            members = [i for i in archive.infolist() if i.filename.endswith(".mat") and "__MACOSX" not in i.filename]
-            for info in sorted(members, key=lambda i: i.filename):
-                try:
-                    data = read_member(archive, info)
-                except (zipfile.BadZipFile, zlib.error) as error:
-                    print(f"  {archive_path.name}/{info.filename}: {error}, skipped (extract the zip to {extracted.name}/)")
-                    continue
-                yield archive_path.stem, f"{archive_path.name}/{info.filename}", data
+        if f.suffix == ".mat":
+            yield name, f.read_bytes()
+        elif f.suffix == ".zip" and not f.with_suffix("").is_dir():
+            yield from archive_mats(f, name)
+
+
+def discontinuous_experiment(member: str) -> str:
+    """The folder or nested zip a .mat sits in, below the discontinuous-tracking archive."""
+    parts = Path(member).parts
+    inner = parts[max(i for i, p in enumerate(parts) if p.removesuffix(".zip") == DISCONTINUOUS) + 1:]
+    return Path(inner[0] if len(inner) > 1 else parts[-1]).stem
+
+
+def mat_files(root: Path) -> Iterator[tuple[str, str, bytes]]:
+    """(experiment, member, bytes) of every .mat: one experiment per continuous-tracking zip, and per folder of the discontinuous one."""
+    for path in sorted(root.rglob("*.zip")):
+        if path.parent.name == CONTINUOUS:
+            yield from ((path.stem, m, d) for m, d in archive_mats(path, path.name))
+        elif path.stem == DISCONTINUOUS:
+            yield from ((discontinuous_experiment(m), m, d) for m, d in archive_mats(path, path.name))
 
 
 def load_fish(data: bytes) -> list[dict]:
@@ -763,6 +784,22 @@ def fig3a(root: Path, out: Path, ages: tuple[int, ...], stats: Path | None) -> N
                  "predicted_column", "predicted_distance"]].round(2).to_string(index=False))
 
 
+
+def inventory(root: Path, out: Path) -> None:
+    """Fish and bouts per experiment, protocol and stimulus number: what is in the data, to map new stimuli."""
+    out.mkdir(parents=True, exist_ok=True)
+    bouts, fish = collect(root)
+    per_fish = bouts.groupby(["fish_key", "stimulus"]).size().rename("bouts").reset_index().merge(fish, on="fish_key")
+    table = per_fish.groupby(["experiment", "dataset_name", "protocol_name", "stimulus"], dropna=False).agg(
+        n_fish=("fish_key", "nunique"), bouts=("bouts", "sum"), fish_per_file=("fish_in_file", "median"),
+        ages=("age", lambda a: " ".join(map(str, sorted(set(a))))),
+    ).reset_index()
+    table.to_csv(out / "inventory.csv", index=False)
+    print(table.groupby(["experiment", "dataset_name", "protocol_name"], dropna=False).agg(
+        stimuli=("stimulus", "nunique"), max_fish=("n_fish", "max"), bouts=("bouts", "sum"), fish_per_file=("fish_per_file", "max"),
+    ).to_string())
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -780,8 +817,13 @@ if __name__ == "__main__":
     f.add_argument("out", type=Path)
     f.add_argument("--ages", type=int, nargs="+", default=[6, 7])
     f.add_argument("--stats", type=Path, help=f"{FIG3A_STATS} (default: found under ROOT)")
+    i = sub.add_parser("inventory", help="list experiments, protocols and stimulus numbers in the data")
+    i.add_argument("root", type=Path)
+    i.add_argument("out", type=Path)
     args = parser.parse_args()
-    if args.command == "download":
+    if args.command == "inventory":
+        inventory(args.root, args.out)
+    elif args.command == "download":
         download(args.out)
     elif args.command == "fig3a":
         fig3a(args.root, args.out, tuple(args.ages), args.stats)
