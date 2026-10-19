@@ -464,11 +464,12 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, bias: pd.DataFrame, min_fi
                 "fish_strength": fish_needed(np.log1p(cv**2), fold, 0.05),
                 f"fish_strength_alpha/{lines}": fish_needed(np.log1p(cv**2), fold, 0.05 / lines),
             }
-            if spec.sided:
-                d = g[g["sided_events"] > 0]
+            d = g[g["sided_events"] > 0] if spec.sided else g.iloc[:0]
+            if len(d) >= min_fish:
                 logit = np.log((d["toward"] + 0.5) / (d["sided_events"] - d["toward"] + 0.5))
                 row |= {
-                    "direction_mean": (d["toward"] / d["sided_events"]).mean(), "sd_logit_direction": logit.std(ddof=1),
+                    "direction_fish": len(d), "direction_mean": (d["toward"] / d["sided_events"]).mean(),
+                    "sd_logit_direction": logit.std(ddof=1),
                     "fish_direction": fish_needed(logit.var(ddof=1), fold, 0.05),
                     f"fish_direction_alpha/{lines}": fish_needed(logit.var(ddof=1), fold, 0.05 / lines),
                 }
@@ -476,10 +477,10 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, bias: pd.DataFrame, min_fi
     return pd.DataFrame(rows)
 
 
-def fish_needed(log_variance: float, fold: float, alpha: float) -> int:
-    """Fish per group to detect a FOLD change of a log-normal quantity with this per-fish log variance."""
+def fish_needed(log_variance: float, fold: float, alpha: float) -> float:
+    """Fish per group to detect a FOLD change of a log-normal quantity with this per-fish log variance (NaN if unknown)."""
     z = stats.norm.ppf(1 - alpha / 2) + stats.norm.ppf(POWER)
-    return int(np.ceil(2 * z**2 * log_variance / np.log(fold) ** 2))
+    return float(np.ceil(2 * z**2 * log_variance / np.log(fold) ** 2)) if np.isfinite(log_variance) else np.nan
 
 
 def plot(summary: pd.DataFrame, out: Path) -> None:
@@ -526,8 +527,8 @@ def analyze(
     print(f"\nFish per group for a {fold:g}-fold change, {POWER:.0%} power:")
     for name, column in [("median", "50%"), ("90th percentile", "90%"), ("max", "max")]:
         cv = table.loc["all", column]
-        print(f"  CV {cv:.2f} ({name}): alpha 0.05 -> {fish_needed(np.log1p(cv**2), fold, 0.05)}, "
-              f"alpha 0.05/{lines} -> {fish_needed(np.log1p(cv**2), fold, 0.05 / lines)}")
+        print(f"  CV {cv:.2f} ({name}): alpha 0.05 -> {fish_needed(np.log1p(cv**2), fold, 0.05):.0f}, "
+              f"alpha 0.05/{lines} -> {fish_needed(np.log1p(cv**2), fold, 0.05 / lines):.0f}")
 
     bias = turn_bias(bouts, fish)
     bias.to_csv(out / "turn_bias.csv", index=False)
