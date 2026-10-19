@@ -46,7 +46,7 @@ of each presentation (stimulus onsets are not in the files):
                population prefers for that stimulus (stimuli with |bias| < MIN_SIDE_BIAS
                are frontal/rear and left out); the SD of its log-odds across fish gives
                the fish needed for a FOLD change of the odds
-Only arenas with one fish are used. dark_flash has no protocol in these data.
+Only arenas with one fish are used, except for flash_escape (dimming was only recorded in groups of 7).
 
 `fig3a` checks the stimulus mapping against Fig. 3A, using the paper's numbers
 (firstOrderStatisticsOfFig3A.mat, in part 5): per stimulus number, the bout-type
@@ -152,7 +152,8 @@ READOUTS = [
     Readout("spont_dark", ("3minLightDark", "DarkLightTransitions"), lambda e, s: s >= 0 and s % 2 == 0, None, None),
     Readout("spont_bright", ("3minLightDark",), lambda e, s: s == 1, None, None),
     Readout("prey_capture", ("PreyCapture",), lambda e, s: True, ("JT",), None),
-    Readout("flash_escape", ("multiFlash3min1sManyInt",), lambda e, s: s % 2 == 1, ("O", "SAT"), None, escape=True, multi_fish=True),
+    Readout("flash_escape", ("multiFlash3min1sManyInt",), lambda e, s: dim_column(e, s, DIM_POSITIONS) >= 0, ("O", "SAT"), None,
+            escape=True, multi_fish=True),
 ]
 
 
@@ -578,7 +579,6 @@ def analyze(
     result.to_csv(out / "readouts.csv", index=False)
     print(f"\nScreen readouts (one fish per arena), fish per group for a {fold:g}-fold change, {POWER:.0%} power:")
     print(result.round(2).to_string(index=False))
-    print("dark_flash: no dark-flash protocol in the continuous data; not estimated.")
 
 
 
@@ -651,6 +651,22 @@ BEEP_HYPOTHESES = {
 }
 
 
+def dim_column(experiment: str, stimulus: int, positions: tuple[int, ...]) -> int:
+    """Dimming column: blocks of 12 stimulus numbers, one intensity each (block 0 not shown); the
+    208-fish set (ManyInt3) gives columns 0-4, the other 5-9; -1 unless at one of `positions` (1, 3 ... 11)."""
+    block = (stimulus - 1) // 12
+    if block == 0 or (stimulus - 1) % 12 + 1 not in positions:
+        return -1
+    return block - 1 + (0 if experiment.endswith("3") else 5)
+
+
+DIM_POSITIONS = (1, 3)  # chosen from fig3a_hypotheses.csv: where in each block the dims are
+DIM_HYPOTHESES = {
+    f"dims at block positions {positions}": (lambda positions: lambda e, s: dim_column(e, s, positions))(positions)
+    for positions in [(1,), (1, 3), (1, 3, 5), (1, 3, 5, 7, 9, 11)]
+}
+
+
 def fold_angle(stimulus: int) -> int:
     angle = (stimulus - 1) * 15
     return min(angle, 360 - angle) // 15
@@ -675,7 +691,7 @@ PANELS = [
     Panel("flash + acoustic (200-2000 Hz)", ("FlashBeeps200to2000", "multiBeepFlash"), range(59, 69), lambda e, s: True,
           lambda e, s: None, first_bouts=1, hypotheses=BEEP_HYPOTHESES),
     Panel("dimming (10 conditions)", ("multiFlash3min1sManyInt",), range(69, 79), lambda e, s: s % 2 == 1,
-          lambda e, s: None, first_bouts=1),
+          lambda e, s: None, first_bouts=1, hypotheses=DIM_HYPOTHESES),
 ]
 
 
