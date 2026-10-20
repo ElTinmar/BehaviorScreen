@@ -8,6 +8,24 @@ from video_tools import FFMPEG_VideoWriter_CPU
 from tqdm import tqdm
 from BehaviorScreen.load import load_lightning_pose
 
+EYE_CROP_MM, EYE_CROP_PX_PER_MM = 1.6, 40.0  # TODO get px_per_mm from metadata
+
+
+def eye_crop_size(crop_size_mm: float = EYE_CROP_MM, px_per_mm: float = EYE_CROP_PX_PER_MM) -> int:
+    return 2 * (int(crop_size_mm * px_per_mm) // 2)
+
+
+def eye_crop_matrix(head: np.ndarray, swim_bladder: np.ndarray, crop_size: int) -> np.ndarray:
+    """Affine from the full frame to the eye crop: head at the centre, heading up."""
+    heading = head - swim_bladder
+    M = cv2.getRotationMatrix2D(
+        center=(float(head[0]), float(head[1])),
+        angle=np.rad2deg(np.arctan2(heading[1], heading[0])) + 90,
+        scale=1.0,
+    )
+    M[:, 2] += crop_size // 2 - head
+    return M
+
 
 def build_parser() -> argparse.ArgumentParser:
 
@@ -66,18 +84,16 @@ def crop_around_eyes(
     input_video: Path,
     output_video: Path,
     lightningpose_csv: Path,
-    crop_size_mm: float = 1.0,
-    px_per_mm: float = 40,
+    crop_size_mm: float = EYE_CROP_MM,
+    px_per_mm: float = EYE_CROP_PX_PER_MM,
 ) -> None:
 
-    crop_size = 2 * (int(crop_size_mm * px_per_mm) // 2)
+    crop_size = eye_crop_size(crop_size_mm, px_per_mm)
 
     lp_data = load_lightning_pose(lightningpose_csv)
 
     swimbladder = lp_data.Swim_Bladder[["x", "y"]].to_numpy()
     head = lp_data.Head[["x", "y"]].to_numpy()
-    heading = head - swimbladder
-    theta_rad = np.arctan2(heading[:, 1], heading[:, 0])
 
     cap = cv2.VideoCapture(str(input_video))
     if not cap.isOpened():
@@ -95,23 +111,15 @@ def crop_around_eyes(
 
     try:
 
-        for x, y, th in tqdm(zip(head[:, 0], head[:, 1], theta_rad)):
+        for h, sb in tqdm(zip(head, swimbladder)):
 
             ret, frame = cap.read()
             if not ret:
                 break
 
-            M = cv2.getRotationMatrix2D(
-                center=(x, y),
-                angle=np.rad2deg(th) + 90,
-                scale=1.0,
-            )
-            M[0, 2] += crop_size // 2 - x
-            M[1, 2] += crop_size // 2 - y
-
             warped = cv2.warpAffine(
                 frame,
-                M,
+                eye_crop_matrix(h, sb, crop_size),
                 (crop_size, crop_size),
                 flags=cv2.INTER_CUBIC,
                 borderMode=cv2.BORDER_CONSTANT,
@@ -210,8 +218,6 @@ def export_cropped_eyes_video(
             video,
             eyes_video,
             lightningpose_csv,
-            crop_size_mm=1.6,
-            px_per_mm=40.0,  # TODO get this from metadata
         )
 
 

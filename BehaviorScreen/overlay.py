@@ -19,7 +19,7 @@ import cv2
 import matplotlib
 import numpy as np
 import pandas as pd
-from megabouts.utils import bouts_category_name
+from megabouts.utils import bouts_category_name, bouts_category_name_short, bouts_category_color
 from tqdm import tqdm
 from video_tools import FFMPEG_VideoWriter_CPU
 
@@ -27,6 +27,7 @@ from BehaviorScreen.core import SACCADE_CLASS_COLORS, SACCADE_CLASS_NAMES, Event
 from BehaviorScreen.eyes.detect_saccades import extract_raw_eye_angles
 from BehaviorScreen.load import Directories, find_files
 from BehaviorScreen.megabouts import load_megabout
+from BehaviorScreen.pose_estimation import eye_crop_matrix, eye_crop_size
 from BehaviorScreen.process import compute_angle_between_vectors
 from BehaviorScreen.qc import get_per_frame_tracking_error
 from BehaviorScreen.recording import Recording, nearest_indices
@@ -571,8 +572,8 @@ def overlay_stimulus(X, Y, p):
 # Overlay video
 # ---------------------------------------------------------------------------
 
-PANEL_PX, STRIP_PX, MARGIN_PX = 720, 270, 80
-ZOOM_MM = 5.0
+PANEL_PX, STRIP_PX, MARGIN_PX = 720, 300, 80
+ZOOM_MM = 9.0
 WINDOW_S = 4.0
 SACCADE_LABEL_S = 0.3
 QC_CENTROID_MM, QC_HEADING_DEG = 1.0, 15.0
@@ -581,6 +582,8 @@ WHITE, GREY = (235, 235, 235), (150, 150, 150)
 ONLINE_BGR, POSE_BGR, TRAIL_BGR = (0, 165, 255), (110, 220, 120), (230, 190, 90)
 OK_BGR, BAD_BGR = (90, 160, 90), (60, 60, 220)
 EYE_BGR = {"left": (240, 150, 60), "right": (70, 120, 240)}
+SKELETON_ALPHA, NODE_RADIUS = 0.7, 5
+QC_LABEL = "QC: online vs pose tracking"
 TAIL_PARTS = ["Swim_Bladder"] + [f"Tail_{i}" for i in range(9)]
 
 
@@ -588,7 +591,7 @@ def bgr(rgb: Tuple[float, ...]) -> Tuple[int, int, int]:
     return tuple(int(255 * c) for c in rgb[2::-1])
 
 
-BOUT_BGR = [bgr(matplotlib.colormaps["tab20"](i)) for i in range(20)]
+BOUT_BGR = [bgr(matplotlib.colors.to_rgb(c)) for c in bouts_category_color]
 SACCADE_BGR = {k: bgr(matplotlib.colors.to_rgb(v)) for k, v in SACCADE_CLASS_COLORS.items()}
 
 
@@ -602,10 +605,10 @@ class Tracks:
     tail_angle: np.ndarray
     online: np.ndarray  # (n, 6): centroid, pc1, pc2
     tracking_ok: np.ndarray
-    bouts: pd.DataFrame  # onset, offset (frames), category, sign
+    bouts: pd.DataFrame  # onset, offset (frames), category, sign, proba
     saccades: pd.DataFrame  # onset_s, cluster
-    eyes: Dict[str, np.ndarray] = field(default_factory=dict)  # side -> (n, 2, 2) front, back
     eye_angle: Dict[str, np.ndarray] = field(default_factory=dict)
+    eyes: Dict[str, np.ndarray] = field(default_factory=dict)  # side -> (n, 2, 2) front, back in eye-crop pixels
 
 
 def fit_length(values: np.ndarray, n: int) -> np.ndarray:
@@ -623,12 +626,13 @@ def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame]) -> Tracks:
     error = get_per_frame_tracking_error(rec).iloc[:n]
 
     megabout = load_megabout(rec)
-    bouts = pd.DataFrame(columns=["onset", "offset", "category", "sign"])
+    bouts = pd.DataFrame(columns=["onset", "offset", "category", "sign", "proba"])
     if megabout is not None:
         b = megabout.bouts
-        k = min(len(b.onset), len(b.offset), len(b.category), len(b.sign))
-        bouts = pd.DataFrame({"onset": b.onset[:k], "offset": b.offset[:k], "category": b.category[:k], "sign": b.sign[:k]})
-        bouts = bouts[(bouts.onset >= 0) & (bouts.offset > bouts.onset)].astype(int)
+        k = min(len(b.onset), len(b.offset), len(b.category), len(b.sign), len(b.proba))
+        bouts = pd.DataFrame({"onset": b.onset[:k], "offset": b.offset[:k], "category": b.category[:k], "sign": b.sign[:k]}).astype(int)
+        bouts["proba"] = np.asarray(b.proba[:k], float)
+        bouts = bouts[(bouts.onset >= 0) & (bouts.offset > bouts.onset)]
 
     events = saccades[saccades["fish"].astype(str) == rec.name] if saccades is not None else pd.DataFrame()
     tracks = Tracks(
@@ -643,10 +647,11 @@ def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame]) -> Tracks:
     )
     if not rec.eyes.empty:
         _, left, right, _, _ = extract_raw_eye_angles(rec)
-        for side, angle in (("left", left), ("right", right)):
-            landmarks = np.stack([xy(rec.eyes, f"eye_{side}_{end}") for end in ("front", "back")], axis=1)
-            tracks.eyes[side] = fit_length(landmarks, n)
-            tracks.eye_angle[side] = fit_length(angle, n)
+        tracks.eye_angle = {"left": fit_length(left, n), "right": fit_length(right, n)}
+        tracks.eyes = {
+            side: fit_length(np.stack([xy(rec.eyes, f"eye_{side}_{end}") for end in ("front", "back")], axis=1), n)
+            for side in ("left", "right")
+        }
     return tracks
 
 
@@ -763,8 +768,8 @@ class Scene:
         row = rec.trials.iloc[trial] if trial >= 0 else None
         label = f"{t.time_s[k]:7.2f} s" + (f"   {row.epoch_name}  #{row.trial_num + 1}" if row is not None else "")
         text(panel, label, (12, 28))
-        text(panel, "tracking" if t.tracking_ok[k] else "tracking mismatch", (12, PANEL_PX - 14),
-             WHITE if t.tracking_ok[k] else BAD_BGR, 0.5)
+        text(panel, f"{QC_LABEL}: {'agree' if t.tracking_ok[k] else 'mismatch'}", (12, PANEL_PX - 14),
+             OK_BGR if t.tracking_ok[k] else BAD_BGR, 0.5)
         text(panel, "x online", (PANEL_PX - 190, PANEL_PX - 14), ONLINE_BGR, 0.5)
         text(panel, "o pose", (PANEL_PX - 95, PANEL_PX - 14), POSE_BGR, 0.5)
         return panel
@@ -779,28 +784,43 @@ class Scene:
         view = view_matrix(center, PANEL_PX / (ZOOM_MM * rec.pix_per_mm), -np.pi / 2 - np.arctan2(heading[1], heading[0]))
         panel = self.panel(k, image, view)
 
-        polyline(panel, to_panel(view, t.tail[k]), POSE_BGR, 2)
-        for point in to_panel(view, np.vstack([t.tail[k], t.head[k]])):
-            if np.isfinite(point).all():
-                cv2.circle(panel, tuple(np.round(point).astype(int)), 3, POSE_BGR, -1, cv2.LINE_AA)
-        for side, landmarks in t.eyes.items():
-            polyline(panel, to_panel(view, landmarks[k]), EYE_BGR[side], 3)
+        panel = self.draw_fish(panel, k, view)
 
         time_s = t.time_s[k]
         bout = t.bouts[(t.bouts.onset <= k) & (k < t.bouts.offset)]
         if len(bout):
-            b = bout.iloc[0]
+            b = next(bout.itertuples())
             direction = EventDirection(b.sign).name.lower() if b.sign in (-1, 1) else ""
-            text(panel, f"{bouts_category_name[b.category]} {direction}", (12, 30), BOUT_BGR[b.category % 20], 0.8)
+            text(panel, f"{bouts_category_name[b.category]} {direction}", (12, 30), BOUT_BGR[b.category], 0.8)
+            cv2.rectangle(panel, (12, 42), (172, 50), (60, 60, 60), -1)
+            cv2.rectangle(panel, (12, 42), (12 + int(160 * b.proba), 50), BOUT_BGR[b.category], -1)
+            text(panel, f"p = {b.proba:.2f}", (182, 51), BOUT_BGR[b.category], 0.5)
         recent = t.saccades[(t.saccades.onset_s <= time_s) & (time_s < t.saccades.onset_s + SACCADE_LABEL_S)]
         if len(recent):
             cluster = int(recent.cluster.iloc[-1])
-            text(panel, f"saccade: {SACCADE_CLASS_NAMES.get(cluster, cluster)}", (12, 62), SACCADE_BGR.get(cluster, WHITE), 0.7)
+            text(panel, f"saccade: {SACCADE_CLASS_NAMES.get(cluster, cluster)}", (12, 84), SACCADE_BGR.get(cluster, WHITE), 0.7)
 
         bar = PANEL_PX / ZOOM_MM
         cv2.line(panel, (16, PANEL_PX - 20), (16 + int(bar), PANEL_PX - 20), WHITE, 3)
         text(panel, "1 mm", (16, PANEL_PX - 30), WHITE, 0.5)
         return panel
+
+    def draw_fish(self, panel: np.ndarray, k: int, view: np.ndarray) -> np.ndarray:
+        """Translucent SLEAP/DLC style skeleton: body in one colour, each eye in its time-series colour."""
+        t = self.tracks
+        parts = [(to_panel(view, np.vstack([t.head[k], t.tail[k]])), POSE_BGR)]
+        if t.eyes and np.isfinite(t.head[k]).all() and np.isfinite(t.tail[k, 0]).all():
+            to_frame = cv2.invertAffineTransform(eye_crop_matrix(t.head[k], t.tail[k, 0], eye_crop_size()))
+            parts += [(to_panel(view, to_panel(to_frame, points[k])), EYE_BGR[side]) for side, points in t.eyes.items()]
+        layer = panel.copy()
+        for points, color in parts:
+            for p0, p1 in zip(points[:-1], points[1:]):
+                gap = (p1 - p0) * NODE_RADIUS / max(np.hypot(*(p1 - p0)), 2 * NODE_RADIUS)  # edges stop at the node rims
+                if np.isfinite(gap).all():
+                    cv2.line(layer, tuple(np.round(p0 + gap).astype(int)), tuple(np.round(p1 - gap).astype(int)), color, 2, cv2.LINE_AA)
+            for point in points[np.isfinite(points).all(axis=1)]:
+                cv2.circle(layer, tuple(np.round(point).astype(int)), NODE_RADIUS, color, 2, cv2.LINE_AA)
+        return cv2.addWeighted(layer, SKELETON_ALPHA, panel, 1 - SKELETON_ALPHA, 0)
 
     def strip(self, k: int) -> np.ndarray:
         t = self.tracks
@@ -809,7 +829,7 @@ class Scene:
         start, stop = t.time_s[k] - WINDOW_S / 2, t.time_s[k] + WINDOW_S / 2
         window = slice(*np.searchsorted(t.time_s, [start, stop]))
         x_of = lambda s: MARGIN_PX + (np.asarray(s) - start) / WINDOW_S * width
-        rows = {"tail": (12, 120), "eyes": (132, 240), "tracking": (252, 262)}
+        rows = {"tail": (26, 124), "eyes": (160, 258), "QC": (282, 292)}  # labels go in the lane above each row
 
         def y_of(values: np.ndarray, row: str, low: float, high: float) -> np.ndarray:
             top, bottom = rows[row]
@@ -818,8 +838,12 @@ class Scene:
         top, bottom = rows["tail"]
         for b in t.bouts[(t.bouts.offset > window.start) & (t.bouts.onset < window.stop)].itertuples():
             x0, x1 = x_of(t.time_s[b.onset]), x_of(t.time_s[min(b.offset, len(t.time_s) - 1)])
-            shade = tuple(int(0.45 * c) for c in BOUT_BGR[b.category % 20])
-            cv2.rectangle(strip, (int(max(x0, MARGIN_PX)), top), (int(min(x1, MARGIN_PX + width)), bottom), shade, -1)
+            shade = tuple(int(0.45 * c) for c in BOUT_BGR[b.category])
+            x0, x1 = np.clip([x0, x1], MARGIN_PX, MARGIN_PX + width).astype(int)
+            cv2.rectangle(strip, (x0, top), (x1, bottom), shade, -1)
+            text(strip, bouts_category_name_short[b.category], (x0 + 3, top - 6), BOUT_BGR[b.category], 0.42)
+            cv2.rectangle(strip, (x0, bottom + 3), (x1, bottom + 7), (60, 60, 60), -1)
+            cv2.rectangle(strip, (x0, bottom + 3), (x0 + int(b.proba * (x1 - x0)), bottom + 7), BOUT_BGR[b.category], -1)
         x = x_of(t.time_s[window])
         polyline(strip, np.column_stack([x, y_of(t.tail_angle[window], "tail", -self.tail_range, self.tail_range)]), WHITE, 1)
 
@@ -827,9 +851,11 @@ class Scene:
             polyline(strip, np.column_stack([x, y_of(angle[window], "eyes", *self.eye_range)]), EYE_BGR[side], 1)
         top, bottom = rows["eyes"]
         for s in t.saccades[(t.saccades.onset_s >= start) & (t.saccades.onset_s < stop)].itertuples():
-            cv2.line(strip, (int(x_of(s.onset_s)), top), (int(x_of(s.onset_s)), bottom), SACCADE_BGR.get(int(s.cluster), WHITE), 2)
+            x_s, color = int(x_of(s.onset_s)), SACCADE_BGR.get(int(s.cluster), WHITE)
+            cv2.line(strip, (x_s, top), (x_s, bottom), color, 2)
+            text(strip, SACCADE_CLASS_NAMES.get(int(s.cluster), str(s.cluster)), (x_s + 4, top - 6), color, 0.42)
 
-        top, bottom = rows["tracking"]
+        top, bottom = rows["QC"]
         for x0, x1, ok in zip(x[:-1], x[1:], t.tracking_ok[window][:-1]):
             cv2.rectangle(strip, (int(x0), top), (int(np.ceil(x1)), bottom), OK_BGR if ok else BAD_BGR, -1)
 
@@ -839,7 +865,10 @@ class Scene:
             text(strip, side, (8, rows["eyes"][0] + 14 + 70 * i), color, 0.45)
         center = int(x_of(t.time_s[k]))
         cv2.line(strip, (center, 4), (center, STRIP_PX - 4), WHITE, 1)
-        text(strip, f"window {WINDOW_S:g} s", (MARGIN_PX + width - 110, rows["eyes"][0] - 2), GREY, 0.45)
+        text(strip, f"window {WINDOW_S:g} s", (MARGIN_PX + width - 110, rows["QC"][0] - 8), GREY, 0.45)
+        text(strip, f"{QC_LABEL}:", (MARGIN_PX, rows["QC"][0] - 8), GREY, 0.42)
+        text(strip, "agree", (MARGIN_PX + 200, rows["QC"][0] - 8), OK_BGR, 0.42)
+        text(strip, "mismatch", (MARGIN_PX + 255, rows["QC"][0] - 8), BAD_BGR, 0.42)
         return strip
 
 
