@@ -579,7 +579,7 @@ SACCADE_LABEL_S = 0.3
 QC_CENTROID_MM, QC_HEADING_DEG = 1.0, 15.0
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 WHITE, GREY = (235, 235, 235), (150, 150, 150)
-ONLINE_BGR, POSE_BGR, TRAIL_BGR = (0, 165, 255), (110, 220, 120), (230, 190, 90)
+ONLINE_BGR, POSE_BGR, TRAIL_BGR, WELL_BGR = (0, 165, 255), (110, 220, 120), (230, 190, 90), (150, 215, 235)
 OK_BGR, BAD_BGR = (90, 160, 90), (60, 60, 220)
 EYE_BGR = {"left": (240, 150, 60), "right": (70, 120, 240)}
 SKELETON_ALPHA, NODE_RADIUS = 0.7, 5
@@ -758,27 +758,31 @@ class Scene:
         if rec.well is not None:
             center = to_panel(view, np.array([rec.well.x_mm, rec.well.y_mm]) * rec.pix_per_mm)
             radius = rec.well.radius_mm * rec.pix_per_mm * view[0, 0]
-            cv2.circle(panel, tuple(np.round(center).astype(int)), int(round(radius)), GREY, 1, cv2.LINE_AA)
-            cv2.drawMarker(panel, tuple(np.round(center).astype(int)), GREY, cv2.MARKER_CROSS, 10, 1)
+            angle = np.deg2rad(np.arange(0, 360, 3))
+            for dot in center + radius * np.column_stack([np.cos(angle), np.sin(angle)]):
+                cv2.circle(panel, tuple(np.round(dot).astype(int)), 1, WELL_BGR, -1, cv2.LINE_AA)
+            cv2.drawMarker(panel, tuple(np.round(center).astype(int)), WELL_BGR, cv2.MARKER_CROSS, 14, 1, cv2.LINE_AA)
         trial = np.searchsorted(self.trial_start, k, side="right") - 1
         start = self.trial_start[trial] if trial >= 0 else 0
         polyline(panel, to_panel(view, t.tail[start : k + 1 : 2, 0]), TRAIL_BGR, 1)
+        if np.isfinite(t.tail[k, 0]).all():
+            cv2.circle(panel, tuple(np.round(to_panel(view, t.tail[k, 0])).astype(int)), 3, POSE_BGR, -1, cv2.LINE_AA)
         online = t.online[k]
         if np.isfinite(online).all():
             center = to_panel(view, online[:2])
-            tip = to_panel(view, online[:2] + online[2:4] * rec.pix_per_mm)
-            cv2.drawMarker(panel, tuple(np.round(center).astype(int)), ONLINE_BGR, cv2.MARKER_TILTED_CROSS, 12, 2)
-            cv2.line(panel, tuple(np.round(center).astype(int)), tuple(np.round(tip).astype(int)), ONLINE_BGR, 2, cv2.LINE_AA)
-        if np.isfinite(t.tail[k, 0]).all():
-            cv2.circle(panel, tuple(np.round(to_panel(view, t.tail[k, 0])).astype(int)), 4, POSE_BGR, -1, cv2.LINE_AA)
+            direction = to_panel(view, online[:2] + online[2:4]) - center
+            direction /= np.hypot(*direction)
+            base, tip = center + NODE_RADIUS * direction, center + (NODE_RADIUS + 30) * direction
+            cv2.circle(panel, tuple(np.round(center).astype(int)), NODE_RADIUS, ONLINE_BGR, 2, cv2.LINE_AA)
+            cv2.arrowedLine(panel, tuple(np.round(base).astype(int)), tuple(np.round(tip).astype(int)), ONLINE_BGR, 2, cv2.LINE_AA, tipLength=0.3)
 
         row = rec.trials.iloc[trial] if trial >= 0 else None
         label = f"{t.time_s[k]:7.2f} s" + (f"   {row.epoch_name}  #{row.trial_num + 1}" if row is not None else "")
         text(panel, label, (12, 28))
         text(panel, f"{QC_LABEL}: {'agree' if t.tracking_ok[k] else 'mismatch'}", (12, PANEL_PX - 14),
              OK_BGR if t.tracking_ok[k] else BAD_BGR, 0.5)
-        text(panel, "x online", (PANEL_PX - 190, PANEL_PX - 14), ONLINE_BGR, 0.5)
-        text(panel, "o pose", (PANEL_PX - 95, PANEL_PX - 14), POSE_BGR, 0.5)
+        text(panel, "online", (PANEL_PX - 160, PANEL_PX - 14), ONLINE_BGR, 0.5)
+        text(panel, "pose", (PANEL_PX - 80, PANEL_PX - 14), POSE_BGR, 0.5)
         return panel
 
     def zoom_panel(self, k: int, image: np.ndarray) -> np.ndarray:
@@ -851,7 +855,12 @@ class Scene:
             shade = tuple(int(0.45 * c) for c in BOUT_BGR[b.category])
             x0, x1 = np.clip([x0, x1], MARGIN_PX, MARGIN_PX + width).astype(int)
             cv2.rectangle(strip, (x0, top), (x1, bottom), shade, -1)
-            text(strip, bouts_category_name_short[b.category], (x0 + 3, top - 6), BOUT_BGR[b.category], 0.42)
+            label = bouts_category_name_short[b.category]
+            text(strip, label, (x0 + 3, top - 6), BOUT_BGR[b.category], 0.42)
+            if b.sign in (-1, 1):  # laterality: triangle pointing left or right after the name
+                x, y = x0 + 12 + cv2.getTextSize(label, FONT, 0.42, 1)[0][0], top - 10
+                triangle = np.array([[x + 4 * b.sign, y], [x - 4 * b.sign, y - 5], [x - 4 * b.sign, y + 5]], np.int32)
+                cv2.fillConvexPoly(strip, triangle, BOUT_BGR[b.category], cv2.LINE_AA)
             cv2.rectangle(strip, (x0, bottom + 3), (x1, bottom + 7), (60, 60, 60), -1)
             cv2.rectangle(strip, (x0, bottom + 3), (x0 + int(b.proba * (x1 - x0)), bottom + 7), BOUT_BGR[b.category], -1)
         x = x_of(t.time_s[window])
