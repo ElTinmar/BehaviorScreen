@@ -575,7 +575,7 @@ def overlay_stimulus(X, Y, p):
 # ---------------------------------------------------------------------------
 
 PANEL_PX, STRIP_PX, MARGIN_PX = 720, 300, 80
-MAP_GAP_PX = 16
+MAP_GAP_PX, MAP_TRAIL_ALPHA = 16, 0.5
 SERIES_PX = 2 * PANEL_PX - STRIP_PX - MAP_GAP_PX  # time series width, right of the STRIP_PX square trajectory map
 ZOOM_MM = 7.0
 WINDOW_S = 4.0
@@ -589,6 +589,7 @@ EYE_BGR = {"left": (240, 150, 60), "right": (70, 120, 240)}
 SKELETON_ALPHA, NODE_RADIUS, HEADING_PX = 0.7, 5, 50
 LATERALITY_NAME = {1: "ipsi", -1: "contra"}  # Laterality; non-directional events get no label
 QC_LABEL = "QC: online vs pose tracking"
+FISH_QC_REASONS = ["not_moving", "centroid_issue", "heading_issue", "well_not_found", "frame_order_issue"]  # qc.csv columns
 TAIL_PARTS = ["Swim_Bladder"] + [f"Tail_{i}" for i in range(9)]
 
 
@@ -631,6 +632,17 @@ def event_laterality(rec: Recording, timestamps: np.ndarray, keys: np.ndarray, l
 
 def label(name: str, laterality: float) -> str:
     return f"{name} ({LATERALITY_NAME[laterality]})" if laterality in LATERALITY_NAME else name
+
+
+def fish_qc(qc: Optional[pd.DataFrame], name: str) -> Tuple[str, Tuple[int, int, int]]:
+    """Label and colour of the recording's fish-level QC (qc.csv lists excluded recordings)."""
+    if qc is None:
+        return "fish QC: no qc.csv", GREY
+    row = qc[qc["file"].astype(str) == name]
+    if row.empty:
+        return "fish QC: pass", OK_BGR
+    reasons = [reason.replace("_", " ") for reason in FISH_QC_REASONS if reason in row and bool(row[reason].iloc[0])]
+    return f"fish QC: excluded ({', '.join(reasons)})", BAD_BGR
 
 
 def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame], eye_likelihood: float = DetectionConfig.likelihood_threshold) -> Tracks:
@@ -734,6 +746,7 @@ class Scene:
     tracks: Tracks
     size: Tuple[int, int]  # video height, width (px)
     downsample: int = 2  # stimulus grid step, panel px
+    fish_qc: Tuple[str, Tuple[int, int, int]] = ("fish QC: no qc.csv", GREY)
 
     def __post_init__(self) -> None:
         rec, t = self.rec, self.tracks
@@ -763,7 +776,9 @@ class Scene:
                 center = to_panel(self.map_view, np.array([well.x_mm, well.y_mm]) * self.rec.pix_per_mm)
                 radius = well.radius_mm * self.rec.pix_per_mm * self.map_view[0, 0]
                 cv2.circle(self.map_image, tuple(np.round(center).astype(int)), int(round(radius)), WELL_BGR, 1, cv2.LINE_AA)
-        polyline(self.map_image, self.map_points[self.map_k : k + 1], TRAIL_BGR, 1)
+        layer = self.map_image.copy()
+        polyline(layer, self.map_points[self.map_k : k + 1], TRAIL_BGR, 1)
+        self.map_image = cv2.addWeighted(layer, MAP_TRAIL_ALPHA, self.map_image, 1 - MAP_TRAIL_ALPHA, 0)
         self.map_k = k
         image = self.map_image.copy()
         if np.isfinite(self.map_points[k]).all():
@@ -824,6 +839,7 @@ class Scene:
         row = rec.trials.iloc[trial] if trial >= 0 else None
         label = f"{t.time_s[k]:7.2f} s" + (f"   {row.epoch_name}  #{row.trial_num + 1}" if row is not None else "")
         text(panel, label, (12, 28))
+        text(panel, self.fish_qc[0], (12, 56), self.fish_qc[1], 0.5)
         text(panel, f"{QC_LABEL}: {'agree' if t.tracking_ok[k] else 'mismatch'}", (12, PANEL_PX - 14),
              OK_BGR if t.tracking_ok[k] else BAD_BGR, 0.5)
         text(panel, "online", (PANEL_PX - 160, PANEL_PX - 14), ONLINE_BGR, 0.5)
@@ -961,11 +977,12 @@ def main(args: argparse.Namespace) -> None:
     if not recordings:
         raise FileNotFoundError(f"no recording matches {args.fish!r} in {directories.metadata}")
     saccades = pd.read_csv(args.root / args.saccades) if args.saccades else None
+    qc = pd.read_csv(args.root / args.qc_csv) if (args.root / args.qc_csv).exists() else None
     output_dir = args.root / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
     for rec in recordings:
         reader = FrameReader(rec.files.video)
-        scene = Scene(rec, load_tracks(rec, saccades, args.eye_likelihood), reader.size, args.downsample)
+        scene = Scene(rec, load_tracks(rec, saccades, args.eye_likelihood), reader.size, args.downsample, fish_qc(qc, rec.name))
         output = output_dir / f"{rec.name}_{args.start:g}s.mp4"
         render(scene, reader, output, args.start, args.duration, args.speed, args.fps)
         print(f"Saved {output}")
@@ -982,6 +999,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fps", type=float, default=30.0, help="Output frames per second")
     parser.add_argument("--eye-likelihood", type=float, default=DetectionConfig.likelihood_threshold,
                         help="Eye samples below this Lightning Pose likelihood are drawn grey (default: saccade detection threshold)")
+    parser.add_argument("--qc-csv", default="qc.csv", help="Fish-level QC exclusions relative to root (from BehaviorScreen.qc)")
     parser.add_argument("--downsample", type=int, default=2, help="Stimulus reconstruction grid step (panel px)")
     parser.add_argument("--output-dir", default="overlay")
     parser.add_argument("--metadata", default="results")
