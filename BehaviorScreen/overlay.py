@@ -25,6 +25,7 @@ from video_tools import FFMPEG_VideoWriter_CPU
 
 from BehaviorScreen.core import SACCADE_CLASS_COLORS, SACCADE_CLASS_NAMES, EventDirection, Stim
 from BehaviorScreen.eyes.detect_saccades import extract_raw_eye_angles
+from BehaviorScreen.eyes.saccade_pipeline import DetectionConfig
 from BehaviorScreen.load import Directories, find_files
 from BehaviorScreen.megabouts import load_megabout
 from BehaviorScreen.pose_estimation import eye_crop_matrix, eye_crop_size
@@ -607,6 +608,7 @@ class Tracks:
     bouts: pd.DataFrame  # onset, offset (frames), category, sign, proba
     saccades: pd.DataFrame  # onset_s, cluster
     eye_angle: Dict[str, np.ndarray] = field(default_factory=dict)
+    eye_ok: Dict[str, np.ndarray] = field(default_factory=dict)  # likelihood above the saccade detection threshold
     eyes: Dict[str, np.ndarray] = field(default_factory=dict)  # side -> (n, 2, 2) front, back in eye-crop pixels
 
 
@@ -616,7 +618,7 @@ def fit_length(values: np.ndarray, n: int) -> np.ndarray:
     return out
 
 
-def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame]) -> Tracks:
+def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame], eye_likelihood: float = DetectionConfig.likelihood_threshold) -> Tracks:
     n = min(len(rec.pose), rec.n_frames)
     pose = rec.pose.iloc[:n]
     xy = lambda frame, part: frame[part][["x", "y"]].to_numpy(float)
@@ -645,8 +647,12 @@ def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame]) -> Tracks:
         saccades=pd.DataFrame({"onset_s": events.get("onset_time_s", []), "cluster": events.get("cluster", [])}),
     )
     if not rec.eyes.empty:
-        _, left, right, _, _ = extract_raw_eye_angles(rec)
+        _, left, right, left_likelihood, right_likelihood = extract_raw_eye_angles(rec)
         tracks.eye_angle = {"left": fit_length(left, n), "right": fit_length(right, n)}
+        tracks.eye_ok = {
+            side: fit_length(likelihood, n) >= eye_likelihood
+            for side, likelihood in (("left", left_likelihood), ("right", right_likelihood))
+        }
         tracks.eyes = {
             side: fit_length(np.stack([xy(rec.eyes, f"eye_{side}_{end}") for end in ("front", "back")], axis=1), n)
             for side in ("left", "right")
@@ -812,7 +818,10 @@ class Scene:
         parts = [(to_panel(view, np.vstack([t.head[k], t.tail[k]])), POSE_BGR)]
         if t.eyes and np.isfinite(t.head[k]).all() and np.isfinite(t.tail[k, 0]).all():
             to_frame = cv2.invertAffineTransform(eye_crop_matrix(t.head[k], t.tail[k, 0], eye_crop_size()))
-            parts += [(to_panel(view, to_panel(to_frame, points[k])), EYE_BGR[side]) for side, points in t.eyes.items()]
+            parts += [
+                (to_panel(view, to_panel(to_frame, points[k])), EYE_BGR[side] if t.eye_ok[side][k] else GREY)
+                for side, points in t.eyes.items()
+            ]
         layer = panel.copy()
         for points, color in parts:
             for p0, p1 in zip(points[:-1], points[1:]):
@@ -848,8 +857,10 @@ class Scene:
         x = x_of(t.time_s[window])
         polyline(strip, np.column_stack([x, y_of(t.tail_angle[window], "tail", -self.tail_range, self.tail_range)]), WHITE, 1)
 
-        for side, angle in t.eye_angle.items():
-            polyline(strip, np.column_stack([x, y_of(angle[window], "eyes", *self.eye_range)]), EYE_BGR[side], 1)
+        for side, angle in t.eye_angle.items():  # grey where the likelihood excludes the sample
+            y = y_of(angle[window], "eyes", *self.eye_range)
+            polyline(strip, np.column_stack([x, y]), GREY, 1)
+            polyline(strip, np.column_stack([x, np.where(t.eye_ok[side][window], y, np.nan)]), EYE_BGR[side], 1)
         top, bottom = rows["eyes"]
         for s in t.saccades[(t.saccades.onset_s >= start) & (t.saccades.onset_s < stop)].itertuples():
             x_s, color = int(x_of(s.onset_s)), SACCADE_BGR.get(int(s.cluster), WHITE)
@@ -898,7 +909,7 @@ def main(args: argparse.Namespace) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     for rec in recordings:
         reader = FrameReader(rec.files.video)
-        scene = Scene(rec, load_tracks(rec, saccades), reader.size, args.downsample)
+        scene = Scene(rec, load_tracks(rec, saccades, args.eye_likelihood), reader.size, args.downsample)
         output = output_dir / f"{rec.name}_{args.start:g}s.mp4"
         render(scene, reader, output, args.start, args.duration, args.speed, args.fps)
         print(f"Saved {output}")
@@ -913,6 +924,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--duration", type=float, default=30.0, help="Window length, s of recording")
     parser.add_argument("--speed", type=float, default=0.5, help="Playback speed (0.5: half speed)")
     parser.add_argument("--fps", type=float, default=30.0, help="Output frames per second")
+    parser.add_argument("--eye-likelihood", type=float, default=DetectionConfig.likelihood_threshold,
+                        help="Eye samples below this Lightning Pose likelihood are drawn grey (default: saccade detection threshold)")
     parser.add_argument("--downsample", type=int, default=2, help="Stimulus reconstruction grid step (panel px)")
     parser.add_argument("--output-dir", default="overlay")
     parser.add_argument("--metadata", default="results")
