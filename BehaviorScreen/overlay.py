@@ -740,6 +740,11 @@ def text(image: np.ndarray, label: str, origin: Tuple[int, int], color: Tuple[in
     cv2.putText(image, label, origin, FONT, scale, color, 1, cv2.LINE_AA)
 
 
+def scale_bar(panel: np.ndarray, px_per_mm: float, mm: int, y: int) -> None:
+    cv2.line(panel, (16, y), (16 + int(round(mm * px_per_mm)), y), WHITE, 3)
+    text(panel, f"{mm} mm", (16, y - 10), WHITE, 0.5)
+
+
 @dataclass
 class Scene:
     rec: Recording
@@ -843,6 +848,8 @@ class Scene:
         text(panel, self.fish_qc[0], (12, 56), self.fish_qc[1], 0.5)
         text(panel, f"{QC_LABEL}: {'agree' if t.tracking_ok[k] else 'mismatch'}", (12, PANEL_PX - 14),
              OK_BGR if t.tracking_ok[k] else BAD_BGR, 0.5)
+        px_per_mm = rec.pix_per_mm * np.hypot(*view[:, 0])
+        scale_bar(panel, px_per_mm, max(mm for mm in (1, 2, 5, 10) if mm * px_per_mm <= 200 or mm == 1), PANEL_PX - 50)
         text(panel, "online", (PANEL_PX - 160, PANEL_PX - 14), ONLINE_BGR, 0.5)
         text(panel, "pose", (PANEL_PX - 80, PANEL_PX - 14), POSE_BGR, 0.5)
         return panel
@@ -873,9 +880,7 @@ class Scene:
             cluster, laterality = int(recent.cluster.iloc[-1]), recent.laterality.iloc[-1]
             text(panel, label(f"saccade: {SACCADE_CLASS_NAMES.get(cluster, cluster)}", laterality), (12, 84), SACCADE_BGR.get(cluster, WHITE), 0.7)
 
-        bar = PANEL_PX / ZOOM_MM
-        cv2.line(panel, (16, PANEL_PX - 20), (16 + int(bar), PANEL_PX - 20), WHITE, 3)
-        text(panel, "1 mm", (16, PANEL_PX - 30), WHITE, 0.5)
+        scale_bar(panel, PANEL_PX / ZOOM_MM, 1, PANEL_PX - 20)
         return panel
 
     def draw_fish(self, panel: np.ndarray, k: int, view: np.ndarray) -> np.ndarray:
