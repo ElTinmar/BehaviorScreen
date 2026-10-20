@@ -581,7 +581,7 @@ SACCADE_LABEL_S = 0.3
 QC_CENTROID_MM, QC_HEADING_DEG = 1.0, 15.0
 FONT = cv2.FONT_HERSHEY_SIMPLEX
 WHITE, GREY = (235, 235, 235), (150, 150, 150)
-ONLINE_BGR, POSE_BGR, TRAIL_BGR, WELL_BGR = (0, 165, 255), (110, 220, 120), (230, 190, 90), (150, 215, 235)
+ONLINE_BGR, POSE_BGR, TRAIL_BGR, WELL_BGR = (0, 165, 255), (110, 220, 120), (235, 235, 235), (150, 215, 235)
 OK_BGR, BAD_BGR = (90, 160, 90), (60, 60, 220)
 EYE_BGR = {"left": (240, 150, 60), "right": (70, 120, 240)}
 SKELETON_ALPHA, NODE_RADIUS, HEADING_PX = 0.7, 5, 50
@@ -782,7 +782,9 @@ class Scene:
             cv2.drawMarker(panel, tuple(np.round(center).astype(int)), WELL_BGR, cv2.MARKER_CROSS, 14, 1, cv2.LINE_AA)
         trial = np.searchsorted(self.trial_start, k, side="right") - 1
         start = self.trial_start[trial] if trial >= 0 else 0
-        polyline(panel, to_panel(view, t.tail[start : k + 1 : 2, 0]), TRAIL_BGR, 1)
+        layer = panel.copy()
+        polyline(layer, to_panel(view, t.tail[start : k + 1 : 2, 0]), TRAIL_BGR, 1)
+        panel = cv2.addWeighted(layer, 0.6, panel, 0.4, 0)
         if np.isfinite(t.tail[k, 0]).all():
             cv2.circle(panel, tuple(np.round(to_panel(view, t.tail[k, 0])).astype(int)), 3, POSE_BGR, -1, cv2.LINE_AA)
         online = t.online[k]
@@ -793,7 +795,7 @@ class Scene:
             base, tip = center + NODE_RADIUS * direction, center + (NODE_RADIUS + HEADING_PX) * direction
             layer = panel.copy()
             cv2.circle(layer, tuple(np.round(center).astype(int)), NODE_RADIUS, ONLINE_BGR, 1, cv2.LINE_AA)
-            cv2.arrowedLine(layer, tuple(np.round(base).astype(int)), tuple(np.round(tip).astype(int)), ONLINE_BGR, 1, cv2.LINE_AA, tipLength=0.15)
+            cv2.arrowedLine(layer, tuple(np.round(base).astype(int)), tuple(np.round(tip).astype(int)), ONLINE_BGR, 2, cv2.LINE_AA, tipLength=0.15)
             panel = cv2.addWeighted(layer, SKELETON_ALPHA, panel, 1 - SKELETON_ALPHA, 0)
 
         row = rec.trials.iloc[trial] if trial >= 0 else None
