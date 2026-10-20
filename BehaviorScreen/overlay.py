@@ -9,9 +9,14 @@ bouts, saccades and tracking agreement over a moving time window (bottom).
 
 Only the requested window is read and rendered (to the end of the recording
 without --duration), at --fps output frames per second; --speed < 1 is slow motion.
+With --jobs > 1, consecutive chunks are rendered in parallel and joined with ffmpeg.
 """
 import argparse
+import multiprocessing
+import os
+import subprocess
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
@@ -27,7 +32,7 @@ from BehaviorScreen.core import SACCADE_CLASS_COLORS, SACCADE_CLASS_NAMES, Event
 from BehaviorScreen.eyes.detect_saccades import extract_raw_eye_angles
 from BehaviorScreen.eyes.saccade_pipeline import DetectionConfig
 from BehaviorScreen.event_context import trial_indices
-from BehaviorScreen.load import Directories, find_files
+from BehaviorScreen.load import BehaviorFiles, Directories, find_files
 from BehaviorScreen.megabouts import load_megabout
 from BehaviorScreen.pose_estimation import eye_crop_matrix, eye_crop_size
 from BehaviorScreen.process import compute_angle_between_vectors
@@ -575,7 +580,7 @@ def overlay_stimulus(X, Y, p):
 # ---------------------------------------------------------------------------
 
 PANEL_PX, STRIP_PX, MARGIN_PX = 720, 300, 80
-MAP_GAP_PX, MAP_TRAIL_ALPHA = 16, 0.5
+MAP_GAP_PX, MAP_TRAIL_ALPHA, MAP_BLOCK = 16, 0.5, 100  # trail blended in fixed blocks of frames
 SERIES_PX = 2 * PANEL_PX - STRIP_PX - MAP_GAP_PX  # time series width, right of the STRIP_PX square trajectory map
 ZOOM_MM = 7.0
 WINDOW_S = 4.0
@@ -771,26 +776,34 @@ class Scene:
         self.eye_range = tuple(np.nanpercentile(angles, [0.5, 99.5]))
         self.map_view = self.field_view * STRIP_PX / PANEL_PX
         self.map_points = to_panel(self.map_view, t.tail[:, 0])
-        self.map_image, self.map_k = np.zeros((STRIP_PX, STRIP_PX, 3), np.uint8), None
+        self.map_image, self.map_blocks = np.zeros((STRIP_PX, STRIP_PX, 3), np.uint8), None
 
     def trajectory_map(self, k: int) -> np.ndarray:
-        """Trajectory since the first frame in the well, drawn incrementally while frames move forward."""
-        if self.map_k is None or k < self.map_k:
-            self.map_image[:], self.map_k = 0, 0
+        """
+        Trajectory since the first frame in the well. Complete blocks of MAP_BLOCK frames are blended
+        once and kept, so the picture depends only on k, whichever frames were rendered before.
+        """
+        done = k // MAP_BLOCK
+        if self.map_blocks is None or done < self.map_blocks:
+            self.map_image[:], self.map_blocks = 0, 0
             if self.rec.well is not None:
                 well = self.rec.well
                 center = to_panel(self.map_view, np.array([well.x_mm, well.y_mm]) * self.rec.pix_per_mm)
                 radius = well.radius_mm * self.rec.pix_per_mm * self.map_view[0, 0]
                 cv2.circle(self.map_image, tuple(np.round(center).astype(int)), int(round(radius)), WELL_BGR, 1, cv2.LINE_AA)
-        layer = self.map_image.copy()
-        polyline(layer, self.map_points[self.map_k : k + 1], TRAIL_BGR, 1)
-        self.map_image = cv2.addWeighted(layer, MAP_TRAIL_ALPHA, self.map_image, 1 - MAP_TRAIL_ALPHA, 0)
-        self.map_k = k
-        image = self.map_image.copy()
+        for block in range(self.map_blocks, done):
+            self.map_image = self.blend_trail(self.map_image, slice(block * MAP_BLOCK, (block + 1) * MAP_BLOCK + 1))
+        self.map_blocks = done
+        image = self.blend_trail(self.map_image, slice(done * MAP_BLOCK, k + 1))
         if np.isfinite(self.map_points[k]).all():
             cv2.circle(image, tuple(np.round(self.map_points[k]).astype(int)), 3, POSE_BGR, -1, cv2.LINE_AA)
         text(image, "trajectory", (8, 18), GREY, 0.45)
         return cv2.copyMakeBorder(image, 0, 0, 0, MAP_GAP_PX, cv2.BORDER_CONSTANT)
+
+    def blend_trail(self, image: np.ndarray, frames: slice) -> np.ndarray:
+        layer = image.copy()
+        polyline(layer, self.map_points[frames], TRAIL_BGR, 1)
+        return cv2.addWeighted(layer, MAP_TRAIL_ALPHA, image, 1 - MAP_TRAIL_ALPHA, 0)
 
     def frame(self, k: int, image: np.ndarray) -> np.ndarray:
         top = np.hstack([self.field_panel(k, image), self.zoom_panel(k, image)])
@@ -834,12 +847,13 @@ class Scene:
         online = t.online[k]
         if np.isfinite(online).all():
             center = to_panel(view, online[:2])
-            direction = to_panel(view, online[:2] + online[2:4]) - center
-            direction /= np.hypot(*direction)
-            base, tip = center + NODE_RADIUS * direction, center + (NODE_RADIUS + HEADING_PX) * direction
+            direction = online[2:4] @ view[:, :2].T
             layer = panel.copy()
             cv2.circle(layer, tuple(np.round(center).astype(int)), NODE_RADIUS, ONLINE_BGR, 1, cv2.LINE_AA)
-            cv2.arrowedLine(layer, tuple(np.round(base).astype(int)), tuple(np.round(tip).astype(int)), ONLINE_BGR, 2, cv2.LINE_AA, tipLength=0.15)
+            if np.hypot(*direction) > 0:  # the online tracker reports a zero heading when it loses the fish
+                direction /= np.hypot(*direction)
+                base, tip = center + NODE_RADIUS * direction, center + (NODE_RADIUS + HEADING_PX) * direction
+                cv2.arrowedLine(layer, tuple(np.round(base).astype(int)), tuple(np.round(tip).astype(int)), ONLINE_BGR, 2, cv2.LINE_AA, tipLength=0.15)
             panel = cv2.addWeighted(layer, SKELETON_ALPHA, panel, 1 - SKELETON_ALPHA, 0)
 
         row = rec.trials.iloc[trial] if trial >= 0 else None
@@ -964,16 +978,60 @@ class Scene:
         return strip
 
 
-def render(scene: Scene, reader: FrameReader, output: Path, start_s: float, duration_s: Optional[float], fps: float) -> None:
-    rec, time_s = scene.rec, scene.tracks.time_s
-    stop_s = time_s[-1] if duration_s is None else start_s + duration_s
-    frames = np.unique(nearest_indices(time_s, np.arange(start_s, stop_s, scene.speed / fps)))
+def render_frames(scene: Scene, frames: np.ndarray, output: Path, fps: float, progress: bool = True) -> None:
+    reader = FrameReader(scene.rec.files.video)
     writer = FFMPEG_VideoWriter_CPU(filename=output, height=PANEL_PX + STRIP_PX, width=2 * PANEL_PX, fps=fps, q=18)
     try:
-        for k in tqdm(frames, desc=rec.name):
-            writer.write_frame(cv2.cvtColor(scene.frame(k, reader.read(int(rec.video_frames[k]))), cv2.COLOR_BGR2RGB))  # drawn in BGR, writer takes RGB
+        for k in tqdm(frames, desc=scene.rec.name, disable=not progress):
+            image = reader.read(int(scene.rec.video_frames[k]))
+            writer.write_frame(cv2.cvtColor(scene.frame(k, image), cv2.COLOR_BGR2RGB))  # drawn in BGR, writer takes RGB
     finally:
         writer.close()
+
+
+_SCENE: Optional[Scene] = None  # each worker's own, built once by init_worker
+
+
+def init_worker(make_scene: Callable[[], Scene]) -> None:
+    global _SCENE
+    cv2.setNumThreads(1)
+    _SCENE = make_scene()
+
+
+def render_chunk(job: Tuple[np.ndarray, Path, float]) -> int:
+    render_frames(_SCENE, *job, progress=False)
+    return len(job[0])
+
+
+def render(
+    scene: Scene, output: Path, start_s: float, duration_s: Optional[float], fps: float,
+    jobs: int = 1, make_scene: Optional[Callable[[], Scene]] = None,
+) -> None:
+    """With jobs > 1, workers rebuild the scene with make_scene (picklable) and render chunks in parallel."""
+    time_s = scene.tracks.time_s
+    stop_s = time_s[-1] if duration_s is None else start_s + duration_s
+    frames = np.unique(nearest_indices(time_s, np.arange(start_s, stop_s, scene.speed / fps)))
+    if jobs == 1:
+        return render_frames(scene, frames, output, fps)
+
+    chunks = np.array_split(frames, min(4 * jobs, len(frames)))  # more chunks than workers: balance and progress
+    parts = [output.with_name(f"{output.stem}.part{i:03d}{output.suffix}") for i in range(len(chunks))]
+    with multiprocessing.get_context("spawn").Pool(jobs, init_worker, (make_scene,)) as pool, tqdm(total=len(frames), desc=scene.rec.name) as bar:
+        for n in pool.imap_unordered(render_chunk, [(chunk, part, fps) for chunk, part in zip(chunks, parts)]):
+            bar.update(n)
+    listing = output.with_suffix(".txt")
+    listing.write_text("".join(f"file '{part.resolve()}'\n" for part in parts))
+    subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-f", "concat", "-safe", "0", "-i", str(listing), "-c", "copy", str(output)], check=True)
+    for path in [*parts, listing]:
+        path.unlink()
+
+
+def build_scene(files: BehaviorFiles, args: argparse.Namespace) -> Scene:
+    rec = Recording(files)
+    saccades = pd.read_csv(args.root / args.saccades) if args.saccades else None
+    qc = pd.read_csv(args.root / args.qc_csv) if (args.root / args.qc_csv).exists() else None
+    tracks = load_tracks(rec, saccades, args.eye_likelihood)
+    return Scene(rec, tracks, FrameReader(rec.files.video).size, args.downsample, fish_qc(qc, rec.name), args.speed)
 
 
 def main(args: argparse.Namespace) -> None:
@@ -982,18 +1040,16 @@ def main(args: argparse.Namespace) -> None:
         full_tracking=args.lightning_pose, eyes_tracking=args.lightning_pose,
         video=args.video, video_timestamp=args.video_timestamp,
     )
-    recordings = [Recording(f) for f in find_files(directories) if args.fish in f.metadata.stem]
-    if not recordings:
+    files = [f for f in find_files(directories) if args.fish in f.metadata.stem]
+    if not files:
         raise FileNotFoundError(f"no recording matches {args.fish!r} in {directories.metadata}")
-    saccades = pd.read_csv(args.root / args.saccades) if args.saccades else None
-    qc = pd.read_csv(args.root / args.qc_csv) if (args.root / args.qc_csv).exists() else None
     output_dir = args.root / args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
-    for rec in recordings:
-        reader = FrameReader(rec.files.video)
-        scene = Scene(rec, load_tracks(rec, saccades, args.eye_likelihood), reader.size, args.downsample, fish_qc(qc, rec.name), args.speed)
-        output = output_dir / f"{rec.name}_{args.start:g}s.mp4"
-        render(scene, reader, output, args.start, args.duration, args.fps)
+    for f in files:
+        make_scene = partial(build_scene, f, args)
+        scene = make_scene()
+        output = output_dir / f"{scene.rec.name}_{args.start:g}s.mp4"
+        render(scene, output, args.start, args.duration, args.fps, args.jobs, make_scene)
         print(f"Saved {output}")
 
 
@@ -1009,6 +1065,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--eye-likelihood", type=float, default=DetectionConfig.likelihood_threshold,
                         help="Eye samples below this Lightning Pose likelihood are drawn grey (default: saccade detection threshold)")
     parser.add_argument("--qc-csv", default="qc.csv", help="Fish-level QC exclusions relative to root (from BehaviorScreen.qc)")
+    parser.add_argument("--jobs", type=int, default=4, help="Parallel render processes (default: all cores)")
     parser.add_argument("--downsample", type=int, default=2, help="Stimulus reconstruction grid step (panel px)")
     parser.add_argument("--output-dir", default="overlay")
     parser.add_argument("--metadata", default="results")
