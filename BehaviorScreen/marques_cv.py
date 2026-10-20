@@ -9,7 +9,7 @@ Between-fish variability of bout rates and screen readouts in the Marques et al.
 resume interrupted downloads: only files missing or shorter than listed are fetched. If the API refuses, use "Download All" on each dataset page (links in PARTS).
 
 `analyze` reads the .mat files straight from the zips in each "Experiments with
-Continuous Tracking" folder (discontinuous tracking is skipped). Conditions are
+Continuous Tracking" folder and from "Experiments with Discontinuous Tracking.zip". Conditions are
 labelled by experiment (zip name), dataset and protocol names (EnumeratorDataSet.m and
 EnumeratorProtocol.m, if found under ROOT) and Table S2 rows matched by bout count.
 
@@ -33,9 +33,10 @@ alpha = 0.05 / LINES (log-normal approximation, variance ln(1 + CV^2) per fish):
 
     n = 2 (z_alpha + z_0.8)^2 ln(1 + CV^2) / ln(FOLD)^2
 
-Stimulus numbers are labelled from a cross-reference with Table S1/S2 and the methods
-(STIMULUS_LABELS); turn_bias.csv gives, per experiment and stimulus, the mean sign of
-the turn angle (BoutKinematicParameters column 10), to check the directional mapping.
+Stimulus numbers are mapped to conditions from the rig's protocol files (the authors'
+analysis code, ProtocolListFreelyBehaving; STIMULUS_LABELS and the functions above it);
+turn_bias.csv gives, per experiment and stimulus, the mean sign of the turn angle
+(BoutKinematicParameters column 10, counterclockwise positive: left turns), as a check.
 
 Readouts of the screen (READOUTS, named and pooled as in model_config) are measured per
 fish with the same bout categories (BoutInf column 11) and windows, from the first bout
@@ -43,9 +44,9 @@ of each presentation (stimulus onsets are not in the files):
     strength   rate of the readout's bouts in the window, or for escapes the fraction
                of presentations with one; its CV across fish gives the fish needed
     direction  for sided readouts, fraction of turning events toward the side the
-               population prefers for that stimulus (stimuli with |bias| < MIN_SIDE_BIAS
-               are frontal/rear and left out); the SD of its log-odds across fish gives
-               the fish needed for a FOLD change of the odds
+               protocol says is correct (Readout.side; frontal/rear stimuli left out);
+               the SD of its log-odds across fish gives the fish needed for a FOLD
+               change of the odds
 Only arenas with one fish are used, except for flash_escape (dimming was only recorded in groups of 7).
 
 `fig3a` checks the stimulus mapping against Fig. 3A, using the paper's numbers
@@ -95,12 +96,62 @@ CATEGORIES = {
     "SCS": 1, "LCS": 2, "BS": 3, "O": 4, "JT": 5, "SLC": 6, "S1": 7, "RT": 8, "S2": 9, "LLC": 10, "AS": 11, "SAT": 12, "HAT": 13,
 }
 MIN_TURN_DEG = 10.0  # bouts turning less are left out of turn bias and direction
-MIN_SIDE_BIAS = 0.2  # stimuli with a weaker population bias count as frontal/rear: no direction
 
-# Stimulus numbers, cross-referenced with Table S1/S2 and the methods of Marques et al. 2018
-# (see README in the docstring). -1 is the recording before or between stimuli.
+# Stimulus numbers, from the protocol files: the stimulus number is the protocol line (0-based);
+# -1 is the recording before or between stimuli. Angles are egocentric, counterclockwise from
+# straight ahead, so +90 deg is the fish's left (from the looming and phototaxis turn biases).
 OMR_SPEEDS_MM_S = [0, 2.5, 5, 7.5, 10, 15, 20, 30, 40, 50]
-SPONT_LUX = [12, 44, 104, 232, 447, 790, 1890, 4700]  # Table S2; matched to stimuli by Fig. 3A (fig3a)
+SPONT_LUX = [12, 44, 104, 232, 447, 790, 1890, 4700]  # Table S2; 16 levels in the protocol, pooled in pairs
+LOOM_SPEEDS_MM_S = [2.5, 5, 10, 15, 20, 25]
+PHOTOTAXIS_LEVELS = [0, 20, 41, 61, 82, 102]  # projector levels; each trial follows 1 s of grey (128)
+PHOTOTAXIS_READOUT_LEVELS = (20, 41)  # one side dark, the other dimly lit: the only clear phototaxis here
+
+
+def odd_index(stimulus: int) -> int:
+    """0, 1, 2 ... for the odd stimulus numbers 1, 3, 5 ..."""
+    return (stimulus - 1) // 2
+
+
+def phototaxis_sides(stimulus: int) -> tuple[int, int]:
+    """(left, right) levels of a 12 s phototaxis trial: 6 x 6 combinations, left from 102 down to 0, right-major."""
+    j = odd_index(stimulus)
+    return PHOTOTAXIS_LEVELS[5 - j % 6], PHOTOTAXIS_LEVELS[j // 6]
+
+
+def loom_angle(experiment: str, stimulus: int) -> int:
+    """Direction the spot comes from: 8 directions 45 deg apart, or for each speed front, left, back, right."""
+    j = odd_index(stimulus)
+    return 45 * j if experiment.startswith("LoomingDifferentDirections") else 90 * (j % 4)
+
+
+def flash_levels(experiment: str, stimulus: int) -> tuple[int, int]:
+    """(3 min background, 1 s level) of a multiFlash stimulus: 6 x 6 levels, background-major; ManyInt3 0-75, ManyInt 0-255."""
+    j, step = odd_index(stimulus), 15 if experiment.endswith("3") else 51
+    return step * (j // 6), step * (j % 6)
+
+
+def beep_column(experiment: str, stimulus: int) -> int:
+    """Tone frequency index (200-2000 Hz): from the name for one-frequency experiments, else one per block of 5."""
+    match = re.search(r"(\d+)Hz", experiment)
+    return int(match[1]) // 200 - 1 if match else (stimulus - 1) // 5
+
+
+def dim_column(experiment: str, stimulus: int) -> int:
+    """Fig. 3A dimming column of a step from a lit background to dark (ManyInt3 0-4, ManyInt 5-9), else -1."""
+    background, level = flash_levels(experiment, stimulus)
+    if stimulus % 2 == 0 or level > 0 or background == 0:
+        return -1
+    many_int3 = experiment.endswith("3")
+    return background // (15 if many_int3 else 51) - 1 + (0 if many_int3 else 5)
+
+
+def side(angle: float) -> int:
+    """+1 for a stimulus on the fish's left, -1 on its right, 0 ahead or behind."""
+    return int(np.sign(np.round(np.sin(np.radians(angle)), 9)))
+
+
+def tone_label(stimulus: int) -> str:
+    return f"tone {200 * (beep_column('', stimulus) + 1)} Hz" if stimulus % 5 == 4 else "before tone"
 
 
 def spont_intensity(stimulus: int) -> int | None:
@@ -110,12 +161,18 @@ def spont_intensity(stimulus: int) -> int | None:
 STIMULUS_LABELS: dict[str, Callable[[int], str]] = {
     "OMRSpeed": lambda s: f"forward grating {OMR_SPEEDS_MM_S[s]} mm/s",
     "OMRTurns": lambda s: "static grating / pre-stimulus (?)" if s == 0 else f"grating {(s - 1) * 15} deg",
-    "LoomingDifferentDirections": lambda s: "loom (one of 8 angles)" if s % 2 else "interval",
-    "LoomingDifferentSpeeds": lambda s: "loom (6 speeds x 4 directions)" if s % 2 else "interval",
-    "Phototaxis": lambda s: "phototaxis" if s % 2 else "1 s pre-flash",
-    "3minLightDark": lambda s: ("dark", "light")[s],
+    "LoomingDifferentDirections": lambda s: f"loom from {loom_angle('LoomingDifferentDirections', s)} deg" if s % 2 else "interval",
+    "LoomingDifferentSpeeds": lambda s: (f"loom {LOOM_SPEEDS_MM_S[odd_index(s) // 4]} mm/s from "
+                                         f"{loom_angle('LoomingDifferentSpeeds', s)} deg") if s % 2 else "interval",
+    "Phototaxis": lambda s: "left {} / right {}".format(*phototaxis_sides(s)) if s % 2 else "1 s grey",
+    "3minLightDark": lambda s: ("light", "dark")[s],
     "DarkLightTransitions": lambda s: f"light {SPONT_LUX[spont_intensity(s)]} lux" if s % 2 else "dark",
-    "AcousticLightDark": lambda s: "tone" if s % 3 == 1 else "background",
+    "AcousticLightDark": lambda s: ("tone, " if s % 3 == 1 else "") + ("light", "dark")[s // 3 % 2],
+    "Beeps200to2000": tone_label,
+    "FlashBeeps200to2000": lambda s: "flash" if s % 5 == 2 else tone_label(s),
+    "multiBeep": lambda s: "tone" if s % 5 == 4 else "before tone",
+    "multiFlash3min1sManyInt3": lambda s: "background {}, 1 s at {}".format(*flash_levels("3", s)) if s % 2 else "background",
+    "multiFlash3min1sManyInt": lambda s: "background {}, 1 s at {}".format(*flash_levels("", s)) if s % 2 else "background",
     "SpontaneousMultiFishDark": lambda s: "dark",
     "SpontaneousMultiFishLight": lambda s: "light",
     "SpontaneousWEyeTracking": lambda s: "spontaneous",
@@ -130,6 +187,17 @@ def stimulus_label(experiment: str, stimulus: int) -> str:
     return label(stimulus) if label else ""
 
 
+def phototaxis_readout(stimulus: int) -> bool:
+    """Phototaxis trials with one side dark and the other at one of PHOTOTAXIS_READOUT_LEVELS."""
+    lit = [[0, level] for level in PHOTOTAXIS_READOUT_LEVELS]
+    return stimulus > 0 and stimulus % 2 == 1 and sorted(phototaxis_sides(stimulus)) in lit
+
+
+def phototaxis_side(experiment: str, stimulus: int) -> int:
+    left, right = phototaxis_sides(stimulus)
+    return int(np.sign(left - right))
+
+
 @dataclass(frozen=True)
 class Readout:
     """A readout of the screen (model_config names), measured in the Marques experiments that have it."""
@@ -138,21 +206,27 @@ class Readout:
     experiments: tuple[str, ...]  # zip-name prefixes
     stimuli: Callable[[str, int], bool]
     categories: tuple[str, ...] | None  # None: all bouts
-    window_s: float | None  # from the first bout of each presentation; None: whole run, as a rate
+    window_s: float | None  # window end, from the first bout of each presentation; None: end of the run
+    start_s: float = 0.0  # window start, from the first bout
     escape: bool = False  # strength = fraction of presentations with >= 1 event, instead of a rate
-    sided: bool = False  # also: fraction of turning events toward the stimulus side's preferred direction
+    side: Callable[[str, int], int] | None = None  # sided readouts: correct turn (+1 left, -1 right, 0 none)
     multi_fish: bool = False  # keep arenas with several fish (only these exist for this readout; identities may swap)
 
 
 READOUTS = [
     Readout("omr_forward", ("OMRSpeed",), lambda e, s: 1 <= s <= 9, ("S1", "S2", "BS"), 9.0),
-    Readout("omr_lateral", ("OMRTurns",), lambda e, s: 2 <= s <= 24 and s != 13, ("RT", "HAT"), 9.0, sided=True),
-    Readout("phototaxis", ("Phototaxis",), lambda e, s: s > 0 and s % 2 == 1, ("RT",), 24.0, sided=True),
-    Readout("looming", ("LoomingDifferent",), lambda e, s: s > 0 and s % 2 == 1, ("SLC", "LLC"), 9.0, escape=True, sided=True),
-    Readout("spont_dark", ("3minLightDark", "DarkLightTransitions"), lambda e, s: s >= 0 and s % 2 == 0, None, None),
-    Readout("spont_bright", ("3minLightDark",), lambda e, s: s == 1, None, None),
+    Readout("omr_lateral", ("OMRTurns",), lambda e, s: 2 <= s <= 24 and s != 13, ("RT", "HAT"), 9.0,
+            side=lambda e, s: side((s - 1) * 15)),
+    Readout("phototaxis", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), 24.0, side=phototaxis_side),
+    Readout("phototaxis_early", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), 2.5, side=phototaxis_side),
+    Readout("phototaxis_late", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), None, 2.5, side=phototaxis_side),
+    Readout("looming", ("LoomingDifferent",), lambda e, s: s > 0 and s % 2 == 1, ("SLC", "LLC"), 9.0, escape=True,
+            side=lambda e, s: -side(loom_angle(e, s))),
+    Readout("spont_dark", ("3minLightDark", "DarkLightTransitions"),
+            lambda e, s: s == 1 if e.startswith("3minLightDark") else s >= 0 and s % 2 == 0, None, None),
+    Readout("spont_bright", ("3minLightDark",), lambda e, s: s == 0, None, None),
     Readout("prey_capture", ("PreyCapture",), lambda e, s: True, ("JT",), None),
-    Readout("flash_escape", ("multiFlash3min1sManyInt",), lambda e, s: dim_column(e, s, DIM_POSITIONS) >= 0, ("O", "SAT"), None,
+    Readout("flash_escape", ("multiFlash3min1sManyInt",), lambda e, s: dim_column(e, s) >= 0, ("O", "SAT"), None,
             escape=True, multi_fish=True),
 ]
 
@@ -457,40 +531,38 @@ def turn_bias(bouts: pd.DataFrame, fish: pd.DataFrame) -> pd.DataFrame:
     return bias.assign(label=[stimulus_label(e, s) for e, s in zip(bias["experiment"], bias["stimulus"])])
 
 
-def readout_per_fish(spec: Readout, bouts: pd.DataFrame, fish: pd.DataFrame, bias: pd.DataFrame) -> pd.DataFrame:
+def readout_per_fish(spec: Readout, bouts: pd.DataFrame, fish: pd.DataFrame) -> pd.DataFrame:
     """One row per fish: presentations, events, strength (rate or escape probability) and, if sided, direction."""
     keys = fish.loc[fish["experiment"].str.startswith(spec.experiments), ["fish_key", "experiment"]]
     b = bouts.merge(keys, on="fish_key")
     b = b[np.array([spec.stimuli(e, s) for e, s in zip(b["experiment"], b["stimulus"])], dtype=bool)]
     events = b if spec.categories is None else b[b["category"].isin([CATEGORIES[c] for c in spec.categories])]
-    if spec.window_s is not None:
-        events = events[events["t"] - events["t0"] <= spec.window_s]
+    events = events[(events["t"] - events["t0"]).between(spec.start_s, np.inf if spec.window_s is None else spec.window_s)]
     runs = b.groupby("run").agg(fish_key=("fish_key", "first"), span=("t", lambda t: t.max() - t.min()))
-    per_fish = runs.groupby("fish_key").agg(presentations=("span", "size"), T=("span", "sum"))
+    runs["observed"] = (runs["span"] - spec.start_s).clip(lower=0)
+    per_fish = runs.groupby("fish_key").agg(presentations=("span", "size"), T=("observed", "sum"))
     per_fish["events"] = events.groupby("fish_key").size().reindex(per_fish.index, fill_value=0)
     if spec.escape:
         responded = events.groupby("fish_key")["run"].nunique().reindex(per_fish.index, fill_value=0)
         per_fish["strength"] = responded / per_fish["presentations"]
     elif spec.window_s is not None:
-        per_fish["strength"] = per_fish["events"] / (per_fish["presentations"] * spec.window_s)
+        per_fish["strength"] = per_fish["events"] / (per_fish["presentations"] * (spec.window_s - spec.start_s))
     else:
         per_fish["strength"] = per_fish["events"] / per_fish["T"].where(per_fish["T"] > 0)
-    if spec.sided:
-        preferred = bias.set_index(["experiment", "stimulus"])["bias"]
-        side = preferred.reindex(pd.MultiIndex.from_arrays([events["experiment"], events["stimulus"]])).to_numpy()
-        events = events.assign(side=side)
-        turning = events[(events["side"].abs() >= MIN_SIDE_BIAS) & (events["angle"].abs() >= MIN_TURN_DEG)]
-        toward = turning.assign(toward=np.sign(turning["angle"]) == np.sign(turning["side"])).groupby("fish_key")["toward"]
+    if spec.side is not None:
+        events = events.assign(side=[spec.side(e, s) for e, s in zip(events["experiment"], events["stimulus"])])
+        turning = events[(events["side"] != 0) & (events["angle"].abs() >= MIN_TURN_DEG)]
+        toward = turning.assign(toward=np.sign(turning["angle"]) == turning["side"]).groupby("fish_key")["toward"]
         per_fish["sided_events"] = toward.size().reindex(per_fish.index, fill_value=0)
         per_fish["toward"] = toward.sum().reindex(per_fish.index, fill_value=0)
     return per_fish.reset_index().merge(fish, on="fish_key")
 
 
-def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, bias: pd.DataFrame, min_fish: int, fold: float, lines: int) -> pd.DataFrame:
+def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, fold: float, lines: int) -> pd.DataFrame:
     """Per readout of the screen and Marques experiment: CV of strength across fish, spread of direction, fish needed."""
     rows = []
     for spec in READOUTS:
-        per_fish = readout_per_fish(spec, bouts, fish, bias)
+        per_fish = readout_per_fish(spec, bouts, fish)
         per_fish = per_fish[spec.multi_fish | (per_fish["fish_in_file"] == 1)].dropna(subset=["strength"])
         for experiment, g in per_fish.groupby("experiment"):
             if len(g) < min_fish:
@@ -498,12 +570,13 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, bias: pd.DataFrame, min_fi
             cv = g["strength"].std(ddof=1) / g["strength"].mean()
             row = {
                 "readout": spec.name, "experiment": experiment, "n_fish": len(g),
-                "presentations": g["presentations"].median(), "events_per_fish": g["events"].mean(),
+                "presentations": g["presentations"].median(), "run_s": (g["T"] / g["presentations"]).median(),
+                "events_per_fish": g["events"].mean(),
                 "strength_mean": g["strength"].mean(), "cv_strength": cv,
                 "fish_strength": fish_needed(np.log1p(cv**2), fold, 0.05),
                 f"fish_strength_alpha/{lines}": fish_needed(np.log1p(cv**2), fold, 0.05 / lines),
             }
-            d = g[g["sided_events"] > 0] if spec.sided else g.iloc[:0]
+            d = g[g["sided_events"] > 0] if spec.side is not None else g.iloc[:0]
             if len(d) >= min_fish:
                 logit = np.log((d["toward"] + 0.5) / (d["sided_events"] - d["toward"] + 0.5))
                 row |= {
@@ -575,7 +648,7 @@ def analyze(
     print("\nTurn bias per stimulus (mean sign of turns; check the stimulus mapping):")
     print(directional[["experiment", "stimulus", "label", "fish", "turns", "bias"]].round(2).to_string(index=False))
 
-    result = readouts(bouts, fish, bias, min_fish, fold, lines)
+    result = readouts(bouts, fish, min_fish, fold, lines)
     result.to_csv(out / "readouts.csv", index=False)
     print(f"\nScreen readouts (one fish per arena), fish per group for a {fold:g}-fold change, {POWER:.0%} power:")
     print(result.round(2).to_string(index=False))
@@ -585,8 +658,7 @@ def analyze(
 # --- Fig. 3A check of the stimulus mapping ------------------------------------------------
 FIG3A_STATS = "firstOrderStatisticsOfFig3A.mat"
 FIG3A_TYPES = ["AS", "S1", "S2", "SCS", "LCS", "BS", "JT", "HAT", "RT", "SAT", "O", "LLC", "SLC"]  # stats file order
-LOOM_START_MM = 40  # the spot starts 4 cm from the fish; bouts count until it reaches the fish
-LOOM_SPEEDS_MM_S = [2.5, 5, 10, 15, 20, 25]
+LOOM_START_MM = {"directions": 50, "speeds": 40}  # spot start distance; bouts count until it reaches the fish
 
 
 @dataclass(frozen=True)
@@ -603,67 +675,16 @@ class Panel:
     hypotheses: dict[str, Callable[[str, int], int]] = field(default_factory=dict)  # candidate mappings, if none is predicted
 
 
-def odd_index(stimulus: int) -> int:
-    """0, 1, 2 ... for the odd stimulus numbers 1, 3, 5 ..."""
-    return (stimulus - 1) // 2
+def phototaxis_column(stimulus: int, levels: tuple[int, ...]) -> int:
+    """Fig. 3A column of a trial with one side dark and the other at one of `levels`, else -1."""
+    dark, lit = sorted(phototaxis_sides(stimulus))
+    return levels.index(lit) if dark == 0 and lit in levels else -1
 
 
-# Candidate orderings of the odd stimuli, tested against Fig. 3A where the paper gives no mapping.
-LOOM_ANGLE_HYPOTHESES = {  # 8 angles in 45 deg steps, in stimulus order, starting at 45 r; folded to 0-180
-    f"angles in order, stimulus 1 = {45 * r} deg": (lambda r: lambda e, s: min((odd_index(s) + r) % 8, 8 - (odd_index(s) + r) % 8))(r)
-    for r in range(8)
-}
-LOOM_SPEED_HYPOTHESES = {  # 24 looms = 6 speeds x 4 directions
-    "speed-major, slow to fast": lambda e, s: odd_index(s) // 4,
-    "speed-major, fast to slow": lambda e, s: 5 - odd_index(s) // 4,
-    "direction-major, slow to fast": lambda e, s: odd_index(s) % 6,
-    "direction-major, fast to slow": lambda e, s: 5 - odd_index(s) % 6,
-}
-# Same two layouts with the speed order left free: all 720 orders are tried, and the best one is reported.
-# A free order fits better by construction, so it only counts if all four directions agree (low distance).
-for layout, position in {"speed-major": lambda j: j // 4, "direction-major": lambda j: j % 6}.items():
-    for order in itertools.permutations(range(6)):
-        LOOM_SPEED_HYPOTHESES[f"{layout}, speed order {''.join(map(str, order))}"] = (
-            lambda position, order: lambda e, s: order[position(odd_index(s))])(position, order)
-PHOTOTAXIS_HYPOTHESES = {  # 36 stimuli, 4 intensities; guesses at how they cycle
-    "intensity cycles every stimulus": lambda e, s: odd_index(s) % 4,
-    "intensity cycles every 2 stimuli (left/right pairs)": lambda e, s: odd_index(s) // 2 % 4,
-    "intensity in blocks of 9": lambda e, s: odd_index(s) // 9,
-    "intensity in blocks of 8 then repeated": lambda e, s: odd_index(s) % 8 // 2,
-}
-
-
-def beep_column(experiment: str, stimulus: int, phase: int, reverse: bool = False) -> int:
-    """Frequency column (200-2000 Hz) of a beep: from the name for one-frequency experiments, else the
-    block of 5 stimulus numbers (stimuli 5, 10 ... never occur); -1 if not at `phase` within the block."""
-    if stimulus % 5 != phase:
-        return -1
-    if match := re.search(r"(\d+)Hz", experiment):
-        return int(match[1]) // 200 - 1
-    block = (stimulus - 1) // 5
-    return 9 - block if reverse else block
-
-
-BEEP_HYPOTHESES = {
-    f"beep at stimulus {phase} of each block of 5, frequencies {'descending' if reverse else 'ascending'}":
-        (lambda phase, reverse: lambda e, s: beep_column(e, s, phase, reverse))(phase, reverse)
-    for phase in range(1, 5) for reverse in (False, True)
-}
-
-
-def dim_column(experiment: str, stimulus: int, positions: tuple[int, ...]) -> int:
-    """Dimming column: blocks of 12 stimulus numbers, one intensity each (block 0 not shown); the
-    208-fish set (ManyInt3) gives columns 0-4, the other 5-9; -1 unless at one of `positions` (1, 3 ... 11)."""
-    block = (stimulus - 1) // 12
-    if block == 0 or (stimulus - 1) % 12 + 1 not in positions:
-        return -1
-    return block - 1 + (0 if experiment.endswith("3") else 5)
-
-
-DIM_POSITIONS = (1,)  # from fig3a_hypotheses.csv: the dim is the first stimulus of each block
-DIM_HYPOTHESES = {
-    f"dims at block positions {positions}": (lambda positions: lambda e, s: dim_column(e, s, positions))(positions)
-    for positions in [(1,), (1, 3), (1, 3, 5), (1, 3, 5, 7, 9, 11)]
+# Table S2 lists 4 lit levels against dark (100-1250 lux); the protocol has 5: which 4 is tested.
+PHOTOTAXIS_HYPOTHESES = {
+    f"lit side at levels {levels}": (lambda levels: lambda e, s: phototaxis_column(s, levels))(levels)
+    for levels in itertools.combinations(PHOTOTAXIS_LEVELS[1:], 4)
 }
 
 
@@ -683,15 +704,15 @@ PANELS = [
     Panel("phototaxis (4 intensities)", ("Phototaxis",), range(34, 38), lambda e, s: s > 0 and s % 2 == 1,
           lambda e, s: None, first_bouts=3, hypotheses=PHOTOTAXIS_HYPOTHESES),
     Panel("expanding spot, angle (0-180 deg)", ("LoomingDifferentDirections",), range(38, 43), lambda e, s: s > 0 and s % 2 == 1,
-          lambda e, s: None, window_s=lambda c: LOOM_START_MM / 20, hypotheses=LOOM_ANGLE_HYPOTHESES),
+          lambda e, s: min(loom_angle(e, s), 360 - loom_angle(e, s)) // 45, window_s=lambda c: LOOM_START_MM["directions"] / 20),
     Panel("expanding spot, speed (2.5-25 mm/s)", ("LoomingDifferentSpeeds",), range(43, 49), lambda e, s: s > 0 and s % 2 == 1,
-          lambda e, s: None, window_s=lambda c: LOOM_START_MM / LOOM_SPEEDS_MM_S[c], hypotheses=LOOM_SPEED_HYPOTHESES),
-    Panel("acoustic (200-2000 Hz)", ("Beeps200to2000", "multiBeep"), range(49, 59), lambda e, s: "Flash" not in e,
-          lambda e, s: None, first_bouts=1, hypotheses=BEEP_HYPOTHESES),
-    Panel("flash + acoustic (200-2000 Hz)", ("FlashBeeps200to2000", "multiBeepFlash"), range(59, 69), lambda e, s: True,
-          lambda e, s: None, first_bouts=1, hypotheses=BEEP_HYPOTHESES),
-    Panel("dimming (10 conditions)", ("multiFlash3min1sManyInt",), range(69, 79), lambda e, s: s % 2 == 1,
-          lambda e, s: None, first_bouts=1, hypotheses=DIM_HYPOTHESES),
+          lambda e, s: odd_index(s) // 4, window_s=lambda c: LOOM_START_MM["speeds"] / LOOM_SPEEDS_MM_S[c]),
+    Panel("acoustic (200-2000 Hz)", ("Beeps200to2000", "multiBeep"), range(49, 59),
+          lambda e, s: "Flash" not in e and s % 5 == 4, beep_column, first_bouts=1),
+    Panel("flash + acoustic (200-2000 Hz)", ("FlashBeeps200to2000", "multiBeepFlash"), range(59, 69),
+          lambda e, s: s % 5 == 4, beep_column, first_bouts=1),
+    Panel("dimming (10 conditions)", ("multiFlash3min1sManyInt",), range(69, 79),
+          lambda e, s: dim_column(e, s) >= 0, dim_column, first_bouts=1),
 ]
 
 
