@@ -940,9 +940,12 @@ class Scene:
             cv2.line(strip, (x_s, top), (x_s, bottom), color, 2)
             text(strip, label(SACCADE_CLASS_NAMES.get(int(s.cluster), str(s.cluster)), s.laterality), (x_s + 4, top - 6), color, 0.42)
 
-        top, bottom = rows["QC"]
-        for x0, x1, ok in zip(x[:-1], x[1:], t.tracking_ok[window][:-1]):
-            cv2.rectangle(strip, (int(x0), top), (int(np.ceil(x1)), bottom), OK_BGR if ok else BAD_BGR, -1)
+        top, bottom = rows["QC"]  # one sample per pixel column, so the bar slides without flicker
+        columns = np.arange(MARGIN_PX, MARGIN_PX + width)
+        times = start + (columns + 0.5 - MARGIN_PX) / width * WINDOW_S
+        inside = (times >= t.time_s[0]) & (times <= t.time_s[-1])
+        ok = t.tracking_ok[nearest_indices(t.time_s, times[inside])]
+        strip[top:bottom, columns[inside]] = np.where(ok[:, None], OK_BGR, BAD_BGR)
 
         for row, (top, bottom) in rows.items():
             text(strip, row, (8, (top + bottom) // 2 + 5), GREY, 0.5)
