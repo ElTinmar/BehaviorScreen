@@ -97,6 +97,19 @@ SACCADE_CLASS_NAMES = {
     8: "Biphasic convergent left",
 }
 
+# Class colours of Dowell et al. 2024
+SACCADE_CLASS_COLORS = {
+    0: "#bdbdbd",
+    1: "#66c2a5",
+    2: "#e78ac3",
+    3: "#d95f02",
+    4: "#377eb8",
+    5: "#969696",
+    6: "#8c510a",
+    7: "#1f78b4",
+    8: "#00bfc4",
+}
+
 # NOTE flipped for my dataset
 SACCADE_CLASS_DIRECTIONS = {
     1: EventDirection.RIGHT,

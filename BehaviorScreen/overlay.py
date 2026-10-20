@@ -1,24 +1,35 @@
-import multiprocessing as mp
-import time
-import pickle
-from typing import Dict
-from pathlib import Path
+"""
+Overlay video of one recording: the whole field with the stimulus the fish
+saw, its trajectory, online tracking and the well (left); a fish-centred view
+with the post-hoc pose, bout and saccade labels (right); tail and eye angles,
+bouts, saccades and tracking agreement over a moving time window (bottom).
+
+    python -m BehaviorScreen.overlay ROOT --fish NAME [--saccades saccades_augmented_all.csv]
+        [--start 0] [--duration 30] [--speed 0.5] [--fps 30]
+
+Only the requested window is read and rendered, at --fps output frames per
+second; --speed < 1 is slow motion.
+"""
 import argparse
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, Optional, Tuple
 
-import numpy as np
 import cv2
-
+import matplotlib
+import numpy as np
+import pandas as pd
 from megabouts.utils import bouts_category_name
-from megabouts.pipeline.freely_swimming_pipeline import EthogramFullTracking
-
-from BehaviorScreen.load import Directories, BehaviorFiles, find_files, load_data
-from BehaviorScreen.core import Stim, EventDirection
-from BehaviorScreen.megabouts import MegaboutResults
-
+from tqdm import tqdm
 from video_tools import FFMPEG_VideoWriter_CPU
 
-##TODO add online tracking
+from BehaviorScreen.core import SACCADE_CLASS_COLORS, SACCADE_CLASS_NAMES, EventDirection, Stim
+from BehaviorScreen.eyes.detect_saccades import extract_raw_eye_angles
+from BehaviorScreen.load import Directories, find_files
+from BehaviorScreen.megabouts import load_megabout
+from BehaviorScreen.process import compute_angle_between_vectors
+from BehaviorScreen.qc import get_per_frame_tracking_error
+from BehaviorScreen.recording import Recording, nearest_indices
 
 PI = np.pi
 
@@ -554,244 +565,334 @@ def overlay_stimulus(X, Y, p):
         return fn(X, Y, p)
 
 
-def add_label(
-    image: np.ndarray,
-    label: str,
-    font: int = cv2.FONT_HERSHEY_SIMPLEX,
-    font_scale=1,
-    color=(255, 255, 255),
-    thickness=2,
-    position=(10, 30),
-) -> None:
-
-    cv2.putText(image, label, position, font, font_scale, color, thickness, cv2.LINE_AA)
 
 
-def do_overlay(
-    output_dir: Path,
-    behavior_file: BehaviorFiles,
-    downsample: int = 4,
-    overwrite: bool = False,
-) -> None:
+# ---------------------------------------------------------------------------
+# Overlay video
+# ---------------------------------------------------------------------------
 
-    output_video = output_dir / behavior_file.video.name
-    progress_file = output_dir / f"{behavior_file.video.stem}.progress"
+PANEL_PX, STRIP_PX, MARGIN_PX = 720, 270, 80
+ZOOM_MM = 5.0
+WINDOW_S = 4.0
+SACCADE_LABEL_S = 0.3
+QC_CENTROID_MM, QC_HEADING_DEG = 1.0, 15.0
+FONT = cv2.FONT_HERSHEY_SIMPLEX
+WHITE, GREY = (235, 235, 235), (150, 150, 150)
+ONLINE_BGR, POSE_BGR, TRAIL_BGR = (0, 165, 255), (110, 220, 120), (230, 190, 90)
+OK_BGR, BAD_BGR = (90, 160, 90), (60, 60, 220)
+EYE_BGR = {"left": (240, 150, 60), "right": (70, 120, 240)}
+TAIL_PARTS = ["Swim_Bladder"] + [f"Tail_{i}" for i in range(9)]
 
-    if output_video.exists() and not progress_file.exists():
-        if not overwrite:
-            print(f"{output_video} already exists, skipping ...", flush=True)
-            return
 
-    with open(behavior_file.metadata.with_suffix(".pkl"), "rb") as fp:
-        megabout: MegaboutResults = pickle.load(fp)
+def bgr(rgb: Tuple[float, ...]) -> Tuple[int, int, int]:
+    return tuple(int(255 * c) for c in rgb[2::-1])
 
-    behavior_data = load_data(behavior_file)
 
-    mm_per_pixel = 1 / behavior_data.metadata["calibration"]["pix_per_mm"]
-    timestamp_start = behavior_data.video_timestamps.loc[0, "timestamp"]
+BOUT_BGR = [bgr(matplotlib.colormaps["tab20"](i)) for i in range(20)]
+SACCADE_BGR = {k: bgr(matplotlib.colors.to_rgb(v)) for k, v in SACCADE_CLASS_COLORS.items()}
 
-    height_px = behavior_data.video.get_height()
-    width_px = behavior_data.video.get_width()
-    fps = behavior_data.video.get_fps()
-    num_frames = behavior_data.tracking.shape[0]
 
-    grid = image_coord_grid(height_px, width_px, downsample=downsample)
+@dataclass
+class Tracks:
+    """Everything drawn, on the recording's frame clock (pixels, degrees, seconds from the first frame)."""
 
-    writer = FFMPEG_VideoWriter_CPU(
-        filename=output_video,
-        height=height_px,
-        width=width_px,
-        fps=fps,
-        q=18,
+    time_s: np.ndarray
+    head: np.ndarray
+    tail: np.ndarray  # (n, 10, 2): swim bladder, then Tail_0..8
+    tail_angle: np.ndarray
+    online: np.ndarray  # (n, 6): centroid, pc1, pc2
+    tracking_ok: np.ndarray
+    bouts: pd.DataFrame  # onset, offset (frames), category, sign
+    saccades: pd.DataFrame  # onset_s, cluster
+    eyes: Dict[str, np.ndarray] = field(default_factory=dict)  # side -> (n, 2, 2) front, back
+    eye_angle: Dict[str, np.ndarray] = field(default_factory=dict)
+
+
+def fit_length(values: np.ndarray, n: int) -> np.ndarray:
+    out = np.full((n, *values.shape[1:]), np.nan)
+    out[: min(n, len(values))] = values[:n]
+    return out
+
+
+def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame]) -> Tracks:
+    n = min(len(rec.pose), rec.n_frames)
+    pose = rec.pose.iloc[:n]
+    xy = lambda frame, part: frame[part][["x", "y"]].to_numpy(float)
+    head = xy(pose, "Head")
+    tail = np.stack([xy(pose, part) for part in TAIL_PARTS], axis=1)
+    error = get_per_frame_tracking_error(rec).iloc[:n]
+
+    megabout = load_megabout(rec)
+    bouts = pd.DataFrame(columns=["onset", "offset", "category", "sign"])
+    if megabout is not None:
+        b = megabout.bouts
+        k = min(len(b.onset), len(b.offset), len(b.category), len(b.sign))
+        bouts = pd.DataFrame({"onset": b.onset[:k], "offset": b.offset[:k], "category": b.category[:k], "sign": b.sign[:k]})
+        bouts = bouts[(bouts.onset >= 0) & (bouts.offset > bouts.onset)].astype(int)
+
+    events = saccades[saccades["fish"].astype(str) == rec.name] if saccades is not None else pd.DataFrame()
+    tracks = Tracks(
+        time_s=(rec.frame_time_ns[:n] - rec.frame_time_ns[0]) * 1e-9,
+        head=head,
+        tail=tail,
+        tail_angle=np.rad2deg(compute_angle_between_vectors(tail[:, -1] - tail[:, 1], tail[:, 0] - head)),
+        online=rec.online.iloc[:n][["centroid_x", "centroid_y", "pc1_x", "pc1_y", "pc2_x", "pc2_y"]].to_numpy(float),
+        tracking_ok=((error.centroid_distance_mm < QC_CENTROID_MM) & (error.heading_angle_deg < QC_HEADING_DEG)).to_numpy(),
+        bouts=bouts,
+        saccades=pd.DataFrame({"onset_s": events.get("onset_time_s", []), "cluster": events.get("cluster", [])}),
     )
-    file = open(progress_file, "w")
+    if not rec.eyes.empty:
+        _, left, right, _, _ = extract_raw_eye_angles(rec)
+        for side, angle in (("left", left), ("right", right)):
+            landmarks = np.stack([xy(rec.eyes, f"eye_{side}_{end}") for end in ("front", "back")], axis=1)
+            tracks.eyes[side] = fit_length(landmarks, n)
+            tracks.eye_angle[side] = fit_length(angle, n)
+    return tracks
 
+
+class FrameReader:
+    """Video frames by index: reads forward, seeks only when going back or far ahead."""
+
+    def __init__(self, path: Path) -> None:
+        self.capture, self.position = cv2.VideoCapture(str(path)), 0
+        self.size = (int(self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)), int(self.capture.get(cv2.CAP_PROP_FRAME_WIDTH)))
+
+    def read(self, index: int) -> np.ndarray:
+        if index < self.position or index > self.position + 100:
+            self.capture.set(cv2.CAP_PROP_POS_FRAMES, index)
+            self.position = index
+        while self.position < index:
+            self.capture.grab()
+            self.position += 1
+        ok, image = self.capture.read()
+        if not ok:
+            raise RuntimeError(f"cannot read video frame {index}")
+        self.position += 1
+        return image
+
+
+def view_matrix(center: np.ndarray, scale: float, angle: float) -> np.ndarray:
+    """Image pixels to a square panel: rotate by `angle` about `center`, scale, centre in the panel."""
+    rotation = scale * np.array([[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]])
+    return np.hstack([rotation, (PANEL_PX / 2 - rotation @ center)[:, None]])
+
+
+def to_panel(matrix: np.ndarray, points: np.ndarray) -> np.ndarray:
+    return points @ matrix[:, :2].T + matrix[:, 2]
+
+
+def polyline(image: np.ndarray, points: np.ndarray, color: Tuple[int, int, int], thickness: int = 2) -> None:
+    """Draw the finite runs of `points` (n, 2)."""
+    finite = np.isfinite(points).all(axis=1)
+    for run in np.split(np.arange(len(points)), np.flatnonzero(np.diff(finite.astype(int))) + 1):
+        if len(run) > 1 and finite[run[0]]:
+            cv2.polylines(image, [np.round(points[run]).astype(np.int32)], False, color, thickness, cv2.LINE_AA)
+
+
+def text(image: np.ndarray, label: str, origin: Tuple[int, int], color: Tuple[int, int, int] = WHITE, scale: float = 0.6) -> None:
+    """Label on a darkened box, readable over any background."""
+    (width, height), baseline = cv2.getTextSize(label, FONT, scale, 1)
+    x, y = origin
+    box = image[max(y - height - 4, 0) : y + baseline + 2, max(x - 4, 0) : x + width + 4]
+    box[:] = box // 3
+    cv2.putText(image, label, origin, FONT, scale, color, 1, cv2.LINE_AA)
+
+
+@dataclass
+class Scene:
+    rec: Recording
+    tracks: Tracks
+    size: Tuple[int, int]  # video height, width (px)
+    downsample: int = 2  # stimulus grid step, panel px
+
+    def __post_init__(self) -> None:
+        rec, t = self.rec, self.tracks
+        height, width = self.size
+        well = rec.well
+        if well is None:
+            self.field_view = view_matrix(np.array([width, height]) / 2, PANEL_PX / max(width, height), 0.0)
+        else:
+            center, radius = np.array([well.x_mm, well.y_mm]) * rec.pix_per_mm, well.radius_mm * rec.pix_per_mm
+            self.field_view = view_matrix(center, PANEL_PX / (2.1 * radius), 0.0)
+        self.panel_grid = image_coord_grid(PANEL_PX, PANEL_PX, self.downsample)
+        self.stimulus_start = np.array([s["timestamp"] for s in rec.stimuli], dtype=np.int64)
+        self.trial_start = rec.trials["start_frame"].to_numpy()
+        self.tail_range = max(float(np.nanpercentile(np.abs(t.tail_angle), 99.5)), 10.0)
+        angles = np.concatenate(list(t.eye_angle.values())) if t.eye_angle else np.array([-30.0, 30.0])
+        self.eye_range = tuple(np.nanpercentile(angles, [0.5, 99.5]))
+
+    def frame(self, k: int, image: np.ndarray) -> np.ndarray:
+        return np.vstack([np.hstack([self.field_panel(k, image), self.zoom_panel(k, image)]), self.strip(k)])
+
+    def panel(self, k: int, image: np.ndarray, view: np.ndarray) -> np.ndarray:
+        """The video seen through `view`, with the stimulus as the shader drew it from the online tracking it used."""
+        panel = cv2.warpAffine(image, view, (PANEL_PX, PANEL_PX), flags=cv2.INTER_LINEAR)
+        timestamp, online = self.rec.frame_time_ns[k], self.tracks.online[k]
+        active = np.searchsorted(self.stimulus_start, timestamp, side="right") - 1
+        if active < 0 or not np.isfinite(online).all():
+            return panel
+        stimulus = self.rec.stimuli[active]
+        image_px = to_panel(cv2.invertAffineTransform(view), self.panel_grid)
+        coords = egocentric_coords_mm(image_px, online[:2], online[2:4], online[4:6], 1 / self.rec.pix_per_mm)
+        drawn = overlay_stimulus(coords[..., 0], coords[..., 1], stim_to_param(stimulus, (1e-9 * timestamp) % rollover_time_sec))
+        if drawn is None:
+            return panel
+        drawn = cv2.resize(np.ascontiguousarray(drawn[..., ::-1], dtype=np.uint8), (PANEL_PX, PANEL_PX), interpolation=cv2.INTER_LINEAR)
+        return sum_blend(panel, drawn, 5.0 if stimulus["stim_select"] == Stim.PREY_CAPTURE else 1.0)
+
+    def field_panel(self, k: int, image: np.ndarray) -> np.ndarray:
+        rec, t, view = self.rec, self.tracks, self.field_view
+        panel = self.panel(k, image, view)
+        if rec.well is not None:
+            center = to_panel(view, np.array([rec.well.x_mm, rec.well.y_mm]) * rec.pix_per_mm)
+            radius = rec.well.radius_mm * rec.pix_per_mm * view[0, 0]
+            cv2.circle(panel, tuple(np.round(center).astype(int)), int(round(radius)), GREY, 1, cv2.LINE_AA)
+            cv2.drawMarker(panel, tuple(np.round(center).astype(int)), GREY, cv2.MARKER_CROSS, 10, 1)
+        trial = np.searchsorted(self.trial_start, k, side="right") - 1
+        start = self.trial_start[trial] if trial >= 0 else 0
+        polyline(panel, to_panel(view, t.tail[start : k + 1 : 2, 0]), TRAIL_BGR, 1)
+        online = t.online[k]
+        if np.isfinite(online).all():
+            center = to_panel(view, online[:2])
+            tip = to_panel(view, online[:2] + online[2:4] * rec.pix_per_mm)
+            cv2.drawMarker(panel, tuple(np.round(center).astype(int)), ONLINE_BGR, cv2.MARKER_TILTED_CROSS, 12, 2)
+            cv2.line(panel, tuple(np.round(center).astype(int)), tuple(np.round(tip).astype(int)), ONLINE_BGR, 2, cv2.LINE_AA)
+        if np.isfinite(t.tail[k, 0]).all():
+            cv2.circle(panel, tuple(np.round(to_panel(view, t.tail[k, 0])).astype(int)), 4, POSE_BGR, -1, cv2.LINE_AA)
+
+        row = rec.trials.iloc[trial] if trial >= 0 else None
+        label = f"{t.time_s[k]:7.2f} s" + (f"   {row.epoch_name}  #{row.trial_num + 1}" if row is not None else "")
+        text(panel, label, (12, 28))
+        text(panel, "tracking" if t.tracking_ok[k] else "tracking mismatch", (12, PANEL_PX - 14),
+             WHITE if t.tracking_ok[k] else BAD_BGR, 0.5)
+        text(panel, "x online", (PANEL_PX - 190, PANEL_PX - 14), ONLINE_BGR, 0.5)
+        text(panel, "o pose", (PANEL_PX - 95, PANEL_PX - 14), POSE_BGR, 0.5)
+        return panel
+
+    def zoom_panel(self, k: int, image: np.ndarray) -> np.ndarray:
+        rec, t = self.rec, self.tracks
+        around = slice(max(k - 3, 0), k + 4)
+        heading = np.nanmean(t.head[around] - t.tail[around, 0], axis=0)
+        center = t.tail[k, 0] if np.isfinite(t.tail[k, 0]).all() else t.online[k, :2]
+        if not (np.isfinite(heading).all() and np.isfinite(center).all()):
+            return np.zeros((PANEL_PX, PANEL_PX, 3), np.uint8)
+        view = view_matrix(center, PANEL_PX / (ZOOM_MM * rec.pix_per_mm), -np.pi / 2 - np.arctan2(heading[1], heading[0]))
+        panel = self.panel(k, image, view)
+
+        polyline(panel, to_panel(view, t.tail[k]), POSE_BGR, 2)
+        for point in to_panel(view, np.vstack([t.tail[k], t.head[k]])):
+            if np.isfinite(point).all():
+                cv2.circle(panel, tuple(np.round(point).astype(int)), 3, POSE_BGR, -1, cv2.LINE_AA)
+        for side, landmarks in t.eyes.items():
+            polyline(panel, to_panel(view, landmarks[k]), EYE_BGR[side], 3)
+
+        time_s = t.time_s[k]
+        bout = t.bouts[(t.bouts.onset <= k) & (k < t.bouts.offset)]
+        if len(bout):
+            b = bout.iloc[0]
+            direction = EventDirection(b.sign).name.lower() if b.sign in (-1, 1) else ""
+            text(panel, f"{bouts_category_name[b.category]} {direction}", (12, 30), BOUT_BGR[b.category % 20], 0.8)
+        recent = t.saccades[(t.saccades.onset_s <= time_s) & (time_s < t.saccades.onset_s + SACCADE_LABEL_S)]
+        if len(recent):
+            cluster = int(recent.cluster.iloc[-1])
+            text(panel, f"saccade: {SACCADE_CLASS_NAMES.get(cluster, cluster)}", (12, 62), SACCADE_BGR.get(cluster, WHITE), 0.7)
+
+        bar = PANEL_PX / ZOOM_MM
+        cv2.line(panel, (16, PANEL_PX - 20), (16 + int(bar), PANEL_PX - 20), WHITE, 3)
+        text(panel, "1 mm", (16, PANEL_PX - 30), WHITE, 0.5)
+        return panel
+
+    def strip(self, k: int) -> np.ndarray:
+        t = self.tracks
+        strip = np.zeros((STRIP_PX, 2 * PANEL_PX, 3), np.uint8)
+        width = 2 * PANEL_PX - MARGIN_PX - 10
+        start, stop = t.time_s[k] - WINDOW_S / 2, t.time_s[k] + WINDOW_S / 2
+        window = slice(*np.searchsorted(t.time_s, [start, stop]))
+        x_of = lambda s: MARGIN_PX + (np.asarray(s) - start) / WINDOW_S * width
+        rows = {"tail": (12, 120), "eyes": (132, 240), "tracking": (252, 262)}
+
+        def y_of(values: np.ndarray, row: str, low: float, high: float) -> np.ndarray:
+            top, bottom = rows[row]
+            return bottom - (np.clip(values, low, high) - low) / (high - low) * (bottom - top)
+
+        top, bottom = rows["tail"]
+        for b in t.bouts[(t.bouts.offset > window.start) & (t.bouts.onset < window.stop)].itertuples():
+            x0, x1 = x_of(t.time_s[b.onset]), x_of(t.time_s[min(b.offset, len(t.time_s) - 1)])
+            shade = tuple(int(0.45 * c) for c in BOUT_BGR[b.category % 20])
+            cv2.rectangle(strip, (int(max(x0, MARGIN_PX)), top), (int(min(x1, MARGIN_PX + width)), bottom), shade, -1)
+        x = x_of(t.time_s[window])
+        polyline(strip, np.column_stack([x, y_of(t.tail_angle[window], "tail", -self.tail_range, self.tail_range)]), WHITE, 1)
+
+        for side, angle in t.eye_angle.items():
+            polyline(strip, np.column_stack([x, y_of(angle[window], "eyes", *self.eye_range)]), EYE_BGR[side], 1)
+        top, bottom = rows["eyes"]
+        for s in t.saccades[(t.saccades.onset_s >= start) & (t.saccades.onset_s < stop)].itertuples():
+            cv2.line(strip, (int(x_of(s.onset_s)), top), (int(x_of(s.onset_s)), bottom), SACCADE_BGR.get(int(s.cluster), WHITE), 2)
+
+        top, bottom = rows["tracking"]
+        for x0, x1, ok in zip(x[:-1], x[1:], t.tracking_ok[window][:-1]):
+            cv2.rectangle(strip, (int(x0), top), (int(np.ceil(x1)), bottom), OK_BGR if ok else BAD_BGR, -1)
+
+        for row, (top, bottom) in rows.items():
+            text(strip, row, (8, (top + bottom) // 2 + 5), GREY, 0.5)
+        for i, (side, color) in enumerate(EYE_BGR.items()):
+            text(strip, side, (8, rows["eyes"][0] + 14 + 70 * i), color, 0.45)
+        center = int(x_of(t.time_s[k]))
+        cv2.line(strip, (center, 4), (center, STRIP_PX - 4), WHITE, 1)
+        text(strip, f"window {WINDOW_S:g} s", (MARGIN_PX + width - 110, rows["eyes"][0] - 2), GREY, 0.45)
+        return strip
+
+
+def render(scene: Scene, reader: FrameReader, output: Path, start_s: float, duration_s: float, speed: float, fps: float) -> None:
+    rec, time_s = scene.rec, scene.tracks.time_s
+    frames = np.unique(nearest_indices(time_s, start_s + np.arange(0, duration_s, speed / fps)))
+    writer = FFMPEG_VideoWriter_CPU(filename=output, height=PANEL_PX + STRIP_PX, width=2 * PANEL_PX, fps=fps, q=18)
     try:
-
-        start_time = time.time()
-
-        for idx, row in behavior_data.tracking.iterrows():
-
-            if idx % 500 == 0:
-                elapsed = time.time() - start_time
-                speed = idx / elapsed
-                time_left = (num_frames - idx) / speed if speed > 0 else 0
-                file.write(
-                    f"frame: {idx}, total: {num_frames}, frame/sec: {speed}, time_left: {time_left}\n"
-                )
-                file.flush()
-
-            ret, image = behavior_data.video.next_frame()
-
-            if not ret:
-                raise RuntimeError(f"failed to read image #{idx}")
-
-            # TODO write functions for the different coordinate systems
-            coords_mm = egocentric_coords_mm(
-                grid,
-                centroid=row[["centroid_x", "centroid_y"]].to_numpy(),
-                pc1=row[["pc1_x", "pc1_y"]].to_numpy(),
-                pc2=row[["pc2_x", "pc2_y"]].to_numpy(),
-                mm_per_pixel=mm_per_pixel,
-            )
-
-            shader_time_sec = (1e-9 * row.timestamp) % rollover_time_sec
-            exp_time_sec = 1e-9 * (row.timestamp - timestamp_start)
-            current_stim = get_active_stimulus(behavior_data.stimuli, row.timestamp)
-
-            if current_stim is None:
-                stim = image
-                label = f"{exp_time_sec:.2f}"
-            else:
-                parameters = stim_to_param(current_stim, shader_time_sec)
-                oly = overlay_stimulus(
-                    coords_mm[:, :, 0], coords_mm[:, :, 1], parameters
-                )
-                dest_size = image.shape[:2]
-                oly = cv2.resize(
-                    oly, dsize=dest_size[::-1], interpolation=cv2.INTER_LINEAR
-                )
-
-                if current_stim["stim_select"] == Stim.PREY_CAPTURE:
-                    stim = sum_blend(image, oly, 5.0)
-                else:
-                    stim = sum_blend(image, oly, 1.0)
-
-                label = f"{exp_time_sec:.2f}-{parameters.u_stim_select.name}"
-
-            add_label(stim, label)
-
-            # overlay ethogram
-            bout_idx, bout_cat, bout_sign = megabout.ethogram.df.bout[
-                ["id", "cat", "sign"]
-            ].values[idx]
-            if bout_cat >= 0:
-                proba = megabout.bouts.proba[bout_idx]
-                bout_label = f"{bouts_category_name[bout_cat]}: {proba:.2f}, {EventDirection(bout_sign).name}"
-                add_label(stim, bout_label, position=(10, height_px - 30))
-
-            writer.write_frame(stim)
-
+        for k in tqdm(frames, desc=rec.name):
+            writer.write_frame(scene.frame(k, reader.read(int(rec.video_frames[k]))))
     finally:
-
         writer.close()
-        file.close()
-        progress_file.unlink()
-
-
-def overlay(
-    root: Path,
-    overlay_dir: str,
-    metadata: str,
-    stimuli: str,
-    tracking: str,
-    video: str,
-    video_timestamp: str,
-    multiprocessing: bool,
-    downsample: int = 4,
-    overwrite: bool = False,
-) -> None:
-
-    directories = Directories(
-        root,
-        metadata=metadata,
-        stimuli=stimuli,
-        tracking=tracking,
-        video=video,
-        video_timestamp=video_timestamp,
-    )
-    behavior_files = find_files(directories)
-    output_dir = root / overlay_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    if multiprocessing:
-        with mp.Pool(mp.cpu_count() // 4) as pool:
-            pool.starmap(
-                do_overlay,
-                [(output_dir, bf, downsample, overwrite) for bf in behavior_files],
-            )
-    else:
-        for behavior_file in behavior_files:
-            do_overlay(output_dir, behavior_file, downsample, overwrite)
 
 
 def main(args: argparse.Namespace) -> None:
-    overlay(
-        root=args.root,
-        overlay_dir=args.overlay_dir,
-        metadata=args.metadata,
-        stimuli=args.stimuli,
-        tracking=args.tracking,
-        video=args.video,
-        video_timestamp=args.video_timestamp,
-        multiprocessing=args.multiprocessing,
-        downsample=args.downsample,
-        overwrite=args.overwrite,
+    directories = Directories(
+        args.root, metadata=args.metadata, stimuli=args.stimuli, tracking=args.tracking,
+        full_tracking=args.lightning_pose, eyes_tracking=args.lightning_pose,
+        video=args.video, video_timestamp=args.video_timestamp,
     )
+    recordings = [Recording(f) for f in find_files(directories) if args.fish in f.metadata.stem]
+    if not recordings:
+        raise FileNotFoundError(f"no recording matches {args.fish!r} in {directories.metadata}")
+    saccades = pd.read_csv(args.root / args.saccades) if args.saccades else None
+    output_dir = args.root / args.output_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for rec in recordings:
+        reader = FrameReader(rec.files.video)
+        scene = Scene(rec, load_tracks(rec, saccades), reader.size, args.downsample)
+        output = output_dir / f"{rec.name}_{args.start:g}s.mp4"
+        render(scene, reader, output, args.start, args.duration, args.speed, args.fps)
+        print(f"Saved {output}")
 
 
 def build_parser() -> argparse.ArgumentParser:
-
-    parser = argparse.ArgumentParser(
-        description="Overlay visual stimulus and bout classification on top of video"
-    )
-
-    parser.add_argument(
-        "root",
-        type=Path,
-        help="Root experiment folder (e.g. WT_oct_2025)",
-    )
-
-    parser.add_argument(
-        "--downsample",
-        type=int,
-        default=4,
-        help="downsampling factor",
-    )
-
-    parser.add_argument(
-        "--overlay-dir",
-        default="overlay",
-        help="Directory to store overlay videos",
-    )
-
-    # Directory layout overrides
-    parser.add_argument(
-        "--metadata",
-        default="",
-        help="Subfolder containing metadata files (default: data)",
-    )
-
-    parser.add_argument(
-        "--stimuli",
-        default="",
-        help="Subfolder containing stimulus log files (default: data)",
-    )
-
-    parser.add_argument(
-        "--tracking",
-        default="",
-        help="Subfolder containing tracking CSV files (default: data)",
-    )
-
-    parser.add_argument(
-        "--video",
-        default="",
-        help="Subfolder containing raw video files (default: video)",
-    )
-
-    parser.add_argument(
-        "--video-timestamp",
-        default="",
-        help="Subfolder containing video timestamp files (default: video)",
-    )
-
-    parser.add_argument("--multiprocessing", action="store_true")
-    parser.add_argument("--overwrite", action="store_true")
-
+    parser = argparse.ArgumentParser(description="Overlay video of a recording and everything the pipeline extracted from it.")
+    parser.add_argument("root", type=Path, help="Root experiment folder")
+    parser.add_argument("--fish", required=True, help="Part of the recording name (metadata file stem)")
+    parser.add_argument("--saccades", default="", help="Classified saccade table relative to root (fish, onset_time_s, cluster)")
+    parser.add_argument("--start", type=float, default=0.0, help="Window start, s from the first frame")
+    parser.add_argument("--duration", type=float, default=30.0, help="Window length, s of recording")
+    parser.add_argument("--speed", type=float, default=0.5, help="Playback speed (0.5: half speed)")
+    parser.add_argument("--fps", type=float, default=30.0, help="Output frames per second")
+    parser.add_argument("--downsample", type=int, default=2, help="Stimulus reconstruction grid step (panel px)")
+    parser.add_argument("--output-dir", default="overlay")
+    parser.add_argument("--metadata", default="results")
+    parser.add_argument("--stimuli", default="results")
+    parser.add_argument("--tracking", default="results")
+    parser.add_argument("--lightning-pose", default="lightning_pose")
+    parser.add_argument("--video", default="results")
+    parser.add_argument("--video-timestamp", default="results")
     return parser
 
 
 if __name__ == "__main__":
-
     main(build_parser().parse_args())

@@ -70,7 +70,7 @@ from scipy.io import loadmat
 from sklearn.neighbors import NearestNeighbors
 from urllib3.util.retry import Retry
 
-from BehaviorScreen.core import SACCADE_CLASS_NAMES
+from BehaviorScreen.core import SACCADE_CLASS_COLORS, SACCADE_CLASS_NAMES
 
 
 DATASET_ID = "vd5zdfwc37"
@@ -110,17 +110,7 @@ STANDARDIZED_FEATURE_NAMES = [
 
 LABEL_NAMES = {label: name for label, name in SACCADE_CLASS_NAMES.items() if label >= 0}
 
-LABEL_COLORS = {
-    0: "#bdbdbd",
-    1: "#66c2a5",
-    2: "#e78ac3",
-    3: "#d95f02",
-    4: "#377eb8",
-    5: "#969696",
-    6: "#8c510a",
-    7: "#1f78b4",
-    8: "#00bfc4",
-}
+LABEL_COLORS = SACCADE_CLASS_COLORS
 
 USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) "
