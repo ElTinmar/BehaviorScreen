@@ -13,7 +13,7 @@ second; --speed < 1 is slow motion.
 import argparse
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 import cv2
 import matplotlib
@@ -26,10 +26,12 @@ from video_tools import FFMPEG_VideoWriter_CPU
 from BehaviorScreen.core import SACCADE_CLASS_COLORS, SACCADE_CLASS_NAMES, EventDirection, Stim
 from BehaviorScreen.eyes.detect_saccades import extract_raw_eye_angles
 from BehaviorScreen.eyes.saccade_pipeline import DetectionConfig
+from BehaviorScreen.event_context import trial_indices
 from BehaviorScreen.load import Directories, find_files
 from BehaviorScreen.megabouts import load_megabout
 from BehaviorScreen.pose_estimation import eye_crop_matrix, eye_crop_size
 from BehaviorScreen.process import compute_angle_between_vectors
+from BehaviorScreen.protocol import bout_laterality, saccade_laterality
 from BehaviorScreen.qc import get_per_frame_tracking_error
 from BehaviorScreen.recording import Recording, nearest_indices
 
@@ -583,6 +585,7 @@ ONLINE_BGR, POSE_BGR, TRAIL_BGR, WELL_BGR = (0, 165, 255), (110, 220, 120), (230
 OK_BGR, BAD_BGR = (90, 160, 90), (60, 60, 220)
 EYE_BGR = {"left": (240, 150, 60), "right": (70, 120, 240)}
 SKELETON_ALPHA, NODE_RADIUS = 0.7, 5
+LATERALITY_NAME = {1: "ipsi", -1: "contra"}  # Laterality; non-directional events get no label
 QC_LABEL = "QC: online vs pose tracking"
 TAIL_PARTS = ["Swim_Bladder"] + [f"Tail_{i}" for i in range(9)]
 
@@ -605,8 +608,8 @@ class Tracks:
     tail_angle: np.ndarray
     online: np.ndarray  # (n, 6): centroid, pc1, pc2
     tracking_ok: np.ndarray
-    bouts: pd.DataFrame  # onset, offset (frames), category, sign, proba
-    saccades: pd.DataFrame  # onset_s, cluster
+    bouts: pd.DataFrame  # onset, offset (frames), category, sign, proba, laterality
+    saccades: pd.DataFrame  # onset_s, cluster, laterality
     eye_angle: Dict[str, np.ndarray] = field(default_factory=dict)
     eye_ok: Dict[str, np.ndarray] = field(default_factory=dict)  # likelihood above the saccade detection threshold
     eyes: Dict[str, np.ndarray] = field(default_factory=dict)  # side -> (n, 2, 2) front, back in eye-crop pixels
@@ -618,6 +621,16 @@ def fit_length(values: np.ndarray, n: int) -> np.ndarray:
     return out
 
 
+def event_laterality(rec: Recording, timestamps: np.ndarray, keys: np.ndarray, laterality: Callable) -> np.ndarray:
+    """Laterality of events from the epoch of the trial they fall in (NaN outside trials)."""
+    trials = trial_indices(rec, timestamps)
+    return np.array([laterality(rec.trials.epoch_name.iloc[i], key) if i >= 0 else np.nan for i, key in zip(trials, keys)], float)
+
+
+def label(name: str, laterality: float) -> str:
+    return f"{name} ({LATERALITY_NAME[laterality]})" if laterality in LATERALITY_NAME else name
+
+
 def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame], eye_likelihood: float = DetectionConfig.likelihood_threshold) -> Tracks:
     n = min(len(rec.pose), rec.n_frames)
     pose = rec.pose.iloc[:n]
@@ -627,15 +640,20 @@ def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame], eye_likelihood
     error = get_per_frame_tracking_error(rec).iloc[:n]
 
     megabout = load_megabout(rec)
-    bouts = pd.DataFrame(columns=["onset", "offset", "category", "sign", "proba"])
+    bouts = pd.DataFrame(columns=["onset", "offset", "category", "sign", "proba", "laterality"])
     if megabout is not None:
         b = megabout.bouts
         k = min(len(b.onset), len(b.offset), len(b.category), len(b.sign), len(b.proba))
         bouts = pd.DataFrame({"onset": b.onset[:k], "offset": b.offset[:k], "category": b.category[:k], "sign": b.sign[:k]}).astype(int)
         bouts["proba"] = np.asarray(b.proba[:k], float)
-        bouts = bouts[(bouts.onset >= 0) & (bouts.offset > bouts.onset)]
+        bouts = bouts[(bouts.onset >= 0) & (bouts.offset > bouts.onset) & (bouts.onset < n)]
+        bouts["laterality"] = event_laterality(rec, rec.frame_time_ns[bouts.onset], bouts.sign.to_numpy(), bout_laterality)
 
     events = saccades[saccades["fish"].astype(str) == rec.name] if saccades is not None else pd.DataFrame()
+    events = pd.DataFrame({"onset_s": events.get("onset_time_s", []), "cluster": events.get("cluster", [])})
+    events["laterality"] = event_laterality(
+        rec, rec.frame_time_ns[0] + (events.onset_s.to_numpy(float) * 1e9).astype(np.int64), events.cluster.to_numpy(), saccade_laterality
+    )
     tracks = Tracks(
         time_s=(rec.frame_time_ns[:n] - rec.frame_time_ns[0]) * 1e-9,
         head=head,
@@ -644,7 +662,7 @@ def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame], eye_likelihood
         online=rec.online.iloc[:n][["centroid_x", "centroid_y", "pc1_x", "pc1_y", "pc2_x", "pc2_y"]].to_numpy(float),
         tracking_ok=((error.centroid_distance_mm < QC_CENTROID_MM) & (error.heading_angle_deg < QC_HEADING_DEG)).to_numpy(),
         bouts=bouts,
-        saccades=pd.DataFrame({"onset_s": events.get("onset_time_s", []), "cluster": events.get("cluster", [])}),
+        saccades=events,
     )
     if not rec.eyes.empty:
         _, left, right, left_likelihood, right_likelihood = extract_raw_eye_angles(rec)
@@ -802,14 +820,14 @@ class Scene:
         if len(bout):
             b = next(bout.itertuples())
             direction = EventDirection(b.sign).name.lower() if b.sign in (-1, 1) else ""
-            text(panel, f"{bouts_category_name[b.category]} {direction}", (12, 30), BOUT_BGR[b.category], 0.8)
+            text(panel, label(f"{bouts_category_name[b.category]} {direction}", b.laterality), (12, 30), BOUT_BGR[b.category], 0.8)
             cv2.rectangle(panel, (12, 42), (172, 50), (60, 60, 60), -1)
             cv2.rectangle(panel, (12, 42), (12 + int(160 * b.proba), 50), BOUT_BGR[b.category], -1)
             text(panel, f"p = {b.proba:.2f}", (182, 51), BOUT_BGR[b.category], 0.5)
         recent = t.saccades[(t.saccades.onset_s <= time_s) & (time_s < t.saccades.onset_s + SACCADE_LABEL_S)]
         if len(recent):
-            cluster = int(recent.cluster.iloc[-1])
-            text(panel, f"saccade: {SACCADE_CLASS_NAMES.get(cluster, cluster)}", (12, 84), SACCADE_BGR.get(cluster, WHITE), 0.7)
+            cluster, laterality = int(recent.cluster.iloc[-1]), recent.laterality.iloc[-1]
+            text(panel, label(f"saccade: {SACCADE_CLASS_NAMES.get(cluster, cluster)}", laterality), (12, 84), SACCADE_BGR.get(cluster, WHITE), 0.7)
 
         bar = PANEL_PX / ZOOM_MM
         cv2.line(panel, (16, PANEL_PX - 20), (16 + int(bar), PANEL_PX - 20), WHITE, 3)
@@ -855,12 +873,14 @@ class Scene:
             shade = tuple(int(0.45 * c) for c in BOUT_BGR[b.category])
             x0, x1 = np.clip([x0, x1], MARGIN_PX, MARGIN_PX + width).astype(int)
             cv2.rectangle(strip, (x0, top), (x1, bottom), shade, -1)
-            label = bouts_category_name_short[b.category]
-            text(strip, label, (x0 + 3, top - 6), BOUT_BGR[b.category], 0.42)
+            name = bouts_category_name_short[b.category]
+            text(strip, name, (x0 + 3, top - 6), BOUT_BGR[b.category], 0.42)
             if b.sign in (-1, 1):  # laterality: triangle pointing left or right after the name
-                x, y = x0 + 12 + cv2.getTextSize(label, FONT, 0.42, 1)[0][0], top - 10
+                x, y = x0 + 12 + cv2.getTextSize(name, FONT, 0.42, 1)[0][0], top - 10
                 triangle = np.array([[x + 4 * b.sign, y], [x - 4 * b.sign, y - 5], [x - 4 * b.sign, y + 5]], np.int32)
                 cv2.fillConvexPoly(strip, triangle, BOUT_BGR[b.category], cv2.LINE_AA)
+            if b.laterality in LATERALITY_NAME:
+                text(strip, LATERALITY_NAME[b.laterality], (x0 + 24 + cv2.getTextSize(name, FONT, 0.42, 1)[0][0], top - 6), BOUT_BGR[b.category], 0.42)
             cv2.rectangle(strip, (x0, bottom + 3), (x1, bottom + 7), (60, 60, 60), -1)
             cv2.rectangle(strip, (x0, bottom + 3), (x0 + int(b.proba * (x1 - x0)), bottom + 7), BOUT_BGR[b.category], -1)
         x = x_of(t.time_s[window])
@@ -874,7 +894,7 @@ class Scene:
         for s in t.saccades[(t.saccades.onset_s >= start) & (t.saccades.onset_s < stop)].itertuples():
             x_s, color = int(x_of(s.onset_s)), SACCADE_BGR.get(int(s.cluster), WHITE)
             cv2.line(strip, (x_s, top), (x_s, bottom), color, 2)
-            text(strip, SACCADE_CLASS_NAMES.get(int(s.cluster), str(s.cluster)), (x_s + 4, top - 6), color, 0.42)
+            text(strip, label(SACCADE_CLASS_NAMES.get(int(s.cluster), str(s.cluster)), s.laterality), (x_s + 4, top - 6), color, 0.42)
 
         top, bottom = rows["QC"]
         for x0, x1, ok in zip(x[:-1], x[1:], t.tracking_ok[window][:-1]):
