@@ -28,7 +28,7 @@ Conditions with fewer than MIN_BOUTS_PER_RUN bouts per run or MIN_BOUTS bouts pe
 are unreliable.
 
 The summary gives the CV distribution by bouts per fish, and the fish per group needed
-to detect a FOLD change of a rate at 80% power, two-sided, at alpha = 0.05 and
+to detect each FOLD change (default 1.5, 2, 3) of a rate at 80% power, two-sided, at
 alpha = 0.05 / LINES (gamma-Poisson counts, as in the screen's frailty model: the per-fish
 variance of a rate relative to its mean is CV^2 = c^2 + 1/mu):
 
@@ -46,8 +46,8 @@ of each presentation (stimulus onsets are not in the files):
                of presentations with one; its CV across fish gives the fish needed
     direction  for sided readouts, fraction of turning events toward the side the
                protocol says is correct (Readout.side; frontal/rear stimuli left out);
-               the SD of its log-odds across fish gives the fish needed to halve the
-               bias above chance (e.g. 93 % -> 72 % correct)
+               the SD of its log-odds across fish gives the fish needed to reduce the
+               bias above chance FOLD-fold (2-fold: e.g. 93 % -> 72 % correct)
 Each is also carried over to the screen's protocol (Readout.screen_trials, screen_window_s):
 the counting noise at the Marques event numbers (Poisson 1/mu; binomial (1 - p)/(p k) for
 escapes; 1/(turns q (1 - q)) for direction) is subtracted from CV^2 (log-odds variance),
@@ -571,11 +571,14 @@ def readout_per_fish(spec: Readout, bouts: pd.DataFrame, fish: pd.DataFrame) -> 
     return per_fish.reset_index().merge(fish, on="fish_key")
 
 
-def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, fold: float, lines: int) -> pd.DataFrame:
+def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, folds: tuple[float, ...], lines: int) -> pd.DataFrame:
     """
     Per readout of the screen and Marques experiment: spread of strength and direction across fish
-    and the fish needed, as measured in Marques and carried over to the screen's trials and windows.
+    and the fish needed at alpha = 0.05 / lines for each fold change, as measured in Marques
+    (fish_<f>x) and carried over to the screen's trials and windows (fish_screen_<f>x). For
+    direction, the fold change applies to the bias above chance (direction_<f>x: the target).
     """
+    alpha = 0.05 / lines
     rows = []
     for spec in READOUTS:
         per_fish = readout_per_fish(spec, bouts, fish)
@@ -595,9 +598,9 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, fold: float
                 "readout": spec.name, "experiment": experiment, "n_fish": len(g), "presentations": k,
                 "run_s": (g["T"] / g["presentations"]).median(), "events_per_fish": g["events"].mean(),
                 "strength_mean": p, "cv_strength": cv,
-                **power("fish_strength", cv**2, np.log(fold), lines),
                 "screen_trials": spec.screen_trials, "cv_screen": np.sqrt(variance_screen),
-                **power("fish_strength_screen", variance_screen, np.log(fold), lines),
+                **{f"fish_{f:g}x": fish_needed(cv**2, np.log(f), alpha) for f in folds},
+                **{f"fish_screen_{f:g}x": fish_needed(variance_screen, np.log(f), alpha) for f in folds},
             }
             d = g[g["sided_events"] > 0] if spec.side is not None else g.iloc[:0]
             if len(d) >= min_fish:
@@ -605,24 +608,25 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, fold: float
                 q, turns = (d["toward"] / d["sided_events"]).mean(), d["sided_events"].mean()
                 between = max(logit.var(ddof=1) - 1 / (turns * q * (1 - q)), 0)
                 variance_screen = between + 1 / (turns * scale * q * (1 - q))
-                effect = halved_bias(q)
                 row |= {
-                    "direction_fish": len(d), "direction_mean": q, "direction_halved": 0.5 + (q - 0.5) / 2,
-                    "sd_logit_direction": logit.std(ddof=1), **power("fish_direction", logit.var(ddof=1), effect, lines),
-                    "sd_logit_screen": np.sqrt(variance_screen), **power("fish_direction_screen", variance_screen, effect, lines),
+                    "direction_fish": len(d), "direction_mean": q,
+                    "sd_logit_direction": logit.std(ddof=1), "sd_logit_screen": np.sqrt(variance_screen),
+                    **{f"direction_{f:g}x": reduced_bias(q, f) for f in folds},
+                    **{f"fish_direction_{f:g}x": fish_needed(logit.var(ddof=1), logit_drop(q, f), alpha) for f in folds},
+                    **{f"fish_direction_screen_{f:g}x": fish_needed(variance_screen, logit_drop(q, f), alpha) for f in folds},
                 }
             rows.append(row)
     return pd.DataFrame(rows)
 
 
-def halved_bias(correct: float) -> float:
-    """Log-odds drop when the fraction of correct turns falls halfway to chance."""
-    halved = 0.5 + (correct - 0.5) / 2
-    return float(np.log(correct / (1 - correct)) - np.log(halved / (1 - halved)))
+def reduced_bias(correct: float, fold: float) -> float:
+    """Fraction of correct turns once the bias above chance is `fold` times smaller."""
+    return 0.5 + (correct - 0.5) / fold
 
 
-def power(name: str, variance: float, effect: float, lines: int) -> dict[str, float]:
-    return {name: fish_needed(variance, effect, 0.05), f"{name}_alpha/{lines}": fish_needed(variance, effect, 0.05 / lines)}
+def logit_drop(correct: float, fold: float) -> float:
+    reduced = reduced_bias(correct, fold)
+    return float(np.log(correct / (1 - correct)) - np.log(reduced / (1 - reduced)))
 
 
 def fish_needed(variance: float, effect: float, alpha: float) -> float:
@@ -647,7 +651,7 @@ def plot(summary: pd.DataFrame, out: Path) -> None:
 
 
 def analyze(
-    root: Path, out: Path, ages: tuple[int, ...], min_fish: int, table_s2: Path | None, fold: float, lines: int
+    root: Path, out: Path, ages: tuple[int, ...], min_fish: int, table_s2: Path | None, folds: tuple[float, ...], lines: int
 ) -> None:
     out.mkdir(parents=True, exist_ok=True)
     bouts, fish = collect(root)
@@ -672,11 +676,11 @@ def analyze(
     table.loc["all"] = single["cv_observed"].describe(percentiles=[0.5, 0.9])[["count", "50%", "90%", "max"]]
     print("\nCV of bout rate across fish, by mean bouts per fish:")
     print(table.round(2).to_string())
-    print(f"\nFish per group for a {fold:g}-fold change, {POWER:.0%} power:")
+    print(f"\nFish per group at {POWER:.0%} power, alpha 0.05/{lines}:")
     for name, column in [("median", "50%"), ("90th percentile", "90%"), ("max", "max")]:
         cv = table.loc["all", column]
-        print(f"  CV {cv:.2f} ({name}): alpha 0.05 -> {fish_needed(cv**2, np.log(fold), 0.05):.0f}, "
-              f"alpha 0.05/{lines} -> {fish_needed(cv**2, np.log(fold), 0.05 / lines):.0f}")
+        print(f"  CV {cv:.2f} ({name}): " + ", ".join(
+            f"{f:g}-fold -> {fish_needed(cv**2, np.log(f), 0.05 / lines):.0f}" for f in folds))
 
     bias = turn_bias(bouts, fish)
     bias.to_csv(out / "turn_bias.csv", index=False)
@@ -684,10 +688,10 @@ def analyze(
     print("\nTurn bias per stimulus (mean sign of turns; check the stimulus mapping):")
     print(directional[["experiment", "stimulus", "label", "fish", "turns", "bias"]].round(2).to_string(index=False))
 
-    result = readouts(bouts, fish, min_fish, fold, lines)
+    result = readouts(bouts, fish, min_fish, folds, lines)
     result.to_csv(out / "readouts.csv", index=False)
-    print(f"\nScreen readouts, fish per group at {POWER:.0%} power for a {fold:g}-fold change (rates, escapes) or a halved "
-          f"direction bias, in Marques and carried over to the screen's protocol:")
+    print(f"\nScreen readouts, fish per group at {POWER:.0%} power and alpha 0.05/{lines} for each fold change "
+          f"(of the rate, escape probability or direction bias), in Marques and carried over to the screen's protocol:")
     print(result.round(2).to_string(index=False))
 
 
@@ -910,7 +914,7 @@ if __name__ == "__main__":
     a.add_argument("--ages", type=int, nargs="+", default=[6, 7])
     a.add_argument("--min-fish", type=int, default=8)
     a.add_argument("--table-s2", type=Path, help="Table S2 (default: ROOT/mmc2.xlsx), to label conditions by bout count")
-    a.add_argument("--fold", type=float, default=2.0, help="fold change to detect (default 2)")
+    a.add_argument("--fold", type=float, nargs="+", default=[1.5, 2.0, 3.0], help="fold changes to detect (default 1.5 2 3)")
     a.add_argument("--lines", type=int, default=60, help="tests to correct alpha for (default 60 lines)")
     f = sub.add_parser("fig3a", help="check the stimulus mapping against Fig. 3A of the paper")
     f.add_argument("root", type=Path)
@@ -928,4 +932,4 @@ if __name__ == "__main__":
     elif args.command == "fig3a":
         fig3a(args.root, args.out, tuple(args.ages), args.stats)
     else:
-        analyze(args.root, args.out, tuple(args.ages), args.min_fish, args.table_s2, args.fold, args.lines)
+        analyze(args.root, args.out, tuple(args.ages), args.min_fish, args.table_s2, tuple(args.fold), args.lines)
