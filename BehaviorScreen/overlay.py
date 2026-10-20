@@ -856,8 +856,7 @@ class Scene:
 
     def zoom_panel(self, k: int, image: np.ndarray) -> np.ndarray:
         rec, t = self.rec, self.tracks
-        around = slice(max(k - 3, 0), k + 4)
-        heading = np.nanmean(t.head[around] - t.tail[around, 0], axis=0)
+        heading = t.head[k] - t.tail[k, 0]  # this frame's: averaging over frames lags fast turns
         center = t.tail[k, 0] if np.isfinite(t.tail[k, 0]).all() else t.online[k, :2]
         if not (np.isfinite(heading).all() and np.isfinite(center).all()):
             return np.zeros((PANEL_PX, PANEL_PX, 3), np.uint8)
