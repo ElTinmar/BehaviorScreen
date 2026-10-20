@@ -575,6 +575,8 @@ def overlay_stimulus(X, Y, p):
 # ---------------------------------------------------------------------------
 
 PANEL_PX, STRIP_PX, MARGIN_PX = 720, 300, 80
+MAP_GAP_PX = 16
+SERIES_PX = 2 * PANEL_PX - STRIP_PX - MAP_GAP_PX  # time series width, right of the STRIP_PX square trajectory map
 ZOOM_MM = 7.0
 WINDOW_S = 4.0
 SACCADE_LABEL_S = 0.3
@@ -748,9 +750,30 @@ class Scene:
         self.tail_range = max(float(np.nanpercentile(np.abs(t.tail_angle), 99.5)), 10.0)
         angles = np.concatenate(list(t.eye_angle.values())) if t.eye_angle else np.array([-30.0, 30.0])
         self.eye_range = tuple(np.nanpercentile(angles, [0.5, 99.5]))
+        self.map_view = self.field_view * STRIP_PX / PANEL_PX
+        self.map_points = to_panel(self.map_view, t.tail[:, 0])
+        self.map_image, self.map_k = np.zeros((STRIP_PX, STRIP_PX, 3), np.uint8), None
+
+    def trajectory_map(self, k: int) -> np.ndarray:
+        """Trajectory since the first frame in the well, drawn incrementally while frames move forward."""
+        if self.map_k is None or k < self.map_k:
+            self.map_image[:], self.map_k = 0, 0
+            if self.rec.well is not None:
+                well = self.rec.well
+                center = to_panel(self.map_view, np.array([well.x_mm, well.y_mm]) * self.rec.pix_per_mm)
+                radius = well.radius_mm * self.rec.pix_per_mm * self.map_view[0, 0]
+                cv2.circle(self.map_image, tuple(np.round(center).astype(int)), int(round(radius)), WELL_BGR, 1, cv2.LINE_AA)
+        polyline(self.map_image, self.map_points[self.map_k : k + 1], TRAIL_BGR, 1)
+        self.map_k = k
+        image = self.map_image.copy()
+        if np.isfinite(self.map_points[k]).all():
+            cv2.circle(image, tuple(np.round(self.map_points[k]).astype(int)), 3, POSE_BGR, -1, cv2.LINE_AA)
+        text(image, "trajectory", (8, 18), GREY, 0.45)
+        return cv2.copyMakeBorder(image, 0, 0, 0, MAP_GAP_PX, cv2.BORDER_CONSTANT)
 
     def frame(self, k: int, image: np.ndarray) -> np.ndarray:
-        return np.vstack([np.hstack([self.field_panel(k, image), self.zoom_panel(k, image)]), self.strip(k)])
+        top = np.hstack([self.field_panel(k, image), self.zoom_panel(k, image)])
+        return np.vstack([top, np.hstack([self.trajectory_map(k), self.strip(k)])])
 
     def panel(self, k: int, image: np.ndarray, view: np.ndarray) -> np.ndarray:
         """The video seen through `view`, with the stimulus as the shader drew it from the online tracking it used."""
@@ -860,8 +883,8 @@ class Scene:
 
     def strip(self, k: int) -> np.ndarray:
         t = self.tracks
-        strip = np.zeros((STRIP_PX, 2 * PANEL_PX, 3), np.uint8)
-        width = 2 * PANEL_PX - MARGIN_PX - 10
+        strip = np.zeros((STRIP_PX, SERIES_PX, 3), np.uint8)
+        width = SERIES_PX - MARGIN_PX - 10
         start, stop = t.time_s[k] - WINDOW_S / 2, t.time_s[k] + WINDOW_S / 2
         window = slice(*np.searchsorted(t.time_s, [start, stop]))
         x_of = lambda s: MARGIN_PX + (np.asarray(s) - start) / WINDOW_S * width
