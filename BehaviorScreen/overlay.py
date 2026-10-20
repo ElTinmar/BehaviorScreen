@@ -747,6 +747,7 @@ class Scene:
     size: Tuple[int, int]  # video height, width (px)
     downsample: int = 2  # stimulus grid step, panel px
     fish_qc: Tuple[str, Tuple[int, int, int]] = ("fish QC: no qc.csv", GREY)
+    speed: float = 1.0  # playback speed, shown next to the time
 
     def __post_init__(self) -> None:
         rec, t = self.rec, self.tracks
@@ -837,7 +838,7 @@ class Scene:
             panel = cv2.addWeighted(layer, SKELETON_ALPHA, panel, 1 - SKELETON_ALPHA, 0)
 
         row = rec.trials.iloc[trial] if trial >= 0 else None
-        label = f"{t.time_s[k]:7.2f} s" + (f"   {row.epoch_name}  #{row.trial_num + 1}" if row is not None else "")
+        label = f"{t.time_s[k]:7.2f} s  ({self.speed:g}x)" + (f"   {row.epoch_name}  #{row.trial_num + 1}" if row is not None else "")
         text(panel, label, (12, 28))
         text(panel, self.fish_qc[0], (12, 56), self.fish_qc[1], 0.5)
         text(panel, f"{QC_LABEL}: {'agree' if t.tracking_ok[k] else 'mismatch'}", (12, PANEL_PX - 14),
@@ -956,10 +957,10 @@ class Scene:
         return strip
 
 
-def render(scene: Scene, reader: FrameReader, output: Path, start_s: float, duration_s: Optional[float], speed: float, fps: float) -> None:
+def render(scene: Scene, reader: FrameReader, output: Path, start_s: float, duration_s: Optional[float], fps: float) -> None:
     rec, time_s = scene.rec, scene.tracks.time_s
     stop_s = time_s[-1] if duration_s is None else start_s + duration_s
-    frames = np.unique(nearest_indices(time_s, np.arange(start_s, stop_s, speed / fps)))
+    frames = np.unique(nearest_indices(time_s, np.arange(start_s, stop_s, scene.speed / fps)))
     writer = FFMPEG_VideoWriter_CPU(filename=output, height=PANEL_PX + STRIP_PX, width=2 * PANEL_PX, fps=fps, q=18)
     try:
         for k in tqdm(frames, desc=rec.name):
@@ -983,9 +984,9 @@ def main(args: argparse.Namespace) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     for rec in recordings:
         reader = FrameReader(rec.files.video)
-        scene = Scene(rec, load_tracks(rec, saccades, args.eye_likelihood), reader.size, args.downsample, fish_qc(qc, rec.name))
+        scene = Scene(rec, load_tracks(rec, saccades, args.eye_likelihood), reader.size, args.downsample, fish_qc(qc, rec.name), args.speed)
         output = output_dir / f"{rec.name}_{args.start:g}s.mp4"
-        render(scene, reader, output, args.start, args.duration, args.speed, args.fps)
+        render(scene, reader, output, args.start, args.duration, args.fps)
         print(f"Saved {output}")
 
 
