@@ -45,8 +45,12 @@ of each presentation (stimulus onsets are not in the files):
                of presentations with one; its CV across fish gives the fish needed
     direction  for sided readouts, fraction of turning events toward the side the
                protocol says is correct (Readout.side; frontal/rear stimuli left out);
-               the SD of its log-odds across fish gives the fish needed for a FOLD
-               change of the odds
+               the SD of its log-odds across fish gives the fish needed to halve the
+               bias above chance (e.g. 93 % -> 72 % correct)
+Each is also carried over to the screen's protocol (Readout.screen_trials, screen_window_s):
+the counting noise at the Marques event numbers (Poisson 1/mu; binomial (1 - p)/(p k) for
+escapes; 1/(turns q (1 - q)) for direction) is subtracted from the observed log variance,
+floored at 0, and the counting noise at the screen's event numbers added back.
 Only arenas with one fish are used, except for flash_escape (dimming was only recorded in groups of 7).
 
 `fig3a` checks the stimulus mapping against Fig. 3A, using the paper's numbers
@@ -103,6 +107,7 @@ MIN_TURN_DEG = 10.0  # bouts turning less are left out of turn bias and directio
 OMR_SPEEDS_MM_S = [0, 2.5, 5, 7.5, 10, 15, 20, 30, 40, 50]
 SPONT_LUX = [12, 44, 104, 232, 447, 790, 1890, 4700]  # Table S2; 16 levels in the protocol, pooled in pairs
 LOOM_SPEEDS_MM_S = [2.5, 5, 10, 15, 20, 25]
+OMR_SCREEN_STIMULI = (7, 19)  # OMRTurns at 10 mm/s, 90 and 270 deg: the screen's gratings
 PHOTOTAXIS_LEVELS = [0, 20, 41, 61, 82, 102]  # projector levels; each trial follows 1 s of grey (128)
 PHOTOTAXIS_READOUT_LEVELS = (20, 41)  # one side dark, the other dimly lit: the only clear phototaxis here
 
@@ -210,24 +215,31 @@ class Readout:
     start_s: float = 0.0  # window start, from the first bout
     escape: bool = False  # strength = fraction of presentations with >= 1 event, instead of a rate
     side: Callable[[str, int], int] | None = None  # sided readouts: correct turn (+1 left, -1 right, 0 none)
+    screen_trials: int = 0  # trials per larva in the screen (protocol.py)
+    screen_window_s: float = 0.0  # counting window per trial in the screen (model_config), for rates
     multi_fish: bool = False  # keep arenas with several fish (only these exist for this readout; identities may swap)
 
 
 READOUTS = [
-    Readout("omr_forward", ("OMRSpeed",), lambda e, s: 1 <= s <= 9, ("S1", "S2", "BS"), 9.0),
-    Readout("omr_lateral", ("OMRTurns",), lambda e, s: 2 <= s <= 24 and s != 13, ("RT", "HAT"), 9.0,
-            side=lambda e, s: side((s - 1) * 15)),
-    Readout("phototaxis", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), 24.0, side=phototaxis_side),
-    Readout("phototaxis_early", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), 2.5, side=phototaxis_side),
-    Readout("phototaxis_late", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), None, 2.5, side=phototaxis_side),
+    Readout("omr_forward", ("OMRSpeed",), lambda e, s: s == 4, ("S1", "S2", "BS"), 9.0,
+            screen_trials=5, screen_window_s=9.0),
+    Readout("omr_lateral", ("OMRTurns",), lambda e, s: s in OMR_SCREEN_STIMULI, ("RT", "HAT"), 9.0,
+            side=lambda e, s: side((s - 1) * 15), screen_trials=10, screen_window_s=9.0),
+    Readout("phototaxis", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), 24.0, side=phototaxis_side,
+            screen_trials=20, screen_window_s=24.0),
+    Readout("phototaxis_early", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), 2.5, side=phototaxis_side,
+            screen_trials=20, screen_window_s=2.5),
+    Readout("phototaxis_late", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), None, 2.5, side=phototaxis_side,
+            screen_trials=20, screen_window_s=21.5),
     Readout("looming", ("LoomingDifferent",), lambda e, s: s > 0 and s % 2 == 1, ("SLC", "LLC"), 9.0, escape=True,
-            side=lambda e, s: -side(loom_angle(e, s))),
+            side=lambda e, s: -side(loom_angle(e, s)), screen_trials=14),
     Readout("spont_dark", ("3minLightDark", "DarkLightTransitions"),
-            lambda e, s: s == 1 if e.startswith("3minLightDark") else s >= 0 and s % 2 == 0, None, None),
-    Readout("spont_bright", ("3minLightDark",), lambda e, s: s == 0, None, None),
-    Readout("prey_capture", ("PreyCapture",), lambda e, s: True, ("JT",), None),
+            lambda e, s: s == 1 if e.startswith("3minLightDark") else s >= 0 and s % 2 == 0, None, None,
+            screen_trials=10, screen_window_s=24.0),
+    Readout("spont_bright", ("3minLightDark",), lambda e, s: s == 0, None, None, screen_trials=10, screen_window_s=24.0),
+    Readout("prey_capture", ("PreyCapture",), lambda e, s: True, ("JT",), None, screen_trials=10, screen_window_s=24.0),
     Readout("flash_escape", ("multiFlash3min1sManyInt",), lambda e, s: dim_column(e, s) >= 0, ("O", "SAT"), None,
-            escape=True, multi_fish=True),
+            escape=True, screen_trials=5, multi_fish=True),
 ]
 
 
@@ -559,7 +571,10 @@ def readout_per_fish(spec: Readout, bouts: pd.DataFrame, fish: pd.DataFrame) -> 
 
 
 def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, fold: float, lines: int) -> pd.DataFrame:
-    """Per readout of the screen and Marques experiment: CV of strength across fish, spread of direction, fish needed."""
+    """
+    Per readout of the screen and Marques experiment: spread of strength and direction across fish
+    and the fish needed, as measured in Marques and carried over to the screen's trials and windows.
+    """
     rows = []
     for spec in READOUTS:
         per_fish = readout_per_fish(spec, bouts, fish)
@@ -568,31 +583,51 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, fold: float
             if len(g) < min_fish:
                 continue
             cv = g["strength"].std(ddof=1) / g["strength"].mean()
+            p, k = g["strength"].mean(), g["presentations"].mean()
+            if spec.escape:
+                count, count_screen, scale = (1 - p) / (p * k), (1 - p) / (p * spec.screen_trials), spec.screen_trials / k
+            else:
+                mu, mu_screen = g["events"].mean(), p * spec.screen_window_s * spec.screen_trials
+                count, count_screen, scale = 1 / mu, 1 / mu_screen, mu_screen / mu
+            variance_screen = max(np.log1p(cv**2) - count, 0) + count_screen
             row = {
-                "readout": spec.name, "experiment": experiment, "n_fish": len(g),
-                "presentations": g["presentations"].median(), "run_s": (g["T"] / g["presentations"]).median(),
-                "events_per_fish": g["events"].mean(),
-                "strength_mean": g["strength"].mean(), "cv_strength": cv,
-                "fish_strength": fish_needed(np.log1p(cv**2), fold, 0.05),
-                f"fish_strength_alpha/{lines}": fish_needed(np.log1p(cv**2), fold, 0.05 / lines),
+                "readout": spec.name, "experiment": experiment, "n_fish": len(g), "presentations": k,
+                "run_s": (g["T"] / g["presentations"]).median(), "events_per_fish": g["events"].mean(),
+                "strength_mean": p, "cv_strength": cv,
+                **power("fish_strength", np.log1p(cv**2), np.log(fold), lines),
+                "screen_trials": spec.screen_trials, "cv_screen": np.sqrt(np.expm1(variance_screen)),
+                **power("fish_strength_screen", variance_screen, np.log(fold), lines),
             }
             d = g[g["sided_events"] > 0] if spec.side is not None else g.iloc[:0]
             if len(d) >= min_fish:
                 logit = np.log((d["toward"] + 0.5) / (d["sided_events"] - d["toward"] + 0.5))
+                q, turns = (d["toward"] / d["sided_events"]).mean(), d["sided_events"].mean()
+                between = max(logit.var(ddof=1) - 1 / (turns * q * (1 - q)), 0)
+                variance_screen = between + 1 / (turns * scale * q * (1 - q))
+                effect = halved_bias(q)
                 row |= {
-                    "direction_fish": len(d), "direction_mean": (d["toward"] / d["sided_events"]).mean(),
-                    "sd_logit_direction": logit.std(ddof=1),
-                    "fish_direction": fish_needed(logit.var(ddof=1), fold, 0.05),
-                    f"fish_direction_alpha/{lines}": fish_needed(logit.var(ddof=1), fold, 0.05 / lines),
+                    "direction_fish": len(d), "direction_mean": q, "direction_halved": 0.5 + (q - 0.5) / 2,
+                    "sd_logit_direction": logit.std(ddof=1), **power("fish_direction", logit.var(ddof=1), effect, lines),
+                    "sd_logit_screen": np.sqrt(variance_screen), **power("fish_direction_screen", variance_screen, effect, lines),
                 }
             rows.append(row)
     return pd.DataFrame(rows)
 
 
-def fish_needed(log_variance: float, fold: float, alpha: float) -> float:
-    """Fish per group to detect a FOLD change of a log-normal quantity with this per-fish log variance (NaN if unknown)."""
+def halved_bias(correct: float) -> float:
+    """Log-odds drop when the fraction of correct turns falls halfway to chance."""
+    halved = 0.5 + (correct - 0.5) / 2
+    return float(np.log(correct / (1 - correct)) - np.log(halved / (1 - halved)))
+
+
+def power(name: str, variance: float, effect: float, lines: int) -> dict[str, float]:
+    return {name: fish_needed(variance, effect, 0.05), f"{name}_alpha/{lines}": fish_needed(variance, effect, 0.05 / lines)}
+
+
+def fish_needed(variance: float, effect: float, alpha: float) -> float:
+    """Fish per group to detect a difference `effect` in a per-fish quantity with this variance (NaN if undetectable)."""
     z = stats.norm.ppf(1 - alpha / 2) + stats.norm.ppf(POWER)
-    return float(np.ceil(2 * z**2 * log_variance / np.log(fold) ** 2)) if np.isfinite(log_variance) else np.nan
+    return float(np.ceil(2 * z**2 * variance / effect**2)) if np.isfinite(variance) and effect > 0 else np.nan
 
 
 def plot(summary: pd.DataFrame, out: Path) -> None:
@@ -639,8 +674,8 @@ def analyze(
     print(f"\nFish per group for a {fold:g}-fold change, {POWER:.0%} power:")
     for name, column in [("median", "50%"), ("90th percentile", "90%"), ("max", "max")]:
         cv = table.loc["all", column]
-        print(f"  CV {cv:.2f} ({name}): alpha 0.05 -> {fish_needed(np.log1p(cv**2), fold, 0.05):.0f}, "
-              f"alpha 0.05/{lines} -> {fish_needed(np.log1p(cv**2), fold, 0.05 / lines):.0f}")
+        print(f"  CV {cv:.2f} ({name}): alpha 0.05 -> {fish_needed(np.log1p(cv**2), np.log(fold), 0.05):.0f}, "
+              f"alpha 0.05/{lines} -> {fish_needed(np.log1p(cv**2), np.log(fold), 0.05 / lines):.0f}")
 
     bias = turn_bias(bouts, fish)
     bias.to_csv(out / "turn_bias.csv", index=False)
@@ -650,7 +685,8 @@ def analyze(
 
     result = readouts(bouts, fish, min_fish, fold, lines)
     result.to_csv(out / "readouts.csv", index=False)
-    print(f"\nScreen readouts (one fish per arena), fish per group for a {fold:g}-fold change, {POWER:.0%} power:")
+    print(f"\nScreen readouts, fish per group at {POWER:.0%} power for a {fold:g}-fold change (rates, escapes) or a halved "
+          f"direction bias, in Marques and carried over to the screen's protocol:")
     print(result.round(2).to_string(index=False))
 
 
@@ -658,7 +694,7 @@ def analyze(
 # --- Fig. 3A check of the stimulus mapping ------------------------------------------------
 FIG3A_STATS = "firstOrderStatisticsOfFig3A.mat"
 FIG3A_TYPES = ["AS", "S1", "S2", "SCS", "LCS", "BS", "JT", "HAT", "RT", "SAT", "O", "LLC", "SLC"]  # stats file order
-LOOM_START_MM = {"directions": 50, "speeds": 40}  # spot start distance; bouts count until it reaches the fish
+LOOM_START_MM = {"directions": 40, "speeds": 40}  # as in the methods (protocol: 5 cm for directions); 2 s matches Fig. 3A better
 
 
 @dataclass(frozen=True)
