@@ -29,9 +29,10 @@ are unreliable.
 
 The summary gives the CV distribution by bouts per fish, and the fish per group needed
 to detect a FOLD change of a rate at 80% power, two-sided, at alpha = 0.05 and
-alpha = 0.05 / LINES (log-normal approximation, variance ln(1 + CV^2) per fish):
+alpha = 0.05 / LINES (gamma-Poisson counts, as in the screen's frailty model: the per-fish
+variance of a rate relative to its mean is CV^2 = c^2 + 1/mu):
 
-    n = 2 (z_alpha + z_0.8)^2 ln(1 + CV^2) / ln(FOLD)^2
+    n = 2 (z_alpha + z_0.8)^2 CV^2 / ln(FOLD)^2
 
 Stimulus numbers are mapped to conditions from the rig's protocol files (the authors'
 analysis code, ProtocolListFreelyBehaving; STIMULUS_LABELS and the functions above it);
@@ -49,7 +50,7 @@ of each presentation (stimulus onsets are not in the files):
                bias above chance (e.g. 93 % -> 72 % correct)
 Each is also carried over to the screen's protocol (Readout.screen_trials, screen_window_s):
 the counting noise at the Marques event numbers (Poisson 1/mu; binomial (1 - p)/(p k) for
-escapes; 1/(turns q (1 - q)) for direction) is subtracted from the observed log variance,
+escapes; 1/(turns q (1 - q)) for direction) is subtracted from CV^2 (log-odds variance),
 floored at 0, and the counting noise at the screen's event numbers added back.
 Only arenas with one fish are used, except for flash_escape (dimming was only recorded in groups of 7).
 
@@ -231,15 +232,14 @@ READOUTS = [
             screen_trials=20, screen_window_s=2.5),
     Readout("phototaxis_late", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), None, 2.5, side=phototaxis_side,
             screen_trials=20, screen_window_s=21.5),
-    Readout("looming", ("LoomingDifferent",), lambda e, s: s > 0 and s % 2 == 1 and loom_angle(e, s) in (90, 270),
-            ("SLC", "LLC"), 9.0, escape=True,
+    Readout("looming", ("LoomingDifferentDirections",), lambda e, s: s > 0 and s % 2 == 1 and loom_angle(e, s) in (90, 270),
+            ("SLC", "LLC", "O", "SAT"), 9.0, escape=True,  # Marques classify most loom escapes as SAT or O (Fig. 3A)
             side=lambda e, s: -side(loom_angle(e, s)), screen_trials=14),
-    Readout("spont_dark", ("3minLightDark", "DarkLightTransitions"),
-            lambda e, s: s == 1 if e.startswith("3minLightDark") else s >= 0 and s % 2 == 0, None, None,
-            screen_trials=10, screen_window_s=24.0),
+    Readout("spont_dark", ("3minLightDark",), lambda e, s: s == 1, None, None, screen_trials=10, screen_window_s=24.0),
     Readout("spont_bright", ("3minLightDark",), lambda e, s: s == 0, None, None, screen_trials=10, screen_window_s=24.0),
     Readout("prey_capture", ("PreyCapture",), lambda e, s: True, ("JT",), None, screen_trials=10, screen_window_s=24.0),
-    Readout("flash_escape", ("multiFlash3min1sManyInt",), lambda e, s: dim_column(e, s) >= 0, ("O", "SAT"), None,
+    Readout("flash_escape", ("multiFlash3min1sManyInt",), lambda e, s: not e.endswith("3") and dim_column(e, s) >= 0,
+            ("O", "SAT"), None,
             escape=True, screen_trials=5, multi_fish=True),
 ]
 
@@ -590,13 +590,13 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, fold: float
             else:
                 mu, mu_screen = g["events"].mean(), p * spec.screen_window_s * spec.screen_trials
                 count, count_screen, scale = 1 / mu, 1 / mu_screen, mu_screen / mu
-            variance_screen = max(np.log1p(cv**2) - count, 0) + count_screen
+            variance_screen = max(cv**2 - count, 0) + count_screen
             row = {
                 "readout": spec.name, "experiment": experiment, "n_fish": len(g), "presentations": k,
                 "run_s": (g["T"] / g["presentations"]).median(), "events_per_fish": g["events"].mean(),
                 "strength_mean": p, "cv_strength": cv,
-                **power("fish_strength", np.log1p(cv**2), np.log(fold), lines),
-                "screen_trials": spec.screen_trials, "cv_screen": np.sqrt(np.expm1(variance_screen)),
+                **power("fish_strength", cv**2, np.log(fold), lines),
+                "screen_trials": spec.screen_trials, "cv_screen": np.sqrt(variance_screen),
                 **power("fish_strength_screen", variance_screen, np.log(fold), lines),
             }
             d = g[g["sided_events"] > 0] if spec.side is not None else g.iloc[:0]
@@ -675,8 +675,8 @@ def analyze(
     print(f"\nFish per group for a {fold:g}-fold change, {POWER:.0%} power:")
     for name, column in [("median", "50%"), ("90th percentile", "90%"), ("max", "max")]:
         cv = table.loc["all", column]
-        print(f"  CV {cv:.2f} ({name}): alpha 0.05 -> {fish_needed(np.log1p(cv**2), np.log(fold), 0.05):.0f}, "
-              f"alpha 0.05/{lines} -> {fish_needed(np.log1p(cv**2), np.log(fold), 0.05 / lines):.0f}")
+        print(f"  CV {cv:.2f} ({name}): alpha 0.05 -> {fish_needed(cv**2, np.log(fold), 0.05):.0f}, "
+              f"alpha 0.05/{lines} -> {fish_needed(cv**2, np.log(fold), 0.05 / lines):.0f}")
 
     bias = turn_bias(bouts, fish)
     bias.to_csv(out / "turn_bias.csv", index=False)
