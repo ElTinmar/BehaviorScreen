@@ -879,7 +879,7 @@ def render(scene: Scene, reader: FrameReader, output: Path, start_s: float, dura
     writer = FFMPEG_VideoWriter_CPU(filename=output, height=PANEL_PX + STRIP_PX, width=2 * PANEL_PX, fps=fps, q=18)
     try:
         for k in tqdm(frames, desc=rec.name):
-            writer.write_frame(scene.frame(k, reader.read(int(rec.video_frames[k]))))
+            writer.write_frame(cv2.cvtColor(scene.frame(k, reader.read(int(rec.video_frames[k]))), cv2.COLOR_BGR2RGB))  # drawn in BGR, writer takes RGB
     finally:
         writer.close()
 
