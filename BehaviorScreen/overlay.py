@@ -7,8 +7,8 @@ bouts, saccades and tracking agreement over a moving time window (bottom).
     python -m BehaviorScreen.overlay ROOT --fish NAME [--saccades saccades_augmented_all.csv]
         [--start 0] [--duration 30] [--speed 0.5] [--fps 30]
 
-Only the requested window is read and rendered, at --fps output frames per
-second; --speed < 1 is slow motion.
+Only the requested window is read and rendered (to the end of the recording
+without --duration), at --fps output frames per second; --speed < 1 is slow motion.
 """
 import argparse
 from dataclasses import dataclass, field
@@ -956,9 +956,10 @@ class Scene:
         return strip
 
 
-def render(scene: Scene, reader: FrameReader, output: Path, start_s: float, duration_s: float, speed: float, fps: float) -> None:
+def render(scene: Scene, reader: FrameReader, output: Path, start_s: float, duration_s: Optional[float], speed: float, fps: float) -> None:
     rec, time_s = scene.rec, scene.tracks.time_s
-    frames = np.unique(nearest_indices(time_s, start_s + np.arange(0, duration_s, speed / fps)))
+    stop_s = time_s[-1] if duration_s is None else start_s + duration_s
+    frames = np.unique(nearest_indices(time_s, np.arange(start_s, stop_s, speed / fps)))
     writer = FFMPEG_VideoWriter_CPU(filename=output, height=PANEL_PX + STRIP_PX, width=2 * PANEL_PX, fps=fps, q=18)
     try:
         for k in tqdm(frames, desc=rec.name):
@@ -994,7 +995,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--fish", required=True, help="Part of the recording name (metadata file stem)")
     parser.add_argument("--saccades", default="", help="Classified saccade table relative to root (fish, onset_time_s, cluster)")
     parser.add_argument("--start", type=float, default=0.0, help="Window start, s from the first frame")
-    parser.add_argument("--duration", type=float, default=30.0, help="Window length, s of recording")
+    parser.add_argument("--duration", type=float, default=None, help="Window length, s of recording (default: to the end)")
     parser.add_argument("--speed", type=float, default=0.5, help="Playback speed (0.5: half speed)")
     parser.add_argument("--fps", type=float, default=30.0, help="Output frames per second")
     parser.add_argument("--eye-likelihood", type=float, default=DetectionConfig.likelihood_threshold,
