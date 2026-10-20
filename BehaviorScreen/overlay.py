@@ -161,8 +161,7 @@ def alpha_blend(bg, fg, alpha=128):
 
 
 def sum_blend(bg, fg, gain=1.0):
-    out = bg.astype(np.uint16) + (fg.astype(np.uint16) * gain)
-    return np.clip(out, 0, 255).astype(np.uint8)
+    return cv2.addWeighted(bg, 1.0, fg, gain, 0.0)
 
 
 def egocentric_coords_mm(coords, centroid, pc1, pc2, mm_per_pixel):
@@ -573,7 +572,7 @@ def overlay_stimulus(X, Y, p):
 # ---------------------------------------------------------------------------
 
 PANEL_PX, STRIP_PX, MARGIN_PX = 720, 300, 80
-ZOOM_MM = 9.0
+ZOOM_MM = 7.0
 WINDOW_S = 4.0
 SACCADE_LABEL_S = 0.3
 QC_CENTROID_MM, QC_HEADING_DEG = 1.0, 15.0
@@ -737,8 +736,10 @@ class Scene:
         if active < 0 or not np.isfinite(online).all():
             return panel
         stimulus = self.rec.stimuli[active]
-        image_px = to_panel(cv2.invertAffineTransform(view), self.panel_grid)
-        coords = egocentric_coords_mm(image_px, online[:2], online[2:4], online[4:6], 1 / self.rec.pix_per_mm)
+        to_image = cv2.invertAffineTransform(view)
+        to_fish = np.stack([online[4:6], online[2:4]], axis=1) / self.rec.pix_per_mm  # egocentric_coords_mm, composed with to_image
+        to_coords = np.column_stack([(to_image[:, :2].T @ to_fish).T, (to_image[:, 2] - online[:2]) @ to_fish])
+        coords = to_panel(to_coords.astype(np.float32), self.panel_grid)
         drawn = overlay_stimulus(coords[..., 0], coords[..., 1], stim_to_param(stimulus, (1e-9 * timestamp) % rollover_time_sec))
         if drawn is None:
             return panel
