@@ -584,7 +584,7 @@ WHITE, GREY = (235, 235, 235), (150, 150, 150)
 ONLINE_BGR, POSE_BGR, TRAIL_BGR, WELL_BGR = (0, 165, 255), (110, 220, 120), (230, 190, 90), (150, 215, 235)
 OK_BGR, BAD_BGR = (90, 160, 90), (60, 60, 220)
 EYE_BGR = {"left": (240, 150, 60), "right": (70, 120, 240)}
-SKELETON_ALPHA, NODE_RADIUS = 0.7, 5
+SKELETON_ALPHA, NODE_RADIUS, HEADING_PX = 0.7, 5, 50
 LATERALITY_NAME = {1: "ipsi", -1: "contra"}  # Laterality; non-directional events get no label
 QC_LABEL = "QC: online vs pose tracking"
 TAIL_PARTS = ["Swim_Bladder"] + [f"Tail_{i}" for i in range(9)]
@@ -790,9 +790,11 @@ class Scene:
             center = to_panel(view, online[:2])
             direction = to_panel(view, online[:2] + online[2:4]) - center
             direction /= np.hypot(*direction)
-            base, tip = center + NODE_RADIUS * direction, center + (NODE_RADIUS + 30) * direction
-            cv2.circle(panel, tuple(np.round(center).astype(int)), NODE_RADIUS, ONLINE_BGR, 2, cv2.LINE_AA)
-            cv2.arrowedLine(panel, tuple(np.round(base).astype(int)), tuple(np.round(tip).astype(int)), ONLINE_BGR, 2, cv2.LINE_AA, tipLength=0.3)
+            base, tip = center + NODE_RADIUS * direction, center + (NODE_RADIUS + HEADING_PX) * direction
+            layer = panel.copy()
+            cv2.circle(layer, tuple(np.round(center).astype(int)), NODE_RADIUS, ONLINE_BGR, 1, cv2.LINE_AA)
+            cv2.arrowedLine(layer, tuple(np.round(base).astype(int)), tuple(np.round(tip).astype(int)), ONLINE_BGR, 1, cv2.LINE_AA, tipLength=0.15)
+            panel = cv2.addWeighted(layer, SKELETON_ALPHA, panel, 1 - SKELETON_ALPHA, 0)
 
         row = rec.trials.iloc[trial] if trial >= 0 else None
         label = f"{t.time_s[k]:7.2f} s" + (f"   {row.epoch_name}  #{row.trial_num + 1}" if row is not None else "")
