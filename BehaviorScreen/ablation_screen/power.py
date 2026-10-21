@@ -41,6 +41,8 @@ Output (power/):
 Run after run_screen, arm_absolute (optional: bootstrap SEs) and clutch_variability
 (optional: mutant design):
     python -m BehaviorScreen.ablation_screen.power ./tier1_results [fold changes, default 1.5 2 3]
+or, for the model-free readouts, after count_readouts:
+    python -m BehaviorScreen.ablation_screen.power ./count_results --counts [fold changes]
 """
 import sys
 from pathlib import Path
@@ -324,8 +326,11 @@ def map_row_order(tier1_df: pd.DataFrame) -> pd.Series:
     return lines.reindex([l for l in ["WT"] if l in lines.index] + ntr + [l for l, f in lines.items() if f != "ntr"])
 
 
-def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES) -> None:
+def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES, counts: bool = False) -> None:
+    from .count_readouts import COUNT_COLUMNS
     from .tier1_config import MAP_COLUMNS
+
+    columns = COUNT_COLUMNS if counts else MAP_COLUMNS
 
     tier1_df = pd.read_csv(results_dir / "tier1_results.csv", dtype={"line": str})
     param_df, se_source = with_bootstrap_se(pd.read_csv(results_dir / "tier1_parameters.csv", dtype={"line": str}), results_dir)
@@ -335,16 +340,16 @@ def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES) -> Non
     out.mkdir(exist_ok=True)
 
     noise = with_clutch(model_noise(param_df, tier1_df), clutch).assign(se_source=se_source)
-    order = list(MAP_COLUMNS) + [b for b in dict.fromkeys(tier1_df["behavior"]) if b not in MAP_COLUMNS]
+    order = list(columns) + [b for b in dict.fromkeys(tier1_df["behavior"]) if b not in columns]
     detail = power_detail(noise, fold_changes)
-    summary = summary_table(detail, order, MAP_COLUMNS)
+    summary = summary_table(detail, order, columns)
     detail.to_csv(out / "power_detail.csv", index=False)
     summary.to_csv(out / "power_summary.csv", index=False)
-    save_fig(plot_power_now(noise, order, MAP_COLUMNS), out, "power_now")
-    save_fig(plot_fish_needed(noise, order, MAP_COLUMNS), out, "fish_needed")
+    save_fig(plot_power_now(noise, order, columns), out, "power_now")
+    save_fig(plot_fish_needed(noise, order, columns), out, "fish_needed")
     cells = detectable_cells(noise, tier1_df, param_df)
     cells.to_csv(out / "detectable_map.csv", index=False)
-    save_fig(plot_detectable_map(cells, map_row_order(tier1_df), order, MAP_COLUMNS), out, "detectable_map")
+    save_fig(plot_detectable_map(cells, map_row_order(tier1_df), order, columns), out, "detectable_map")
     with pd.option_context("display.width", 250, "display.max_columns", None):
         print(f"Tier 1 power (SEs: {se_source}; mutant screen {'with' if clutch is not None else 'skipped: no'} clutch variability;"
               " inf: the floors alone exceed the effect)")
@@ -352,5 +357,5 @@ def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES) -> Non
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    main(Path(args[0] if args else "./tier1_results"), tuple(float(f) for f in args[1:]) or FOLD_CHANGES)
+    args = [a for a in sys.argv[1:] if a != "--counts"]
+    main(Path(args[0] if args else "./tier1_results"), tuple(float(f) for f in args[1:]) or FOLD_CHANGES, "--counts" in sys.argv)

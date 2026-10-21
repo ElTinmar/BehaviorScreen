@@ -33,7 +33,7 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
 from BehaviorScreen.ablation_screen.fdr import add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.ablation_screen.dataset_utils import Arms
-# from BehaviorScreen.ablation_screen.count_readouts import COUNT_READOUTS, run_count_screen
+# Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.ablation_screen.count_readouts
 from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS
 from BehaviorScreen.ablation_screen.tier2_interaction import plot_tier2_map, run_tier2_screen
 from BehaviorScreen.ablation_screen.screen_setup import (
@@ -80,7 +80,7 @@ print(tier1_df["status"].value_counts())
 
 # Count readouts (direction, escape, evoked gain): model-free, tested alongside Tier 1 (own FDR family per readout).
 # Off for now: the map shows only the model amplitudes. To restore, swap the commented lines back in here and below.
-# count_df, count_params = run_count_screen(loaders, CONTRASTS)
+# count_df, count_params = run_count_screen(arm_counts(loaders, CONTRASTS), CONTRASTS)
 # count_df = add_testability(add_fdr_per_behavior(count_df, alpha=0.05))
 # screen_df = pd.concat([tier1_df, count_df], ignore_index=True)
 screen_df = tier1_df

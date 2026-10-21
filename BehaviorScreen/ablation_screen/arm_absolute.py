@@ -38,6 +38,9 @@ ARM_KEYS = ["line", "condition", "behavior"]
 CONTROL, UP, DOWN, NEUTRAL, TEST = "#4d4d4d", "#b2182b", "#2166ac", "#bdbdbd", "#8c8c8c"
 BAND, MEDIAN = "#efefef", "#a6a6a6"
 MIN_SUCCESS = 0.8  # below this fraction of successful refits the interval is drawn dashed
+COUNT_AXES = {"R": "R: events per second (log)", "G": "G: response window / rest of trial rate (log)",
+              "E": "E: odds of an escape per trial (log)", "P": "P: odds of the stimulus side (log)"}
+NO_EFFECT_AT_1 = {"D", "G", "P"}  # parameters whose value 1 means no bias or no evoked response
 
 
 # ---------------------------------------------------------------------------
@@ -161,6 +164,8 @@ def with_bootstrap_se(param_df: pd.DataFrame, results_dir: Path) -> Tuple[pd.Dat
 def axis_label(parameter: str, model_name: str) -> str:
     if parameter == "D":
         return "D: away / towards odds (log)" if "SidedSurvival" in model_name else "D: ipsi / contra baseline (log)"
+    if parameter in COUNT_AXES:
+        return COUNT_AXES[parameter]
     unit = {"B": "Hz", "A": "Hz at onset", "A_peak": "extra turns per trial", "H": "1/s"}.get(parameter, "")
     return f"{parameter} ({unit}, log)" if unit else f"{parameter} (log)"
 
@@ -250,7 +255,7 @@ def plot_absolute(behavior: str, boot_df: pd.DataFrame, contrasts: List[Contrast
                 _point(ax, test, y - 0.18, False, color if hit else TEST)
         for (_, lines), (_, next_lines) in zip(sections, sections[1:]):
             ax.axhline((lines[-1][0] + next_lines[0][0]) / 2, color="#e0e0e0", lw=0.8)
-        if parameter == "D":
+        if parameter in NO_EFFECT_AT_1:
             ax.axvline(1.0, color="#9e9e9e", lw=0.8, ls=":", zorder=0)
 
         ax.set_xscale("log")
@@ -286,10 +291,12 @@ def plot_absolute(behavior: str, boot_df: pd.DataFrame, contrasts: List[Contrast
     return fig
 
 
-def plot_all(boot_df: pd.DataFrame, contrasts: List[Contrast], tier1_df: pd.DataFrame, output_dir: Path) -> None:
+def plot_all(boot_df: pd.DataFrame, contrasts: List[Contrast], tier1_df: pd.DataFrame, output_dir: Path,
+             columns: Dict[str, str] = MAP_COLUMNS) -> None:
+    """One figure per map column (`columns`: behavior -> label, in map order)."""
     rows = map_rows(tier1_df, contrasts)
-    for behavior in [b for b in MAP_COLUMNS if b in set(boot_df["behavior"])]:
-        fig = plot_absolute(behavior, boot_df, contrasts, tier1_df, rows, MAP_COLUMNS[behavior])
+    for behavior in [b for b in columns if b in set(boot_df["behavior"])]:
+        fig = plot_absolute(behavior, boot_df, contrasts, tier1_df, rows, columns[behavior])
         save_fig(fig, output_dir, behavior)
         plt.close(fig)
 
