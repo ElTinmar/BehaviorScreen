@@ -47,8 +47,9 @@ of each presentation (stimulus onsets are not in the files):
                of presentations with one; its CV across fish gives the fish needed
     direction  for sided readouts, fraction of turning events toward the side the
                protocol says is correct (Readout.side; frontal/rear stimuli left out);
-               the SD of its log-odds across fish gives the fish needed to reduce the
-               bias above chance FOLD-fold (2-fold: e.g. 93 % -> 72 % correct)
+               the SD of its log-odds across fish gives the fish needed to detect a
+               FOLD-fold change of the odds of the correct side (the screen's D), whatever
+               the bias: n = 2 (z_alpha + z_0.8)^2 SD^2 / ln(FOLD)^2
 Each is also carried over to the screen's protocol (Readout.screen_trials, screen_window_s):
 the counting noise at the Marques event numbers (Poisson 1/mu; binomial (1 - p)/(p k) for
 escapes; 1/(turns q (1 - q)) for direction) is subtracted from CV^2 (log-odds variance),
@@ -593,7 +594,7 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, folds: tupl
     Per readout of the screen and Marques experiment: spread of strength and direction across fish
     and the fish needed at alpha = 0.05 / lines for each fold change, as measured in Marques
     (fish_<f>x) and carried over to the screen's trials and windows (fish_screen_<f>x). For
-    direction, the fold change applies to the bias above chance (direction_<f>x: the target).
+    direction, the fold change applies to the odds of the correct side (fish_direction_odds_<f>x).
     """
     alpha = 0.05 / lines
     rows = []
@@ -631,22 +632,11 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, folds: tupl
                 row |= {
                     "direction_fish": len(d), "direction_mean": q,
                     "sd_logit_direction": logit.std(ddof=1), "sd_logit_screen": np.sqrt(variance_screen),
-                    **{f"direction_{f:g}x": reduced_bias(q, f) for f in folds},
-                    **{f"fish_direction_{f:g}x": fish_needed(logit.var(ddof=1), logit_drop(q, f), alpha) for f in folds},
-                    **{f"fish_direction_screen_{f:g}x": fish_needed(variance_screen, logit_drop(q, f), alpha) for f in folds},
+                    **{f"fish_direction_odds_{f:g}x": fish_needed(logit.var(ddof=1), np.log(f), alpha) for f in folds},
+                    **{f"fish_direction_odds_screen_{f:g}x": fish_needed(variance_screen, np.log(f), alpha) for f in folds},
                 }
             rows.append(row)
     return pd.DataFrame(rows)
-
-
-def reduced_bias(correct: float, fold: float) -> float:
-    """Fraction of correct turns once the bias above chance is `fold` times smaller."""
-    return 0.5 + (correct - 0.5) / fold
-
-
-def logit_drop(correct: float, fold: float) -> float:
-    reduced = reduced_bias(correct, fold)
-    return float(np.log(correct / (1 - correct)) - np.log(reduced / (1 - reduced)))
 
 
 def fish_needed(variance: float, effect: float, alpha: float) -> float:
@@ -711,7 +701,7 @@ def analyze(
     result = readouts(bouts, fish, min_fish, folds, lines)
     result.to_csv(out / "readouts.csv", index=False)
     print(f"\nScreen readouts, fish per group at {POWER:.0%} power and alpha 0.05/{lines} for each fold change "
-          f"(of the rate, escape probability or direction bias), in Marques and carried over to the screen's protocol:")
+          f"(of the rate or escape probability, and of the odds of the correct turn), in Marques and carried over to the screen's protocol:")
     print(result.round(2).to_string(index=False))
 
 
