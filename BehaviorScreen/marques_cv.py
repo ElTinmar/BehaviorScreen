@@ -45,9 +45,9 @@ fish with the same bout categories (BoutInf column 11) and windows, from the fir
 of each presentation (stimulus onsets are not in the files):
     strength   rate of the readout's bouts in the window, or for escapes the fraction
                of presentations with one; its CV across fish gives the fish needed. A
-               presentation without any bout leaves no trace, so the presentations shown
-               are taken as the most any fish of the experiment has: silent ones count as
-               no response
+               presentation without any bout leaves no trace: for escapes, the presentations
+               shown are taken as the most any fish of the same protocol has, so silent ones
+               count as no response (column shown; presentations: those with bouts)
     direction  for sided readouts, fraction of turning events toward the side the
                protocol says is correct (Readout.side; frontal/rear stimuli left out);
                the SD of its log-odds across fish gives the fish needed to detect a
@@ -557,25 +557,28 @@ def turn_bias(bouts: pd.DataFrame, fish: pd.DataFrame) -> pd.DataFrame:
 
 def readout_per_fish(spec: Readout, bouts: pd.DataFrame, fish: pd.DataFrame) -> pd.DataFrame:
     """One row per fish: presentations, events, strength (rate or escape probability) and, if sided, direction."""
-    keys = fish.loc[fish["experiment"].str.startswith(spec.experiments), ["fish_key", "experiment"]]
+    keys = fish.loc[fish["experiment"].str.startswith(spec.experiments), ["fish_key", "experiment", "dataset", "protocol"]]
     b = bouts.merge(keys, on="fish_key")
     b = b[np.array([spec.stimuli(e, s) for e, s in zip(b["experiment"], b["stimulus"])], dtype=bool)]
     events = b if spec.categories is None else b[b["category"].isin([CATEGORIES[c] for c in spec.categories])]
     events = events[(events["t"] - events["t0"]).between(spec.start_s, np.inf if spec.window_s is None else spec.window_s)]
+    protocol = ["experiment", "dataset", "protocol"]
     runs = b.groupby("run").agg(
-        fish_key=("fish_key", "first"), experiment=("experiment", "first"), stimulus=("stimulus", "first"),
+        fish_key=("fish_key", "first"), **{k: (k, "first") for k in protocol}, stimulus=("stimulus", "first"),
         span=("t", lambda t: t.max() - t.min()),
     )
     runs["observed"] = (runs["span"] - spec.start_s).clip(lower=0)
-    per_fish = runs.groupby("fish_key").agg(experiment=("experiment", "first"), T=("observed", "sum"))
-    # A presentation without a bout leaves no run: count those shown, as the most runs any fish of the experiment has.
-    shown = runs.groupby(["experiment", "stimulus", "fish_key"]).size().groupby(["experiment", "stimulus"]).max()
-    per_fish["presentations"] = per_fish["experiment"].map(shown.groupby("experiment").sum())
-    per_fish = per_fish.drop(columns="experiment")
+    per_fish = runs.groupby("fish_key").agg(**{k: (k, "first") for k in protocol}, presentations=("span", "size"), T=("observed", "sum"))
+    # Escapes: a presentation without any bout leaves no run, yet is a non-response. Count those shown, as the
+    # most runs any fish of the same protocol has. Rates keep the presentations with bouts: in a long window a
+    # silent presentation is more likely lost tracking than no movement.
+    shown = runs.groupby([*protocol, "stimulus", "fish_key"]).size().groupby([*protocol, "stimulus"]).max().groupby(protocol).sum()
+    per_fish["shown"] = shown.reindex(pd.MultiIndex.from_frame(per_fish[protocol])).to_numpy()
+    per_fish = per_fish.drop(columns=protocol)
     per_fish["events"] = events.groupby("fish_key").size().reindex(per_fish.index, fill_value=0)
     if spec.escape:
         responded = events.groupby("fish_key")["run"].nunique().reindex(per_fish.index, fill_value=0)
-        per_fish["strength"] = responded / per_fish["presentations"]
+        per_fish["strength"] = responded / per_fish["shown"]
     elif spec.window_s is not None:
         per_fish["strength"] = per_fish["events"] / (per_fish["presentations"] * (spec.window_s - spec.start_s))
     else:
@@ -618,7 +621,7 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, folds: tupl
                 continue
             cv = float(np.mean([g["strength"].std(ddof=1) / g["strength"].mean() for g in parts]))
             g = pd.concat(parts)
-            p, k = g["strength"].mean(), g["presentations"].mean()
+            p, k = g["strength"].mean(), g["shown" if spec.escape else "presentations"].mean()
             if spec.escape:
                 count, count_screen, scale = (1 - p) / (p * k), (1 - p) / (p * spec.screen_trials), spec.screen_trials / k
             else:
@@ -627,7 +630,7 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, folds: tupl
             variance_screen = max(cv**2 - count, 0) + count_screen
             row = {
                 "readout": spec.name, "experiment": experiment, "n_fish": g["fish_key"].nunique(),
-                "conditions": len(parts), "presentations": k,
+                "conditions": len(parts), "presentations": g["presentations"].mean(), "shown": g["shown"].mean(),
                 "run_s": (g["T"] / g["presentations"]).median(), "events_per_fish": g["events"].mean(),
                 "strength_mean": p, "cv_strength": cv,
                 "screen_trials": spec.screen_trials, "cv_screen": np.sqrt(variance_screen),
