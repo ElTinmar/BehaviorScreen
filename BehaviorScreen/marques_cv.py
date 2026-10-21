@@ -44,7 +44,10 @@ Readouts of the screen (READOUTS, named and pooled as in model_config) are measu
 fish with the same bout categories (BoutInf column 11) and windows, from the first bout
 of each presentation (stimulus onsets are not in the files):
     strength   rate of the readout's bouts in the window, or for escapes the fraction
-               of presentations with one; its CV across fish gives the fish needed
+               of presentations with one; its CV across fish gives the fish needed. A
+               presentation without any bout leaves no trace, so the presentations shown
+               are taken as the most any fish of the experiment has: silent ones count as
+               no response
     direction  for sided readouts, fraction of turning events toward the side the
                protocol says is correct (Readout.side; frontal/rear stimuli left out);
                the SD of its log-odds across fish gives the fish needed to detect a
@@ -237,7 +240,7 @@ READOUTS = [
     Readout("phototaxis_late", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), None, PHOTOTAXIS_EARLY_S, side=phototaxis_side,
             screen_trials=20, screen_window_s=24.0 - PHOTOTAXIS_EARLY_S),
     Readout("looming", ("LoomingDifferentDirections",), lambda e, s: s > 0 and s % 2 == 1 and loom_angle(e, s) in (90, 270),
-            ("SLC", "LLC", "O", "SAT"), 9.0, escape=True,  # Marques classify most loom escapes as SAT or O (Fig. 3A)
+            ("SLC", "LLC"), 9.0, escape=True,  # C-starts, as the screen (LOOMING_ESCAPE); SATs are avoidance turns
             side=lambda e, s: -side(loom_angle(e, s)), screen_trials=14),
     # The 16 light levels of DarkLightTransitions change neither the bout rate nor its CV, but a CV from
     # one 180 s epoch and ~26 fish carries ~0.06 of sampling noise, so the CV is averaged over the epochs.
@@ -559,9 +562,16 @@ def readout_per_fish(spec: Readout, bouts: pd.DataFrame, fish: pd.DataFrame) -> 
     b = b[np.array([spec.stimuli(e, s) for e, s in zip(b["experiment"], b["stimulus"])], dtype=bool)]
     events = b if spec.categories is None else b[b["category"].isin([CATEGORIES[c] for c in spec.categories])]
     events = events[(events["t"] - events["t0"]).between(spec.start_s, np.inf if spec.window_s is None else spec.window_s)]
-    runs = b.groupby("run").agg(fish_key=("fish_key", "first"), span=("t", lambda t: t.max() - t.min()))
+    runs = b.groupby("run").agg(
+        fish_key=("fish_key", "first"), experiment=("experiment", "first"), stimulus=("stimulus", "first"),
+        span=("t", lambda t: t.max() - t.min()),
+    )
     runs["observed"] = (runs["span"] - spec.start_s).clip(lower=0)
-    per_fish = runs.groupby("fish_key").agg(presentations=("span", "size"), T=("observed", "sum"))
+    per_fish = runs.groupby("fish_key").agg(experiment=("experiment", "first"), T=("observed", "sum"))
+    # A presentation without a bout leaves no run: count those shown, as the most runs any fish of the experiment has.
+    shown = runs.groupby(["experiment", "stimulus", "fish_key"]).size().groupby(["experiment", "stimulus"]).max()
+    per_fish["presentations"] = per_fish["experiment"].map(shown.groupby("experiment").sum())
+    per_fish = per_fish.drop(columns="experiment")
     per_fish["events"] = events.groupby("fish_key").size().reindex(per_fish.index, fill_value=0)
     if spec.escape:
         responded = events.groupby("fish_key")["run"].nunique().reindex(per_fish.index, fill_value=0)
