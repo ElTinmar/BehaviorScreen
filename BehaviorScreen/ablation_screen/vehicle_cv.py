@@ -14,13 +14,12 @@ Per vehicle arm (line, vehicle) and readout, from the datasets Tier 1 fits
     direction  per fish, the share of events on the stimulus side (ipsi; away
                from looming), and the SD of its logit across fish
 
-Fish per arm for 80% power, two-sided at --alpha:
+Fish per arm for 80% power, two-sided at alpha = 0.05 / --lines, as in marques_cv:
 
-    strength   2 z^2 sd^2 / log2(f)^2, sd = sqrt(log(1 + cv^2)) / log(2), cv observed
+    strength   2 z^2 cv^2 / ln(f)^2, cv observed (gamma-Poisson: cv^2 = c^2 + counting)
     direction  f-fold change of the odds of the stimulus side (Tier 1's D), whatever
                the bias: 2 z^2 sd_logit^2 / log(f)^2
 
-The default alpha is the one the Marques table implies (z^2 ~ 18 at 80% power).
 These counts leave out the arm and clutch variance of the power analysis.
 
 Outputs (OUTPUT/):
@@ -30,7 +29,7 @@ Outputs (OUTPUT/):
                          vehicle fish pooled (adds arm-to-arm differences) and fish
                          per arm from the median within-arm values
 
-    python -m BehaviorScreen.ablation_screen.vehicle_cv ROOT OUTPUT [--alpha 0.00067]
+    python -m BehaviorScreen.ablation_screen.vehicle_cv ROOT OUTPUT [--lines 60]
 """
 import argparse
 from pathlib import Path
@@ -52,7 +51,6 @@ DIRECTION_SIDE = {"looming": Laterality.CONTRALATERAL}  # away; ipsi otherwise
 FOLDS = (1.5, 2.0, 3.0)
 MIN_FISH, MIN_DIRECTION_EVENTS = 5, 3
 SPLITS = {"phototaxis": {"phototaxis_early": (0.0, 1.5), "phototaxis_late": (1.5, None)}}  # extra readouts: windows (s) within the trial
-MARQUES_ALPHA = 0.05 / 75
 
 
 def fish_strength(ds: PointProcessDataset, escape: bool) -> pd.DataFrame:
@@ -109,9 +107,8 @@ def readout_row(ds: PointProcessDataset, experiment: str, two_sided: bool) -> di
 
 def add_fish_needed(table: pd.DataFrame, alpha: float, power: float = 0.8) -> pd.DataFrame:
     z2 = (stats.norm.ppf(1 - alpha / 2) + stats.norm.ppf(power)) ** 2
-    sd = np.sqrt(np.log1p(table["cv_strength"] ** 2)) / np.log(2)
     for f in FOLDS:
-        table[f"fish_{f:g}x"] = np.ceil(2 * z2 * sd**2 / np.log2(f) ** 2)
+        table[f"fish_{f:g}x"] = np.ceil(2 * z2 * table["cv_strength"] ** 2 / np.log(f) ** 2)
     if "sd_logit_direction" in table:
         for f in FOLDS:
             table[f"fish_direction_odds_{f:g}x"] = np.ceil(2 * z2 * table["sd_logit_direction"] ** 2 / np.log(f) ** 2)
@@ -153,8 +150,9 @@ def main(args: argparse.Namespace) -> None:
     }
     arms, summary = vehicle_cv(loaders, args.vehicle)
     args.output.mkdir(parents=True, exist_ok=True)
-    add_fish_needed(arms, args.alpha).to_csv(args.output / "vehicle_cv_arms.csv", index=False)
-    summary = add_fish_needed(summary, args.alpha)
+    alpha = 0.05 / args.lines
+    add_fish_needed(arms, alpha).to_csv(args.output / "vehicle_cv_arms.csv", index=False)
+    summary = add_fish_needed(summary, alpha)
     summary.to_csv(args.output / "vehicle_cv.csv", index=False)
     columns = ["readout", "arms", "n_fish", "events_per_fish", "strength_mean", "cv_strength", "cv_frailty", "cv_strength_pooled", "fish_2x"]
     print(summary[[c for c in columns if c in summary]].round(3).to_string(index=False))
@@ -164,7 +162,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Mean and between-fish CV of each readout in the vehicle arms (cf. marques_cv).")
     parser.add_argument("root", type=Path, help="Folder with the merged screen tables")
     parser.add_argument("output", type=Path)
-    parser.add_argument("--alpha", type=float, default=MARQUES_ALPHA, help="Two-sided test level of the fish counts (default: as in the Marques table)")
+    parser.add_argument("--lines", type=int, default=60, help="Tests to correct alpha for, as marques_cv (default 60)")
     parser.add_argument("--vehicle", default="vehicle", help="Condition of the vehicle arms")
     parser.add_argument("--bouts", default="bouts_all.csv")
     parser.add_argument("--saccades", default="saccades_augmented_all.csv")
