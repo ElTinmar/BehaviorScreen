@@ -5,6 +5,10 @@ Between-fish variability of bout rates and screen readouts in the Marques et al.
     python marques_cv.py analyze ./marques_data ./marques_cv
     python marques_cv.py fig3a ./marques_data ./marques_fig3a
     python marques_cv.py inventory ./marques_data ./marques_inventory
+    python marques_cv.py compare ./marques_cv/readouts.csv ./vehicle_cv/vehicle_cv.csv ./marques_cv
+
+`compare` plots the between-fish CV of each readout in the screen's vehicle arms (vehicle_cv)
+against Marques at the screen's trials (cv_screen, median over experiments): screen_vs_marques.png.
 
 `download` fetches the five Mendeley parts and Table S2 (mmc2.xlsx). Run it again to
 resume interrupted downloads: only files missing or shorter than listed are fetched. If the API refuses, use "Download All" on each dataset page (links in PARTS).
@@ -934,6 +938,35 @@ def inventory(root: Path, out: Path) -> None:
     ).to_string())
 
 
+SCREEN_NAMES = {"flash_escape": "dark_flash"}  # Marques readout -> vehicle_cv readout, where they differ
+NOTES = {"looming": "looming\n(C-starts rare\nin Marques)"}
+
+
+def compare(readouts_csv: Path, vehicle_csv: Path, out: Path) -> None:
+    marques = pd.read_csv(readouts_csv).groupby("readout")["cv_screen"].median().rename(index=lambda r: SCREEN_NAMES.get(r, r))
+    both = pd.read_csv(vehicle_csv).set_index("readout")["cv_strength"].to_frame("screen").join(marques.rename("marques"), how="inner")
+    both = both[~both.index.str.endswith(("_early", "_late"))]  # windows of phototaxis
+    fig, ax = plt.subplots(figsize=(4.2, 4.2), layout="constrained")
+    top = 1.1 * both.to_numpy().max()
+    ax.plot([0, top], [0, top], color="#8c8c8c", ls="--", lw=1)
+    ax.plot(both["marques"], both["screen"], "o", ms=7, color="#2a78d6", mec="white", mew=1)
+    placed: list[tuple[float, float]] = []
+    for name, row in both.sort_values("screen", ascending=False).iterrows():  # step labels down past close neighbours
+        drop = sum(abs(row["marques"] - x) < 0.15 * top and abs(row["screen"] - y) < 0.03 * top for x, y in placed)
+        placed.append((row["marques"], row["screen"]))
+        right = row["marques"] > 0.6 * top  # near the right edge: label centred below
+        ax.annotate(NOTES.get(name, name), (row["marques"], row["screen"]), xytext=(0, -8) if right else (5, 2 - 9 * drop),
+                    textcoords="offset points", fontsize=7, ha="center" if right else "left", va="top" if right else "baseline")
+    ax.set(xlim=(0, top), ylim=(0, top), aspect="equal",
+           xlabel="CV across fish, Marques et al. 2018\n(at the screen's trials)", ylabel="CV across fish, screen vehicle arms")
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    out.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out / "screen_vs_marques.png", dpi=200)
+    both.to_csv(out / "screen_vs_marques.csv")
+    print(both.round(2).to_string())
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -951,11 +984,17 @@ if __name__ == "__main__":
     f.add_argument("out", type=Path)
     f.add_argument("--ages", type=int, nargs="+", default=[6, 7])
     f.add_argument("--stats", type=Path, help=f"{FIG3A_STATS} (default: found under ROOT)")
+    c = sub.add_parser("compare", help="plot the screen's vehicle CVs against Marques'")
+    c.add_argument("readouts", type=Path)
+    c.add_argument("vehicle", type=Path)
+    c.add_argument("out", type=Path)
     i = sub.add_parser("inventory", help="list experiments, protocols and stimulus numbers in the data")
     i.add_argument("root", type=Path)
     i.add_argument("out", type=Path)
     args = parser.parse_args()
-    if args.command == "inventory":
+    if args.command == "compare":
+        compare(args.readouts, args.vehicle, args.out)
+    elif args.command == "inventory":
         inventory(args.root, args.out)
     elif args.command == "download":
         download(args.out)
