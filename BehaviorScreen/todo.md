@@ -22,11 +22,14 @@ Would be nice to be able to include 1s pre-stimulus onset
 
 - once happy with the pipeline try renewal point process
 
+- Make use of the marks to predict next bouts (bout chain structure per behavior)
+
 - can the whole point process pipeline be implemented with a GLM
 
 - make figures for bouts and saccades classification (bouts and saccades examples, average of some sort?)
 
 - Can pooling across vehicles be justified? Record more WT, check if vehicle pool has same variability as WT across clutches to justify pooling? 
+
 
 # Figures
 
