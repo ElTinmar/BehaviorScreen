@@ -10,18 +10,6 @@
 
 - "Sided models classify every non-ipsilateral event as contralateral" in SidedPoissonProcess
 
-- generate overlay videos at different scales (whole field for stimulus, zoomed on fish for tail and eyes pose) that show everything the pre-processing extracted:
-    - stimulus reconstruction (RN in regular python, can it be accelerated?)
-    - online tracking
-    - post-hoc pose estimation
-    - bout segmentation and classification
-    - sacaddes segmentation and classification
-    - quality check 
-    - well outline and center
-    - tail timeseries
-    - eye timeseries
-    - accumulating (x,y) trajectories
-
 - add 1s before the start of the stimulus. Might be nice both for plotting and for the modelling
 of the response onset?
 
