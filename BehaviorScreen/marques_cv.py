@@ -113,6 +113,7 @@ LOOM_SPEEDS_MM_S = [2.5, 5, 10, 15, 20, 25]
 OMR_SCREEN_STIMULI = (7, 19)  # OMRTurns at 10 mm/s, 90 and 270 deg: the screen's gratings
 PHOTOTAXIS_LEVELS = [0, 20, 41, 61, 82, 102]  # projector levels; each trial follows 1 s of grey (128)
 PHOTOTAXIS_READOUT_LEVELS = (20, 41)  # one side dark, the other dimly lit: the only clear phototaxis here
+PHOTOTAXIS_EARLY_S = 1.5  # early/late split, as vehicle_cv: the screen's phototaxis response is over by 1.5 s
 
 
 def odd_index(stimulus: int) -> int:
@@ -231,10 +232,10 @@ READOUTS = [
             side=lambda e, s: side((s - 1) * 15), screen_trials=10, screen_window_s=9.0),
     Readout("phototaxis", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), 24.0, side=phototaxis_side,
             screen_trials=20, screen_window_s=24.0),
-    Readout("phototaxis_early", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), 2.5, side=phototaxis_side,
-            screen_trials=20, screen_window_s=2.5),
-    Readout("phototaxis_late", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), None, 2.5, side=phototaxis_side,
-            screen_trials=20, screen_window_s=21.5),
+    Readout("phototaxis_early", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), PHOTOTAXIS_EARLY_S, side=phototaxis_side,
+            screen_trials=20, screen_window_s=PHOTOTAXIS_EARLY_S),
+    Readout("phototaxis_late", ("Phototaxis",), lambda e, s: phototaxis_readout(s), ("RT",), None, PHOTOTAXIS_EARLY_S, side=phototaxis_side,
+            screen_trials=20, screen_window_s=24.0 - PHOTOTAXIS_EARLY_S),
     Readout("looming", ("LoomingDifferentDirections",), lambda e, s: s > 0 and s % 2 == 1 and loom_angle(e, s) in (90, 270),
             ("SLC", "LLC", "O", "SAT"), 9.0, escape=True,  # Marques classify most loom escapes as SAT or O (Fig. 3A)
             side=lambda e, s: -side(loom_angle(e, s)), screen_trials=14),
