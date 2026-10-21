@@ -18,9 +18,7 @@ Fish per arm for 80% power, two-sided at --alpha:
 
     strength   2 z^2 sd^2 / log2(f)^2, sd = sqrt(log(1 + cv^2)) / log(2), cv observed
     direction  f-fold change of the odds of the stimulus side (Tier 1's D), whatever
-               the bias: 2 z^2 sd_logit^2 / log(f)^2   (fish_direction_odds_*)
-               bias above chance shrunk f-fold, as Marques, d -> 1/2 + (d - 1/2) / f:
-               2 z^2 sd_logit^2 / (logit(d) - logit(1/2 + (d - 1/2) / f))^2   (fish_direction_*)
+               the bias: 2 z^2 sd_logit^2 / log(f)^2
 
 The default alpha is the one the Marques table implies (z^2 ~ 18 at 80% power).
 These counts leave out the arm and clutch variance of the power analysis.
@@ -114,12 +112,7 @@ def add_fish_needed(table: pd.DataFrame, alpha: float, power: float = 0.8) -> pd
     sd = np.sqrt(np.log1p(table["cv_strength"] ** 2)) / np.log(2)
     for f in FOLDS:
         table[f"fish_{f:g}x"] = np.ceil(2 * z2 * sd**2 / np.log2(f) ** 2)
-    if "direction_mean" in table:
-        logit = lambda p: np.log(p / (1 - p))
-        d = table["direction_mean"]
-        for f in FOLDS:
-            effect = logit(d) - logit(0.5 + (d - 0.5) / f)
-            table[f"fish_direction_{f:g}x"] = np.ceil(2 * z2 * table["sd_logit_direction"] ** 2 / effect**2)
+    if "sd_logit_direction" in table:
         for f in FOLDS:
             table[f"fish_direction_odds_{f:g}x"] = np.ceil(2 * z2 * table["sd_logit_direction"] ** 2 / np.log(f) ** 2)
     return table
