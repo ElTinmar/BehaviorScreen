@@ -278,23 +278,27 @@ def detectable_cells(noise: pd.DataFrame, tier1_df: pd.DataFrame, param_df: pd.D
     return cells[["line", "family", *KEYS, "n_fish_ref", "n_fish_test"]].assign(detectable=2 ** (z * se))
 
 
-def plot_detectable_map(cells: pd.DataFrame, rows: List[str], order: List[str], labels: Optional[Dict[str, str]] = None,
+def plot_detectable_map(cells: pd.DataFrame, families: pd.Series, order: List[str], labels: Optional[Dict[str, str]] = None,
                         power: float = POWER) -> plt.Figure:
-    """The Tier 1 map's grid with, in each cell, the fold change its test detects with `power`."""
+    """The Tier 1 map's grid (rows: `families` index, line -> family) with, in each cell, the fold change its test detects with `power`."""
+    rows = list(families.index)
     columns = _in_map_order(cells.drop_duplicates(KEYS), order)[KEYS].apply(tuple, axis=1).tolist()
-    grid = cells.pivot_table(index="line", columns=KEYS, values="detectable").reindex(index=rows, columns=pd.MultiIndex.from_tuples(columns))
-    fold = grid.to_numpy()
+    index = pd.MultiIndex.from_tuples(columns)
+    fold = cells.pivot_table(index="line", columns=KEYS, values="detectable").reindex(index=rows, columns=index).to_numpy()
+    tested = cells.assign(n=1).pivot_table(index="line", columns=KEYS, values="n").reindex(index=rows, columns=index).notna().to_numpy()
     shade = np.log2(np.clip(fold, 1, MAX_FOLD))
     fig, ax = plt.subplots(figsize=(0.36 * len(columns) + 3, 0.26 * len(rows) + 3), layout="constrained")
     image = ax.imshow(np.ma.masked_invalid(shade), cmap=DETECTABLE_COLORS, vmin=0, vmax=np.log2(MAX_FOLD), aspect="auto")
     for (i, j), f in np.ndenumerate(fold):
         if not np.isfinite(f):
-            ax.plot(j, i, marker="x", color=MUTED, markersize=3)
+            if tested[i, j]:  # mutant cell of a column without clutch variability
+                ax.text(j, i, "–", ha="center", va="center", fontsize=6, color=MUTED)
+            else:
+                ax.plot(j, i, marker="x", color=MUTED, markersize=3)
             continue
         ax.text(j, i, f"≥{MAX_FOLD:g}" if f >= MAX_FOLD else f"{f:.1f}", ha="center", va="center", fontsize=5.5,
                 color="white" if shade[i, j] > 1.4 else "#222222")
-    family = cells.drop_duplicates("line").set_index("line")["family"].reindex(rows)
-    for i in np.flatnonzero(family.to_numpy()[1:] != family.to_numpy()[:-1]) + 1:
+    for i in np.flatnonzero(families.to_numpy()[1:] != families.to_numpy()[:-1]) + 1:
         ax.axhline(i - 0.5, color="white", lw=4)
     for j in np.flatnonzero([a[0] != b[0] for a, b in zip(columns[1:], columns[:-1])]) + 1:
         ax.axvline(j - 0.5, color="white", lw=1.5)
@@ -308,16 +312,16 @@ def plot_detectable_map(cells: pd.DataFrame, rows: List[str], order: List[str], 
     bar = fig.colorbar(image, ax=ax, fraction=0.025, pad=0.01)
     bar.set_ticks(np.log2([1, 1.5, 2, 3, 4, MAX_FOLD]), labels=["×1", "×1.5", "×2", "×3", "×4", f"≥×{MAX_FOLD:g}"])
     bar.set_label(f"fold change detectable with {power:.0%} power (either way)", fontsize=8)
-    ax.set_xlabel(f"cell: fold change each test detects with {power:.0%} power, from its own fish per arm; x: not tested", fontsize=7)
+    ax.set_xlabel(f"cell: fold change each test detects with {power:.0%} power, from its own fish per arm; x: not tested; –: no clutch variability for the column", fontsize=7)
     return fig
 
 
-def map_row_order(tier1_df: pd.DataFrame) -> List[str]:
-    """Rows as in the Tier 1 map: WT, the NTR lines with the most hits first, then the mutants."""
+def map_row_order(tier1_df: pd.DataFrame) -> pd.Series:
+    """Rows as in the Tier 1 map (WT, the NTR lines with the most hits first, then the mutants), line -> family."""
     lines = tier1_df.drop_duplicates("line").set_index("line")["family"]
     hits = tier1_df[tier1_df["significant"].fillna(False).astype(bool)].groupby("line").size()
     ntr = sorted((l for l, f in lines.items() if f == "ntr" and l != "WT"), key=lambda l: -hits.get(l, 0))
-    return [l for l in ["WT"] if l in lines.index] + ntr + [l for l, f in lines.items() if f != "ntr"]
+    return lines.reindex([l for l in ["WT"] if l in lines.index] + ntr + [l for l, f in lines.items() if f != "ntr"])
 
 
 def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES) -> None:
