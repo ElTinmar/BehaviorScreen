@@ -4,6 +4,7 @@ Between-fish variability of bout rates and screen readouts in the Marques et al.
     python marques_cv.py download ./marques_data
     python marques_cv.py analyze ./marques_data ./marques_cv
     python marques_cv.py fig3a ./marques_data ./marques_fig3a
+    python marques_cv.py inventory ./marques_data ./marques_inventory
 
 `download` fetches the five Mendeley parts and Table S2 (mmc2.xlsx). Run it again to
 resume interrupted downloads: only files missing or shorter than listed are fetched. If the API refuses, use "Download All" on each dataset page (links in PARTS).
@@ -71,7 +72,7 @@ import zlib
 import urllib.error
 import urllib.request
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Callable, Iterator
 
 import matplotlib.pyplot as plt
@@ -216,6 +217,7 @@ class Readout:
     start_s: float = 0.0  # window start, from the first bout
     escape: bool = False  # strength = fraction of presentations with >= 1 event, instead of a rate
     side: Callable[[str, int], int] | None = None  # sided readouts: correct turn (+1 left, -1 right, 0 none)
+    conditions: Callable[[str, int], object] | None = None  # measure the CV per condition and average over them
     screen_trials: int = 0  # trials per larva in the screen (protocol.py)
     screen_window_s: float = 0.0  # counting window per trial in the screen (model_config), for rates
     multi_fish: bool = False  # keep arenas with several fish (only these exist for this readout; identities may swap)
@@ -235,8 +237,12 @@ READOUTS = [
     Readout("looming", ("LoomingDifferentDirections",), lambda e, s: s > 0 and s % 2 == 1 and loom_angle(e, s) in (90, 270),
             ("SLC", "LLC", "O", "SAT"), 9.0, escape=True,  # Marques classify most loom escapes as SAT or O (Fig. 3A)
             side=lambda e, s: -side(loom_angle(e, s)), screen_trials=14),
-    Readout("spont_dark", ("3minLightDark",), lambda e, s: s == 1, None, None, screen_trials=10, screen_window_s=24.0),
-    Readout("spont_bright", ("3minLightDark",), lambda e, s: s == 0, None, None, screen_trials=10, screen_window_s=24.0),
+    # The 16 light levels of DarkLightTransitions change neither the bout rate nor its CV, but a CV from
+    # one 180 s epoch and ~26 fish carries ~0.06 of sampling noise, so the CV is averaged over the epochs.
+    Readout("spont_dark", ("DarkLightTransitions",), lambda e, s: s >= 0 and s % 2 == 0, None, None,
+            conditions=lambda e, s: s, screen_trials=10, screen_window_s=24.0),
+    Readout("spont_bright", ("DarkLightTransitions",), lambda e, s: s > 0 and s % 2 == 1, None, None,
+            conditions=lambda e, s: s, screen_trials=10, screen_window_s=24.0),
     Readout("prey_capture", ("PreyCapture",), lambda e, s: True, ("JT",), None, screen_trials=10, screen_window_s=24.0),
     Readout("flash_escape", ("multiFlash3min1sManyInt",), lambda e, s: not e.endswith("3") and dim_column(e, s) >= 0,
             ("O", "SAT"), None,
@@ -571,6 +577,17 @@ def readout_per_fish(spec: Readout, bouts: pd.DataFrame, fish: pd.DataFrame) -> 
     return per_fish.reset_index().merge(fish, on="fish_key")
 
 
+def readout_frames(spec: Readout, bouts: pd.DataFrame, fish: pd.DataFrame) -> list[pd.DataFrame]:
+    """One per-fish table per condition when spec.conditions is set, else one over all the readout's stimuli."""
+    if spec.conditions is None:
+        return [readout_per_fish(spec, bouts, fish)]
+    keys = fish.loc[fish["experiment"].str.startswith(spec.experiments), ["fish_key", "experiment"]]
+    b = bouts.merge(keys, on="fish_key")
+    values = sorted({spec.conditions(e, s) for e, s in zip(b["experiment"], b["stimulus"]) if spec.stimuli(e, s)})
+    one = lambda v: replace(spec, conditions=None, stimuli=lambda e, s: spec.stimuli(e, s) and spec.conditions(e, s) == v)
+    return [readout_per_fish(one(v), bouts, fish) for v in values]
+
+
 def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, folds: tuple[float, ...], lines: int) -> pd.DataFrame:
     """
     Per readout of the screen and Marques experiment: spread of strength and direction across fish
@@ -581,12 +598,14 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, folds: tupl
     alpha = 0.05 / lines
     rows = []
     for spec in READOUTS:
-        per_fish = readout_per_fish(spec, bouts, fish)
-        per_fish = per_fish[spec.multi_fish | (per_fish["fish_in_file"] == 1)].dropna(subset=["strength"])
-        for experiment, g in per_fish.groupby("experiment"):
-            if len(g) < min_fish:
+        frames = [f[spec.multi_fish | (f["fish_in_file"] == 1)].dropna(subset=["strength"])
+                  for f in readout_frames(spec, bouts, fish)]
+        for experiment in sorted({e for f in frames for e in f["experiment"].unique()}):
+            parts = [g for g in (f[f["experiment"] == experiment] for f in frames) if len(g) >= min_fish]
+            if not parts:
                 continue
-            cv = g["strength"].std(ddof=1) / g["strength"].mean()
+            cv = float(np.mean([g["strength"].std(ddof=1) / g["strength"].mean() for g in parts]))
+            g = pd.concat(parts)
             p, k = g["strength"].mean(), g["presentations"].mean()
             if spec.escape:
                 count, count_screen, scale = (1 - p) / (p * k), (1 - p) / (p * spec.screen_trials), spec.screen_trials / k
@@ -595,7 +614,8 @@ def readouts(bouts: pd.DataFrame, fish: pd.DataFrame, min_fish: int, folds: tupl
                 count, count_screen, scale = 1 / mu, 1 / mu_screen, mu_screen / mu
             variance_screen = max(cv**2 - count, 0) + count_screen
             row = {
-                "readout": spec.name, "experiment": experiment, "n_fish": len(g), "presentations": k,
+                "readout": spec.name, "experiment": experiment, "n_fish": g["fish_key"].nunique(),
+                "conditions": len(parts), "presentations": k,
                 "run_s": (g["T"] / g["presentations"]).median(), "events_per_fish": g["events"].mean(),
                 "strength_mean": p, "cv_strength": cv,
                 "screen_trials": spec.screen_trials, "cv_screen": np.sqrt(variance_screen),
@@ -716,16 +736,22 @@ class Panel:
     hypotheses: dict[str, Callable[[str, int], int]] = field(default_factory=dict)  # candidate mappings, if none is predicted
 
 
-def phototaxis_column(stimulus: int, levels: tuple[int, ...]) -> int:
-    """Fig. 3A column of a trial with one side dark and the other at one of `levels`, else -1."""
-    dark, lit = sorted(phototaxis_sides(stimulus))
-    return levels.index(lit) if dark == 0 and lit in levels else -1
+# Fig. 3A bins phototaxis by DIFFERENTIAL light intensity (its x axis, 100-1800 lux), not by the
+# level of the lit side, so all 30 unequal trials contribute. The protocol's six levels give five
+# distinct differences; Table S2 shows four columns, so which four are drawn is tested.
+PHOTOTAXIS_DIFFERENCES = [20, 41, 61, 82, 102]
 
 
-# Table S2 lists 4 lit levels against dark (100-1250 lux); the protocol has 5: which 4 is tested.
+def phototaxis_difference(stimulus: int) -> int | None:
+    """The trial's difference in projector level between the two sides, as one of PHOTOTAXIS_DIFFERENCES."""
+    left, right = phototaxis_sides(stimulus)
+    difference = abs(left - right)
+    return min(PHOTOTAXIS_DIFFERENCES, key=lambda d: abs(d - difference)) if difference else None
+
+
 PHOTOTAXIS_HYPOTHESES = {
-    f"lit side at levels {levels}": (lambda levels: lambda e, s: phototaxis_column(s, levels))(levels)
-    for levels in itertools.combinations(PHOTOTAXIS_LEVELS[1:], 4)
+    f"differences {shown} lux-equivalent": (lambda shown: lambda e, s: shown.index(d) if (d := phototaxis_difference(s)) in shown else -1)(shown)
+    for shown in itertools.combinations(PHOTOTAXIS_DIFFERENCES, 4)
 }
 
 
@@ -799,7 +825,7 @@ def pooled_distances(fractions: pd.DataFrame, paper: np.ndarray, panel: Panel) -
 
 def fig3a_check(bouts: pd.DataFrame, fish: pd.DataFrame, stats_path: Path, out: Path) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
-    (units, columns). units: per panel and Marques stimulus, the closest paper column (total
+    (units, columns, hypotheses). units: per panel and Marques stimulus, the closest paper column (total
     variation distance) against the column the mapping predicts. columns: where the mapping
     predicts every stimulus, the stimuli pooled per predicted column, as the paper pooled
     them (repeats, both directions), and their distance to that column; where it does not, the
