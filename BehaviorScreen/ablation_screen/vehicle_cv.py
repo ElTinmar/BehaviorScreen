@@ -2,7 +2,8 @@
 Mean and between-fish CV of each Tier 1 readout in the vehicle arms, the
 counterpart of marques_cv.py's readouts.csv for the Marques et al. 2018 data.
 
-Per vehicle arm (line, vehicle) and readout, from the datasets Tier 1 fits:
+Per vehicle arm (line, vehicle) and readout, from the datasets Tier 1 fits
+(plus the SPLITS windows: phototaxis early, the first 1.5 s (dip and peak of the response), and late):
 
     strength   event rate over the usable trials (events/s) or, for escapes,
                the share of trials with an escape
@@ -50,6 +51,7 @@ ESCAPES = {"looming", "dark_flash", "looming_divergent_saccade"}  # survival rea
 DIRECTION_SIDE = {"looming": Laterality.CONTRALATERAL}  # away; ipsi otherwise
 FOLDS = (1.5, 2.0, 3.0)
 MIN_FISH, MIN_DIRECTION_EVENTS = 5, 3
+SPLITS = {"phototaxis": {"phototaxis_early": (0.0, 1.5), "phototaxis_late": (1.5, None)}}  # extra readouts: windows (s) within the trial
 MARQUES_ALPHA = 0.05 / 75
 
 
@@ -86,10 +88,22 @@ def direction_summary(ds: PointProcessDataset, side: Laterality, first_only: boo
     return {"direction_fish": int(keep.sum()), "direction_mean": float(np.mean(on_side / total)), "sd_logit_direction": float(np.std(logit, ddof=1))}
 
 
-def readout_row(ds: PointProcessDataset, readout: str, two_sided: bool) -> dict:
-    row = {"run_s": ds.duration_s, **strength_summary(fish_strength(ds, readout in ESCAPES))}
+def readouts() -> list[tuple[str, str, dict]]:
+    """(readout, experiment, dataset arguments): each Tier 1 experiment, then its SPLITS windows."""
+    config = get_model_config()
+    result = []
+    for experiment in MAP_COLUMNS:
+        dataset = config[experiment]["dataset"]
+        result.append((experiment, experiment, dataset))
+        for name, (start, stop) in SPLITS.get(experiment, {}).items():
+            result.append((name, experiment, {**dataset, "t_start": start, "t_end": dataset["t_end"] if stop is None else stop}))
+    return result
+
+
+def readout_row(ds: PointProcessDataset, experiment: str, two_sided: bool) -> dict:
+    row = {"run_s": ds.duration_s, **strength_summary(fish_strength(ds, experiment in ESCAPES))}
     if two_sided:
-        row |= direction_summary(ds, DIRECTION_SIDE.get(readout, Laterality.IPSILATERAL), first_only=readout in ESCAPES)
+        row |= direction_summary(ds, DIRECTION_SIDE.get(experiment, Laterality.IPSILATERAL), first_only=experiment in ESCAPES)
     return row
 
 
@@ -111,8 +125,8 @@ def vehicle_cv(loaders: Dict[str, BehavioralDataLoader], vehicle: str = "vehicle
     """(per arm, per readout) tables, before the fish counts."""
     config = get_model_config()
     arm_rows, summary_rows = [], []
-    for readout in MAP_COLUMNS:
-        loader, dataset = loaders[config[readout]["events"]], config[readout]["dataset"]
+    for readout, experiment, dataset in readouts():
+        loader = loaders[config[experiment]["events"]]
         sides = {int(l) for l in np.atleast_1d(dataset["laterality"])} if dataset["laterality"] is not None else set()
         two_sided = {int(Laterality.IPSILATERAL), int(Laterality.CONTRALATERAL)} <= sides
         lines = sorted(loader.trials.loc[loader.trials["condition"] == vehicle, "line"].astype(str).unique())
@@ -120,15 +134,15 @@ def vehicle_cv(loaders: Dict[str, BehavioralDataLoader], vehicle: str = "vehicle
         for line in lines:
             ds = safe_prepare_dataset(loader.subset(line, [vehicle]), dataset, f"{line}/{vehicle}/{readout}")
             if ds is not None and ds.num_fish >= MIN_FISH:
-                rows.append({"readout": readout, "line": line, **readout_row(ds, readout, two_sided)})
+                rows.append({"readout": readout, "line": line, **readout_row(ds, experiment, two_sided)})
         if not rows:
             continue
         arms = pd.DataFrame(rows)
         arm_rows.append(arms)
         pooled = safe_prepare_dataset(loader.subset(None, [vehicle]), dataset, f"{vehicle}/{readout}")
-        pooled_row = {} if pooled is None else strength_summary(fish_strength(pooled, readout in ESCAPES))
+        pooled_row = {} if pooled is None else strength_summary(fish_strength(pooled, experiment in ESCAPES))
         summary_rows.append({
-            "readout": readout, "events": config[readout]["events"], "arms": len(arms), "n_fish": int(arms["n_fish"].sum()),
+            "readout": readout, "events": config[experiment]["events"], "arms": len(arms), "n_fish": int(arms["n_fish"].sum()),
             **arms.drop(columns=["readout", "line", "n_fish"]).median(numeric_only=True).to_dict(),
             "cv_strength_pooled": pooled_row.get("cv_strength", np.nan), "cv_frailty_pooled": pooled_row.get("cv_frailty", np.nan),
         })
