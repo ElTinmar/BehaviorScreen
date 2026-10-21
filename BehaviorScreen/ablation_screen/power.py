@@ -34,6 +34,8 @@ Output (power/):
                        for 80% power at each fold change and design, fold detectable now
     power_detail.csv   the same in long form, with the fish range over the 95% interval of v
     power_now.png      power against fold change with the fish per arm now, one panel per column
+    sensitivity.png    per column, the fold change detectable now (80% power, interval over v) and the
+                       variance budget of a contrast: fish noise, arm floor, clutch floor (sensitivity.csv)
     fish_needed.png    fish per arm for 80% power against fold change, one panel per column
 
 Run after run_screen, arm_absolute (optional: bootstrap SEs) and clutch_variability
@@ -52,7 +54,7 @@ from scipy import optimize, stats
 from BehaviorScreen.point_process.point_process.io import save_fig
 
 from .arm_absolute import with_bootstrap_se
-from .tier1_omnibus import PARAMETER_LABELS
+from .tier1_omnibus import MIN_FOLD, PARAMETER_LABELS
 
 KEYS = ["behavior", "parameter"]
 FOLD_CHANGES = (1.5, 2.0, 3.0)
@@ -60,6 +62,9 @@ POWER = 0.8
 MUTED = "#8c8c8c"
 MAX_FISH = 1000
 DESIGNS = {"NTR screen": ("#2a78d6", "-"), "mutant screen": ("#eb6834", "--")}
+BUDGET = {"fish": ("#1baf7a", "fish noise, 2 σm² / n"), "arm": ("#eda100", "arm floor, 2 v"),
+          "clutch": ("#6250d6", "clutch floor, 2 τ² (mutant screen)")}
+MAX_FOLD = 8.0
 
 
 def per_fish_sd(param_df: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
@@ -257,6 +262,61 @@ def plot_fish_needed(noise: pd.DataFrame, order: List[str], labels: Optional[Dic
     return fig
 
 
+def sensitivity_table(noise: pd.DataFrame, order: List[str], labels: Optional[Dict[str, str]] = None) -> pd.DataFrame:
+    """Per column in map order: fold change detectable now per design (with its range over v) and the variance budget."""
+    rows = _in_map_order(noise, order)
+    table = rows[[*KEYS, "fish_now"]].copy()
+    table.insert(0, "column", [f"{(labels or {}).get(b, b)} · {PARAMETER_LABELS[p]}" for b, p in zip(rows["behavior"], rows["parameter"])])
+    for design in DESIGNS:
+        terms = [design_terms(c, design) for _, c in rows.iterrows()]
+        alpha, floor = np.array(terms).T
+        extra = floor - rows["arm_var"].to_numpy()
+        for suffix, v in (("", rows["arm_var"]), (" low", rows["arm_var_low"]), (" high", rows["arm_var_high"])):
+            table[f"detectable{suffix} ({design})"] = detectable_now(rows["sigma_m"].to_numpy(), rows["fish_now"].to_numpy(), alpha, v.to_numpy() + extra)
+    table["var fish"] = 2 * rows["sigma_m"].to_numpy() ** 2 / rows["fish_now"].to_numpy()
+    table["var arm"] = 2 * rows["arm_var"].to_numpy()
+    table["var clutch"] = 2 * rows["tau"].to_numpy() ** 2
+    return table
+
+
+def plot_sensitivity(table: pd.DataFrame, min_fold: float = MIN_FOLD, power: float = POWER) -> plt.Figure:
+    """A: fold change detectable now per design, interval over v, threshold of a hit. B: variance budget of a contrast."""
+    y = np.arange(len(table))[::-1]
+    fig, (ax_a, ax_b) = plt.subplots(1, 2, sharey=True, figsize=(10, 0.32 * len(table) + 1.6), layout="constrained",
+                                     gridspec_kw={"width_ratios": [1.5, 1]})
+    for offset, (design, (color, _)) in zip((0.15, -0.15), DESIGNS.items()):
+        x, low, high = (np.minimum(table[f"detectable{s} ({design})"], MAX_FOLD) for s in ("", " low", " high"))
+        shown = np.isfinite(table[f"detectable ({design})"])
+        ax_a.hlines(y[shown] + offset, low[shown], high[shown], color=color, lw=2)
+        off = shown & (table[f"detectable ({design})"] >= MAX_FOLD)
+        ax_a.plot(x[shown & ~off], y[shown & ~off] + offset, "o", ms=6, color=color, mec="white", mew=1, label=design)
+        ax_a.plot(x[off], y[off] + offset, ">", ms=7, color=color, mec="white", mew=1)
+    ax_a.axvline(min_fold, color=MUTED, ls="--", lw=1)
+    ax_a.text(min_fold, y[0] + 0.8, f" hit threshold ×{min_fold:g}", fontsize=7, color=MUTED, va="bottom")
+    ax_a.set_xscale("log", base=2)
+    ax_a.set_xlim(1.2, MAX_FOLD * 1.1)
+    ax_a.set_xticks([1.25, 1.5, 2, 3, 4, 8], ["×1.25", "×1.5", "×2", "×3", "×4", f"≥×{MAX_FOLD:g}"])
+    ax_a.minorticks_off()
+    ax_a.set_xlabel(f"fold change detectable with {power:.0%} power, fish per arm now (bar: 95% interval of v)", fontsize=8)
+    ax_a.set_yticks(y, [f"{c}  (n={n:.0f})" for c, n in zip(table["column"], table["fish_now"])], fontsize=8)
+    ax_a.legend(loc="upper center", bbox_to_anchor=(0.5, -0.07), ncol=2, fontsize=7, frameon=False)
+
+    left = np.zeros(len(table))
+    for key, (color, label) in BUDGET.items():
+        width = np.nan_to_num(table[f"var {key}"].to_numpy())
+        ax_b.barh(y, width, left=left, height=0.6, color=color, edgecolor="white", linewidth=1, label=label)
+        left += width
+    ax_b.set_xlabel("variance of a log2 contrast between two arms", fontsize=8)
+    ax_b.legend(loc="upper center", bbox_to_anchor=(0.5, -0.07), ncol=1, fontsize=7, frameon=False)
+    for ax, letter in ((ax_a, "A"), (ax_b, "B")):
+        ax.text(0, 1.01, letter, transform=ax.transAxes, fontweight="bold", va="bottom")
+        ax.grid(axis="x", color="#f0f0f0", lw=0.6)
+        ax.tick_params(labelsize=7)
+        for spine in ("top", "right"):
+            ax.spines[spine].set_visible(False)
+    return fig
+
+
 def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES) -> None:
     from .tier1_config import MAP_COLUMNS
 
@@ -275,6 +335,9 @@ def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES) -> Non
     summary.to_csv(out / "power_summary.csv", index=False)
     save_fig(plot_power_now(noise, order, MAP_COLUMNS), out, "power_now")
     save_fig(plot_fish_needed(noise, order, MAP_COLUMNS), out, "fish_needed")
+    sensitivity = sensitivity_table(noise, order, MAP_COLUMNS)
+    sensitivity.to_csv(out / "sensitivity.csv", index=False)
+    save_fig(plot_sensitivity(sensitivity), out, "sensitivity")
     with pd.option_context("display.width", 250, "display.max_columns", None):
         print(f"Tier 1 power (SEs: {se_source}; mutant screen {'with' if clutch is not None else 'skipped: no'} clutch variability;"
               " inf: the floors alone exceed the effect)")
