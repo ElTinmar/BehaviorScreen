@@ -34,9 +34,9 @@ Output (power/):
                        for 80% power at each fold change and design, fold detectable now
     power_detail.csv   the same in long form, with the fish range over the 95% interval of v
     power_now.png      power against fold change with the fish per arm now, one panel per column
-    sensitivity.png    per column, the fold change detectable now (80% power, interval over v) and the
-                       variance budget of a contrast: fish noise, arm floor, clutch floor (sensitivity.csv)
     fish_needed.png    fish per arm for 80% power against fold change, one panel per column
+    detectable_map.png per contrast and column, as the Tier 1 map: the fold change its test detects with 80%
+                       power, from its own fish per arm and its design's alpha and floors (detectable_map.csv)
 
 Run after run_screen, arm_absolute (optional: bootstrap SEs) and clutch_variability
 (optional: mutant design):
@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
 import numpy as np
 import pandas as pd
 from scipy import optimize, stats
@@ -54,17 +55,16 @@ from scipy import optimize, stats
 from BehaviorScreen.point_process.point_process.io import save_fig
 
 from .arm_absolute import with_bootstrap_se
-from .tier1_omnibus import MIN_FOLD, PARAMETER_LABELS
+from .tier1_omnibus import PARAMETER_LABELS
 
 KEYS = ["behavior", "parameter"]
 FOLD_CHANGES = (1.5, 2.0, 3.0)
 POWER = 0.8
 MUTED = "#8c8c8c"
 MAX_FISH = 1000
-DESIGNS = {"NTR screen": ("#2a78d6", "-"), "mutant screen": ("#eb6834", "--")}
-BUDGET = {"fish": ("#1baf7a", "fish noise, 2 σm² / n"), "arm": ("#eda100", "arm floor, 2 v"),
-          "clutch": ("#6250d6", "clutch floor, 2 τ² (mutant screen)")}
 MAX_FOLD = 8.0
+DETECTABLE_COLORS = LinearSegmentedColormap.from_list("detectable", ["#cde2fb", "#6da7ec", "#2a78d6", "#104281"])
+DESIGNS = {"NTR screen": ("#2a78d6", "-"), "mutant screen": ("#eb6834", "--")}
 
 
 def per_fish_sd(param_df: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
@@ -262,59 +262,62 @@ def plot_fish_needed(noise: pd.DataFrame, order: List[str], labels: Optional[Dic
     return fig
 
 
-def sensitivity_table(noise: pd.DataFrame, order: List[str], labels: Optional[Dict[str, str]] = None) -> pd.DataFrame:
-    """Per column in map order: fold change detectable now per design (with its range over v) and the variance budget."""
-    rows = _in_map_order(noise, order)
-    table = rows[[*KEYS, "fish_now"]].copy()
-    table.insert(0, "column", [f"{(labels or {}).get(b, b)} · {PARAMETER_LABELS[p]}" for b, p in zip(rows["behavior"], rows["parameter"])])
-    for design in DESIGNS:
-        terms = [design_terms(c, design) for _, c in rows.iterrows()]
-        alpha, floor = np.array(terms).T
-        extra = floor - rows["arm_var"].to_numpy()
-        for suffix, v in (("", rows["arm_var"]), (" low", rows["arm_var_low"]), (" high", rows["arm_var_high"])):
-            table[f"detectable{suffix} ({design})"] = detectable_now(rows["sigma_m"].to_numpy(), rows["fish_now"].to_numpy(), alpha, v.to_numpy() + extra)
-    table["var fish"] = 2 * rows["sigma_m"].to_numpy() ** 2 / rows["fish_now"].to_numpy()
-    table["var arm"] = 2 * rows["arm_var"].to_numpy()
-    table["var clutch"] = 2 * rows["tau"].to_numpy() ** 2
-    return table
+def detectable_cells(noise: pd.DataFrame, tier1_df: pd.DataFrame, param_df: pd.DataFrame, power: float = POWER) -> pd.DataFrame:
+    """
+    Per tested cell (contrast x behavior x free parameter): the fold change detected with `power`, from the
+    cell's fish per arm, sigma_m and v of its column, and its design (NTR: alpha 0.05 / lines, floor v; mutant:
+    alpha 0.05 / mutants, floor v + tau^2; NaN without clutch variability).
+    """
+    tested = tier1_df.loc[tier1_df["status"] == "ok", ["line", "family", "behavior", "n_fish_ref", "n_fish_test"]]
+    cells = param_df[["line", "behavior", "parameter"]].drop_duplicates().merge(tested, on=["line", "behavior"]).merge(noise, on=KEYS)
+    ntr = cells["family"] == "ntr"
+    alpha = 0.05 / np.where(ntr, cells["lines"], cells["mutants"])
+    floor = cells["arm_var"] + np.where(ntr, 0.0, cells["tau"] ** 2)
+    z = stats.norm.ppf(1 - alpha / 2) + stats.norm.ppf(power)
+    se = np.sqrt(cells["sigma_m"] ** 2 * (1 / cells["n_fish_ref"] + 1 / cells["n_fish_test"]) + 2 * floor)
+    return cells[["line", "family", *KEYS, "n_fish_ref", "n_fish_test"]].assign(detectable=2 ** (z * se))
 
 
-def plot_sensitivity(table: pd.DataFrame, min_fold: float = MIN_FOLD, power: float = POWER) -> plt.Figure:
-    """A: fold change detectable now per design, interval over v, threshold of a hit. B: variance budget of a contrast."""
-    y = np.arange(len(table))[::-1]
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, sharey=True, figsize=(10, 0.32 * len(table) + 1.6), layout="constrained",
-                                     gridspec_kw={"width_ratios": [1.5, 1]})
-    for offset, (design, (color, _)) in zip((0.15, -0.15), DESIGNS.items()):
-        x, low, high = (np.minimum(table[f"detectable{s} ({design})"], MAX_FOLD) for s in ("", " low", " high"))
-        shown = np.isfinite(table[f"detectable ({design})"])
-        ax_a.hlines(y[shown] + offset, low[shown], high[shown], color=color, lw=2)
-        off = shown & (table[f"detectable ({design})"] >= MAX_FOLD)
-        ax_a.plot(x[shown & ~off], y[shown & ~off] + offset, "o", ms=6, color=color, mec="white", mew=1, label=design)
-        ax_a.plot(x[off], y[off] + offset, ">", ms=7, color=color, mec="white", mew=1)
-    ax_a.axvline(min_fold, color=MUTED, ls="--", lw=1)
-    ax_a.text(min_fold, y[0] + 0.8, f" hit threshold ×{min_fold:g}", fontsize=7, color=MUTED, va="bottom")
-    ax_a.set_xscale("log", base=2)
-    ax_a.set_xlim(1.2, MAX_FOLD * 1.1)
-    ax_a.set_xticks([1.25, 1.5, 2, 3, 4, 8], ["×1.25", "×1.5", "×2", "×3", "×4", f"≥×{MAX_FOLD:g}"])
-    ax_a.minorticks_off()
-    ax_a.set_xlabel(f"fold change detectable with {power:.0%} power, fish per arm now (bar: 95% interval of v)", fontsize=8)
-    ax_a.set_yticks(y, [f"{c}  (n={n:.0f})" for c, n in zip(table["column"], table["fish_now"])], fontsize=8)
-    ax_a.legend(loc="upper center", bbox_to_anchor=(0.5, -0.07), ncol=2, fontsize=7, frameon=False)
-
-    left = np.zeros(len(table))
-    for key, (color, label) in BUDGET.items():
-        width = np.nan_to_num(table[f"var {key}"].to_numpy())
-        ax_b.barh(y, width, left=left, height=0.6, color=color, edgecolor="white", linewidth=1, label=label)
-        left += width
-    ax_b.set_xlabel("variance of a log2 contrast between two arms", fontsize=8)
-    ax_b.legend(loc="upper center", bbox_to_anchor=(0.5, -0.07), ncol=1, fontsize=7, frameon=False)
-    for ax, letter in ((ax_a, "A"), (ax_b, "B")):
-        ax.text(0, 1.01, letter, transform=ax.transAxes, fontweight="bold", va="bottom")
-        ax.grid(axis="x", color="#f0f0f0", lw=0.6)
-        ax.tick_params(labelsize=7)
-        for spine in ("top", "right"):
-            ax.spines[spine].set_visible(False)
+def plot_detectable_map(cells: pd.DataFrame, rows: List[str], order: List[str], labels: Optional[Dict[str, str]] = None,
+                        power: float = POWER) -> plt.Figure:
+    """The Tier 1 map's grid with, in each cell, the fold change its test detects with `power`."""
+    columns = _in_map_order(cells.drop_duplicates(KEYS), order)[KEYS].apply(tuple, axis=1).tolist()
+    grid = cells.pivot_table(index="line", columns=KEYS, values="detectable").reindex(index=rows, columns=pd.MultiIndex.from_tuples(columns))
+    fold = grid.to_numpy()
+    shade = np.log2(np.clip(fold, 1, MAX_FOLD))
+    fig, ax = plt.subplots(figsize=(0.36 * len(columns) + 3, 0.26 * len(rows) + 3), layout="constrained")
+    image = ax.imshow(np.ma.masked_invalid(shade), cmap=DETECTABLE_COLORS, vmin=0, vmax=np.log2(MAX_FOLD), aspect="auto")
+    for (i, j), f in np.ndenumerate(fold):
+        if not np.isfinite(f):
+            ax.plot(j, i, marker="x", color=MUTED, markersize=3)
+            continue
+        ax.text(j, i, f"≥{MAX_FOLD:g}" if f >= MAX_FOLD else f"{f:.1f}", ha="center", va="center", fontsize=5.5,
+                color="white" if shade[i, j] > 1.4 else "#222222")
+    family = cells.drop_duplicates("line").set_index("line")["family"].reindex(rows)
+    for i in np.flatnonzero(family.to_numpy()[1:] != family.to_numpy()[:-1]) + 1:
+        ax.axhline(i - 0.5, color="white", lw=4)
+    for j in np.flatnonzero([a[0] != b[0] for a, b in zip(columns[1:], columns[:-1])]) + 1:
+        ax.axvline(j - 0.5, color="white", lw=1.5)
+    ax.set_yticks(range(len(rows)), rows, fontsize=7)
+    ax.set_xticks(range(len(columns)), [f"{(labels or {}).get(b, b)} · {PARAMETER_LABELS[p]}" for b, p in columns],
+                  rotation=90, fontsize=7)
+    ax.xaxis.tick_top()
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    bar = fig.colorbar(image, ax=ax, fraction=0.025, pad=0.01)
+    bar.set_ticks(np.log2([1, 1.5, 2, 3, 4, MAX_FOLD]), labels=["×1", "×1.5", "×2", "×3", "×4", f"≥×{MAX_FOLD:g}"])
+    bar.set_label(f"fold change detectable with {power:.0%} power (either way)", fontsize=8)
+    ax.set_xlabel(f"cell: fold change each test detects with {power:.0%} power, from its own fish per arm; x: not tested", fontsize=7)
     return fig
+
+
+def map_row_order(tier1_df: pd.DataFrame) -> List[str]:
+    """Rows as in the Tier 1 map: WT, the NTR lines with the most hits first, then the mutants."""
+    lines = tier1_df.drop_duplicates("line").set_index("line")["family"]
+    hits = tier1_df[tier1_df["significant"].fillna(False).astype(bool)].groupby("line").size()
+    ntr = sorted((l for l, f in lines.items() if f == "ntr" and l != "WT"), key=lambda l: -hits.get(l, 0))
+    return [l for l in ["WT"] if l in lines.index] + ntr + [l for l, f in lines.items() if f != "ntr"]
 
 
 def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES) -> None:
@@ -335,9 +338,9 @@ def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES) -> Non
     summary.to_csv(out / "power_summary.csv", index=False)
     save_fig(plot_power_now(noise, order, MAP_COLUMNS), out, "power_now")
     save_fig(plot_fish_needed(noise, order, MAP_COLUMNS), out, "fish_needed")
-    sensitivity = sensitivity_table(noise, order, MAP_COLUMNS)
-    sensitivity.to_csv(out / "sensitivity.csv", index=False)
-    save_fig(plot_sensitivity(sensitivity), out, "sensitivity")
+    cells = detectable_cells(noise, tier1_df, param_df)
+    cells.to_csv(out / "detectable_map.csv", index=False)
+    save_fig(plot_detectable_map(cells, map_row_order(tier1_df), order, MAP_COLUMNS), out, "detectable_map")
     with pd.option_context("display.width", 250, "display.max_columns", None):
         print(f"Tier 1 power (SEs: {se_source}; mutant screen {'with' if clutch is not None else 'skipped: no'} clutch variability;"
               " inf: the floors alone exceed the effect)")
