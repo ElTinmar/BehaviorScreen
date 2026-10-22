@@ -18,7 +18,7 @@ from typing import Callable, Dict, List, Sequence, Union
 from qtpy.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QUrl
 from qtpy.QtGui import QCloseEvent, QDesktopServices, QTextCursor
 from qtpy.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout, QLineEdit,
+    QAbstractItemView, QApplication, QCheckBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLineEdit,
     QListWidget, QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 
@@ -31,7 +31,12 @@ TABS = {
     "Export": ["export"], "Pose estimation": ["pose", "eye_crop", "eye_pose"], "Quality control": ["qc"],
     "Bouts": ["bouts"], "Heatmaps": ["heatmaps"], "Saccades": ["saccades"],
 }
-SHARED = "Folders and files"
+# What each tab writes; its other paths are inputs, its flags and numbers options.
+OUTPUTS = {
+    "Export": {"results", "plots"}, "Pose estimation": {"lightning_pose", "eyes_video_dir"},
+    "Quality control": {"qc_csv", "valid_trials_csv", "plots"}, "Bouts": {"bouts_csv", "plots"},
+    "Heatmaps": {"bouts_png"}, "Saccades": {"plots"}, "Overlay": {"output_dir"},
+}
 
 
 def form_actions(parser: argparse.ArgumentParser, skip: set) -> List[argparse.Action]:
@@ -39,11 +44,18 @@ def form_actions(parser: argparse.ArgumentParser, skip: set) -> List[argparse.Ac
 
 
 def tab_options(parser: argparse.ArgumentParser) -> Dict[str, List[argparse.Action]]:
-    """Each tab's options: those its steps read (args.<dest> in their code); options several tabs read go to SHARED."""
+    """Each tab's options: those its steps read (args.<dest> in their code)."""
     actions = form_actions(parser, {"root", "steps"})
     used = {tab: set(re.findall(r"args\.(\w+)", "".join(inspect.getsource(STEPS[s]) for s in steps))) for tab, steps in TABS.items()}
-    shared = [a for a in actions if sum(a.dest in u for u in used.values()) > 1]
-    return {SHARED: shared, **{tab: [a for a in actions if a.dest in u and a not in shared] for tab, u in used.items()}}
+    return {tab: [a for a in actions if a.dest in u] for tab, u in used.items()}
+
+
+def grouped(tab: str, actions: Sequence[argparse.Action]) -> Dict[str, List[argparse.Action]]:
+    groups: Dict[str, List[argparse.Action]] = {"Inputs": [], "Outputs": [], "Options": []}
+    for a in actions:
+        option = isinstance(a, argparse._StoreTrueAction) or a.type in (int, float)
+        groups["Outputs" if a.dest in OUTPUTS[tab] else "Options" if option else "Inputs"].append(a)
+    return groups
 
 
 def to_argv(action: argparse.Action, value: Value) -> List[str]:
@@ -59,16 +71,23 @@ def browsable(action: argparse.Action) -> bool:
 
 
 class ArgumentForm(QWidget):
-    def __init__(self, actions: Sequence[argparse.Action]) -> None:
+    def __init__(self, groups: Dict[str, List[argparse.Action]]) -> None:
         super().__init__()
-        self.actions = list(actions)
+        self.actions = [a for actions in groups.values() for a in actions]
         self.fields: Dict[str, Union[QCheckBox, QLineEdit]] = {}
-        layout = QFormLayout(self)
-        for a in self.actions:
-            field = QCheckBox() if isinstance(a, argparse._StoreTrueAction) else QLineEdit("" if a.default is None else str(a.default))
-            field.setToolTip(a.help or "")
-            self.fields[a.dest] = field
-            layout.addRow(a.option_strings[-1].lstrip("-"), with_browse(field, bool(Path(str(a.default or "")).suffix)) if browsable(a) else field)
+        layout = QVBoxLayout(self)
+        for title, actions in groups.items():
+            if not actions:
+                continue
+            box = QGroupBox(title)
+            rows = QFormLayout(box)
+            for a in actions:
+                field = QCheckBox() if isinstance(a, argparse._StoreTrueAction) else QLineEdit("" if a.default is None else str(a.default))
+                field.setToolTip(a.help or "")
+                self.fields[a.dest] = field
+                rows.addRow(a.option_strings[-1].lstrip("-"), with_browse(field, bool(Path(str(a.default or "")).suffix)) if browsable(a) else field)
+            layout.addWidget(box)
+        layout.addStretch()
 
     def values(self) -> Dict[str, Value]:
         return {dest: f.isChecked() if isinstance(f, QCheckBox) else f.text() for dest, f in self.fields.items()}
@@ -82,9 +101,10 @@ class ArgumentForm(QWidget):
                 else:
                     field.setText(str(value))
 
-    def argv(self) -> List[str]:
+    def tokens(self) -> Dict[str, List[str]]:
+        """Command-line tokens per option."""
         values = self.values()
-        return [token for a in self.actions for token in to_argv(a, values[a.dest])]
+        return {a.dest: to_argv(a, values[a.dest]) for a in self.actions}
 
 
 def with_browse(edit: QLineEdit, pick_file: bool) -> QWidget:
@@ -104,6 +124,18 @@ def with_browse(edit: QLineEdit, pick_file: bool) -> QWidget:
     return row
 
 
+def link(forms: Sequence[ArgumentForm]) -> None:
+    """Fields of the same option in several forms show one value."""
+    for dest in {d for form in forms for d in form.fields}:
+        fields = [form.fields[dest] for form in forms if dest in form.fields]
+        for field in fields:
+            others = [o for o in fields if o is not field]
+            if isinstance(field, QCheckBox):
+                field.toggled.connect(lambda on, others=others: [o.setChecked(on) for o in others if o.isChecked() != on])
+            else:
+                field.textChanged.connect(lambda text, others=others: [o.setText(text) for o in others if o.text() != text])
+
+
 def scrolled(widget: QWidget) -> QScrollArea:
     area = QScrollArea()
     area.setWidget(widget)
@@ -120,7 +152,8 @@ class Window(QMainWindow):
         self.root = QLineEdit()
         self.root.setPlaceholderText("Root experiment folder")
 
-        self.forms = {tab: ArgumentForm(actions) for tab, actions in tab_options(pipeline_parser()).items()}
+        self.forms = {tab: ArgumentForm(grouped(tab, actions)) for tab, actions in tab_options(pipeline_parser()).items()}
+        link(self.forms.values())
         self.substeps = {step: QCheckBox(step) for steps in TABS.values() if len(steps) > 1 for step in steps}
         self.run_buttons: List[QPushButton] = []
         tabs = QTabWidget()
@@ -142,7 +175,7 @@ class Window(QMainWindow):
 
         self.fish = QListWidget()
         self.fish.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.overlay = ArgumentForm(form_actions(overlay_parser(), {"root", "fish"}))
+        self.overlay = ArgumentForm(grouped("Overlay", form_actions(overlay_parser(), {"root", "fish"})))
         refresh, open_folder = QPushButton("Refresh fish"), QPushButton("Open output folder")
         refresh.clicked.connect(self.list_fish)
         open_folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(self.root.text()) / self.overlay.values()["output_dir"]))))
@@ -200,11 +233,13 @@ class Window(QMainWindow):
         return [s for s in TABS[tab] if s not in self.substeps or self.substeps[s].isChecked()]
 
     def pipeline_command(self, steps: List[str]) -> List[str]:
-        options = [token for form in self.forms.values() for token in form.argv()]
+        tokens = {dest: t for form in self.forms.values() for dest, t in form.tokens().items()}
+        options = [token for t in tokens.values() for token in t]
         return [sys.executable, "-m", "BehaviorScreen", self.root.text(), "--steps", *steps, *options]
 
     def overlay_commands(self) -> List[List[str]]:
-        base = [sys.executable, "-m", "BehaviorScreen.overlay", self.root.text(), *self.overlay.argv()]
+        options = [token for t in self.overlay.tokens().values() for token in t]
+        base = [sys.executable, "-m", "BehaviorScreen.overlay", self.root.text(), *options]
         return [[*base, "--fish", item.text()] for item in self.fish.selectedItems()]
 
     def list_fish(self) -> None:
