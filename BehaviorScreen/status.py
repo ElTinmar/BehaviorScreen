@@ -109,9 +109,14 @@ def stems(folder: Path) -> List[str]:
     return sorted(p.stem for p in folder.glob("*.metadata"))
 
 
-def listed(csv: Path, column: str) -> set:
-    """Recordings in a table's column; reads that column only."""
-    return set(pd.read_csv(csv, usecols=[column])[column].astype(str)) if csv.exists() else set()
+def listed(csv: Path, column: str) -> frozenset:
+    """Recordings in a table's column; reads that column only, again only when the table changed."""
+    return read_column(csv, column, csv.stat().st_mtime) if csv.exists() else frozenset()
+
+
+@lru_cache(maxsize=32)
+def read_column(csv: Path, column: str, modified: float) -> frozenset:
+    return frozenset(pd.read_csv(csv, usecols=[column])[column].astype(str))
 
 
 def exists(pattern: str) -> Check:

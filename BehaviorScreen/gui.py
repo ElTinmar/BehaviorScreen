@@ -7,6 +7,7 @@ output in the log. Settings are kept between sessions.
     python -m BehaviorScreen.gui     (from the folder you run the pipeline from)
 """
 import argparse
+from concurrent.futures import Future, ThreadPoolExecutor
 import inspect
 import json
 import re
@@ -18,7 +19,7 @@ from typing import Callable, Dict, List, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
 
-from qtpy.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QTimer, QUrl
+from qtpy.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QTimer, QUrl, Signal
 from qtpy.QtGui import QCloseEvent, QColor, QDesktopServices, QTextCursor
 from qtpy.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
@@ -206,9 +207,9 @@ class StatusPanel(QWidget):
         layout.addStretch(0)  # ... or nothing does, when they are hidden
         layout.addWidget(self.refresh)
 
-    def show_status(self, root: Path, values: Dict[str, Value]) -> None:
+    def show_status(self, scan: Future) -> None:
         try:
-            table, files = tab_status(self.tab, root, values)
+            table, files = scan.result()
         except (OSError, ValueError, KeyError) as error:  # unreadable or foreign tables
             self.summary.setText(f"Status unavailable: {error}")
             return
@@ -232,10 +233,19 @@ def scrolled(widget: QWidget) -> QScrollArea:
 
 
 class Window(QMainWindow):
+    scanned = Signal(int, object, object)  # scan number, panel, finished scan: from the scanning thread to the window
+
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("BehaviorScreen")
         self.queue: List[List[str]] = []
+        # Status scans run in one background thread; only the latest one is shown.
+        self.scanner = ThreadPoolExecutor(max_workers=1)
+        self.scans, self.scans_running = 0, 0
+        self.scanned.connect(self.show_scan)
+        self.during_run = QTimer(self)
+        self.during_run.setInterval(15000)
+        self.during_run.timeout.connect(lambda: self.refresh_status() if not self.scans_running else None)
 
         self.root = QLineEdit()
         self.root.setPlaceholderText("Root experiment folder")
@@ -348,10 +358,22 @@ class Window(QMainWindow):
         return splitter
 
     def refresh_status(self) -> None:
+        """Scan the current tab's files in the background; the window reads its options now."""
         panel = self.panels.get(self.tabs.tabText(self.tabs.currentIndex()))
-        if panel is not None and self.root.text():
-            forms = [self.overlay] if panel.tab == "Overlay" else self.forms.values()
-            panel.show_status(Path(self.root.text()), {k: v for form in forms for k, v in form.values().items()})
+        if panel is None or not self.root.text():
+            return
+        forms = [self.overlay] if panel.tab == "Overlay" else self.forms.values()
+        values = {k: v for form in forms for k, v in form.values().items()}
+        self.scans += 1
+        self.scans_running += 1
+        number = self.scans
+        scan = self.scanner.submit(tab_status, panel.tab, Path(self.root.text()), values)
+        scan.add_done_callback(lambda done: self.scanned.emit(number, panel, done))
+
+    def show_scan(self, number: int, panel: StatusPanel, scan: Future) -> None:
+        self.scans_running -= 1
+        if number == self.scans:  # older scans were overtaken by a change
+            panel.show_status(scan)
 
     def tab_steps(self, tab: str) -> List[str]:
         return [s for s in TABS[tab] if s not in self.substeps or self.substeps[s].isChecked()]
@@ -375,6 +397,7 @@ class Window(QMainWindow):
         for button in self.run_buttons:
             button.setEnabled(False)
         self.stop.setEnabled(True)
+        self.during_run.start()
         self.next()
 
     def next(self) -> None:
@@ -391,6 +414,7 @@ class Window(QMainWindow):
         for button in self.run_buttons:
             button.setEnabled(True)
         self.stop.setEnabled(False)
+        self.during_run.stop()
         self.statusBar().showMessage("Done" if ok else f"Failed ({message})")
         self.refresh_status()
 
@@ -430,6 +454,7 @@ class Window(QMainWindow):
                  "splitters": [s.sizes() for s in self.splitters]}
         QSettings("BehaviorScreen", "gui").setValue("state", json.dumps(state))
         self.cancel()
+        self.scanner.shutdown(wait=False, cancel_futures=True)
         super().closeEvent(event)
 
 
