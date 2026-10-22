@@ -348,7 +348,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--video", default="results")
     parser.add_argument("--video-timestamp", default="results")
     parser.add_argument("--results", default="results")
-    parser.add_argument("--plots", default="plots")
     parser.add_argument(
         "--cpu",
         action="store_true",
@@ -369,7 +368,6 @@ def run_megabouts(
     video: str,
     video_timestamp: str,
     results: str,
-    plots: str,
     cpu: bool,
     start_stage: str = "detect",
     overwrite_mtime: float = 0,
@@ -408,7 +406,6 @@ def run_megabouts(
         video=video,
         video_timestamp=video_timestamp,
         results=results,
-        plots=plots,
     )
 
     bout_rows: list[dict[str, Any]] = []
@@ -449,7 +446,6 @@ def main() -> None:
         video=args.video,
         video_timestamp=args.video_timestamp,
         results=args.results,
-        plots=args.plots,
         cpu=args.cpu,
         start_stage=args.from_stage,
     )

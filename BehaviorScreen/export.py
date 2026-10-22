@@ -219,12 +219,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Subfolder where per-animal exports will be written (default: results)",
     )
 
-    parser.add_argument(
-        "--plots",
-        default="plots",
-        help="Subfolder containing plots (default: plots)",
-    )
-
     # Feature toggles
     parser.add_argument("--overwrite", action="store_true")
     parser.add_argument("--no-tracking", action="store_true")
@@ -246,7 +240,6 @@ def main(args: argparse.Namespace) -> None:
         video=args.video,
         video_timestamp=args.video_timestamp,
         results=args.results,
-        plots=args.plots,
         quality=args.quality,
         tracking_flag=not args.no_tracking,
         timestamps_flag=not args.no_timestamps,
@@ -267,7 +260,6 @@ def export_single_animals(
     video: str = "video",
     video_timestamp: str = "video",
     results: str = "results",
-    plots: str = "plots",
     quality: int = 18,
     tracking_flag: bool = True,
     timestamps_flag: bool = True,
@@ -288,7 +280,6 @@ def export_single_animals(
         video=video,
         video_timestamp=video_timestamp,
         results=results,
-        plots=plots,
     )
 
     for file in find_files(directories):

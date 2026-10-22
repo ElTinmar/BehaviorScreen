@@ -120,12 +120,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Subfolder where per-animal exports will be written (default: results)",
     )
 
-    parser.add_argument(
-        "--plots",
-        default="plots",
-        help="Subfolder containing plots (default: plots)",
-    )
-
     return parser
 
 
@@ -246,7 +240,6 @@ def quality_control(
     video: str,
     video_timestamp: str,
     results: str,
-    plots: str,
     coverage_threshold: float = 0.8,
     trial_centroid_threshold_mm: float = 1.0,
     trial_heading_threshold_deg: float = 15.0,
@@ -267,7 +260,6 @@ def quality_control(
         video=video,
         video_timestamp=video_timestamp,
         results=results,
-        plots=plots,
     )
 
     bad_fish = []
@@ -324,7 +316,6 @@ def main(args: argparse.Namespace) -> None:
         video=args.video,
         video_timestamp=args.video_timestamp,
         results=args.results,
-        plots=args.plots,
         coverage_threshold=args.coverage_threshold,
         trial_centroid_threshold_mm=args.trial_centroid_threshold_mm,
         trial_heading_threshold_deg=args.trial_heading_threshold_deg,

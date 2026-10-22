@@ -147,7 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--plots",
         default="plots",
-        help="Subfolder containing plots (default: plots)",
+        help="Subfolder where the heatmaps are written (default: plots)",
     )
 
     # Feature toggles
@@ -172,7 +172,6 @@ def export(args: argparse.Namespace) -> None:
         video=args.video,
         video_timestamp=args.video_timestamp,
         results=args.results,
-        plots=args.plots,
         quality=args.quality,
         tracking_flag=not args.no_tracking,
         timestamps_flag=not args.no_timestamps,
@@ -223,7 +222,6 @@ def qc(args: argparse.Namespace) -> None:
         video=args.results,
         video_timestamp=args.results,
         results=args.results,
-        plots=args.plots,
     )
 
 
@@ -240,19 +238,19 @@ def bouts(args: argparse.Namespace) -> None:
         video=args.results,
         video_timestamp=args.results,
         results=args.results,
-        plots=args.plots,
         cpu=args.cpu,
     )
 
 
 def heatmaps(args: argparse.Namespace) -> None:
     from BehaviorScreen.plot import plot_heatmaps
+    (args.root / args.plots).mkdir(parents=True, exist_ok=True)
     plot_heatmaps(
         quality_control=args.root / args.qc_csv,
         input_csv=args.root / args.bouts_csv,
         valid_trials_csv=args.root / args.valid_trials_csv,
         config_yaml=args.yaml,
-        output_png=args.root / args.bouts_png,
+        output_png=args.root / args.plots / args.bouts_png,
     )
 
 
@@ -264,7 +262,6 @@ def saccades(args: argparse.Namespace) -> None:
         model_path=args.saccade_model,
         results=args.results,
         lightning_pose=args.lightning_pose,
-        plots=args.plots,
         qc_csv=args.qc_csv,
         valid_trials_csv=args.valid_trials_csv,
     )
