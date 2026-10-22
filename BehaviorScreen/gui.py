@@ -172,6 +172,13 @@ def fill(widget: QTableWidget, table: pd.DataFrame, colors: List[QColor]) -> Non
     widget.setSortingEnabled(True)
 
 
+def fit_height(table: QTableWidget) -> None:
+    """Exactly as tall as its rows."""
+    rows = sum(table.rowHeight(i) for i in range(table.rowCount()))
+    scrollbar = table.horizontalScrollBar().sizeHint().height() if table.horizontalScrollBar().maximum() > 0 else 0
+    table.setFixedHeight(table.horizontalHeader().sizeHint().height() + rows + scrollbar + 2 * table.frameWidth())
+
+
 def boxed(title: str, widget: QWidget) -> QGroupBox:
     box = QGroupBox(title)
     QVBoxLayout(box).addWidget(widget)
@@ -190,10 +197,14 @@ class StatusPanel(QWidget):
         for table in (self.inputs, self.recordings, self.outputs):
             table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
             table.verticalHeader().setVisible(False)
+            table.horizontalHeader().setStretchLastSection(True)
         self.boxes = [boxed("Input files", self.inputs), boxed("Recordings", self.recordings), boxed("Output files", self.outputs)]
         layout = QVBoxLayout(self)
-        for widget in (self.summary, *self.boxes, self.refresh):
-            layout.addWidget(widget)
+        layout.addWidget(self.summary)
+        for box, stretch in zip(self.boxes, (0, 1, 0)):  # the recordings take the free height
+            layout.addWidget(box, stretch=stretch)
+        layout.addStretch(0)  # ... or nothing does, when they are hidden
+        layout.addWidget(self.refresh)
 
     def show_status(self, root: Path, values: Dict[str, Value]) -> None:
         try:
@@ -209,6 +220,8 @@ class StatusPanel(QWidget):
         for widget, box, part, color in zip((self.inputs, self.recordings, self.outputs), self.boxes, parts, colors):
             fill(widget, part, color)
             box.setVisible(len(part) > 0)
+        for files in (self.inputs, self.outputs):
+            fit_height(files)
 
 
 def scrolled(widget: QWidget) -> QScrollArea:
@@ -241,6 +254,7 @@ class Window(QMainWindow):
             layout = QVBoxLayout(page)
             boxes = QWidget()
             box_layout = QHBoxLayout(boxes)
+            box_layout.setContentsMargins(0, 0, 0, 0)
             for step in TABS.get(tab, []):
                 if step in self.substeps:
                     self.substeps[step].setChecked(True)
@@ -249,7 +263,7 @@ class Window(QMainWindow):
                 layout.addWidget(boxes)
             panel = self.panels[tab] = StatusPanel(tab)
             panel.refresh.clicked.connect(self.refresh_status)
-            layout.addWidget(self.side_by_side(panel, form))
+            layout.addWidget(self.side_by_side(panel, form), stretch=1)
             if tab in TABS:
                 layout.addWidget(self.run_button(f"Run {tab.lower()}", lambda tab=tab: [self.pipeline_command(self.tab_steps(tab))]))
             tabs.addTab(page, tab)
@@ -264,9 +278,10 @@ class Window(QMainWindow):
         open_folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(self.root.text()) / self.overlay.values()["output_dir"]))))
         overlay_tab = QWidget()
         layout = QVBoxLayout(overlay_tab)
-        layout.addWidget(self.side_by_side(panel, self.overlay))
+        layout.addWidget(self.side_by_side(panel, self.overlay), stretch=1)
         buttons = QWidget()
         button_layout = QHBoxLayout(buttons)
+        button_layout.setContentsMargins(0, 0, 0, 0)
         button_layout.addWidget(self.run_button("Render selected fish", self.overlay_commands))
         button_layout.addWidget(open_folder)
         layout.addWidget(buttons)
