@@ -64,25 +64,29 @@ def single_files(tab: str, root: Path, v: Dict[str, str]) -> Dict[str, List[Path
     plots = root / v["plots"]
     tables = [root / v["qc_csv"], root / v["valid_trials_csv"]]
     return {
-        "Pose estimation": {"model": [Path(v["full_model_dir"]), Path(v["eyes_model_dir"])]},
+        "Pose estimation": {"input": [Path(v["full_model_dir"]), Path(v["eyes_model_dir"])]},
         "Quality control": {"output": tables},
         "Bouts": {"output": [root / v["bouts_csv"]]},
-        "Saccades": {"model": [Path(v["saccade_model"])], "output": [root / n for n in ("saccades.csv", "saccades_classified.csv", SACCADES_CSV)] + [plots / "saccade_clusters.png"]},
+        "Saccades": {"input": [Path(v["saccade_model"])], "output": [root / n for n in ("saccades.csv", "saccades_classified.csv", SACCADES_CSV)] + [plots / "saccade_clusters.png"]},
         "Heatmaps": {"input": [root / v["bouts_csv"], root / SACCADES_CSV, *tables, Path(v["yaml"])],
                      "output": [plots / v["bouts_png"], plots / v["saccades_png"]]},
     }.get(tab, {})
 
 
 def tab_status(tab: str, root: Path, v: Dict[str, str]) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """(one row per recording: its inputs, outputs, other columns and state; the tab's single files)."""
+    """
+    (one row per recording: its inputs "in: …", outputs "out: …", other columns and
+    state; the tab's single files, inputs (models included) then outputs).
+    """
     recordings, inputs, outputs, other = checks(tab, root, v)
+    inputs, outputs = {f"in: {k}": c for k, c in inputs.items()}, {f"out: {k}": c for k, c in outputs.items()}
     columns = {**inputs, **outputs, **other}
     table = pd.DataFrame({name: [check(r) for r in recordings] for name, check in columns.items()}, index=pd.Index(recordings, name="recording"))
     ready = table[list(inputs)].astype(bool).all(axis=1)
     done = table[list(outputs)].astype(bool).all(axis=1)
     table["state"] = ["done" if d else "ready" if r else "waiting" for d, r in zip(done, ready)]
     files = pd.DataFrame(
-        [{"role": role, "file": str(p.relative_to(root)) if p.is_relative_to(root) else str(p), "present": p.exists(),
+        [{"role": "output" if role == "output" else "input", "file": str(p.relative_to(root)) if p.is_relative_to(root) else str(p), "present": p.exists(),
           "modified": datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M") if p.exists() else ""}
          for role, paths in single_files(tab, root, v).items() for p in paths],
         columns=["role", "file", "present", "modified"],

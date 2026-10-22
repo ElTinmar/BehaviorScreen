@@ -172,19 +172,27 @@ def fill(widget: QTableWidget, table: pd.DataFrame, colors: List[QColor]) -> Non
     widget.setSortingEnabled(True)
 
 
+def boxed(title: str, widget: QWidget) -> QGroupBox:
+    box = QGroupBox(title)
+    QVBoxLayout(box).addWidget(widget)
+    return box
+
+
 class StatusPanel(QWidget):
-    """The recordings a step can work on, what it already wrote, and its single files."""
+    """What a step reads, the recordings it can work on, and what it already wrote."""
 
     def __init__(self, tab: str) -> None:
         super().__init__()
         self.tab = tab
-        self.summary, self.recordings, self.files = QLabel(), QTableWidget(), QTableWidget()
+        self.summary = QLabel()
+        self.inputs, self.recordings, self.outputs = QTableWidget(), QTableWidget(), QTableWidget()
         self.refresh = QPushButton("Refresh")
-        layout = QVBoxLayout(self)
-        for table in (self.recordings, self.files):
+        for table in (self.inputs, self.recordings, self.outputs):
             table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
             table.verticalHeader().setVisible(False)
-        for widget in (self.summary, self.recordings, self.files, self.refresh):
+        self.boxes = [boxed("Input files", self.inputs), boxed("Recordings", self.recordings), boxed("Output files", self.outputs)]
+        layout = QVBoxLayout(self)
+        for widget in (self.summary, *self.boxes, self.refresh):
             layout.addWidget(widget)
 
     def show_status(self, root: Path, values: Dict[str, Value]) -> None:
@@ -195,10 +203,12 @@ class StatusPanel(QWidget):
             return
         counts = table["state"].value_counts()
         self.summary.setText(" · ".join(f"{counts.get(s, 0)} {s}" for s in STATE_COLORS) if len(table) else "")
-        fill(self.recordings, table.reset_index(), [STATE_COLORS[s] for s in table["state"]])
-        fill(self.files, files, [STATE_COLORS["done" if p else "waiting"] for p in files["present"]])
-        self.recordings.setVisible(len(table.columns) > 1)
-        self.files.setVisible(len(files) > 0)
+        parts = [files[files["role"] == "input"].drop(columns="role"), table.reset_index(), files[files["role"] == "output"].drop(columns="role")]
+        colors = [[STATE_COLORS["done" if p else "waiting"] for p in parts[0]["present"]], [STATE_COLORS[s] for s in table["state"]],
+                  [STATE_COLORS["done" if p else "waiting"] for p in parts[2]["present"]]]
+        for widget, box, part, color in zip((self.inputs, self.recordings, self.outputs), self.boxes, parts, colors):
+            fill(widget, part, color)
+            box.setVisible(len(part) > 0)
 
 
 def scrolled(widget: QWidget) -> QScrollArea:
