@@ -18,7 +18,7 @@ from typing import Callable, Dict, List, Sequence, Tuple, Union
 import numpy as np
 import pandas as pd
 
-from qtpy.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QUrl
+from qtpy.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QTimer, QUrl
 from qtpy.QtGui import QCloseEvent, QColor, QDesktopServices, QTextCursor
 from qtpy.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
@@ -318,7 +318,16 @@ class Window(QMainWindow):
         self.process.errorOccurred.connect(lambda error: self.finished(False, "failed to start") if error == QProcess.ProcessError.FailedToStart else None)
         self.restore()
         self.tabs.currentChanged.connect(self.refresh_status)
-        self.root.editingFinished.connect(self.refresh_status)
+        # Any change of the root or an option refreshes the status, once typing pauses.
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.setSingleShot(True)
+        self.refresh_timer.setInterval(400)
+        self.refresh_timer.timeout.connect(self.refresh_status)
+        restart = lambda *_: self.refresh_timer.start()  # signals pass their value, which start() would take as a delay
+        self.root.textChanged.connect(restart)
+        for form in [*self.forms.values(), self.overlay]:
+            for field in form.fields.values():
+                (field.toggled if isinstance(field, QCheckBox) else field.textChanged).connect(restart)
         self.refresh_status()
 
     def run_button(self, label: str, commands: Callable[[], List[List[str]]]) -> QPushButton:

@@ -9,14 +9,68 @@ input and output, and a state:
 
 plus the step's single files (tables, figures) with their modification times.
 """
+from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Dict, List, Tuple
 
 import pandas as pd
 
+from BehaviorScreen.load import (
+    find_file, load_metadata, metadata_filename_regexp, parse_filename, stimuli_filename_regexp,
+    temperature_filename_regexp, tracking_filename_regexp, video_filename_regexp, video_timestamps_filename_regexp,
+)
+
 SACCADES_CSV = "saccades_augmented.csv"  # written by the saccade step (eyes.run_analysis)
 Check = Callable[[str], object]
+# Raw files of a recording, exported per animal: option of their folder, file name pattern, exported suffix, --no-* flag
+RAW = {
+    "stimuli": ("stimuli", stimuli_filename_regexp, ".json", "no_stimuli"),
+    "tracking": ("tracking", tracking_filename_regexp, ".csv", "no_tracking"),
+    "video": ("video", video_filename_regexp, ".mp4", "no_videos"),
+    "timestamps": ("video_timestamp", video_timestamps_filename_regexp, ".csv", "no_timestamps"),
+}
+
+
+@dataclass(frozen=True)
+class Count:
+    """Exported animals out of the recording's wells; true when complete."""
+    done: int
+    expected: int
+
+    def __bool__(self) -> bool:
+        return self.done == self.expected > 0
+
+    def __str__(self) -> str:
+        return f"{self.done}/{self.expected}"
+
+
+@lru_cache(maxsize=None)
+def wells(metadata: Path, modified: float) -> int:
+    """Wells (ROIs) of a raw recording; cached per file version, the metadata can be large."""
+    return len(load_metadata(metadata)["identity"]["ROIs"])
+
+
+def export_checks(root: Path, v: Dict[str, str]) -> Tuple[List[str], Dict[str, Check], Dict[str, Check], Dict[str, Check]]:
+    """Raw recordings: their raw files, and how many animals have each exported file."""
+    raw = {p.stem: p for p in sorted((root / v["metadata"]).glob("*.metadata"))}
+    info = {stem: parse_filename(p, metadata_filename_regexp) for stem, p in raw.items()}
+    found = {name: {stem: find_file(info[stem], root / v[folder], regexp, False) for stem in raw}
+             for name, (folder, regexp, _, _) in {**RAW, "temperature": ("temperature", temperature_filename_regexp, "", "")}.items()}
+    results = root / v["results"]
+
+    def exported(sources: Dict[str, Path], suffix: str) -> Check:
+        def check(stem: str) -> Count:
+            source = sources.get(stem)
+            done = 0 if source is None else len(list(results.glob(f"{source.stem}_fish_*{suffix}")))
+            return Count(done, wells(raw[stem], raw[stem].stat().st_mtime))
+        return check
+
+    inputs = {name: (lambda stem, f=found[name]: f[stem] is not None) for name, (*_, flag) in RAW.items() if not v[flag]}
+    outputs = {"metadata": exported(raw, ".metadata")} if not v["no_metadata"] else {}
+    outputs |= {name: exported(found[name], suffix) for name, (_, _, suffix, flag) in RAW.items() if not v[flag]}
+    return list(raw), inputs, outputs, {"temperature": lambda stem: found["temperature"][stem] is not None}
 
 
 def stems(folder: Path) -> List[str]:
@@ -54,7 +108,7 @@ def checks(tab: str, root: Path, v: Dict[str, str]) -> Tuple[List[str], Dict[str
     animals = stems(results)
     has_pose, has_eye_pose = exists(f"{pose}/{{}}.csv"), exists(f"{pose}/eyes_{{}}.csv")
     if tab == "Export":
-        return stems(root / v["metadata"]), {}, {"animals": count(results, "{}_fish_*.metadata"), "videos": count(results, "{}_fish_*.mp4")}, {}
+        return export_checks(root, v)
     if tab == "Pose estimation":
         outputs = {"pose": has_pose, "eye video": exists(f"{root / v['eyes_video_dir']}/eyes_{{}}.mp4"), "eye pose": has_eye_pose}
         return animals, {"video": exists(f"{results}/{{}}.mp4")}, outputs, {}
