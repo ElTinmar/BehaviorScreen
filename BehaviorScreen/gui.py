@@ -7,11 +7,13 @@ output in the log. Settings are kept between sessions.
     python -m BehaviorScreen.gui     (from the folder you run the pipeline from)
 """
 import argparse
+import inspect
 import json
+import re
 import shlex
 import sys
 from pathlib import Path
-from typing import Dict, List, Union
+from typing import Callable, Dict, List, Sequence, Union
 
 from qtpy.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QUrl
 from qtpy.QtGui import QCloseEvent, QDesktopServices, QTextCursor
@@ -25,10 +27,23 @@ from BehaviorScreen.__main__ import build_parser as pipeline_parser
 from BehaviorScreen.overlay import build_parser as overlay_parser
 
 Value = Union[str, bool]
+TABS = {
+    "Export": ["export"], "Pose estimation": ["pose", "eye_crop", "eye_pose"], "Quality control": ["qc"],
+    "Bouts": ["bouts"], "Heatmaps": ["heatmaps"], "Saccades": ["saccades"],
+}
+SHARED = "Folders and files"
 
 
 def form_actions(parser: argparse.ArgumentParser, skip: set) -> List[argparse.Action]:
     return [a for a in parser._actions if a.option_strings and a.dest not in skip and not isinstance(a, argparse._HelpAction)]
+
+
+def tab_options(parser: argparse.ArgumentParser) -> Dict[str, List[argparse.Action]]:
+    """Each tab's options: those its steps read (args.<dest> in their code); options several tabs read go to SHARED."""
+    actions = form_actions(parser, {"root", "steps"})
+    used = {tab: set(re.findall(r"args\.(\w+)", "".join(inspect.getsource(STEPS[s]) for s in steps))) for tab, steps in TABS.items()}
+    shared = [a for a in actions if sum(a.dest in u for u in used.values()) > 1]
+    return {SHARED: shared, **{tab: [a for a in actions if a.dest in u and a not in shared] for tab, u in used.items()}}
 
 
 def to_argv(action: argparse.Action, value: Value) -> List[str]:
@@ -44,9 +59,9 @@ def browsable(action: argparse.Action) -> bool:
 
 
 class ArgumentForm(QWidget):
-    def __init__(self, parser: argparse.ArgumentParser, skip: set) -> None:
+    def __init__(self, actions: Sequence[argparse.Action]) -> None:
         super().__init__()
-        self.actions = form_actions(parser, skip)
+        self.actions = list(actions)
         self.fields: Dict[str, Union[QCheckBox, QLineEdit]] = {}
         layout = QFormLayout(self)
         for a in self.actions:
@@ -105,26 +120,31 @@ class Window(QMainWindow):
         self.root = QLineEdit()
         self.root.setPlaceholderText("Root experiment folder")
 
-        self.steps = {name: QCheckBox(name) for name in STEPS}
-        steps_box = QWidget()
-        steps_layout = QGridLayout(steps_box)
-        for i, box in enumerate(self.steps.values()):
-            box.setChecked(True)
-            steps_layout.addWidget(box, i // 4, i % 4)
-        self.pipeline = ArgumentForm(pipeline_parser(), {"root", "steps"})
-        self.run_pipeline = QPushButton("Run selected steps")
-        self.run_pipeline.clicked.connect(lambda: self.run([self.pipeline_command()]))
-        pipeline_tab = QWidget()
-        layout = QVBoxLayout(pipeline_tab)
-        for w in (steps_box, scrolled(self.pipeline), self.run_pipeline):
-            layout.addWidget(w)
+        self.forms = {tab: ArgumentForm(actions) for tab, actions in tab_options(pipeline_parser()).items()}
+        self.substeps = {step: QCheckBox(step) for steps in TABS.values() if len(steps) > 1 for step in steps}
+        self.run_buttons: List[QPushButton] = []
+        tabs = QTabWidget()
+        for tab, form in self.forms.items():
+            page = QWidget()
+            layout = QVBoxLayout(page)
+            boxes = QWidget()
+            box_layout = QHBoxLayout(boxes)
+            for step in TABS.get(tab, []):
+                if step in self.substeps:
+                    self.substeps[step].setChecked(True)
+                    box_layout.addWidget(self.substeps[step])
+            if box_layout.count():
+                layout.addWidget(boxes)
+            layout.addWidget(scrolled(form))
+            if tab in TABS:
+                layout.addWidget(self.run_button(f"Run {tab.lower()}", lambda tab=tab: [self.pipeline_command(self.tab_steps(tab))]))
+            tabs.addTab(page, tab)
 
         self.fish = QListWidget()
         self.fish.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.overlay = ArgumentForm(overlay_parser(), {"root", "fish"})
-        refresh, self.run_overlay, open_folder = QPushButton("Refresh fish"), QPushButton("Render selected fish"), QPushButton("Open output folder")
+        self.overlay = ArgumentForm(form_actions(overlay_parser(), {"root", "fish"}))
+        refresh, open_folder = QPushButton("Refresh fish"), QPushButton("Open output folder")
         refresh.clicked.connect(self.list_fish)
-        self.run_overlay.clicked.connect(lambda: self.run(self.overlay_commands()))
         open_folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(self.root.text()) / self.overlay.values()["output_dir"]))))
         overlay_tab = QWidget()
         layout = QGridLayout(overlay_tab)
@@ -133,12 +153,10 @@ class Window(QMainWindow):
         layout.addWidget(refresh, 1, 0)
         buttons = QWidget()
         button_layout = QHBoxLayout(buttons)
-        button_layout.addWidget(self.run_overlay)
+        button_layout.addWidget(self.run_button("Render selected fish", self.overlay_commands))
         button_layout.addWidget(open_folder)
         layout.addWidget(buttons, 1, 1)
 
-        tabs = QTabWidget()
-        tabs.addTab(pipeline_tab, "Preprocessing")
         tabs.addTab(overlay_tab, "Overlay")
         self.log = QPlainTextEdit()
         self.log.setReadOnly(True)
@@ -154,7 +172,11 @@ class Window(QMainWindow):
         layout = QVBoxLayout(central)
         layout.addWidget(with_browse(self.root, pick_file=False))
         layout.addWidget(splitter)
-        layout.addWidget(self.stop)
+        bottom = QWidget()
+        bottom_layout = QHBoxLayout(bottom)
+        bottom_layout.addWidget(self.run_button("Run all steps", lambda: [self.pipeline_command(list(STEPS))]))
+        bottom_layout.addWidget(self.stop)
+        layout.addWidget(bottom)
         self.setCentralWidget(central)
 
         self.process = QProcess(self)
@@ -168,9 +190,18 @@ class Window(QMainWindow):
         self.restore()
         self.list_fish()
 
-    def pipeline_command(self) -> List[str]:
-        steps = [name for name, box in self.steps.items() if box.isChecked()]
-        return [sys.executable, "-m", "BehaviorScreen", self.root.text(), "--steps", *steps, *self.pipeline.argv()]
+    def run_button(self, label: str, commands: Callable[[], List[List[str]]]) -> QPushButton:
+        button = QPushButton(label)
+        button.clicked.connect(lambda: self.run(commands()))
+        self.run_buttons.append(button)
+        return button
+
+    def tab_steps(self, tab: str) -> List[str]:
+        return [s for s in TABS[tab] if s not in self.substeps or self.substeps[s].isChecked()]
+
+    def pipeline_command(self, steps: List[str]) -> List[str]:
+        options = [token for form in self.forms.values() for token in form.argv()]
+        return [sys.executable, "-m", "BehaviorScreen", self.root.text(), "--steps", *steps, *options]
 
     def overlay_commands(self) -> List[List[str]]:
         base = [sys.executable, "-m", "BehaviorScreen.overlay", self.root.text(), *self.overlay.argv()]
@@ -185,7 +216,7 @@ class Window(QMainWindow):
         if not commands:
             return
         self.queue = commands
-        for button in (self.run_pipeline, self.run_overlay):
+        for button in self.run_buttons:
             button.setEnabled(False)
         self.stop.setEnabled(True)
         self.next()
@@ -201,7 +232,7 @@ class Window(QMainWindow):
         if self.queue and ok:
             return self.next()
         self.queue = []
-        for button in (self.run_pipeline, self.run_overlay):
+        for button in self.run_buttons:
             button.setEnabled(True)
         self.stop.setEnabled(False)
         self.statusBar().showMessage("Done" if ok else f"Failed ({message})")
@@ -228,15 +259,16 @@ class Window(QMainWindow):
         state = json.loads(QSettings("BehaviorScreen", "gui").value("state", "{}"))
         self.root.setText(state.get("root", ""))
         for name, checked in state.get("steps", {}).items():
-            if name in self.steps:
-                self.steps[name].setChecked(checked)
-        self.pipeline.set_values(state.get("pipeline", {}))
+            if name in self.substeps:
+                self.substeps[name].setChecked(checked)
+        for form in self.forms.values():
+            form.set_values(state.get("pipeline", {}))
         self.overlay.set_values(state.get("overlay", {}))
         self.root.editingFinished.connect(self.list_fish)
 
     def closeEvent(self, event: QCloseEvent) -> None:
-        state = {"root": self.root.text(), "steps": {n: b.isChecked() for n, b in self.steps.items()},
-                 "pipeline": self.pipeline.values(), "overlay": self.overlay.values()}
+        state = {"root": self.root.text(), "steps": {n: b.isChecked() for n, b in self.substeps.items()},
+                 "pipeline": {k: v for form in self.forms.values() for k, v in form.values().items()}, "overlay": self.overlay.values()}
         QSettings("BehaviorScreen", "gui").setValue("state", json.dumps(state))
         self.cancel()
         super().closeEvent(event)
