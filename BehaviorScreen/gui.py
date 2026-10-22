@@ -13,24 +13,29 @@ import re
 import shlex
 import sys
 from pathlib import Path
-from typing import Callable, Dict, List, Sequence, Union
+from typing import Callable, Dict, List, Sequence, Tuple, Union
+
+import numpy as np
+import pandas as pd
 
 from qtpy.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QUrl
-from qtpy.QtGui import QCloseEvent, QDesktopServices, QTextCursor
+from qtpy.QtGui import QCloseEvent, QColor, QDesktopServices, QTextCursor
 from qtpy.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLineEdit,
-    QListWidget, QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTabWidget, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QCheckBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QListWidget, QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from BehaviorScreen.__main__ import STEPS
 from BehaviorScreen.__main__ import build_parser as pipeline_parser
 from BehaviorScreen.overlay import build_parser as overlay_parser
+from BehaviorScreen.status import tab_status
 
 Value = Union[str, bool]
 TABS = {
     "Export": ["export"], "Pose estimation": ["pose", "eye_crop", "eye_pose"], "Quality control": ["qc"],
     "Bouts": ["bouts"], "Saccades": ["saccades"], "Heatmaps": ["heatmaps"],
 }
+DOWNLOADS = {"full_model_dir": "full", "eyes_model_dir": "eyes", "saccade_model": "saccades"}  # model folders and their download_model name; unpacked here
 # What each tab writes; its other paths are inputs, its flags and numbers options.
 OUTPUTS = {
     "Export": {"results"}, "Pose estimation": {"lightning_pose", "eyes_video_dir"},
@@ -66,12 +71,22 @@ def to_argv(action: argparse.Action, value: Value) -> List[str]:
     return [] if value == ("" if action.default is None else str(action.default)) else [flag, value]
 
 
+def is_folder(action: argparse.Action) -> bool:
+    """Path options whose default has no file extension."""
+    option = isinstance(action, argparse._StoreTrueAction) or action.type in (int, float)
+    return not option and bool(action.default) and not Path(str(action.default)).suffix
+
+
+def label(action: argparse.Action) -> str:
+    return action.option_strings[-1].lstrip("-") + (" (folder)" if is_folder(action) else "")
+
+
 def browsable(action: argparse.Action) -> bool:
     return action.type is Path or action.dest.endswith("dir")
 
 
 class ArgumentForm(QWidget):
-    def __init__(self, groups: Dict[str, List[argparse.Action]]) -> None:
+    def __init__(self, groups: Dict[str, List[argparse.Action]], buttons: Dict[str, Tuple[str, Callable[[], None]]] = {}) -> None:
         super().__init__()
         self.actions = [a for actions in groups.values() for a in actions]
         self.fields: Dict[str, Union[QCheckBox, QLineEdit]] = {}
@@ -85,7 +100,8 @@ class ArgumentForm(QWidget):
                 field = QCheckBox() if isinstance(a, argparse._StoreTrueAction) else QLineEdit("" if a.default is None else str(a.default))
                 field.setToolTip(a.help or "")
                 self.fields[a.dest] = field
-                rows.addRow(a.option_strings[-1].lstrip("-"), with_browse(field, bool(Path(str(a.default or "")).suffix)) if browsable(a) else field)
+                widget = with_browse(field, not is_folder(a)) if browsable(a) else field
+                rows.addRow(label(a), with_button(widget, *buttons[a.dest]) if a.dest in buttons else widget)
             layout.addWidget(box)
         layout.addStretch()
 
@@ -107,21 +123,23 @@ class ArgumentForm(QWidget):
         return {a.dest: to_argv(a, values[a.dest]) for a in self.actions}
 
 
-def with_browse(edit: QLineEdit, pick_file: bool) -> QWidget:
+def with_button(widget: QWidget, text: str, callback: Callable[[], None]) -> QWidget:
     row = QWidget()
     layout = QHBoxLayout(row)
     layout.setContentsMargins(0, 0, 0, 0)
-    button = QPushButton("…")
-    button.setFixedWidth(32)
-    layout.addWidget(edit)
+    button = QPushButton(text)
+    layout.addWidget(widget)
     layout.addWidget(button)
+    button.clicked.connect(lambda: callback())
+    return row
 
+
+def with_browse(edit: QLineEdit, pick_file: bool) -> QWidget:
     def browse() -> None:
         path = QFileDialog.getOpenFileName(edit, "", edit.text())[0] if pick_file else QFileDialog.getExistingDirectory(edit, "", edit.text())
         if path:
             edit.setText(path)
-    button.clicked.connect(browse)
-    return row
+    return with_button(edit, "…", browse)
 
 
 def link(forms: Sequence[ArgumentForm]) -> None:
@@ -134,6 +152,53 @@ def link(forms: Sequence[ArgumentForm]) -> None:
                 field.toggled.connect(lambda on, others=others: [o.setChecked(on) for o in others if o.isChecked() != on])
             else:
                 field.textChanged.connect(lambda text, others=others: [o.setText(text) for o in others if o.text() != text])
+
+
+STATE_COLORS = {"done": QColor(0, 170, 0, 50), "ready": QColor(230, 170, 0, 70), "waiting": QColor(0, 0, 0, 0)}
+
+
+def fill(widget: QTableWidget, table: pd.DataFrame, colors: List[QColor]) -> None:
+    widget.setSortingEnabled(False)
+    widget.clear()
+    widget.setRowCount(len(table))
+    widget.setColumnCount(len(table.columns))
+    widget.setHorizontalHeaderLabels([str(c) for c in table.columns])
+    for i, (row, color) in enumerate(zip(table.itertuples(index=False), colors)):
+        for j, value in enumerate(row):
+            item = QTableWidgetItem(("✓" if value else "–") if isinstance(value, (bool, np.bool_)) else str(value))
+            item.setBackground(color)
+            widget.setItem(i, j, item)
+    widget.resizeColumnsToContents()
+    widget.setSortingEnabled(True)
+
+
+class StatusPanel(QWidget):
+    """The recordings a step can work on, what it already wrote, and its single files."""
+
+    def __init__(self, tab: str) -> None:
+        super().__init__()
+        self.tab = tab
+        self.summary, self.recordings, self.files = QLabel(), QTableWidget(), QTableWidget()
+        self.refresh = QPushButton("Refresh")
+        layout = QVBoxLayout(self)
+        for table in (self.recordings, self.files):
+            table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+            table.verticalHeader().setVisible(False)
+        for widget in (self.summary, self.recordings, self.files, self.refresh):
+            layout.addWidget(widget)
+
+    def show_status(self, root: Path, values: Dict[str, Value]) -> None:
+        try:
+            table, files = tab_status(self.tab, root, values)
+        except (OSError, ValueError, KeyError) as error:  # unreadable or foreign tables
+            self.summary.setText(f"Status unavailable: {error}")
+            return
+        counts = table["state"].value_counts()
+        self.summary.setText(" · ".join(f"{counts.get(s, 0)} {s}" for s in STATE_COLORS) if len(table) else "")
+        fill(self.recordings, table.reset_index(), [STATE_COLORS[s] for s in table["state"]])
+        fill(self.files, files, [STATE_COLORS["done" if p else "waiting"] for p in files["present"]])
+        self.recordings.setVisible(len(table.columns) > 1)
+        self.files.setVisible(len(files) > 0)
 
 
 def scrolled(widget: QWidget) -> QScrollArea:
@@ -152,11 +217,14 @@ class Window(QMainWindow):
         self.root = QLineEdit()
         self.root.setPlaceholderText("Root experiment folder")
 
-        self.forms = {tab: ArgumentForm(grouped(tab, actions)) for tab, actions in tab_options(pipeline_parser()).items()}
+        downloads = {dest: ("Download", lambda model=model: self.run([[sys.executable, "-m", "BehaviorScreen.download_model", model]]))
+                     for dest, model in DOWNLOADS.items()}
+        self.forms = {tab: ArgumentForm(grouped(tab, actions), downloads) for tab, actions in tab_options(pipeline_parser()).items()}
         link(self.forms.values())
         self.substeps = {step: QCheckBox(step) for steps in TABS.values() if len(steps) > 1 for step in steps}
         self.run_buttons: List[QPushButton] = []
-        tabs = QTabWidget()
+        tabs = self.tabs = QTabWidget()
+        self.panels: Dict[str, StatusPanel] = {}
         for tab, form in self.forms.items():
             page = QWidget()
             layout = QVBoxLayout(page)
@@ -168,7 +236,12 @@ class Window(QMainWindow):
                     box_layout.addWidget(self.substeps[step])
             if box_layout.count():
                 layout.addWidget(boxes)
-            layout.addWidget(scrolled(form))
+            panel = self.panels[tab] = StatusPanel(tab)
+            panel.refresh.clicked.connect(self.refresh_status)
+            columns = QSplitter()
+            columns.addWidget(panel)
+            columns.addWidget(scrolled(form))
+            layout.addWidget(columns)
             if tab in TABS:
                 layout.addWidget(self.run_button(f"Run {tab.lower()}", lambda tab=tab: [self.pipeline_command(self.tab_steps(tab))]))
             tabs.addTab(page, tab)
@@ -222,12 +295,21 @@ class Window(QMainWindow):
         self.process.errorOccurred.connect(lambda error: self.finished(False, "failed to start") if error == QProcess.ProcessError.FailedToStart else None)
         self.restore()
         self.list_fish()
+        self.tabs.currentChanged.connect(self.refresh_status)
+        self.root.editingFinished.connect(self.refresh_status)
+        self.refresh_status()
 
     def run_button(self, label: str, commands: Callable[[], List[List[str]]]) -> QPushButton:
         button = QPushButton(label)
         button.clicked.connect(lambda: self.run(commands()))
         self.run_buttons.append(button)
         return button
+
+    def refresh_status(self) -> None:
+        panel = self.panels.get(self.tabs.tabText(self.tabs.currentIndex()))
+        if panel is not None and self.root.text():
+            values = {k: v for form in self.forms.values() for k, v in form.values().items()}
+            panel.show_status(Path(self.root.text()), values)
 
     def tab_steps(self, tab: str) -> List[str]:
         return [s for s in TABS[tab] if s not in self.substeps or self.substeps[s].isChecked()]
@@ -271,6 +353,7 @@ class Window(QMainWindow):
             button.setEnabled(True)
         self.stop.setEnabled(False)
         self.statusBar().showMessage("Done" if ok else f"Failed ({message})")
+        self.refresh_status()
 
     def cancel(self) -> None:
         self.queue = []

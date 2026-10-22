@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 from typing import Callable, Dict
 
-SACCADES_CSV = "saccades_augmented.csv"  # written by the saccade step (eyes.run_analysis)
+from BehaviorScreen.status import SACCADES_CSV
 
 
 def build_parser() -> argparse.ArgumentParser:
