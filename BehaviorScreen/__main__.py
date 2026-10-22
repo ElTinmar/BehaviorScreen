@@ -1,12 +1,6 @@
 import argparse
 from pathlib import Path
-
-from BehaviorScreen.export import export_single_animals
-from BehaviorScreen.megabouts import run_megabouts
-from BehaviorScreen.pose_estimation import estimate_pose, export_cropped_eyes_video
-from BehaviorScreen.plot import plot_heatmaps
-from BehaviorScreen.qc import quality_control
-from BehaviorScreen.eyes.run_analysis import run_analysis
+from typing import Callable, Dict
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -163,12 +157,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-metadata", action="store_true")
     parser.add_argument("--no-videos", action="store_true")
     parser.add_argument("--cpu", action="store_true")
+    parser.add_argument("--steps", nargs="+", default=list(STEPS), choices=list(STEPS), help="Steps to run, in pipeline order (default: all)")
 
     return parser
 
-def main(args: argparse.Namespace) -> None:
-
-    print("1. export ROIs", flush=True)
+def export(args: argparse.Namespace) -> None:
+    from BehaviorScreen.export import export_single_animals
     export_single_animals(
         root=args.root,
         metadata=args.metadata,
@@ -187,24 +181,36 @@ def main(args: argparse.Namespace) -> None:
         videos_flag=not args.no_videos,
     )
 
-    print("2. pose estimation", flush=True)
+
+def pose(args: argparse.Namespace) -> None:
+    from BehaviorScreen.pose_estimation import estimate_pose
     estimate_pose(
         model_directory=args.full_model_dir,
         video_directory=args.root / args.results,
         output_directory=args.root / args.lightning_pose
     )
+
+
+def eye_crop(args: argparse.Namespace) -> None:
+    from BehaviorScreen.pose_estimation import export_cropped_eyes_video
     export_cropped_eyes_video(
         full_video_directory=args.root / args.results,
         eye_video_directory=args.root / args.eyes_video_dir,
         full_tracking_directory=args.root / args.lightning_pose
     )
+
+
+def eye_pose(args: argparse.Namespace) -> None:
+    from BehaviorScreen.pose_estimation import estimate_pose
     estimate_pose(
         model_directory=args.eyes_model_dir,
         video_directory=args.root / args.eyes_video_dir,
         output_directory=args.root / args.lightning_pose
     )
 
-    print("3. quality control")
+
+def qc(args: argparse.Namespace) -> None:
+    from BehaviorScreen.qc import quality_control
     quality_control(
         root=args.root,
         output_csv=args.qc_csv,
@@ -219,8 +225,10 @@ def main(args: argparse.Namespace) -> None:
         results=args.results,
         plots=args.plots,
     )
-    
-    print("4. bout analysis", flush=True)
+
+
+def bouts(args: argparse.Namespace) -> None:
+    from BehaviorScreen.megabouts import run_megabouts
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
@@ -235,6 +243,10 @@ def main(args: argparse.Namespace) -> None:
         plots=args.plots,
         cpu=args.cpu,
     )
+
+
+def heatmaps(args: argparse.Namespace) -> None:
+    from BehaviorScreen.plot import plot_heatmaps
     plot_heatmaps(
         quality_control=args.root / args.qc_csv,
         input_csv=args.root / args.bouts_csv,
@@ -242,9 +254,10 @@ def main(args: argparse.Namespace) -> None:
         config_yaml=args.yaml,
         output_png=args.root / args.bouts_png,
     )
-    
 
-    print("5. saccade analysis", flush=True)
+
+def saccades(args: argparse.Namespace) -> None:
+    from BehaviorScreen.eyes.run_analysis import run_analysis
     run_analysis(
         root=args.root,
         config_yaml=args.yaml,
@@ -256,9 +269,19 @@ def main(args: argparse.Namespace) -> None:
         valid_trials_csv=args.valid_trials_csv,
     )
 
-    
-    print("6. overlay")
-    # TODO
+
+# Pipeline order; imports are inside the steps so the parser (and the GUI) load fast.
+STEPS: Dict[str, Callable[[argparse.Namespace], None]] = {
+    "export": export, "pose": pose, "eye_crop": eye_crop, "eye_pose": eye_pose,
+    "qc": qc, "bouts": bouts, "heatmaps": heatmaps, "saccades": saccades,
+}
+
+
+def main(args: argparse.Namespace) -> None:
+    for i, name in enumerate([s for s in STEPS if s in args.steps], 1):
+        print(f"{i}. {name}", flush=True)
+        STEPS[name](args)
+
 
 if __name__ == '__main__':
 
