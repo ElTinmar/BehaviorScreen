@@ -11,15 +11,14 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import inspect
 import json
 import re
-import os
 import shlex
-import signal
 import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import psutil
 
 from qtpy.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QTimer, QUrl, Signal
 from qtpy.QtGui import QCloseEvent, QColor, QDesktopServices, QTextCursor
@@ -45,6 +44,26 @@ OUTPUTS = {
     "Quality control": {"qc_csv", "valid_trials_csv"}, "Bouts": {"bouts_csv"},
     "Heatmaps": {"plots", "bouts_png", "saccades_png"}, "Saccades": {"plots"}, "Overlay": {"output_dir"},
 }
+
+
+def stop_tree(pid: int) -> None:
+    """End a process and every process it started (ffmpeg, Lightning Pose), on Linux, macOS and Windows."""
+    try:
+        process = psutil.Process(pid)
+        family = [*process.children(recursive=True), process]
+    except psutil.NoSuchProcess:
+        return
+    for p in family:
+        try:
+            p.terminate()
+        except psutil.NoSuchProcess:
+            pass
+    _, alive = psutil.wait_procs(family, timeout=3)
+    for p in alive:
+        try:
+            p.kill()
+        except psutil.NoSuchProcess:
+            pass
 
 
 def form_actions(parser: argparse.ArgumentParser, skip: set) -> List[argparse.Action]:
@@ -406,7 +425,7 @@ class Window(QMainWindow):
         command = self.queue.pop(0)
         self.write(f"\n$ {shlex.join(command)}\n")
         self.statusBar().showMessage(f"Running {command[2]}")
-        self.process.start("setsid", command)  # own process group, so Stop also ends ffmpeg and Lightning Pose
+        self.process.start(command[0], command[1:])
 
     def finished(self, ok: bool, message: str) -> None:
         self.write(f"\n[{message}]\n")
@@ -423,10 +442,7 @@ class Window(QMainWindow):
     def cancel(self) -> None:
         self.queue = []
         if self.process.state() != QProcess.ProcessState.NotRunning:
-            try:
-                os.killpg(self.process.processId(), signal.SIGTERM)
-            except ProcessLookupError:
-                pass
+            stop_tree(self.process.processId())
 
     def write(self, text: str) -> None:
         """Append process output; a carriage return rewrites the line (progress bars)."""
