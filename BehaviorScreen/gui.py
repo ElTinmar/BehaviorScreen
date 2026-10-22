@@ -35,7 +35,7 @@ TABS = {
 OUTPUTS = {
     "Export": {"results"}, "Pose estimation": {"lightning_pose", "eyes_video_dir"},
     "Quality control": {"qc_csv", "valid_trials_csv"}, "Bouts": {"bouts_csv"},
-    "Heatmaps": {"plots", "bouts_png"}, "Saccades": set(), "Overlay": {"output_dir"},
+    "Heatmaps": {"plots", "bouts_png"}, "Saccades": {"plots"}, "Overlay": {"output_dir"},
 }
 
 

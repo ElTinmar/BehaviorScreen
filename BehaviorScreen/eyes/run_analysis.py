@@ -203,6 +203,8 @@ def run_analysis(
     # ==================================================================
 
     if make_plots:
+        plot_dir = root / plots
+        plot_dir.mkdir(parents=True, exist_ok=True)
         print()
         print("=== Plotting cluster traces ===")
 
@@ -220,7 +222,7 @@ def run_analysis(
             npz_path=detected_npz,
             max_per_cluster=500,
             baseline_correct=True,
-            output_path=(root / "saccade_clusters.png"),
+            output_path=(plot_dir / "saccade_clusters.png"),
             interactive=False,
         )
 
@@ -241,7 +243,7 @@ def run_analysis(
             valid_trials_csv=(root / valid_trials_csv),
             quality_control=(root / qc_csv),
             config_yaml=config_yaml,
-            output_png=(root / "saccades.png"),
+            output_png=(plot_dir / "saccades.png"),
             exclude_unusable=True,
             include_unassigned=False,
             maximum_frequency=0.3,
@@ -317,7 +319,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     parser.add_argument("--results", default="results")
     parser.add_argument("--lightning-pose", default="lightning_pose")
-    parser.add_argument("--plots", default="plots")
+    parser.add_argument("--plots", default="plots", help="Subfolder where the plots are written")
     parser.add_argument("--qc-csv", default="qc.csv")
     parser.add_argument("--valid-trials-csv", default="valid_trials.csv")
 

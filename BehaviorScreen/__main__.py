@@ -147,7 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--plots",
         default="plots",
-        help="Subfolder where the heatmaps are written (default: plots)",
+        help="Subfolder where the bout and saccade plots are written (default: plots)",
     )
 
     # Feature toggles
@@ -262,6 +262,7 @@ def saccades(args: argparse.Namespace) -> None:
         model_path=args.saccade_model,
         results=args.results,
         lightning_pose=args.lightning_pose,
+        plots=args.plots,
         qc_csv=args.qc_csv,
         valid_trials_csv=args.valid_trials_csv,
     )
