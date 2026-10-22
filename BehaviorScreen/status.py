@@ -9,17 +9,21 @@ input and output, and a state:
 
 plus the step's single files (tables, figures) with their modification times.
 """
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Callable, Dict, List, Tuple
+from re import Pattern
+from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from BehaviorScreen.core import TIME_TOLERANCE_S
 from BehaviorScreen.load import (
-    find_file, load_metadata, metadata_filename_regexp, parse_filename, stimuli_filename_regexp,
-    temperature_filename_regexp, tracking_filename_regexp, video_filename_regexp, video_timestamps_filename_regexp,
+    FileNameInfo, filename_regexp, lightningpose_eyes_filename_regexp, lightningpose_full_filename_regexp, load_metadata,
+    parse_filename, parse_fish, stimuli_filename_regexp, temperature_filename_regexp, tracking_filename_regexp,
+    video_filename_regexp, video_timestamps_filename_regexp,
 )
 
 SACCADES_CSV = "saccades_augmented.csv"  # written by the saccade step (eyes.run_analysis)
@@ -46,6 +50,35 @@ class Count:
         return f"{self.done}/{self.expected}"
 
 
+def recording_key(info: FileNameInfo) -> tuple:
+    return info.fish_id, info.age, info.line, info.day, info.month, info.year, info.extra
+
+
+def finder(folder: Path, regexp: Pattern) -> Callable[[str], Optional[Path]]:
+    """
+    The file of a recording in `folder`, matched as the pipeline does (load.find_file):
+    same fish and name, start time within TIME_TOLERANCE_S. The folder is read once.
+    """
+    files = defaultdict(list)
+    for path in folder.iterdir() if folder.is_dir() else []:
+        try:
+            info = parse_filename(path, regexp)
+        except ValueError:
+            continue
+        files[recording_key(info)].append((info.to_datetime(), path))
+
+    def find(stem: str) -> Optional[Path]:
+        info = parse_fish(stem)
+        start = info.to_datetime()
+        return next((p for t, p in files[recording_key(info)] if abs((t - start).total_seconds()) <= TIME_TOLERANCE_S), None)
+    return find
+
+
+def has(folder: Path, regexp: Pattern) -> Check:
+    find = finder(folder, regexp)
+    return lambda stem: find(stem) is not None
+
+
 @lru_cache(maxsize=None)
 def wells(metadata: Path, modified: float) -> int:
     """Wells (ROIs) of a raw recording; cached per file version, the metadata can be large."""
@@ -55,9 +88,8 @@ def wells(metadata: Path, modified: float) -> int:
 def export_checks(root: Path, v: Dict[str, str]) -> Tuple[List[str], Dict[str, Check], Dict[str, Check], Dict[str, Check]]:
     """Raw recordings: their raw files, and how many animals have each exported file."""
     raw = {p.stem: p for p in sorted((root / v["metadata"]).glob("*.metadata"))}
-    info = {stem: parse_filename(p, metadata_filename_regexp) for stem, p in raw.items()}
-    found = {name: {stem: find_file(info[stem], root / v[folder], regexp, False) for stem in raw}
-             for name, (folder, regexp, _, _) in {**RAW, "temperature": ("temperature", temperature_filename_regexp, "", "")}.items()}
+    found = {name: {stem: find(stem) for stem in raw} for name, find in
+             ((name, finder(root / v[folder], regexp)) for name, (folder, regexp, _, _) in {**RAW, "temperature": ("temperature", temperature_filename_regexp, "", "")}.items())}
     results = root / v["results"]
 
     def exported(sources: Dict[str, Path], suffix: str) -> Check:
@@ -99,19 +131,19 @@ def checks(tab: str, root: Path, v: Dict[str, str]) -> Tuple[List[str], Dict[str
     """(recordings, inputs, outputs, other columns) of a tab; v: option values by dest (the overlay's for Overlay)."""
     if tab == "Overlay":  # optional layers as other columns: the overlay draws what exists
         metadata, pose = root / v["metadata"], root / v["lightning_pose"]
-        other = {"eye pose": exists(f"{pose}/eyes_{{}}.csv"), "megabouts": exists(f"{metadata}/{{}}.pkl")}
+        other = {"eye pose": has(pose, lightningpose_eyes_filename_regexp), "megabouts": exists(f"{metadata}/{{}}.pkl")}
         if v["saccades"]:
             other["in saccade table"] = member(root / v["saccades"], "fish")
-        inputs = {"video": exists(f"{root / v['video']}/{{}}.mp4"), "pose": exists(f"{pose}/{{}}.csv")}
+        inputs = {"video": has(root / v["video"], video_filename_regexp), "pose": has(pose, lightningpose_full_filename_regexp)}
         return stems(metadata), inputs, {"videos": count(root / v["output_dir"], "{}_*s.mp4")}, other
     results, pose = root / v["results"], root / v["lightning_pose"]
     animals = stems(results)
-    has_pose, has_eye_pose = exists(f"{pose}/{{}}.csv"), exists(f"{pose}/eyes_{{}}.csv")
+    has_pose, has_eye_pose = has(pose, lightningpose_full_filename_regexp), has(pose, lightningpose_eyes_filename_regexp)
     if tab == "Export":
         return export_checks(root, v)
     if tab == "Pose estimation":
-        outputs = {"pose": has_pose, "eye video": exists(f"{root / v['eyes_video_dir']}/eyes_{{}}.mp4"), "eye pose": has_eye_pose}
-        return animals, {"video": exists(f"{results}/{{}}.mp4")}, outputs, {}
+        outputs = {"pose": has_pose, "eye video": has(root / v["eyes_video_dir"], filename_regexp("eyes_", "mp4")), "eye pose": has_eye_pose}
+        return animals, {"video": has(results, video_filename_regexp)}, outputs, {}
     if tab == "Quality control":
         return animals, {"pose": has_pose}, {"valid trials": member(root / v["valid_trials_csv"], "file")}, {"excluded": member(root / v["qc_csv"], "file")}
     if tab == "Bouts":
