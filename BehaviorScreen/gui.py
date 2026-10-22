@@ -21,8 +21,8 @@ import pandas as pd
 from qtpy.QtCore import QProcess, QProcessEnvironment, QSettings, Qt, QUrl
 from qtpy.QtGui import QCloseEvent, QColor, QDesktopServices, QTextCursor
 from qtpy.QtWidgets import (
-    QAbstractItemView, QApplication, QCheckBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QAbstractItemView, QApplication, QCheckBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+    QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
 from BehaviorScreen.__main__ import STEPS
@@ -234,6 +234,7 @@ class Window(QMainWindow):
         self.substeps = {step: QCheckBox(step) for steps in TABS.values() if len(steps) > 1 for step in steps}
         self.run_buttons: List[QPushButton] = []
         tabs = self.tabs = QTabWidget()
+        self.splitters: List[QSplitter] = []
         self.panels: Dict[str, StatusPanel] = {}
         for tab, form in self.forms.items():
             page = QWidget()
@@ -248,30 +249,27 @@ class Window(QMainWindow):
                 layout.addWidget(boxes)
             panel = self.panels[tab] = StatusPanel(tab)
             panel.refresh.clicked.connect(self.refresh_status)
-            columns = QSplitter()
-            columns.addWidget(panel)
-            columns.addWidget(scrolled(form))
-            layout.addWidget(columns)
+            layout.addWidget(self.side_by_side(panel, form))
             if tab in TABS:
                 layout.addWidget(self.run_button(f"Run {tab.lower()}", lambda tab=tab: [self.pipeline_command(self.tab_steps(tab))]))
             tabs.addTab(page, tab)
 
-        self.fish = QListWidget()
-        self.fish.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.overlay = ArgumentForm(grouped("Overlay", form_actions(overlay_parser(), {"root", "fish"})))
-        refresh, open_folder = QPushButton("Refresh fish"), QPushButton("Open output folder")
-        refresh.clicked.connect(self.list_fish)
+        panel = self.panels["Overlay"] = StatusPanel("Overlay")
+        panel.refresh.clicked.connect(self.refresh_status)
+        panel.recordings.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        panel.recordings.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        panel.recordings.setToolTip("Select the recordings to render")
+        open_folder = QPushButton("Open output folder")
         open_folder.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(self.root.text()) / self.overlay.values()["output_dir"]))))
         overlay_tab = QWidget()
-        layout = QGridLayout(overlay_tab)
-        layout.addWidget(self.fish, 0, 0)
-        layout.addWidget(scrolled(self.overlay), 0, 1)
-        layout.addWidget(refresh, 1, 0)
+        layout = QVBoxLayout(overlay_tab)
+        layout.addWidget(self.side_by_side(panel, self.overlay))
         buttons = QWidget()
         button_layout = QHBoxLayout(buttons)
         button_layout.addWidget(self.run_button("Render selected fish", self.overlay_commands))
         button_layout.addWidget(open_folder)
-        layout.addWidget(buttons, 1, 1)
+        layout.addWidget(buttons)
 
         tabs.addTab(overlay_tab, "Overlay")
         self.log = QPlainTextEdit()
@@ -304,7 +302,6 @@ class Window(QMainWindow):
         self.process.finished.connect(lambda code, status: self.finished(code == 0 and status == QProcess.ExitStatus.NormalExit, f"exit code {code}"))
         self.process.errorOccurred.connect(lambda error: self.finished(False, "failed to start") if error == QProcess.ProcessError.FailedToStart else None)
         self.restore()
-        self.list_fish()
         self.tabs.currentChanged.connect(self.refresh_status)
         self.root.editingFinished.connect(self.refresh_status)
         self.refresh_status()
@@ -315,11 +312,22 @@ class Window(QMainWindow):
         self.run_buttons.append(button)
         return button
 
+    def side_by_side(self, panel: QWidget, form: QWidget) -> QSplitter:
+        """Status panel and options, the panel wider; the divider is kept between sessions."""
+        splitter = QSplitter()
+        splitter.addWidget(panel)
+        splitter.addWidget(scrolled(form))
+        splitter.setStretchFactor(0, 2)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([700, 350])
+        self.splitters.append(splitter)
+        return splitter
+
     def refresh_status(self) -> None:
         panel = self.panels.get(self.tabs.tabText(self.tabs.currentIndex()))
         if panel is not None and self.root.text():
-            values = {k: v for form in self.forms.values() for k, v in form.values().items()}
-            panel.show_status(Path(self.root.text()), values)
+            forms = [self.overlay] if panel.tab == "Overlay" else self.forms.values()
+            panel.show_status(Path(self.root.text()), {k: v for form in forms for k, v in form.values().items()})
 
     def tab_steps(self, tab: str) -> List[str]:
         return [s for s in TABS[tab] if s not in self.substeps or self.substeps[s].isChecked()]
@@ -332,12 +340,9 @@ class Window(QMainWindow):
     def overlay_commands(self) -> List[List[str]]:
         options = [token for t in self.overlay.tokens().values() for token in t]
         base = [sys.executable, "-m", "BehaviorScreen.overlay", self.root.text(), *options]
-        return [[*base, "--fish", item.text()] for item in self.fish.selectedItems()]
-
-    def list_fish(self) -> None:
-        folder = Path(self.root.text()) / self.overlay.values()["metadata"]
-        self.fish.clear()
-        self.fish.addItems(sorted(p.stem for p in folder.glob("*.metadata")) if self.root.text() else [])
+        table = self.panels["Overlay"].recordings
+        rows = sorted({index.row() for index in table.selectionModel().selectedRows()})
+        return [[*base, "--fish", table.item(row, 0).text()] for row in rows]
 
     def run(self, commands: List[List[str]]) -> None:
         if not commands:
@@ -392,11 +397,13 @@ class Window(QMainWindow):
         for form in self.forms.values():
             form.set_values(state.get("pipeline", {}))
         self.overlay.set_values(state.get("overlay", {}))
-        self.root.editingFinished.connect(self.list_fish)
+        for splitter, sizes in zip(self.splitters, state.get("splitters", [])):
+            splitter.setSizes(sizes)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         state = {"root": self.root.text(), "steps": {n: b.isChecked() for n, b in self.substeps.items()},
-                 "pipeline": {k: v for form in self.forms.values() for k, v in form.values().items()}, "overlay": self.overlay.values()}
+                 "pipeline": {k: v for form in self.forms.values() for k, v in form.values().items()}, "overlay": self.overlay.values(),
+                 "splitters": [s.sizes() for s in self.splitters]}
         QSettings("BehaviorScreen", "gui").setValue("state", json.dumps(state))
         self.cancel()
         super().closeEvent(event)
@@ -405,7 +412,7 @@ class Window(QMainWindow):
 def main() -> None:
     app = QApplication(sys.argv)
     window = Window()
-    window.resize(1000, 800)
+    window.resize(1400, 900)
     window.show()
     sys.exit(app.exec())
 

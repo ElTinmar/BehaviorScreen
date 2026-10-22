@@ -42,7 +42,14 @@ def count(folder: Path, pattern: str) -> Check:
 
 
 def checks(tab: str, root: Path, v: Dict[str, str]) -> Tuple[List[str], Dict[str, Check], Dict[str, Check], Dict[str, Check]]:
-    """(recordings, inputs, outputs, other columns) of a tab; v: option values by dest."""
+    """(recordings, inputs, outputs, other columns) of a tab; v: option values by dest (the overlay's for Overlay)."""
+    if tab == "Overlay":  # optional layers as other columns: the overlay draws what exists
+        metadata, pose = root / v["metadata"], root / v["lightning_pose"]
+        other = {"eye pose": exists(f"{pose}/eyes_{{}}.csv"), "megabouts": exists(f"{metadata}/{{}}.pkl")}
+        if v["saccades"]:
+            other["in saccade table"] = member(root / v["saccades"], "fish")
+        inputs = {"video": exists(f"{root / v['video']}/{{}}.mp4"), "pose": exists(f"{pose}/{{}}.csv")}
+        return stems(metadata), inputs, {"videos": count(root / v["output_dir"], "{}_*s.mp4")}, other
     results, pose = root / v["results"], root / v["lightning_pose"]
     animals = stems(results)
     has_pose, has_eye_pose = exists(f"{pose}/{{}}.csv"), exists(f"{pose}/eyes_{{}}.csv")
@@ -61,6 +68,8 @@ def checks(tab: str, root: Path, v: Dict[str, str]) -> Tuple[List[str], Dict[str
 
 
 def single_files(tab: str, root: Path, v: Dict[str, str]) -> Dict[str, List[Path]]:
+    if tab == "Overlay":
+        return {"input": [root / v["qc_csv"]] + ([root / v["saccades"]] if v["saccades"] else [])}
     plots = root / v["plots"]
     tables = [root / v["qc_csv"], root / v["valid_trials_csv"]]
     return {
