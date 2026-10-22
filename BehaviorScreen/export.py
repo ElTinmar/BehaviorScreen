@@ -6,6 +6,7 @@ from pathlib import Path
 import numpy as np
 from video_tools import CPU_VideoProcessor
 
+from BehaviorScreen.core import write_complete
 from BehaviorScreen.load import Directories, find_files
 from BehaviorScreen.process import detect_well, get_background_image_safe
 from BehaviorScreen.protocol import protocol, protocol_ptx
@@ -125,7 +126,8 @@ def export_videos(
         out_path = Path(video_cropper.make_output_path(suffix, dest_folder))
         if out_path.exists() and not overwrite:
             continue
-        video_cropper.crop(x, y, w, h, suffix=suffix, dest_folder=dest_folder)
+        # crop names its output after the input and suffix, in dest_folder
+        write_complete(out_path, lambda partial: video_cropper.crop(x, y, w, h, suffix=suffix, dest_folder=str(partial.parent)))
 
 
 def export(

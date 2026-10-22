@@ -1,8 +1,23 @@
 from enum import IntEnum
-from typing import TypedDict
+from pathlib import Path
+from typing import Callable, TypedDict
 
 TIME_TOLERANCE_S: float = 40
 ROLLOVER_TIME_S: int = 3600  # ZebVR shader clock period
+
+
+def write_complete(target: Path, write: Callable[[Path], None]) -> None:
+    """
+    write(path) into .partial/ next to target, then move the file to target: an
+    interrupted write never leaves a file that looks finished.
+    """
+    partial = target.parent / ".partial" / target.name
+    partial.parent.mkdir(parents=True, exist_ok=True)
+    partial.unlink(missing_ok=True)
+    write(partial)
+    if not partial.exists():
+        raise RuntimeError(f"{target.name} was not written")
+    partial.replace(target)
 
 
 class MyIntEnum(IntEnum):

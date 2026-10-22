@@ -6,6 +6,7 @@ import numpy as np
 import cv2
 from video_tools import FFMPEG_VideoWriter_CPU
 from tqdm import tqdm
+from BehaviorScreen.core import write_complete
 from BehaviorScreen.load import load_lightning_pose
 
 EYE_CROP_MM, EYE_CROP_PX_PER_MM = 1.6, 40.0  # TODO get px_per_mm from metadata
@@ -214,11 +215,7 @@ def export_cropped_eyes_video(
         if not lightningpose_csv.exists():
             raise FileNotFoundError(f"{lightningpose_csv} does not exist")
 
-        crop_around_eyes(
-            video,
-            eyes_video,
-            lightningpose_csv,
-        )
+        write_complete(eyes_video, lambda partial: crop_around_eyes(video, partial, lightningpose_csv))
 
 
 def main(args: argparse.Namespace) -> None:

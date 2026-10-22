@@ -11,7 +11,9 @@ from concurrent.futures import Future, ThreadPoolExecutor
 import inspect
 import json
 import re
+import os
 import shlex
+import signal
 import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Sequence, Tuple, Union
@@ -404,7 +406,7 @@ class Window(QMainWindow):
         command = self.queue.pop(0)
         self.write(f"\n$ {shlex.join(command)}\n")
         self.statusBar().showMessage(f"Running {command[2]}")
-        self.process.start(command[0], command[1:])
+        self.process.start("setsid", command)  # own process group, so Stop also ends ffmpeg and Lightning Pose
 
     def finished(self, ok: bool, message: str) -> None:
         self.write(f"\n[{message}]\n")
@@ -420,7 +422,11 @@ class Window(QMainWindow):
 
     def cancel(self) -> None:
         self.queue = []
-        self.process.kill()
+        if self.process.state() != QProcess.ProcessState.NotRunning:
+            try:
+                os.killpg(self.process.processId(), signal.SIGTERM)
+            except ProcessLookupError:
+                pass
 
     def write(self, text: str) -> None:
         """Append process output; a carriage return rewrites the line (progress bars)."""
