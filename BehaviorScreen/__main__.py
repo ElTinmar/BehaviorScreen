@@ -2,6 +2,8 @@ import argparse
 from pathlib import Path
 from typing import Callable, Dict
 
+SACCADES_CSV = "saccades_augmented.csv"  # written by the saccade step (eyes.run_analysis)
+
 
 def build_parser() -> argparse.ArgumentParser:
 
@@ -73,13 +75,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--bouts-png",
         default='bouts.png',
-        help="output PNG file",
+        help="Bout heatmap PNG file",
     )
 
     parser.add_argument(
-        "--eyes-png",
-        default='eyes.png',
-        help="output eye PNG file",
+        "--saccades-png",
+        default='saccades.png',
+        help="Saccade heatmap PNG file",
     )
 
     parser.add_argument(
@@ -243,35 +245,40 @@ def bouts(args: argparse.Namespace) -> None:
 
 
 def heatmaps(args: argparse.Namespace) -> None:
+    """Bout and saccade heatmaps, each when its table exists."""
+    from BehaviorScreen.eyes.plot_saccade_heatmap import make_saccade_heatmaps
     from BehaviorScreen.plot import plot_heatmaps
-    (args.root / args.plots).mkdir(parents=True, exist_ok=True)
-    plot_heatmaps(
-        quality_control=args.root / args.qc_csv,
-        input_csv=args.root / args.bouts_csv,
-        valid_trials_csv=args.root / args.valid_trials_csv,
-        config_yaml=args.yaml,
-        output_png=args.root / args.plots / args.bouts_png,
-    )
+    plots = args.root / args.plots
+    plots.mkdir(parents=True, exist_ok=True)
+    common = dict(quality_control=args.root / args.qc_csv, valid_trials_csv=args.root / args.valid_trials_csv, config_yaml=args.yaml)
+    bouts, saccades = args.root / args.bouts_csv, args.root / SACCADES_CSV
+    if bouts.exists():
+        plot_heatmaps(input_csv=bouts, output_png=plots / args.bouts_png, **common)
+    else:
+        print(f"no {bouts}: bout heatmaps skipped")
+    if saccades.exists():
+        make_saccade_heatmaps(input_csv=saccades, output_png=plots / args.saccades_png, exclude_unusable=True,
+                              include_unassigned=False, maximum_frequency=0.3, interactive=False, **common)
+    else:
+        print(f"no {saccades}: saccade heatmaps skipped")
 
 
 def saccades(args: argparse.Namespace) -> None:
     from BehaviorScreen.eyes.run_analysis import run_analysis
     run_analysis(
         root=args.root,
-        config_yaml=args.yaml,
         model_path=args.saccade_model,
         results=args.results,
         lightning_pose=args.lightning_pose,
         plots=args.plots,
-        qc_csv=args.qc_csv,
-        valid_trials_csv=args.valid_trials_csv,
+        heatmaps=False,
     )
 
 
 # Pipeline order; imports are inside the steps so the parser (and the GUI) load fast.
 STEPS: Dict[str, Callable[[argparse.Namespace], None]] = {
     "export": export, "pose": pose, "eye_crop": eye_crop, "eye_pose": eye_pose,
-    "qc": qc, "bouts": bouts, "heatmaps": heatmaps, "saccades": saccades,
+    "qc": qc, "bouts": bouts, "saccades": saccades, "heatmaps": heatmaps,
 }
 
 

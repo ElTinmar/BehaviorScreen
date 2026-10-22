@@ -29,13 +29,13 @@ from BehaviorScreen.overlay import build_parser as overlay_parser
 Value = Union[str, bool]
 TABS = {
     "Export": ["export"], "Pose estimation": ["pose", "eye_crop", "eye_pose"], "Quality control": ["qc"],
-    "Bouts": ["bouts"], "Heatmaps": ["heatmaps"], "Saccades": ["saccades"],
+    "Bouts": ["bouts"], "Saccades": ["saccades"], "Heatmaps": ["heatmaps"],
 }
 # What each tab writes; its other paths are inputs, its flags and numbers options.
 OUTPUTS = {
     "Export": {"results"}, "Pose estimation": {"lightning_pose", "eyes_video_dir"},
     "Quality control": {"qc_csv", "valid_trials_csv"}, "Bouts": {"bouts_csv"},
-    "Heatmaps": {"plots", "bouts_png"}, "Saccades": {"plots"}, "Overlay": {"output_dir"},
+    "Heatmaps": {"plots", "bouts_png", "saccades_png"}, "Saccades": {"plots"}, "Overlay": {"output_dir"},
 }
 
 

@@ -36,11 +36,12 @@ def require_file(
 
 def run_analysis(
     root: Path,
-    config_yaml: Path,
+    config_yaml: Path | None = None,
     model_path: Path | None = None,
     mode: str = "freeswim",
     start_stage: str = "detect",
     make_plots: bool = True,
+    heatmaps: bool = True,
     results: str = "results",
     lightning_pose: str = "lightning_pose",
     plots: str = "plots",
@@ -66,9 +67,10 @@ def run_analysis(
     plot
         Reuse the existing classified and augmented results and recreate
         the plots.
+
+    heatmaps=False leaves the saccade heatmaps out of the plots.
     """
     root = Path(root).expanduser().resolve()
-    config_yaml = Path(config_yaml).expanduser().resolve()
 
     if not root.is_dir():
         raise NotADirectoryError(f"Experiment root does not exist: {root}")
@@ -85,7 +87,8 @@ def run_analysis(
     }:
         raise ValueError("mode must be 'freeswim' or 'tethered'.")
 
-    if make_plots:
+    if make_plots and heatmaps:
+        config_yaml = Path(config_yaml).expanduser().resolve()
         require_file(
             config_yaml,
             "YAML analysis configuration",
@@ -226,29 +229,30 @@ def run_analysis(
             interactive=False,
         )
 
-        print()
-        print("=== Plotting saccade heatmaps ===")
+        if heatmaps:
+            print()
+            print("=== Plotting saccade heatmaps ===")
 
-        require_file(
-            augmented_csv,
-            "Augmented-saccade CSV",
-        )
-        require_file(
-            root / valid_trials_csv,
-            "Valid-trials CSV",
-        )
+            require_file(
+                augmented_csv,
+                "Augmented-saccade CSV",
+            )
+            require_file(
+                root / valid_trials_csv,
+                "Valid-trials CSV",
+            )
 
-        make_saccade_heatmaps(
-            input_csv=augmented_csv,
-            valid_trials_csv=(root / valid_trials_csv),
-            quality_control=(root / qc_csv),
-            config_yaml=config_yaml,
-            output_png=(plot_dir / "saccades.png"),
-            exclude_unusable=True,
-            include_unassigned=False,
-            maximum_frequency=0.3,
-            interactive=False,
-        )
+            make_saccade_heatmaps(
+                input_csv=augmented_csv,
+                valid_trials_csv=(root / valid_trials_csv),
+                quality_control=(root / qc_csv),
+                config_yaml=config_yaml,
+                output_png=(plot_dir / "saccades.png"),
+                exclude_unusable=True,
+                include_unassigned=False,
+                maximum_frequency=0.3,
+                interactive=False,
+            )
 
     print()
     print(f"Saccade analysis completed from stage " f"{start_stage!r}.")
