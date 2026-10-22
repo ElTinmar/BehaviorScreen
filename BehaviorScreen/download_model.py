@@ -12,10 +12,10 @@ from pathlib import Path
 from urllib.request import urlretrieve
 from zipfile import ZipFile, is_zipfile
 
-TAIL_MODEL_URL_JAN_26 = "https://owncloud.gwdg.de/index.php/s/cysLNkUMxr3emTn/download"
-TAIL_MODEL_URL_APRIL_26 = "https://owncloud.gwdg.de/index.php/s/2opYRUKAachVHQJ/download"
-EYES_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/l5xbLSfATCCydEx/download"
-SACCADE_MODEL_URL = "https://owncloud.gwdg.de/index.php/s/PLACEHOLDER/download"  # TODO: share paper_reference.joblib
+TAIL_MODEL_URL_JAN_26 = "https://neuro.files.academiccloud.de/s/y4cWSirbkRpmBg5/download"
+TAIL_MODEL_URL_APRIL_26 = "https://neuro.files.academiccloud.de/s/N664qP3k73sxStc/download"
+EYES_MODEL_URL = "https://neuro.files.academiccloud.de/s/rsH2nBrsoC7qxkE/download"
+SACCADE_MODEL_URL = "https://neuro.files.academiccloud.de/s/ogBDNd4njLynHRw/download"  
 
 # name: (url, target relative to the destination: a folder to unpack into, or a file)
 MODELS = {
