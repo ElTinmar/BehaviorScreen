@@ -2,8 +2,7 @@
 Frames to label next for the full-fish pose model: those Lightning Pose most
 likely gets wrong, spread over lines, recording days and fish.
 
-Per frame of each fish's predictions (lightning_pose/<video>.csv), the error score
-is the largest of
+Per frame of each fish's predictions (lightning_pose/<video>.csv), five checks:
     likelihood   1 - the lowest keypoint likelihood
     segments     largest relative change of a head-to-tail segment from the fish's median length
     eyes         same for the eye lengths
@@ -11,10 +10,16 @@ is the largest of
     spike        largest one-frame excursion of a keypoint (its offset from the mean of the
                  previous and next frames) beyond that of its skeleton neighbours, in median
                  tail-segment lengths: a fast tail moves neighbours together, an error moves one
-Each fish keeps its worst frames at least --min-gap-s apart, from bouts (tail moving)
-and from rest separately. Frames are then taken in rounds over the line x day groups
-(see select), at most --per-fish per fish, --bout-fraction from bouts. By default about
-twice as many fish are read per group as frames it would get, so each group has a choice.
+Each check is turned into its percentile among all frames of the scored fish (mid-rank, so
+the many ties of eye side stay in the middle), and a frame's score is its highest
+percentile: every check competes on the same scale.
+
+Each fish offers its worst frames per check, from bouts (tail moving) and from rest, and
+a few frames drawn at random: the random share (--random-fraction) catches errors no check
+sees (plausible but wrong poses, systematic offsets) and estimates how often the model is
+wrong. Frames are taken in rounds over the line x day groups (see select), at most
+--per-fish per fish and --min-gap-s apart, --bout-fraction of the checked frames from
+bouts. By default about twice as many fish are read per group as frames it would get.
 
 Outputs:
     <output>.csv       the frames, their scores and what drove them
@@ -32,6 +37,7 @@ import argparse
 import math
 import os
 import re
+import zlib
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -48,6 +54,10 @@ TAIL = AXIS[2:]
 # Skeleton neighbours of each keypoint: adjacent points along head-to-tail, the head for the eyes
 NEIGHBOURS = [[AXIS[j] for j in (i - 1, i + 1) if 0 <= j < len(AXIS)] if k in AXIS else [AXIS[0]]
               for k in range(len(KEYPOINTS)) for i in [AXIS.index(k) if k in AXIS else -1]]
+METRICS = ["likelihood", "segments", "eyes", "eye side", "spike"]
+# Levels at which each fish's checks are summarised, pooled into percentiles: fine in the
+# upper tail, where the frames worth labelling are (down to one frame in 10 million)
+QUANTILES = np.unique(np.concatenate([np.linspace(0, 0.99, 100), 1 - np.logspace(-2, -7, 251), [1.0]]))
 NAME = re.compile(r"^\d{2}_\d+dpf_(?P<line>[^_]+)_[A-Za-z]{3}_(?P<day>\d{2}_[A-Za-z]{3}_\d{4})_")
 BOUT_SPEED = 4.0  # tail moving: mean tail-point speed above this multiple of the fish's median speed
 BOUT_PAD = 5  # frames around a fast frame that still count as bout
@@ -84,7 +94,7 @@ def frame_scores(xy: np.ndarray, likelihood: np.ndarray) -> pd.DataFrame:
     speed = np.zeros(len(xy))
     speed[1:] = np.nanmean(np.linalg.norm(np.diff(xy[:, TAIL], axis=0), axis=2), axis=1)
     moving = pd.Series(speed > BOUT_SPEED * np.nanmedian(speed)).rolling(2 * BOUT_PAD + 1, center=True, min_periods=1).max()
-    return scores.assign(score=scores.max(axis=1), reason=scores.idxmax(axis=1), in_bout=moving.to_numpy(bool))
+    return scores.assign(in_bout=moving.to_numpy(bool))
 
 
 def worst_frames(scores: pd.Series, gap: int, k: int) -> List[int]:
@@ -98,19 +108,39 @@ def worst_frames(scores: pd.Series, gap: int, k: int) -> List[int]:
     return picked
 
 
-def fish_candidates(job: Tuple[Path, Path, float, int]) -> pd.DataFrame:
-    """A fish's worst frames from bouts and from rest, with their predicted keypoints."""
-    csv, video, min_gap_s, k = job
+def fish_candidates(job: Tuple[Path, Path, float, int, int, int]) -> Tuple[pd.DataFrame, np.ndarray]:
+    """
+    A fish's worst frames per check from bouts and from rest, and random frames, with their
+    predicted keypoints; and the quantiles of its checks over all its frames.
+    """
+    csv, video, min_gap_s, k, n_random, seed = job
     xy, likelihood = load_pose(csv)
     scores = frame_scores(xy, likelihood)
     capture = cv2.VideoCapture(str(video))
     fps = capture.get(cv2.CAP_PROP_FPS)
     capture.release()
     gap = max(1, round(min_gap_s * fps))
-    frames = [f for bout in (True, False) for f in worst_frames(scores.loc[scores["in_bout"] == bout, "score"], gap, k)]
+    checked = {f for bout in (True, False) for m in METRICS for f in worst_frames(scores.loc[scores["in_bout"] == bout, m], gap, k)}
+    drawn = np.random.default_rng([seed, zlib.crc32(csv.stem.encode())]).choice(len(scores), min(n_random, len(scores)), replace=False)
+    frames = sorted(checked) + sorted(int(f) for f in drawn)
     picked = scores.loc[frames].rename_axis("frame").reset_index()
-    return picked.assign(fish=csv.stem, csv=csv, video=str(video), time_s=picked["frame"] / fps,
-                         points=[xy[f] for f in frames], point_scores=[likelihood[f] for f in frames])
+    picked = picked.assign(kind=["checked"] * len(checked) + ["random"] * len(drawn), fish=csv.stem, csv=csv, video=str(video),
+                           time_s=picked["frame"] / fps, points=[xy[f] for f in frames], point_scores=[likelihood[f] for f in frames])
+    return picked, np.quantile(scores[METRICS].to_numpy(), QUANTILES, axis=0)
+
+
+def percentiles(values: np.ndarray, quantiles: List[np.ndarray]) -> np.ndarray:
+    """
+    Mid-rank percentile of each value (frames x METRICS) among the frames of all fish, each
+    fish weighing the same: the mean of the shares of frames below and up to the value.
+    """
+    level = lambda i: np.concatenate([[0.0], QUANTILES])[i]  # share of frames up to the i-th quantile
+    total = np.zeros_like(values)
+    for q in quantiles:
+        for m in range(values.shape[1]):
+            below, up_to = np.searchsorted(q[:, m], values[:, m], "left"), np.searchsorted(q[:, m], values[:, m], "right")
+            total[:, m] += (level(below) + level(up_to)) / 2
+    return total / len(quantiles)
 
 
 def experiments(data: Path, results: str, lightning_pose: str) -> List[Path]:
@@ -134,35 +164,42 @@ def recordings(roots: List[Path], results: str, lightning_pose: str, labeled: se
     return pd.DataFrame(rows, columns=["csv", "video", "line", "day"])
 
 
-def select(candidates: pd.DataFrame, n: int, per_fish: int, bout_fraction: float) -> pd.DataFrame:
+def select(candidates: pd.DataFrame, n: int, per_fish: int, bout_fraction: float, random_fraction: float, min_gap_s: float) -> pd.DataFrame:
     """
     Rounds over the line x day groups, each giving one frame per round: its least-sampled
-    fish's worst frame (the worst among such fish). Within a round, the group offering the
-    worst frame goes first, so when frames run short the worst-tracked groups are served.
+    fish's highest-priority frame (the highest among such fish). Within a round, the group
+    offering the highest priority goes first. Each pick is random or checked so as to keep
+    random_fraction, and a checked pick from a bout or from rest so as to keep bout_fraction.
     """
-    pools = {fish: c.sort_values("score", ascending=False) for fish, c in candidates.groupby("csv")}  # a fish is its predictions file
+    pools = {fish: c.sort_values("priority", ascending=False) for fish, c in candidates.groupby("csv")}  # a fish is its predictions file
     group_of = {fish: (c["line"].iloc[0], c["day"].iloc[0]) for fish, c in pools.items()}
     taken = dict.fromkeys(pools, 0)
     picks: List[pd.Series] = []
     served: set = set()  # groups that gave a frame this round
     while len(picks) < n:
-        want_bout = sum(p["in_bout"] for p in picks) < bout_fraction * (len(picks) + 1)
-        offers: Dict[tuple, tuple] = {}  # group: (fish's frames so far, -score, fish, frame)
+        random = [p for p in picks if p["kind"] == "random"]
+        checked = [p for p in picks if p["kind"] == "checked"]
+        want_random = len(random) < random_fraction * (len(picks) + 1)
+        want_bout = sum(p["in_bout"] for p in checked) < bout_fraction * (len(checked) + 1)
+        offers: Dict[tuple, tuple] = {}  # group: (fish's frames so far, -priority, fish, frame)
         for fish, pool in pools.items():
             group = group_of[fish]
             if taken[fish] == per_fish or pool.empty or group in served:
                 continue
-            kind = pool[pool["in_bout"] == want_bout]
-            row = (kind if len(kind) else pool).iloc[0]
-            if group not in offers or (taken[fish], -row["score"]) < offers[group][:2]:
-                offers[group] = (taken[fish], -row["score"], fish, row)
+            preferred = pool[pool["kind"] == ("random" if want_random else "checked")]
+            if not want_random:
+                preferred = preferred[preferred["in_bout"] == want_bout] if (preferred["in_bout"] == want_bout).any() else preferred
+            row = (preferred if len(preferred) else pool).iloc[0]
+            if group not in offers or (taken[fish], -row["priority"]) < offers[group][:2]:
+                offers[group] = (taken[fish], -row["priority"], fish, row)
         if not offers:
             if not served:
                 break
             served.clear()
             continue
         _, _, fish, row = min(offers.values(), key=lambda offer: offer[1])
-        pools[fish] = pools[fish].drop(row.name)
+        pool = pools[fish]
+        pools[fish] = pool[(pool["time_s"] - row["time_s"]).abs() >= min_gap_s]
         taken[fish] += 1
         served.add(group_of[fish])
         picks.append(row)
@@ -215,21 +252,26 @@ def main(args: argparse.Namespace) -> None:
     fish_per_group = args.fish_per_group or math.ceil(2 * args.frames / n_groups)
     sampled = fish.sample(frac=1, random_state=args.seed).groupby(["line", "day"]).head(fish_per_group)
     print(f"{len(fish)} fish in {n_groups} line x day groups; scoring {len(sampled)} (up to {fish_per_group} per group)", flush=True)
-    jobs = [(row.csv, row.video, args.min_gap_s, args.per_fish) for row in sampled.itertuples()]
-    scored = []
+    jobs = [(row.csv, row.video, args.min_gap_s, args.per_fish, args.per_fish, args.seed) for row in sampled.itertuples()]
+    scored, quantiles = [], []
     with ProcessPoolExecutor(args.jobs) as pool:
-        for i, fish_frames in enumerate(pool.map(fish_candidates, jobs), 1):
+        for i, (fish_frames, fish_quantiles) in enumerate(pool.map(fish_candidates, jobs), 1):
             print(f"[{i}/{len(jobs)}] scored {fish_frames['fish'].iloc[0]}", flush=True)
             scored.append(fish_frames)
-    candidates = pd.concat(scored, ignore_index=True)
-    candidates = candidates.merge(sampled[["csv", "line", "day"]], on="csv")
-    selection = select(candidates, args.frames, args.per_fish, args.bout_fraction)
-    columns = ["fish", "line", "day", "frame", "time_s", "in_bout", "score", "reason", "likelihood", "segments", "eyes", "eye side", "spike", "video"]
+            quantiles.append(fish_quantiles)
+    candidates = pd.concat(scored, ignore_index=True).merge(sampled[["csv", "line", "day"]], on="csv")
+    ranks = pd.DataFrame(percentiles(candidates[METRICS].to_numpy(), quantiles), columns=METRICS, index=candidates.index)
+    draws = np.random.default_rng(args.seed).random(len(candidates))
+    candidates = candidates.assign(score=ranks.max(axis=1), reason=ranks.idxmax(axis=1))
+    candidates["priority"] = np.where(candidates["kind"] == "random", draws, candidates["score"])
+    selection = select(candidates, args.frames, args.per_fish, args.bout_fraction, args.random_fraction, args.min_gap_s)
+    columns = ["fish", "line", "day", "frame", "time_s", "kind", "in_bout", "score", "reason", *METRICS, "video"]
     selection[columns].to_csv(args.output.with_suffix(".csv"), index=False)
     write_slp(selection, project_skeleton(args.skeleton_from), args.output.with_suffix(".slp"))
     print(selection.groupby(["line", "day"]).size().to_string(), flush=True)
-    print(f"{len(selection)} frames ({selection['in_bout'].mean():.0%} in bouts) from {selection['fish'].nunique()} fish; "
-          f"reasons: {selection['reason'].value_counts().to_dict()}", flush=True)
+    checked = selection[selection["kind"] == "checked"]
+    print(f"{len(selection)} frames from {selection['fish'].nunique()} fish: {len(selection) - len(checked)} random, {len(checked)} checked "
+          f"({checked['in_bout'].mean():.0%} in bouts; reasons {checked['reason'].value_counts().to_dict()})", flush=True)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -241,7 +283,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--frames", type=int, default=200)
     parser.add_argument("--per-fish", type=int, default=3)
     parser.add_argument("--fish-per-group", type=int, help="Fish scored per line x day (default: twice the frames a group gets; reading is the slow part)")
-    parser.add_argument("--bout-fraction", type=float, default=0.5)
+    parser.add_argument("--bout-fraction", type=float, default=0.5, help="Share of the checked frames from bouts")
+    parser.add_argument("--random-fraction", type=float, default=0.25, help="Share of frames drawn at random")
     parser.add_argument("--min-gap-s", type=float, default=1.0)
     parser.add_argument("--results", default="results")
     parser.add_argument("--lightning-pose", default="lightning_pose")
