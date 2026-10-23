@@ -18,10 +18,11 @@ twice as many fish are read per group as frames it would get, so each group has 
 
 Outputs:
     <output>.csv       the frames, their scores and what drove them
-    <output>.pkg.slp   SLEAP package with the frames embedded, as suggestions, each with
-                       Lightning Pose's prediction to correct: merge it into the labelling
-                       project (File > Merge Into Project), label, export a labels package
-                       and convert it with slp2lp as usual
+    <output>.slp       SLEAP project pointing to the videos (neighbouring frames help to label):
+                       the frames as suggestions, each with Lightning Pose's prediction to
+                       correct. Merge it into the labelling project (File > Merge Into Project),
+                       label, export a labels package (embeds the labelled frames) and convert
+                       it with slp2lp as usual
 
 Runs where sleap_io is installed (the SLEAP environment):
     python select_frames.py DATA --output next_labels --skeleton-from model.pkg.slp
@@ -186,7 +187,7 @@ def write_slp(selection: pd.DataFrame, skeleton: sio.Skeleton, path: Path) -> No
         frames.append(sio.LabeledFrame(video=videos[row.video], frame_idx=int(row.frame), instances=[predicted_instance(points, scores, skeleton)]))
     labels = sio.Labels(videos=list(videos.values()), skeletons=[skeleton], labeled_frames=frames)
     labels.suggestions = [sio.SuggestionFrame(video=f.video, frame_idx=f.frame_idx) for f in frames]
-    labels.save(str(path), embed="user+suggestions")  # frames embedded: the package travels without the videos
+    labels.save(str(path))
 
 
 def project_skeleton(project: Optional[Path]) -> sio.Skeleton:
@@ -225,9 +226,7 @@ def main(args: argparse.Namespace) -> None:
     selection = select(candidates, args.frames, args.per_fish, args.bout_fraction)
     columns = ["fish", "line", "day", "frame", "time_s", "in_bout", "score", "reason", "likelihood", "segments", "eyes", "eye side", "spike", "video"]
     selection[columns].to_csv(args.output.with_suffix(".csv"), index=False)
-    package = args.output.with_suffix(".pkg.slp")
-    print(f"Embedding {len(selection)} frames from {selection['video'].nunique()} videos into {package}...", flush=True)
-    write_slp(selection, project_skeleton(args.skeleton_from), package)
+    write_slp(selection, project_skeleton(args.skeleton_from), args.output.with_suffix(".slp"))
     print(selection.groupby(["line", "day"]).size().to_string(), flush=True)
     print(f"{len(selection)} frames ({selection['in_bout'].mean():.0%} in bouts) from {selection['fish'].nunique()} fish; "
           f"reasons: {selection['reason'].value_counts().to_dict()}", flush=True)
@@ -236,7 +235,7 @@ def main(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Pick the frames to label next for the full-fish pose model.")
     parser.add_argument("data", type=Path, help="Folder searched for experiments (folders with results and lightning_pose)")
-    parser.add_argument("--output", type=Path, required=True, help="Output path without extension (.csv and .pkg.slp are written)")
+    parser.add_argument("--output", type=Path, required=True, help="Output path without extension (.csv and .slp are written)")
     parser.add_argument("--skeleton-from", type=Path, help="SLEAP labelling project whose skeleton to use")
     parser.add_argument("--labeled", type=Path, help="CollectedData.csv: its fish are skipped")
     parser.add_argument("--frames", type=int, default=200)
