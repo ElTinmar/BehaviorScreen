@@ -12,8 +12,9 @@ is the largest of
                  previous and next frames) beyond that of its skeleton neighbours, in median
                  tail-segment lengths: a fast tail moves neighbours together, an error moves one
 Each fish keeps its worst frames at least --min-gap-s apart, from bouts (tail moving)
-and from rest separately. Frames are then taken in turn from each line x day group,
-the least-sampled fish first, at most --per-fish per fish, --bout-fraction from bouts.
+and from rest separately. Frames are then taken in rounds over the line x day groups
+(see select), at most --per-fish per fish, --bout-fraction from bouts. By default about
+twice as many fish are read per group as frames it would get, so each group has a choice.
 
 Outputs:
     <output>.csv       the frames, their scores and what drove them
@@ -27,10 +28,10 @@ Runs where sleap_io is installed (the SLEAP environment):
         [--labeled CollectedData.csv] [--frames 200] [--per-fish 3]
 """
 import argparse
+import math
 import os
 import re
 from concurrent.futures import ProcessPoolExecutor
-from itertools import cycle
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -133,27 +134,36 @@ def recordings(roots: List[Path], results: str, lightning_pose: str, labeled: se
 
 
 def select(candidates: pd.DataFrame, n: int, per_fish: int, bout_fraction: float) -> pd.DataFrame:
-    """Frames taken in turn from each line x day group, the least-sampled fish first."""
+    """
+    Rounds over the line x day groups, each giving one frame per round: its least-sampled
+    fish's worst frame (the worst among such fish). Within a round, the group offering the
+    worst frame goes first, so when frames run short the worst-tracked groups are served.
+    """
     pools = {fish: c.sort_values("score", ascending=False) for fish, c in candidates.groupby("csv")}  # a fish is its predictions file
-    groups = {g: list(fish) for g, fish in candidates.groupby(["line", "day"])["csv"].unique().items()}
-    taken: Dict[Path, int] = {fish: 0 for fish in pools}
+    group_of = {fish: (c["line"].iloc[0], c["day"].iloc[0]) for fish, c in pools.items()}
+    taken = dict.fromkeys(pools, 0)
     picks: List[pd.Series] = []
-    for group in cycle(list(groups)):
-        if len(picks) == n or not groups:
-            break
-        if group not in groups:
-            continue
-        open_fish = [f for f in groups[group] if taken[f] < per_fish and len(pools[f])]
-        if not open_fish:
-            del groups[group]
-            continue
-        fish = min(open_fish, key=taken.get)
-        pool = pools[fish]
+    served: set = set()  # groups that gave a frame this round
+    while len(picks) < n:
         want_bout = sum(p["in_bout"] for p in picks) < bout_fraction * (len(picks) + 1)
-        kind = pool[pool["in_bout"] == want_bout]
-        row = (kind if len(kind) else pool).iloc[0]
-        pools[fish] = pool.drop(row.name)
+        offers: Dict[tuple, tuple] = {}  # group: (fish's frames so far, -score, fish, frame)
+        for fish, pool in pools.items():
+            group = group_of[fish]
+            if taken[fish] == per_fish or pool.empty or group in served:
+                continue
+            kind = pool[pool["in_bout"] == want_bout]
+            row = (kind if len(kind) else pool).iloc[0]
+            if group not in offers or (taken[fish], -row["score"]) < offers[group][:2]:
+                offers[group] = (taken[fish], -row["score"], fish, row)
+        if not offers:
+            if not served:
+                break
+            served.clear()
+            continue
+        _, _, fish, row = min(offers.values(), key=lambda offer: offer[1])
+        pools[fish] = pools[fish].drop(row.name)
         taken[fish] += 1
+        served.add(group_of[fish])
         picks.append(row)
     return pd.DataFrame(picks).reset_index(drop=True)
 
@@ -200,8 +210,10 @@ def main(args: argparse.Namespace) -> None:
     if fish.empty:
         raise FileNotFoundError(f"no predictions with a video and an unlabelled fish under {args.data}")
     print(f"{len(roots)} experiment folders under {args.data}", flush=True)
-    sampled = fish.sample(frac=1, random_state=args.seed).groupby(["line", "day"]).head(args.fish_per_group)
-    print(f"{len(fish)} fish in {fish.groupby(['line', 'day']).ngroups} line x day groups; scoring {len(sampled)}", flush=True)
+    n_groups = fish.groupby(["line", "day"]).ngroups
+    fish_per_group = args.fish_per_group or math.ceil(2 * args.frames / n_groups)
+    sampled = fish.sample(frac=1, random_state=args.seed).groupby(["line", "day"]).head(fish_per_group)
+    print(f"{len(fish)} fish in {n_groups} line x day groups; scoring {len(sampled)} (up to {fish_per_group} per group)", flush=True)
     jobs = [(row.csv, row.video, args.min_gap_s, args.per_fish) for row in sampled.itertuples()]
     scored = []
     with ProcessPoolExecutor(args.jobs) as pool:
@@ -229,7 +241,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--labeled", type=Path, help="CollectedData.csv: its fish are skipped")
     parser.add_argument("--frames", type=int, default=200)
     parser.add_argument("--per-fish", type=int, default=3)
-    parser.add_argument("--fish-per-group", type=int, default=8, help="Fish scored per line x day (reading predictions is the slow part)")
+    parser.add_argument("--fish-per-group", type=int, help="Fish scored per line x day (default: twice the frames a group gets; reading is the slow part)")
     parser.add_argument("--bout-fraction", type=float, default=0.5)
     parser.add_argument("--min-gap-s", type=float, default=1.0)
     parser.add_argument("--results", default="results")
