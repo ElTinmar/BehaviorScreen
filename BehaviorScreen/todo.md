@@ -1,11 +1,5 @@
 # Ideas
 
-- make a GUI to preprocess the data so that someone else than me can do it? Be able to visualize the results from each step in the GUI?
-
-- check stimulus.get_shader_trial_time() rollover calculation
-
-- Should I use unwrap_angle in extract_raw_eye_angles()?
-
 - plot distribution of fish excluded by QC (health status, etc.)
 
 - "Sided models classify every non-ipsilateral event as contralateral" in SidedPoissonProcess
