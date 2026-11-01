@@ -1,7 +1,8 @@
 """
 Side calibration of a sided model: given an event at (t, trial), the model
 gives the probability it is ipsi, lambda_ipsi / (lambda_ipsi + lambda_contra)
-(the fish gain cancels; for escapes, the constant share set by D). The
+(the fish gain cancels; for escapes, the constant share set by D; with
+fish side preferences, its average over them). The
 observed ipsi fraction is compared with it by time, by trial and by fish;
 the fish panel tests whether one D fits every fish.
 """
@@ -13,13 +14,13 @@ from scipy import stats
 
 from .dataset import PointProcessDataset
 from .point_process import PointProcess
-from .sided_process import IPSI, SidedSurvivalProcess, sided_base
+from .sided_process import IPSI, sided_base
 
 
 def side_events(dataset: PointProcessDataset, model: PointProcess) -> Dict[str, np.ndarray]:
     """Events the model gives a side to (first events for escapes), their side and its model probability."""
     base = sided_base(model)
-    events = dataset.first_events() if isinstance(base, SidedSurvivalProcess) else dataset
+    events = dataset.first_events() if base.is_survival else dataset
     return {
         "time": events.event_times,
         "trial": events.event_trials_idx,

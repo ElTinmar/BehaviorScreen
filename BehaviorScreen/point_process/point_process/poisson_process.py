@@ -305,6 +305,12 @@ class RateKernelFactory:
         )
 
     @staticmethod
+    def omr_lateral(f_dip_upper: float = 0.95) -> RateKernel:
+        return RateKernelFactory._recovering_dip(
+            "OMR lateral λ(t, m)", f_dip_upper, (-15.0, 15.0), (0.01, 5.0), (-0.5, 0.5)
+        )
+
+    @staticmethod
     def phototaxis_contra(f_dip_upper: float = 0.95) -> RateKernel:
         return RateKernelFactory._recovering_dip(
             "Phototaxis Contra λ(t, m)", f_dip_upper, (-15.0, 15.0), (0.01, 5.0), (-0.5, 0.5)

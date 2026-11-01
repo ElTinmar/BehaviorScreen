@@ -32,7 +32,7 @@ looming = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_ini
 TIER1_MODELS = {
     "prey_capture": lambda: side_gamma(sided(prey("Peak_Baseline_Ripple"), flat())),
     "phototaxis": lambda: side_gamma(sided(RateKernelFactory.phototaxis_dip_exgaussian_peak(), RateKernelFactory.phototaxis_contra())),
-    "omr_lateral": lambda: side_gamma(sided(flat(), RateKernelFactory.omr_lateral_contra())),
+    "omr_lateral": lambda: side_gamma(sided(RateKernelFactory.omr_lateral(), RateKernelFactory.omr_lateral())),
     "omr_forward": lambda: gamma(poisson(RateKernelFactory.omr_forward())),
     "okr": lambda: side_gamma(sided(flat(), flat())),
     "looming": lambda: side_gamma(sided_survival(looming())),  # strength: H (escape at all); direction: D (away)

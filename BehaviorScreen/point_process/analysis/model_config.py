@@ -369,7 +369,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
         ),
         "omr_lateral": experiment(
             dataset(LATERAL_TURNS, [IPSI, CONTRA], 9.0, epoch_name=gratings),
-            sided_models(flat, RateKernelFactory.omr_lateral_contra),
+            sided_models(RateKernelFactory.omr_lateral, RateKernelFactory.omr_lateral),
         ),
         "okr": experiment(
             dataset(OKR_SWIMS, [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat),
