@@ -382,24 +382,33 @@ class Frailty(_GainWrapper):
 
 
 def log_normal_mixture(
-    log_f: Callable[[np.ndarray], np.ndarray], grad: Callable[[np.ndarray], np.ndarray], hess: Callable[[np.ndarray], np.ndarray],
-    n_fish: int, s: float, nodes: np.ndarray, log_weights: np.ndarray, newton_steps: int = 30,
-) -> np.ndarray:
+    log_f: Callable[[np.ndarray], np.ndarray], derivatives: Callable[[np.ndarray], Tuple[np.ndarray, np.ndarray]],
+    s: float, nodes: np.ndarray, log_weights: np.ndarray, mode: np.ndarray, tol: float = 1e-10,
+) -> Tuple[np.ndarray, np.ndarray]:
     """
-    log of the integral of f_f(u) N(u; 0, s^2) du for every fish f, by Gauss-Hermite
-    quadrature centred on each fish's posterior mode and scaled to its curvature
-    (adaptive: fish with many events have a sharp posterior the fixed rule would miss).
-    log_f maps (fish x nodes) u to log f; grad, hess its derivatives at (fish,) u;
-    log f must be concave. nodes, log_weights: the rule for N(0, 1). Newton steps are
-    capped at 1 (log units): far from the mode a concave function's curvature can be
-    nearly flat, and a full step would overshoot.
+    log of the integral of f_f(u) N(u; 0, s^2) du for every fish f, and the posterior
+    modes, by Gauss-Hermite quadrature centred on each fish's posterior mode and scaled
+    to its curvature (adaptive: fish with many events have a sharp posterior the fixed
+    rule would miss). log_f maps (fish x nodes) u to log f; derivatives gives its first
+    and second derivatives at (fish,) u; log f must be concave. nodes, log_weights: the
+    rule for N(0, 1). Newton starts from `mode` (the previous call's: a few steps then
+    suffice) and its steps are capped at 1 (log units): far from the mode a concave
+    function's curvature can be nearly flat, and a full step would overshoot.
     """
-    mode = np.zeros(n_fish)
-    for _ in range(newton_steps):
-        mode -= np.clip((grad(mode) - mode / s**2) / (hess(mode) - 1 / s**2), -1.0, 1.0)
-    sd = 1 / np.sqrt(1 / s**2 - hess(mode))
+    for _ in range(100):
+        grad, hess = derivatives(mode)
+        step = np.clip((grad - mode / s**2) / (hess - 1 / s**2), -1.0, 1.0)
+        mode = mode - step
+        if np.max(np.abs(step), initial=0.0) < tol:
+            break
+    sd = 1 / np.sqrt(1 / s**2 - hess)
     u = mode[:, None] + sd[:, None] * nodes
-    return logsumexp(log_weights + log_f(u) - u**2 / (2 * s**2) + nodes**2 / 2, axis=1) + np.log(sd / s)
+    return logsumexp(log_weights + log_f(u) - u**2 / (2 * s**2) + nodes**2 / 2, axis=1) + np.log(sd / s), mode
+
+
+def log_sigmoid(x: np.ndarray) -> np.ndarray:
+    """log(sigmoid(x)), stable, and twice as fast as -np.logaddexp(0, -x)."""
+    return -np.log1p(np.exp(-np.abs(x))) - np.maximum(-x, 0)
 
 
 class SideFrailty(Frailty):
@@ -424,6 +433,7 @@ class SideFrailty(Frailty):
         self.bounds = self.bounds + [(1e-3, 5.0)]
         nodes, weights = np.polynomial.hermite_e.hermegauss(n_nodes)
         self._nodes, self._log_weights = nodes, np.log(weights / weights.sum())
+        self._mode = np.zeros(0)  # posterior side shifts of the last fit's fish: where the next Newton starts
         self.name = f"GammaSideMixedEffects[{base_process.name}]"
         self.latex_formula = (
             rf"${base_process.latex_formula.strip('$')} \times g_f,\ g_f\sim\Gamma(r,r),\ "
@@ -432,16 +442,22 @@ class SideFrailty(Frailty):
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         fish, log_odds, preferred = self.base_process.side_terms(dataset, self._base_params(params))
-        to_fish = csr_matrix((np.ones(len(fish)), (fish, np.arange(len(fish)))), shape=(dataset.num_fish, len(fish)))
-        sign = np.where(preferred, 1.0, -1.0)[:, None]
-        observed = lambda u: sign * (log_odds[:, None] + u.reshape(len(u), -1)[fish])  # log odds of each event's own side
-        other = lambda u: expit(-observed(u))
-        log_f = lambda u: to_fish @ -np.logaddexp(0, -observed(u))
-        sides = log_normal_mixture(
-            lambda u: log_f(u) - log_f(np.zeros(len(u))),  # the base model already has the sides at u = 0
-            lambda u: (to_fish @ (sign * other(u)))[:, 0],
-            lambda u: -(to_fish @ (other(u) * (1 - other(u))))[:, 0],
-            dataset.num_fish, params[-1], self._nodes, self._log_weights,
+        to_fish = dataset.cached("side_events_to_fish", lambda: csr_matrix(
+            (np.ones(len(fish)), (fish, np.arange(len(fish)))), shape=(dataset.num_fish, len(fish))
+        ))
+        sign = np.where(preferred, 1.0, -1.0)
+        observed = lambda u: sign[:, None] * (log_odds[:, None] + u[fish])  # log odds of each event's own side
+        log_f = lambda u: to_fish @ log_sigmoid(observed(u))
+
+        def derivatives(u: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+            other = expit(-sign * (log_odds + u[fish]))
+            return to_fish @ (sign * other), -(to_fish @ (other * (1 - other)))
+
+        if len(self._mode) != dataset.num_fish:
+            self._mode = np.zeros(dataset.num_fish)
+        log_f0 = log_f(np.zeros((dataset.num_fish, 1)))  # the base model already has the sides at u = 0
+        sides, self._mode = log_normal_mixture(
+            lambda u: log_f(u) - log_f0, derivatives, params[-1], self._nodes, self._log_weights, self._mode
         )
         return super()._nll(params, dataset) - float(np.sum(sides))
 
