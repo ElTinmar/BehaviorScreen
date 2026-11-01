@@ -192,14 +192,14 @@ def main(args: argparse.Namespace) -> None:
     from .arm_absolute import plot_all, save_contrasts
     from .fdr import add_fdr_per_behavior
     from .screen_setup import CONTRASTS, loaders  # loads the event tables
-    from .tier1_omnibus import add_effect_size, add_testability, compute_parameter_deltas, map_rows, plot_tier1_map
+    from .tier1_omnibus import add_testability, compute_parameter_deltas, map_rows, plot_tier1_map
 
     out = args.output
     out.mkdir(parents=True, exist_ok=True)
     counts = arm_counts(loaders, CONTRASTS)
     results, params = run_count_screen(counts, CONTRASTS, args.n_perm, args.n_boot)
     param_df = compute_parameter_deltas(params)
-    tier1_df = add_effect_size(add_testability(add_fdr_per_behavior(results, alpha=0.05)), param_df)
+    tier1_df = add_testability(add_fdr_per_behavior(results, alpha=0.05))
     tier1_df.to_csv(out / "tier1_results.csv", index=False)
     param_df.to_csv(out / "tier1_parameters.csv", index=False)
     save_contrasts(list(CONTRASTS), out / "contrasts.csv")

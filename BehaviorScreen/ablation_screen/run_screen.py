@@ -22,7 +22,6 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
     plot_tier1_map,
     map_rows,
     add_testability,
-    add_effect_size,
     generate_arm_surface_grids,
     build_bad_fit_triage,
     plot_volcano,
@@ -91,7 +90,6 @@ param_df = extract_fitted_parameters(tier1_df, arms)
 param_df = compute_parameter_deltas(param_df)
 # screen_params = compute_parameter_deltas(pd.concat([param_df, count_params], ignore_index=True))
 screen_params = param_df
-screen_df = add_effect_size(screen_df, param_df)  # min fold change of a hit: tier1_omnibus.MIN_FOLD
 screen_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
 
 rows = map_rows(screen_df, arms.contrasts.values())
