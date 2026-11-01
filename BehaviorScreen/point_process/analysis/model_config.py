@@ -9,6 +9,7 @@ from BehaviorScreen.stim_specs import load_yaml_config
 from BehaviorScreen.point_process.point_process.frailty import (
     BaselineOnlyFrailtyHawkesProcess,
     GammaMixedEffectsProcess,
+    SideFrailty,
     ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
     ZeroInflatedGammaMixedEffectsProcess,
 )
@@ -86,6 +87,7 @@ OKR_SWIMS = ["S1", "S2", "RT", "HAT"]
 flat = RateKernelFactory.homogeneous_poisson
 gamma = GammaMixedEffectsProcess
 zero_inflated = ZeroInflatedGammaMixedEffectsProcess
+side_gamma = SideFrailty  # sided processes: fish gain and fish side preference
 
 
 def poisson(kernel: RateKernel) -> PoissonProcess:
@@ -120,8 +122,8 @@ def sided_survival(kernel: RateKernel) -> SidedSurvivalProcess:
 
 
 def sided_models(ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel]) -> List[PointProcess]:
-    """Both sides of a stimulus in one model, without and with a fish gain."""
-    return [sided(ipsi(), contra()), gamma(sided(ipsi(), contra()))]
+    """Both sides of a stimulus in one model: without a fish effect, with a fish gain, and with a gain and a side preference."""
+    return [sided(ipsi(), contra()), gamma(sided(ipsi(), contra())), side_gamma(sided(ipsi(), contra()))]
 
 
 def dataset(category, laterality, t_end: float, binning_dt: float = 0.05, **selection) -> dict:
@@ -378,7 +380,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
         "looming": experiment(
             dataset(LOOMING_ESCAPE, [IPSI, CONTRA], 9.0, stim=Stim.LOOMING),
             survival_models(looming_bump, looming_habituating)
-            + [sided_survival(looming_habituating()), gamma(sided_survival(looming_habituating()))],
+            + [sided_survival(looming_habituating()), gamma(sided_survival(looming_habituating())), side_gamma(sided_survival(looming_habituating()))],
         ),
         "looming_divergent_saccade": experiment(
             dataset("Divergent", NONDIRECTIONAL, 9.0, stim=Stim.LOOMING),

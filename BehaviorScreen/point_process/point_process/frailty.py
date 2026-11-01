@@ -9,12 +9,12 @@ branching ratio stays the population one.
 """
 from dataclasses import dataclass
 from itertools import groupby
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
 from scipy.linalg import eigh_tridiagonal
-from scipy.special import gammaln
+from scipy.special import gammaln, logsumexp
 
 from .dataset import PointProcessDataset
 from .kernel_shapes import logit_bounded, sigmoid_bounded
@@ -291,6 +291,8 @@ class _GainWrapper(Wrapper):
     def _draw_fish_gains(self, num_fish: int, n_sims: int, rng: np.random.Generator) -> np.ndarray:
         return self._gain().draw(rng, (num_fish, n_sims))
 
+    _fish_draws = PointProcess._fish_draws  # its own gains, not the base process's
+
     @property
     def dispersion_r(self) -> float:
         return self._gain().dispersion
@@ -375,6 +377,90 @@ class Frailty(_GainWrapper):
         if weights.sum() == 0:
             return t_grid, np.mean(curves, axis=0)
         return t_grid, np.average(curves, axis=0, weights=weights)
+
+
+def log_normal_mixture(
+    log_f: Callable[[np.ndarray], np.ndarray], grad: Callable[[np.ndarray], np.ndarray], hess: Callable[[np.ndarray], np.ndarray],
+    n_fish: int, s: float, nodes: np.ndarray, log_weights: np.ndarray, newton_steps: int = 10,
+) -> np.ndarray:
+    """
+    log of the integral of f_f(u) N(u; 0, s^2) du for every fish f, by Gauss-Hermite
+    quadrature centred on each fish's posterior mode and scaled to its curvature
+    (adaptive: fish with many events have a sharp posterior the fixed rule would miss).
+    log_f maps (fish x nodes) u to log f; grad, hess its derivatives at (fish,) u;
+    log f must be concave. nodes, log_weights: the rule for N(0, 1).
+    """
+    mode = np.zeros(n_fish)
+    for _ in range(newton_steps):
+        mode -= (grad(mode) - mode / s**2) / (hess(mode) - 1 / s**2)
+    sd = 1 / np.sqrt(1 / s**2 - hess(mode))
+    u = mode[:, None] + sd[:, None] * nodes
+    return logsumexp(log_weights + log_f(u) - u**2 / (2 * s**2) + nodes**2 / 2, axis=1) + np.log(sd / s)
+
+
+class SideFrailty(Frailty):
+    """
+    Frailty of a sided process with a second fish effect: its own side
+    preference. Fish f has a gain g_f ~ Gamma(r, r) and a log side shift
+    u_f ~ N(0, s^2) (s: 's_side'):
+
+        SidedPoissonProcess    lambda_ipsi g e^(u/2 - s^2/8), lambda_contra g e^(-u/2 - s^2/8)
+                               (the s^2/8 keeps each side's mean rate: B and D stay population means)
+        SidedSurvivalProcess   escape hazard x g, odds of the preferred side D e^u
+
+    g_f is integrated in closed form, u_f by adaptive Gauss-Hermite quadrature.
+    """
+
+    def __init__(self, base_process: PointProcess, r_init: float = 5.0, s_init: float = 0.5, n_nodes: int = 15) -> None:
+        super().__init__(base_process, GammaFamily(r_init))
+        self.param_names = self.param_names + ["s_side"]
+        self.initial_guesses = self.initial_guesses + [s_init]
+        self.bounds = self.bounds + [(1e-3, 5.0)]
+        nodes, weights = np.polynomial.hermite_e.hermegauss(n_nodes)
+        self._nodes, self._log_weights = nodes, np.log(weights / weights.sum())
+        self._sided_survival = hasattr(base_process, "side_counts")
+        self.name = f"GammaSideMixedEffects[{base_process.name}]"
+        self.latex_formula = rf"${base_process.latex_formula.strip('$')} \times g_f,\ g_f\sim\Gamma(r,r),\ u_f\sim N(0,s^2)$"
+
+    def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
+        base_params, gain, s = self._base_params(params), self._gain(params), params[-1]
+        active = dataset.fish_trial_mask.any(axis=1)
+        mixture = lambda *derivatives: log_normal_mixture(*derivatives, dataset.num_fish, s, self._nodes, self._log_weights)
+        if self._sided_survival:
+            log_hazards, N, S = self.base_process.hazard_likelihood_terms(dataset, base_params)
+            n_pref, n_other = self.base_process.side_counts(dataset)
+            odds = lambda u: np.log(base_params[-1]) + u
+            p = lambda u: 1 / (1 + np.exp(-odds(u)))
+            sides = mixture(
+                lambda u: -n_pref[:, None] * np.logaddexp(0, -odds(u)) - n_other[:, None] * np.logaddexp(0, odds(u)),
+                lambda u: n_pref * (1 - p(u)) - n_other * p(u),
+                lambda u: -(n_pref + n_other) * p(u) * (1 - p(u)),
+            )
+            return -(log_hazards + float(np.sum(gain.log_marginal(N[active], S[active]) + sides[active])))
+        log_rates, N, S = self.base_process.mark_likelihood_terms(dataset, base_params)
+        c, (n_i, n_c), (s_i, s_c), n = s**2 / 8, N.T, S.T, N.sum(axis=1)
+        a = lambda u: s_i * np.exp(u / 2 - c)
+        b = lambda u: s_c * np.exp(-u / 2 - c)
+        total = lambda u: a(u) + b(u) + gain.rate
+        split = mixture(
+            lambda u: (n_i - n_c)[:, None] * u / 2 - (n * c)[:, None]
+                      + gain.log_marginal(n[:, None], s_i[:, None] * np.exp(u / 2 - c) + s_c[:, None] * np.exp(-u / 2 - c)),
+            lambda u: (n_i - n_c) / 2 - (n + gain.shape) * (a(u) - b(u)) / (2 * total(u)),
+            lambda u: -(n + gain.shape) * ((a(u) + b(u)) / total(u) - ((a(u) - b(u)) / total(u)) ** 2) / 4,
+        )
+        return -(log_rates + float(np.sum(split[active])))
+
+    def _fish_draws(self, num_fish: int, rng: np.random.Generator) -> list:
+        """(gain, side shift u) per fish."""
+        gains = self._draw_fish_gains(num_fish, 1, rng)[:, 0]
+        return list(zip(gains, rng.normal(0.0, self.params_[-1], num_fish)))
+
+    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, draw: Tuple[float, float], rng: np.random.Generator):
+        gain, u = draw
+        if self._sided_survival:
+            return self.base_process.simulate_stream(dataset, t_idx, gain, rng, side_shift=u)
+        c = self.params_[-1] ** 2 / 8
+        return self.base_process.simulate_stream(dataset, t_idx, gain, rng, mark_gains=(np.exp(u / 2 - c), np.exp(-u / 2 - c)))
 
 
 class BaselineFrailty(_GainWrapper):

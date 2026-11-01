@@ -114,6 +114,10 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         """No frailty: every gain is 1."""
         return np.ones((num_fish, n_sims))
 
+    def _fish_draws(self, num_fish: int, rng: np.random.Generator) -> list:
+        """What simulate_stream gets per fish: its gain (pairs of gain and side shift for SideFrailty)."""
+        return [float(g) for g in self._draw_fish_gains(num_fish, 1, rng)[:, 0]]
+
     def simulate_dataset(
         self, template: PointProcessDataset, rng: Optional[np.random.Generator] = None
     ) -> PointProcessDataset:
@@ -125,10 +129,10 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         """
         self._require_fitted()
         rng = rng or np.random.default_rng()
-        fish_gains = self._draw_fish_gains(template.num_fish, 1, rng)[:, 0]
+        draws = self._fish_draws(template.num_fish, rng)
 
         streams = [
-            (f_idx, t_idx, self.simulate_stream(template, t_idx, float(fish_gains[f_idx]), rng))
+            (f_idx, t_idx, self.simulate_stream(template, t_idx, draws[f_idx], rng))
             for f_idx, t_idx, _ in template.iter_streams()
         ]
         marks = [ev[1] for _, _, ev in streams if isinstance(ev, tuple)]

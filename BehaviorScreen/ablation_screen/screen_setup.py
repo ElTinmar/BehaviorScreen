@@ -8,7 +8,7 @@ from pathlib import Path
 
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
 from BehaviorScreen.point_process.analysis.model_config import (
-    EVENT_TABLES, flat, gamma, get_model_config, poisson, prey, sided, sided_survival,
+    EVENT_TABLES, flat, gamma, get_model_config, poisson, prey, side_gamma, sided, sided_survival,
 )
 from BehaviorScreen.point_process.point_process.poisson_process import RateKernelFactory
 from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
@@ -30,19 +30,19 @@ loaders = {
 looming = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6))
 # Directional stimuli: both sides in one sided model (strength: ipsi amplitudes; direction: D).
 TIER1_MODELS = {
-    "prey_capture": lambda: gamma(sided(prey("Peak_Baseline_Ripple"), flat())),
-    "phototaxis": lambda: gamma(sided(RateKernelFactory.phototaxis_dip_exgaussian_peak(), RateKernelFactory.phototaxis_contra())),
-    "omr_lateral": lambda: gamma(sided(flat(), RateKernelFactory.omr_lateral_contra())),
+    "prey_capture": lambda: side_gamma(sided(prey("Peak_Baseline_Ripple"), flat())),
+    "phototaxis": lambda: side_gamma(sided(RateKernelFactory.phototaxis_dip_exgaussian_peak(), RateKernelFactory.phototaxis_contra())),
+    "omr_lateral": lambda: side_gamma(sided(flat(), RateKernelFactory.omr_lateral_contra())),
     "omr_forward": lambda: gamma(poisson(RateKernelFactory.omr_forward())),
-    "okr": lambda: gamma(sided(flat(), flat())),
-    "looming": lambda: gamma(sided_survival(looming())),  # strength: H (escape at all); direction: D (away)
+    "okr": lambda: side_gamma(sided(flat(), flat())),
+    "looming": lambda: side_gamma(sided_survival(looming())),  # strength: H (escape at all); direction: D (away)
     "dark_flash": lambda: gamma(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
     "spont_dark": lambda: gamma(poisson(RateKernelFactory.spont())),
     "spont_bright": lambda: gamma(poisson(RateKernelFactory.spont())),
     "after_looming": lambda: gamma(poisson(RateKernelFactory.after_looming())),
     "prey_capture_convergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
     "prey_capture_divergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
-    "okr_conjugate_saccades": lambda: gamma(sided(flat(), flat())),
+    "okr_conjugate_saccades": lambda: side_gamma(sided(flat(), flat())),
     "looming_divergent_saccade": lambda: gamma(SurvivalProcess(looming())),
 }
 # Map columns in protocol order, labelled "stimulus · response" with the stimulus names

@@ -74,18 +74,25 @@ class SidedPoissonProcess(PointProcess):
     def _is_ipsi(dataset: PointProcessDataset) -> np.ndarray:
         return dataset.cached("sided_is_ipsi", lambda: np.asarray(dataset.marks["laterality"]) == IPSI)
 
+    def mark_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        """(sum of log rates at the events, events and exposure per fish and side: fish x (ipsi, contra))."""
+        is_ipsi = self._is_ipsi(dataset)
+        t, m = dataset.event_times, dataset.event_trials_idx
+        trials, mask = np.arange(dataset.num_trials), dataset.fish_trial_mask.astype(float)
+        log_rates, N, S = 0.0, [], []
+        for (kernel, p), side in zip(self._sides(params), (is_ipsi, ~is_ipsi)):
+            log_rates += float(np.sum(np.log(kernel.evaluate(t[side], m[side], p))))
+            N.append(np.bincount(dataset.event_fish_idx[side], minlength=dataset.num_fish))
+            S.append(mask @ kernel.integrate(dataset.duration_s, trials, p, self.integration_dt))
+        return log_rates, np.column_stack(N).astype(float), np.column_stack(S)
+
     def mixed_effects_likelihood_terms(
         self, dataset: PointProcessDataset, params: List[float]
     ) -> Tuple[float, np.ndarray, np.ndarray]:
-        is_ipsi = self._is_ipsi(dataset)
-        t, m = dataset.event_times, dataset.event_trials_idx
-        trials = np.arange(dataset.num_trials)
-        log_rates, per_trial = 0.0, np.zeros(dataset.num_trials)
-        for (kernel, p), side in zip(self._sides(params), (is_ipsi, ~is_ipsi)):
-            log_rates += float(np.sum(np.log(kernel.evaluate(t[side], m[side], p))))
-            per_trial += kernel.integrate(dataset.duration_s, trials, p, self.integration_dt)
-        N = np.bincount(dataset.event_fish_idx, minlength=dataset.num_fish).astype(float)
-        return log_rates, N, dataset.fish_trial_mask.astype(float) @ per_trial
+        log_rates, N, S = self.mark_likelihood_terms(dataset, params)
+        return log_rates, N.sum(axis=1), S.sum(axis=1)
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         log_rates, _, S = self.mixed_effects_likelihood_terms(dataset, params)
@@ -110,15 +117,17 @@ class SidedPoissonProcess(PointProcess):
         return sum(k.cumulative_integrate(t_events, trial, p, self.integration_dt) for k, p in self._sides(self.params_))
 
     def simulate_stream(
-        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator,
+        mark_gains: Tuple[float, float] = (1.0, 1.0),
     ) -> Tuple[np.ndarray, dict]:
-        """One stream of a fish with gain `gain`: event times and their 'laterality' marks."""
+        """One stream of a fish with gain `gain` (times mark_gains per side): event times and their 'laterality' marks."""
         self._require_fitted()
         grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
         times, marks = [], []
-        for (kernel, p), mark in zip(self._sides(self.params_), (IPSI, CONTRA)):
-            rate = lambda t, events: gain * kernel.evaluate(np.array([t]), np.array([t_idx]), p)[0]
-            upper = gain * float(np.max(kernel.evaluate(grid, np.full_like(grid, t_idx), p))) * self._THINNING_SAFETY_MARGIN
+        for (kernel, p), mark, mark_gain in zip(self._sides(self.params_), (IPSI, CONTRA), mark_gains):
+            gain_m = gain * mark_gain
+            rate = lambda t, events: gain_m * kernel.evaluate(np.array([t]), np.array([t_idx]), p)[0]
+            upper = gain_m * float(np.max(kernel.evaluate(grid, np.full_like(grid, t_idx), p))) * self._THINNING_SAFETY_MARGIN
             events = thin(rate, lambda t, events: upper, dataset.duration_s, rng)
             times.append(events)
             marks.append(np.full(len(events), mark))
@@ -153,18 +162,25 @@ class SidedSurvivalProcess(SurvivalProcess):
         self.name = f"SidedSurvival {kernel.name}"
         self.latex_formula = rf"${kernel.latex_formula.strip('$')},\ h_{{preferred}} = h\,D/(1+D)$"
 
-    def _first_event_sides(self, dataset: PointProcessDataset) -> Tuple[int, int]:
-        """First events of all streams: (number on the preferred side, number on the other)."""
-        def count() -> Tuple[int, int]:
-            sides = np.asarray(dataset.first_events().marks["laterality"])
-            preferred = int(np.sum(sides == self.preferred))
-            return preferred, len(sides) - preferred
+    def side_counts(self, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
+        """First events per fish: (number on the preferred side, number on the other)."""
+        def count() -> Tuple[np.ndarray, np.ndarray]:
+            first = dataset.first_events()
+            preferred = np.asarray(first.marks["laterality"]) == self.preferred
+            per_fish = lambda mask: np.bincount(first.event_fish_idx[mask], minlength=dataset.num_fish).astype(float)
+            return per_fish(preferred), per_fish(~preferred)
         return dataset.cached(("sided_first_events", self.preferred), count)
 
     def _side_log_likelihood(self, dataset: PointProcessDataset, params: List[float]) -> float:
-        n_preferred, n_other = self._first_event_sides(dataset)
+        n_preferred, n_other = self.side_counts(dataset)
         d = params[-1]
-        return n_preferred * np.log(d / (1.0 + d)) - n_other * np.log1p(d)
+        return n_preferred.sum() * np.log(d / (1.0 + d)) - n_other.sum() * np.log1p(d)
+
+    def hazard_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        """mixed_effects_likelihood_terms of the escape hazard alone, without the sides."""
+        return super().mixed_effects_likelihood_terms(dataset, params)
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         return super()._nll(params, dataset) - self._side_log_likelihood(dataset, params)
@@ -189,11 +205,11 @@ class SidedSurvivalProcess(SurvivalProcess):
         return np.full(np.shape(t), (d if self.preferred == IPSI else 1.0) / (1.0 + d))
 
     def simulate_stream(
-        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator, side_shift: float = 0.0
     ) -> Tuple[np.ndarray, dict]:
-        """First event (or none) and its side."""
+        """First event (or none) and its side; side_shift is added to log D (a fish's own side preference)."""
         events = super().simulate_stream(dataset, t_idx, gain, rng)
-        d = self.params_[-1]
+        d = self.params_[-1] * np.exp(side_shift)
         other = IPSI if self.preferred == CONTRA else CONTRA
         sides = np.where(rng.random(len(events)) < d / (1.0 + d), self.preferred, other)
         return events, {"laterality": sides}
