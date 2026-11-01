@@ -93,7 +93,8 @@ class PreyCapture:
 
     A: onset-burst height (Hz) at trial 0; tau: its decay (s); B: tonic rate
     (Hz) at trial 0; z0_ripple: ripple depth on the logit scale (depth at
-    trial 0 = sigmoid_bounded(z0_ripple, RIPPLE_UPPER)); phi1, phi2: phases.
+    trial 0 = sigmoid_bounded(z0_ripple, RIPPLE_UPPER)); phi1, phi2: phases
+    (unbounded, so only meaningful modulo 2 pi).
     The alphas modulate peak and baseline log-linearly and the ripple depth
     on the logit scale, per trial; variants differ in which alphas are free
     and which are shared.
@@ -107,11 +108,11 @@ class PreyCapture:
         (0.1, 5.0),
         (0.01, 5.0),
         (-15.0, 15.0),
-        (-np.pi, np.pi),
-        (-np.pi, np.pi),
+        (None, None),  # phases are circular: a wall at +-pi traps fits whose phase is near it
+        (None, None),
     ]
     _ALPHA_BOUNDS: Tuple[float, float] = (-2.0, 2.0)
-    _ALPHA_RIPPLE_BOUNDS: Tuple[float, float] = (-4.0, 4.0)
+    _ALPHA_RIPPLE_BOUNDS: Tuple[float, float] = (-0.5, 0.5)
     _ALPHA_GUESS: float = -0.05
     # variant: {modulated term: parameter}
     _VARIANTS: Dict[str, Dict[str, str]] = {
