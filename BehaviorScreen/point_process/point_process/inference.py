@@ -101,18 +101,25 @@ def _fit_one_model(
 
 class InferenceMixin:
     _LOG_SCALE_PATTERN = re.compile(
-        r"(tau|sigma|beta|r_dispersion|excitation)", re.IGNORECASE
+        r"(tau|sigma|beta|r_dispersion|excitation|^D$)", re.IGNORECASE
     )
 
+    def _minimize(self, x0: Union[List[float], np.ndarray], dataset: PointProcessDataset, method: str, max_restarts: int = 5, **kwargs) -> Any:
+        """
+        minimize, restarted from its own result while that improves the NLL: L-BFGS-B
+        can stop well short of the optimum in a curved valley once its Hessian estimate,
+        built from far-away steps, goes stale; a fresh start from there continues.
+        """
+        res = minimize(self._nll, x0=x0, args=(dataset,), method=method, bounds=self.bounds, **kwargs)
+        for _ in range(max_restarts):
+            again = minimize(self._nll, x0=res.x, args=(dataset,), method=method, bounds=self.bounds, **kwargs)
+            if not (again.success and again.fun < res.fun - 1e-3):
+                break
+            res = again
+        return res
+
     def fit(self, dataset: PointProcessDataset, method: str = "L-BFGS-B", **kwargs):
-        res = minimize(
-            self._nll,
-            x0=self.initial_guesses,
-            args=(dataset,),
-            method=method,
-            bounds=self.bounds,
-            **kwargs,
-        )
+        res = self._minimize(self.initial_guesses, dataset, method, **kwargs)
 
         valid = res.success and np.isfinite(res.fun) and np.all(np.isfinite(res.x))
         if not valid:
@@ -145,6 +152,8 @@ class InferenceMixin:
         n_starts: int,
         jitter_frac: float = 0.3,
         log_scale_params: Optional[set] = None,
+        global_factor: float = 5.0,
+        global_width: float = 4.0,
     ) -> List[np.ndarray]:
         default = np.asarray(self.initial_guesses, dtype=float)
         k = len(default)
@@ -167,23 +176,23 @@ class InferenceMixin:
                 if name in log_scale and default[i] > 0:
                     x[i] = default[i] * np.exp(rng.normal(0, jitter_frac))
                 else:
-                    span = (
-                        (hi - lo) if np.isfinite(hi - lo) else max(abs(default[i]), 1.0)
-                    )
+                    span = min(hi - lo, 2 * global_width) if np.isfinite(hi - lo) else max(abs(default[i]), 1.0)
                     x[i] = default[i] + rng.normal(0, jitter_frac * span)
                 x[i] = np.clip(x[i], lo, hi)
             starts.append(x)
 
-        # (b) global draws across the (sampling) bounds
+        # (b) wide draws: within the bounds, up to a factor global_factor (log-scale) or
+        # +-global_width (others) from the default. Wider, they land where a dip or a
+        # logit saturates and the likelihood is flat: optimizers stop there, short of the optimum.
         for _ in range(n_uniform):
             x = np.empty(k)
             for i in range(k):
                 lo, hi = self._sampling_bounds(i, default)
-                name = self.param_names[i]
-                if name in log_scale and lo > 0:
+                if self.param_names[i] in log_scale and lo > 0 and default[i] > 0:
+                    lo, hi = max(lo, default[i] / global_factor), min(hi, default[i] * global_factor)
                     x[i] = np.exp(rng.uniform(np.log(lo), np.log(hi)))
                 else:
-                    x[i] = rng.uniform(lo, hi)
+                    x[i] = rng.uniform(max(lo, default[i] - global_width), min(hi, default[i] + global_width))
             starts.append(x)
 
         return starts
@@ -196,7 +205,7 @@ class InferenceMixin:
         seed: int = 0,
         n_jobs: int = -1,
         log_scale_params: Optional[set] = None,
-        tol_same_optimum: float = 2e-2,
+        tol_same_optimum: float = 0.1,
         **kwargs,
     ) -> pd.DataFrame:
         """
@@ -213,14 +222,7 @@ class InferenceMixin:
 
         def _run_one(x0: np.ndarray) -> Any:
             try:
-                res = minimize(
-                    self._nll,
-                    x0=x0,
-                    args=(dataset,),
-                    method=method,
-                    bounds=self.bounds,
-                    **kwargs,
-                )
+                res = self._minimize(x0, dataset, method, **kwargs)
             except Exception as exc:
                 return repr(exc)
             if res.success and np.isfinite(res.fun) and np.all(np.isfinite(res.x)):
@@ -243,15 +245,11 @@ class InferenceMixin:
         n_converged = len(valid)
         n_at_global = sum(1 for r in valid if r.fun <= best.fun + tol_same_optimum)
 
-        status = (
-            "OK (looks unimodal)"
-            if n_at_global == n_converged
-            else f"WARNING: {n_converged - n_at_global} start(s) converged to a DIFFERENT, worse optimum "
-            f"-- {self.name} may be poorly identified; treat AIC comparisons involving it with caution."
-        )
+        worse = [r.fun - best.fun for r in valid if r.fun > best.fun + tol_same_optimum]
         print(
-            f"[{self.name}] multistart: {n_converged}/{n_starts} converged, "
-            f"best NLL={best.fun:.3f}. {status}"
+            f"[{self.name}] multistart: {n_converged}/{n_starts} converged, {n_at_global} at the best NLL={best.fun:.3f}"
+            + (f", {len(worse)} stopped {min(worse):.1f} or more above it" if worse else "")
+            + (". WARNING: only one start reached the best; a better optimum may exist." if n_at_global == 1 else ".")
         )
 
         self.fit_result = best
