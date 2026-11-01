@@ -381,18 +381,20 @@ class Frailty(_GainWrapper):
 
 def log_normal_mixture(
     log_f: Callable[[np.ndarray], np.ndarray], grad: Callable[[np.ndarray], np.ndarray], hess: Callable[[np.ndarray], np.ndarray],
-    n_fish: int, s: float, nodes: np.ndarray, log_weights: np.ndarray, newton_steps: int = 10,
+    n_fish: int, s: float, nodes: np.ndarray, log_weights: np.ndarray, newton_steps: int = 30,
 ) -> np.ndarray:
     """
     log of the integral of f_f(u) N(u; 0, s^2) du for every fish f, by Gauss-Hermite
     quadrature centred on each fish's posterior mode and scaled to its curvature
     (adaptive: fish with many events have a sharp posterior the fixed rule would miss).
     log_f maps (fish x nodes) u to log f; grad, hess its derivatives at (fish,) u;
-    log f must be concave. nodes, log_weights: the rule for N(0, 1).
+    log f must be concave. nodes, log_weights: the rule for N(0, 1). Newton steps are
+    capped at 1 (log units): far from the mode a concave function's curvature can be
+    nearly flat, and a full step would overshoot.
     """
     mode = np.zeros(n_fish)
     for _ in range(newton_steps):
-        mode -= (grad(mode) - mode / s**2) / (hess(mode) - 1 / s**2)
+        mode -= np.clip((grad(mode) - mode / s**2) / (hess(mode) - 1 / s**2), -1.0, 1.0)
     sd = 1 / np.sqrt(1 / s**2 - hess(mode))
     u = mode[:, None] + sd[:, None] * nodes
     return logsumexp(log_weights + log_f(u) - u**2 / (2 * s**2) + nodes**2 / 2, axis=1) + np.log(sd / s)
@@ -438,15 +440,19 @@ class SideFrailty(Frailty):
             )
             return -(log_hazards + float(np.sum(gain.log_marginal(N[active], S[active]) + sides[active])))
         log_rates, N, S = self.base_process.mark_likelihood_terms(dataset, base_params)
-        c, (n_i, n_c), (s_i, s_c), n = s**2 / 8, N.T, S.T, N.sum(axis=1)
-        a = lambda u: s_i * np.exp(u / 2 - c)
-        b = lambda u: s_c * np.exp(-u / 2 - c)
-        total = lambda u: a(u) + b(u) + gain.rate
+        c, (n_i, n_c), n, r = s**2 / 8, N.T, N.sum(axis=1), gain.shape
+        with np.errstate(divide="ignore"):
+            log_si, log_sc = np.log(S).T  # in logs throughout: a fish's exposure e^(+-u/2) S can overflow
+        shape = lambda x, u: x[:, None] if np.ndim(u) == 2 else x
+        log_a = lambda u: shape(log_si, u) + u / 2 - c
+        log_b = lambda u: shape(log_sc, u) - u / 2 - c
+        log_total = lambda u: np.logaddexp(np.logaddexp(log_a(u), log_b(u)), np.log(r))
+        share = lambda log_x, u: np.exp(log_x(u) - log_total(u))  # exposure of a side over (exposure + r), in [0, 1]
         split = mixture(
-            lambda u: (n_i - n_c)[:, None] * u / 2 - (n * c)[:, None]
-                      + gain.log_marginal(n[:, None], s_i[:, None] * np.exp(u / 2 - c) + s_c[:, None] * np.exp(-u / 2 - c)),
-            lambda u: (n_i - n_c) / 2 - (n + gain.shape) * (a(u) - b(u)) / (2 * total(u)),
-            lambda u: -(n + gain.shape) * ((a(u) + b(u)) / total(u) - ((a(u) - b(u)) / total(u)) ** 2) / 4,
+            lambda u: shape(n_i - n_c, u) * u / 2 - shape(n * c, u) + r * np.log(r) - gammaln(r)
+                      + gammaln(shape(n, u) + r) - shape(n + r, u) * log_total(u),
+            lambda u: (n_i - n_c) / 2 - (n + r) * (share(log_a, u) - share(log_b, u)) / 2,
+            lambda u: -(n + r) * (share(log_a, u) + share(log_b, u) - (share(log_a, u) - share(log_b, u)) ** 2) / 4,
         )
         return -(log_rates + float(np.sum(split[active])))
 
