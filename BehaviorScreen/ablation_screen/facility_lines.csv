@@ -1,0 +1,55 @@
+line,type,facility_ids,mpn,zfin,zfin_id,mapzebrain,notes
+s1010t; UAS:NTR,enhancer trap,7923,,s1010tEt,ZDB-ALT-070420-11,s1010tEt,which UAS:NTR allele?
+s1149t,enhancer trap,7746,,s1149tEt,,,
+s1026t,enhancer trap,,,s1026tEt,ZDB-ALT-080327-4,s1026tEt,
+s1042t,enhancer trap,,,s1042tEt,ZDB-ALT-080327-20,,
+s1146t,enhancer trap,,,s1146tEt,ZDB-ALT-080327-115,s1146tEt,
+gSAIzGFFM242A,gene trap,7697,,,,nk242AGt,ZFIN name nk242AGt?
+y359:Gal4,enhancer trap,7720,,y359Et,,,
+y532:NTR,enhancer trap,7572; 7686,,Et(cfos:Gal4ff)y532,,,which NTR allele?
+atf5b:NTR,CRISPR knock-in,7793,,,,mpn(atf5b:QF2)Tg,atf5b:QF2 + QUAS:NTR?
+cart2:QF2,CRISPR knock-in,,,,,mpn(cart2:QF2)tg,effector of the screen cross unknown
+ccka:NTR,CRISPR knock-in,7794,,,,mpn(ccka:QF2)Tg,ccka:QF2 + QUAS:NTR?
+chata:Gal4,BAC Tg,7880,mpn202,mpn202Tg,ZDB-ALT-170908-4,mpn202Tg,
+cort:NTR,CRISPR knock-in,7631; 7703,mpn430,,,mpn(sst7:QF2)Tg,cort:QF2 (mpn430) + QUAS:NTR?
+drd2a:Gal4,BAC Tg,7881,mpn211,mpn211Tg,ZDB-ALT-170908-9,mpn211Tg,
+"gbx:QF2, mpn1",CRISPR knock-in,8022,,,,mpn(gbx2:QF2)Tg,what is mpn1?
+gfra:QF2,gene driver,8019,,,,,which gfra gene?
+id2b:NTR,BAC Tg,7669,mpn215,mpn215Tg,ZDB-ALT-170908-14,mpn215Tg,id2b:Gal4 (mpn215) + which UAS:NTR?
+mpn168; insm2:QF2,gene driver,7953,mpn168,,,mpn(insm2:QF2),
+mpn169; mpn408; ebf1b:Cre,Tg,7978,mpn169; mpn408,,,mpn169(QUAS:switchG6); ebf1b:Cre,mpn169 = QUAS:switchG6 (NTR?); mpn408 = mafaa:QF2?
+"isl1:Gal4, m1230",gene driver,7910,,,,,what is m1230?
+lhx2b,gene driver,7690,,,,,Gal4?
+Lhx9:NTR strong,gene driver,7519,,,,,tank labeled strongest
+Lhx9:NTR,gene driver,7576,,,,,probably lower expression
+mafaa:NTR,gene driver,7834,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:NTR?
+mafaa:switchNTR,gene driver,7684,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:switchNTR; carries ath5:Cre?
+Huc:Cre,gene driver,,,,,,elavl3:Cre
+meis2b:Cre,gene driver,,,,,,
+mpn206; UAS:NTR-mCherry,MPN line,,mpn206,,,,sperm
+"mpn302, Dendra",MPN line,,mpn302,,,,sperm
+mpn304,MPN line,,mpn304,,,,
+"mpn310, Dendra",MPN line,,mpn310,,,,sperm
+mpn318,MPN line,,mpn318,,,,
+opn4b,gene driver,,,,,,
+pcbp3:QF2,gene driver,7687; 8099,mpn429,,,,
+pmch2:Gal4,gene driver,7670,,,,,pmch2:Gal4; UAS:Dendra in one cross
+pmchl:NTR,gene driver,7529,,,,,
+pth2:NTR,gene driver,7854,,,,,
+rspo1:NTR,gene driver,7798,,,,,
+tbr1b:NTR,gene driver,7799,,,,,QF2? crossed to QUAS:NTR for run3
+"th:Gal4, m1233",gene driver,7875,,,,,what is m1233?
+itpr1b:NTR,gene driver,7796,mpn423,,,,itpr1b:QF2 (mpn423) + QUAS:NTR?
+81C,Tg,7532,,,,,UAS:NTR-RFP
+vglut2a; UAS:NTR,Tg,7946,,,,,
+QUAS:NTR,Tg,7729,,,,,
+"QUAS:epNTR, mpn1, BH+",Tg,7931,mpn1,,,,called QUAS:NTR in the 28.10 pcbp3 cross
+QUAS-tagRFP,Tg,,,,,,no NTR
+blu,ENU point mutation,,,tc257z,ZDB-ALT-980203-1099,,imported from JL
+gr,ENU point mutation,7664,,s357,ZDB-ALT-050617-30,,
+lak,mutant,7683; 7853,,atoh7^th241,,,
+mecp2,mutant,,,mecp2^Q63*,,,
+TL,wild type,,,TL,,,
+TLN,wild type,7654,,,,,TL nacre
+AB,wild type,,,AB,ZDB-GENO-960809-7,,from Bettina Schmid/DZNE
+WIK,wild type,7177; 7066,,WIK,,,
