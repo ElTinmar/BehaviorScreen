@@ -73,7 +73,7 @@ MUTANT_REFERENCES = {
     "AB": WT,
     "lak": WT,              # atoh7 th241, TL (Tuebingen)
     "gr": WT,               # nr3c1 s357, TL (Muto et al. 2005)
-    "blu": WT,              # vglut2a tz257, TL/Tuebingen (Smear et al. 2007)
+    "blu": WT,              # vglut2a tc257z, TL/Tuebingen (Smear et al. 2007)
     "mecp2": ("AB", "danieau"),  # outcrossed to AB (Pietri et al. 2013)
 }
 all_lines = sorted(loaders["bouts"].trials["line"].astype(str).unique())
