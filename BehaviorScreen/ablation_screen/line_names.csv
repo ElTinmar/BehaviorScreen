@@ -1,32 +1,32 @@
 folder,short,type,mapzebrain,zfin,zfin_id
-1010,s1010t,enhancer trap,,Et(fos:Gal4-VP16)s1010t,ZDB-ALT-070420-11
-1026,s1026t,enhancer trap,,Et(fos:Gal4-VP16)s1026t,ZDB-ALT-080327-4
-1042,s1042t,enhancer trap,,Et(fos:Gal4-VP16)s1042t,ZDB-ALT-080327-20
-1146,s1146t,enhancer trap,,Et(fos:Gal4-VP16)s1146t,
-242A,242A,enhancer trap,,,
-AB,AB,wild type,,AB,
-atf5b,atf5b,gene driver,,,
-blu,slc17a6b^tz257,mutant,,slc17a6b^tz257,
-cart2,cart2,gene driver,,,
-ccka,ccka,gene driver,,,
-chata,chata,gene driver,,,
-cort,cort,gene driver,,,
-drd2a,drd2a,gene driver,,,
-gbx,gbx,gene driver,,,
-gfra,gfra,gene driver,,,
-gr,nr3c1^s357,mutant,,nr3c1^s357,
-id2b,id2b,gene driver,,,
-insm2,insm2,gene driver,,,
+1010,s1010tEt ,enhancer trap,s1010tEt ,s1010tEt ,ZDB-ALT-070420-11
+1026,s1026tEt,enhancer trap,s1026tEt,s1026tEt,ZDB-ALT-080327-4
+1042,s1042tEt ,enhancer trap,,s1042tEt ,ZDB-ALT-080327-20
+1146,s1146tEt ,enhancer trap,s1146tEt ,s1146tEt ,ZDB-ALT-080327-115
+242A,nk242AGt,gene trap,nk242AGt,,
+AB,AB,wild type,,AB,ZDB-GENO-960809-7
+atf5b,atf5b:QF2,CRISPR knock-in,mpn(atf5b:QF2)Tg,,
+blu,blu^tc257z,ENU point mutation,,tc257z ,ZDB-ALT-980203-1099 
+cart2,cart2:QF2,CRISPR knock-in,mpn(cart2:QF2)tg,,
+ccka,ccka:QF2,CRISPR knock-in,mpn(ccka:QF2)Tg,,
+chata,chata:Gal4,BAC Tg,mpn202Tg,mpn202Tg ,ZDB-ALT-170908-4
+cort,cort:QF2,CRISPR knock-in,mpn(sst7:QF2)Tg,,
+drd2a,drd2a:Gal4,BAC Tg,mpn211Tg,mpn211Tg ,ZDB-ALT-170908-9 
+gbx,gbx:QF2,CRISPR knock-in,mpn(gbx2:QF2)Tg,,
+gfra,gfra,,,,
+gr,gr,ENU point mutation,,s357,ZDB-ALT-050617-30
+id2b,id2b:Gal4,BAC Tg,mpn215Tg,mpn215Tg,ZDB-ALT-170908-14
+insm2,insm2 x ebf1b:Cre,intersection,mpn(insm2:QF2); mpn169(QUAS:switchG6); ebf1b:Cre,,
 isl1,isl1,gene driver,,,
 itpr1b,itpr1b,gene driver,,,
 lak,atoh7^th241,mutant,,atoh7^th241,
 lhx2b,lhx2b,gene driver,,,
 lhx9,lhx9,gene driver,,,
 mafaa,mafaa,gene driver,,,
-mafaa-switchNTR-ath5-Cre,mafaa & atoh7,intersectional,,,
-mafaa-switchNTR-Huc-Cre,mafaa & elavl3,intersectional,,,
+mafaa-switchNTR-ath5-Cre,mafaa & atoh7,intersection,,,
+mafaa-switchNTR-Huc-Cre,mafaa & elavl3,intersection,,,
 mecp2,mecp2^Q63*,mutant,,mecp2^Q63*,
-meis2b-cre-mafaa-switchNTR,mafaa & meis2b,intersectional,,,
+meis2b-cre-mafaa-switchNTR,mafaa & meis2b,intersection,,,
 mpn206,mpn206,MPN line,,,
 mpn302,mpn302,MPN line,,,
 mpn304,mpn304,MPN line,,,
