@@ -33,6 +33,7 @@ NAMED_ROLES = {"driver", "recombinase", "mutant"}  # the transgenes a label name
 
 def _read(name: str, columns: List[str], index: str) -> pd.DataFrame:
     table = pd.read_csv(Path(__file__).with_name(name), dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    table = table.rename(columns=str.strip).apply(lambda column: column.str.strip())  # spreadsheets leave stray spaces
     if missing := set(columns) - set(table.columns):
         raise ValueError(f"{name}: missing columns {sorted(missing)}")
     return table.set_index(index, verify_integrity=True)
