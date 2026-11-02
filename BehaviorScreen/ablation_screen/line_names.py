@@ -1,6 +1,6 @@
 """
 Names of the screen's lines, from two tables edited as spreadsheets and
-exported as CSV UTF-8:
+exported as CSV UTF-8, separated by ';' (Excel's default in German) or ',':
 
 facility_lines.csv, one row per line kept in the fish facility:
     line          its name in the facility (as in the cross log)
@@ -34,7 +34,9 @@ PARENTS = ["parent_1", "parent_2"]
 
 
 def _read(name: str, columns: List[str], index: str) -> pd.DataFrame:
-    table = pd.read_csv(Path(__file__).with_name(name), dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    path = Path(__file__).with_name(name)
+    sep = ";" if ";" in path.read_text(encoding="utf-8-sig").partition("\n")[0] else ","
+    table = pd.read_csv(path, sep=sep, dtype=str, keep_default_na=False, encoding="utf-8-sig")
     table = table.rename(columns=str.strip).apply(lambda column: column.str.strip())  # spreadsheets leave stray spaces
     if missing := set(columns) - set(table.columns):
         raise ValueError(f"{name}: missing columns {sorted(missing)}")
