@@ -4,18 +4,18 @@ exported as CSV UTF-8:
 
 transgenes.csv, one row per transgene, mutant allele or background:
     transgene   the lab's handle for it, as used in lines.csv
-    role        one of ROLES
     type        one of TYPES; gene-named types are set in italics in plot labels
     mpn, mapzebrain, zfin, zfin_id, notes
 
 lines.csv, one row per line folder:
     folder      the data folder: the line's identifier everywhere in the code
     short       plot label; ^ starts the allele superscript (atoh7^th241), & joins intersected drivers
-    transgenes  what the recorded larvae carry, separated by '; '
+    driver, recombinase, effector, mutant, background
+                what the recorded larvae carry: one transgene of transgenes.csv per cell
     notes
 
-A label is italic when the line's drivers, recombinases and mutant alleles all
-have gene-named types; then the gene part of each &-joined piece is italic
+A label is italic when the line's driver, recombinase and mutant all have
+gene-named types; then the gene part of each &-joined piece is italic
 (atf5b:QF2 -> italic atf5b, upright :QF2).
 """
 import warnings
@@ -24,11 +24,11 @@ from typing import Iterable, List
 
 import pandas as pd
 
-ROLES = {"driver", "recombinase", "effector", "reporter", "mutant", "background"}
+ROLES = ["driver", "recombinase", "effector", "mutant", "background"]
 TYPES = {"enhancer trap", "gene trap", "MPN line", "CRISPR knock-in", "BAC Tg", "gene driver",
          "ENU point mutation", "mutant", "Tg", "wild type"}
 ITALIC_TYPES = {"CRISPR knock-in", "BAC Tg", "gene driver", "ENU point mutation", "mutant"}
-NAMED_ROLES = {"driver", "recombinase", "mutant"}  # the transgenes a label names
+NAMED_ROLES = ["driver", "recombinase", "mutant"]  # the transgenes a label names
 
 
 def _read(name: str, columns: List[str], index: str) -> pd.DataFrame:
@@ -39,14 +39,12 @@ def _read(name: str, columns: List[str], index: str) -> pd.DataFrame:
     return table.set_index(index, verify_integrity=True)
 
 
-TRANSGENES = _read("transgenes.csv", ["transgene", "role", "type", "mpn", "mapzebrain", "zfin", "zfin_id"], "transgene")
-LINES = _read("lines.csv", ["folder", "short", "transgenes"], "folder")
-for column, allowed in (("role", ROLES), ("type", TYPES)):
-    if unknown := set(TRANSGENES[column]) - allowed - {""}:
-        raise ValueError(f"transgenes.csv: unknown {column} {sorted(unknown)}; use one of {sorted(allowed)}")
-COMPONENTS = {folder: [t.strip() for t in listed.split(";") if t.strip()] for folder, listed in LINES["transgenes"].items()}
-if undefined := sorted({t for ts in COMPONENTS.values() for t in ts} - set(TRANSGENES.index)):
-    raise ValueError(f"lines.csv lists transgenes missing from transgenes.csv: {undefined}")
+TRANSGENES = _read("transgenes.csv", ["transgene", "type", "mpn", "mapzebrain", "zfin", "zfin_id"], "transgene")
+LINES = _read("lines.csv", ["folder", "short"] + ROLES, "folder")
+if unknown := set(TRANSGENES["type"]) - TYPES - {""}:
+    raise ValueError(f"transgenes.csv: unknown type {sorted(unknown)}; use one of {sorted(TYPES)}")
+if undefined := sorted(set(LINES[ROLES].to_numpy().ravel()) - set(TRANSGENES.index) - {""}):
+    raise ValueError(f"lines.csv names transgenes missing from transgenes.csv: {undefined}")
 
 
 def _italic(label: str) -> str:
@@ -59,7 +57,7 @@ def _italic(label: str) -> str:
 
 
 def is_italic(line: str) -> bool:
-    types = [TRANSGENES.at[t, "type"] for t in COMPONENTS[line] if TRANSGENES.at[t, "role"] in NAMED_ROLES]
+    types = [TRANSGENES.at[t, "type"] for t in LINES.loc[line, NAMED_ROLES] if t]
     return bool(types) and all(t in ITALIC_TYPES for t in types)
 
 
@@ -74,7 +72,7 @@ def line_name(line: str, column: str = "short") -> str:
     if column == "short":
         short = LINES.at[line, "short"] or line
         return _italic(short) if is_italic(line) else short
-    return "; ".join(TRANSGENES.at[t, column] or t for t in COMPONENTS[line])
+    return "; ".join(TRANSGENES.at[t, column] or t for t in LINES.loc[line, ROLES] if t)
 
 
 def warn_unnamed(lines: Iterable[str]) -> None:
