@@ -13,6 +13,7 @@ from BehaviorScreen.point_process.analysis.model_config import (
 from BehaviorScreen.point_process.point_process.poisson_process import RateKernelFactory
 from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
 from BehaviorScreen.ablation_screen.dataset_utils import Arms, mutant_contrast, ntr_contrast
+from BehaviorScreen.ablation_screen.line_names import warn_unnamed
 from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS, tier1_behaviors
 
 OUTPUT_DIR = Path("./tier1_results")
@@ -76,6 +77,7 @@ MUTANT_REFERENCES = {
     "mecp2": ("AB", "danieau"),  # outcrossed to AB (Pietri et al. 2013)
 }
 all_lines = sorted(loaders["bouts"].trials["line"].astype(str).unique())
+warn_unnamed(all_lines)
 NTR_LINES = [l for l in all_lines if l not in MUTANT_REFERENCES and l != "WT"]
 CONTRASTS = (
     [ntr_contrast("WT")]
