@@ -1,11 +1,13 @@
 """
 Names of the screen's lines, from two tables edited as spreadsheets and
-exported as CSV UTF-8, separated by ';' (Excel's default in German) or ',':
+exported as CSV UTF-8, separated by ';' (Excel's default in German) or ','.
+No cell contains ';' or ',': a line holding several transgenes is named with
+' + ' (vglut2a + UAS:NTR).
 
 facility_lines.csv, one row per line kept in the fish facility:
     line          its name in the facility (as in the cross log)
     type          one of TYPES; gene-named types are set in italics in plot labels
-    facility_ids  its stock IDs in the facility database
+    facility_ids  its stock IDs in the facility database, separated by ' / '
     mpn, zfin, zfin_id, mapzebrain, notes
     Every line needs an mpn or a ZFIN ID: python -m BehaviorScreen.ablation_screen.line_names
     lists the ones to ask for.

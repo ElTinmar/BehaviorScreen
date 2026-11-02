@@ -1,8 +1,8 @@
 folder;short;parent_1;parent_2;notes
-1010;s1010tEt;"s1010t; UAS:NTR";s1149t;larvae sorted for s1149t too?
+1010;s1010tEt;s1010t + UAS:NTR;s1149t;larvae sorted for s1149t too?
 1026;s1026tEt;s1026t;81C;
-1042;s1042tEt;s1042t;"vglut2a; UAS:NTR";
-1146;s1146tEt;s1146t;"vglut2a; UAS:NTR";
+1042;s1042tEt;s1042t;vglut2a + UAS:NTR;
+1146;s1146tEt;s1146t;vglut2a + UAS:NTR;
 242A;nk242AGt;gSAIzGFFM242A;81C;
 AB;AB;AB;;in-cross
 atf5b;atf5b:QF2;atf5b:NTR;TLN;
@@ -11,13 +11,13 @@ cart2;cart2:QF2;cart2:QF2;;cross not in the log
 ccka;ccka:QF2;ccka:NTR;TLN;
 chata;chata:Gal4;chata:Gal4;81C;
 cort;cort:QF2;cort:NTR;TLN;
-drd2a;drd2a:Gal4;drd2a:Gal4;"vglut2a; UAS:NTR";
-gbx;gbx:QF2;gbx:QF2, mpn1;QUAS:epNTR, mpn1, BH+;
+drd2a;drd2a:Gal4;drd2a:Gal4;vglut2a + UAS:NTR;
+gbx;gbx:QF2;gbx:QF2 + mpn1;QUAS:epNTR + mpn1 + BH+;
 gfra;gfra;gfra:QF2;QUAS-tagRFP;no NTR in this cross: which was recorded?
 gr;gr;gr;;in-cross
 id2b;id2b:Gal4;id2b:NTR;TLN;
-insm2;insm2 & ebf1b:Cre;"mpn168; insm2:QF2";"mpn169; mpn408; ebf1b:Cre";
-isl1;isl1;isl1:Gal4, m1230;"vglut2a; UAS:NTR";
+insm2;insm2 & ebf1b:Cre;mpn168 + insm2:QF2;mpn169 + mpn408 + ebf1b:Cre;
+isl1;isl1;isl1:Gal4 + m1230;vglut2a + UAS:NTR;
 itpr1b;itpr1b;itpr1b:NTR;TLN;
 lak;atoh7^th241;lak;;in-cross
 lhx2b;lhx2b;lhx2b;81C;
@@ -27,10 +27,10 @@ mafaa-switchNTR-ath5-Cre;mafaa & atoh7;mafaa:switchNTR;TLN;ath5:Cre in 7684?
 mafaa-switchNTR-Huc-Cre;mafaa & elavl3;mafaa:switchNTR;Huc:Cre;
 mecp2;mecp2^Q63*;mecp2;;in-cross
 meis2b-cre-mafaa-switchNTR;mafaa & meis2b;mafaa:switchNTR;meis2b:Cre;cross not in the log
-mpn206;mpn206;"mpn206; UAS:NTR-mCherry";TLN;
-mpn302;mpn302;mpn302, Dendra;"vglut2a; UAS:NTR";
+mpn206;mpn206;mpn206 + UAS:NTR-mCherry;TLN;
+mpn302;mpn302;mpn302 + Dendra;vglut2a + UAS:NTR;
 mpn304;mpn304;mpn304;;partner not in the log
-mpn310;mpn310;mpn310, Dendra;"vglut2a; UAS:NTR";
+mpn310;mpn310;mpn310 + Dendra;vglut2a + UAS:NTR;
 mpn318;mpn318;mpn318;;not in the log
 opn4b;opn4b;opn4b;;in-cross
 pcbp3;pcbp3;pcbp3:QF2;QUAS:NTR;
@@ -40,8 +40,8 @@ pth2;pth2;pth2:NTR;TLN;
 rspo1;rspo1;rspo1:NTR;TLN;
 tbr1b;tbr1b;tbr1b:NTR;TLN;failed ablation
 tbr1b_run3;tbr1b;tbr1b:NTR;QUAS:NTR;
-th;th;th:Gal4, m1233;"vglut2a; UAS:NTR";
+th;th;th:Gal4 + m1233;vglut2a + UAS:NTR;
 wik;WIK;WIK;;in-cross
-WT;TL;TLN;;"in-cross; label TL or TLN?"
+WT;TL;TLN;;in-cross - label TL or TLN?
 y359;y359;y359:Gal4;81C;
 y532;y532;y532:NTR;TLN;
