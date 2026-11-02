@@ -19,9 +19,8 @@ id2b:NTR,BAC Tg,7669,mpn215,mpn215Tg,ZDB-ALT-170908-14,mpn215Tg,id2b:Gal4 (mpn21
 mpn168 + insm2:QF2,gene driver,7953,mpn168,,,mpn(insm2:QF2),
 mpn169 + mpn408 + ebf1b:Cre,Tg,7978,mpn169 + mpn408,,,mpn169(QUAS:switchG6) + ebf1b:Cre,mpn169 = QUAS:switchG6 (NTR?) - mpn408 = mafaa:QF2?
 isl1:Gal4 + m1230,gene driver,7910,,,,,what is m1230?
-lhx2b,gene driver,7911,,,,,Gal4?
-Lhx9:NTR strong,gene driver,7912,,,,,tank labeled strongest
-Lhx9:NTR,gene driver,7913,,,,,probably lower expression
+lhx2b,gene driver,7690,,,,,Gal4?
+lhx9:NTR,gene driver,7912 / 7913,,,,,tank labeled strongest
 mafaa:NTR,gene driver,7914,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:NTR?
 mafaa:switchNTR,gene driver,7915,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:switchNTR - carries ath5:Cre?
 Huc:Cre,gene driver,7916,mpn403,,,,elavl3:Cre
@@ -43,7 +42,7 @@ itpr1b:NTR,gene driver,7796,mpn423,,,,itpr1b:QF2 (mpn423) + QUAS:NTR?
 81C,Tg,7532,,,,,UAS:NTR-RFP
 vglut2a + UAS:NTR,Tg,7946,,,,,
 QUAS:NTR,Tg,7729,,,,,
-QUAS:epNTR ,Tg,7931,mpn165,,,,called QUAS:NTR in the 28.10 pcbp3 cross
+QUAS:epNTR,Tg,7931,mpn165,,,,called QUAS:NTR in the 28.10 pcbp3 cross
 blu,ENU point mutation,,,tc257z,ZDB-ALT-980203-1099,,imported from JL
 gr,ENU point mutation,7664,,s357,ZDB-ALT-050617-30,,
 lak,mutant,7683 / 7853,,atoh7^th241,,,
