@@ -2,7 +2,8 @@
 *.mat
 *.joblib
 *.csv
-!BehaviorScreen/ablation_screen/line_names.csv
+!BehaviorScreen/ablation_screen/lines.csv
+!BehaviorScreen/ablation_screen/transgenes.csv
 model/
 figures/
 tier1_results/

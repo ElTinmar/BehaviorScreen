@@ -1,0 +1,55 @@
+transgene,role,type,mpn,mapzebrain,zfin,zfin_id,notes
+s1010tEt,driver,enhancer trap,,s1010tEt,s1010tEt,ZDB-ALT-070420-11,
+s1026tEt,driver,enhancer trap,,s1026tEt,s1026tEt,ZDB-ALT-080327-4,
+s1042tEt,driver,enhancer trap,,,s1042tEt,ZDB-ALT-080327-20,
+s1146tEt,driver,enhancer trap,,s1146tEt,s1146tEt,ZDB-ALT-080327-115,
+nk242AGt,driver,gene trap,,nk242AGt,,,gSAIzGFFM242A in the cross log
+y359Et,driver,enhancer trap,,,y359Et,,
+y532Et,driver,enhancer trap,,,Et(cfos:Gal4ff)y532,,
+atf5b:QF2,driver,CRISPR knock-in,,mpn(atf5b:QF2)Tg,,,
+cart2:QF2,driver,CRISPR knock-in,,mpn(cart2:QF2)tg,,,
+ccka:QF2,driver,CRISPR knock-in,,mpn(ccka:QF2)Tg,,,
+chata:Gal4,driver,BAC Tg,mpn202,mpn202Tg,mpn202Tg,ZDB-ALT-170908-4,
+cort:QF2,driver,CRISPR knock-in,mpn430,mpn(sst7:QF2)Tg,,,mpn430 from the cross log
+drd2a:Gal4,driver,BAC Tg,mpn211,mpn211Tg,mpn211Tg,ZDB-ALT-170908-9,
+gbx2:QF2,driver,CRISPR knock-in,,mpn(gbx2:QF2)Tg,,,
+gfra:QF2,driver,gene driver,,,,,which gfra gene?
+id2b:Gal4,driver,BAC Tg,mpn215,mpn215Tg,mpn215Tg,ZDB-ALT-170908-14,
+insm2:QF2,driver,gene driver,,mpn(insm2:QF2),,,
+isl1:Gal4,driver,gene driver,,,,,
+itpr1b:QF2,driver,gene driver,mpn423,,,,mpn423 from the cross log
+lhx2b:Gal4,driver,gene driver,,,,,Gal4 inferred: crossed to 81C
+lhx9:NTR,driver,gene driver,,,,,stock with driver and NTR; split into driver + effector once known
+mafaa:QF2,driver,gene driver,mpn408,,,,mpn408 from the cross log
+opn4b:NTR,driver,gene driver,,,,,stock with driver and NTR; split into driver + effector once known
+pcbp3:QF2,driver,gene driver,mpn429,,,,mpn429 from the cross log
+pmch2:Gal4,driver,gene driver,,,,,
+pmchl:NTR,driver,gene driver,,,,,stock with driver and NTR; split into driver + effector once known
+pth2:NTR,driver,gene driver,,,,,stock with driver and NTR; split into driver + effector once known
+rspo1:NTR,driver,gene driver,,,,,stock with driver and NTR; split into driver + effector once known
+tbr1b:QF2,driver,gene driver,,,,,QF2 inferred: crossed to QUAS:NTR
+th:Gal4,driver,gene driver,,,,,
+mpn206,driver,MPN line,mpn206,,,,
+mpn302,driver,MPN line,mpn302,,,,
+mpn304,driver,MPN line,mpn304,,,,
+mpn310,driver,MPN line,mpn310,,,,
+mpn318,driver,MPN line,mpn318,,,,
+ath5:Cre,recombinase,gene driver,,,,,
+elavl3:Cre,recombinase,gene driver,,,,,HuC:Cre
+meis2b:Cre,recombinase,gene driver,,,,,
+ebf1b:Cre,recombinase,gene driver,,ebf1b:Cre,,,
+81C,effector,Tg,,,,,"UAS:NTR-RFP, stock 7532"
+UAS:NTR-mCherry,effector,Tg,,,,,
+QUAS:NTR,effector,Tg,,,,,"stocks 7729, 7931"
+QUAS:epNTR,effector,Tg,,,,,
+QUAS:switchNTR,effector,Tg,,,,,
+QUAS:switchG6,effector,Tg,mpn169,mpn169(QUAS:switchG6),,,an NTR switch? the name suggests GCaMP6
+vglut2a:NTR,effector,Tg,,,,,stock 7946 (vglut2a; UAS:NTR and vglut:Ntr-Cherry in the log)
+blu^tc257z,mutant,ENU point mutation,,,tc257z,ZDB-ALT-980203-1099,
+gr^s357,mutant,ENU point mutation,,,s357,ZDB-ALT-050617-30,
+atoh7^th241,mutant,mutant,,,atoh7^th241,,
+mecp2^Q63*,mutant,mutant,,,mecp2^Q63*,,
+TL,background,wild type,,,TL,,
+TLN,background,wild type,,,,,TL nacre
+AB,background,wild type,,,AB,ZDB-GENO-960809-7,
+WIK,background,wild type,,,WIK,,

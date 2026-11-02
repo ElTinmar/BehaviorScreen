@@ -1,49 +1,82 @@
 """
-Names of the line folders, from line_names.csv (edited as a spreadsheet,
-exported as CSV UTF-8):
-    folder      the line's data folder: its identifier everywhere in the code
+Names of the screen's lines, from two tables edited as spreadsheets and
+exported as CSV UTF-8:
+
+transgenes.csv, one row per transgene, mutant allele or background:
+    transgene   the lab's handle for it, as used in lines.csv
+    role        one of ROLES
+    type        one of TYPES; gene-named types are set in italics in plot labels
+    mpn, mapzebrain, zfin, zfin_id, notes
+
+lines.csv, one row per line folder:
+    folder      the data folder: the line's identifier everywhere in the code
     short       plot label; ^ starts the allele superscript (atoh7^th241), & joins intersected drivers
-    type        one of LINE_TYPES; gene drivers, intersectional lines and mutants are set in italics
-    mapzebrain  name in mapzebrain.org
-    zfin        ZFIN name of the line
-    zfin_id     its ZFIN ID: zfin.org/<zfin_id>
-An empty entry falls back to the short name, then to the folder.
+    transgenes  what the recorded larvae carry, separated by '; '
+    notes
+
+A label is italic when the line's drivers, recombinases and mutant alleles all
+have gene-named types; then the gene part of each &-joined piece is italic
+(atf5b:QF2 -> italic atf5b, upright :QF2).
 """
 import warnings
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, List
 
 import pandas as pd
 
-LINE_TYPES = {"gene driver", "intersectional", "mutant", "enhancer trap", "MPN line", "wild type"}
-ITALIC_TYPES = {"gene driver", "intersectional", "mutant"}
-COLUMNS = ["folder", "short", "type", "mapzebrain", "zfin", "zfin_id"]
-
-LINE_NAMES = pd.read_csv(Path(__file__).with_name("line_names.csv"), dtype=str, keep_default_na=False, encoding="utf-8-sig")
-if missing := set(COLUMNS) - set(LINE_NAMES.columns):
-    raise ValueError(f"line_names.csv: missing columns {sorted(missing)}")
-if unknown := set(LINE_NAMES["type"]) - LINE_TYPES:
-    raise ValueError(f"line_names.csv: unknown types {sorted(unknown)}; use one of {sorted(LINE_TYPES)}")
-LINE_NAMES = LINE_NAMES.set_index("folder", verify_integrity=True)
+ROLES = {"driver", "recombinase", "effector", "reporter", "mutant", "background"}
+TYPES = {"enhancer trap", "gene trap", "MPN line", "CRISPR knock-in", "BAC Tg", "gene driver",
+         "ENU point mutation", "mutant", "Tg", "wild type"}
+ITALIC_TYPES = {"CRISPR knock-in", "BAC Tg", "gene driver", "ENU point mutation", "mutant"}
+NAMED_ROLES = {"driver", "recombinase", "mutant"}  # the transgenes a label names
 
 
-def _italic(name: str) -> str:
-    """'atoh7^th241' -> matplotlib math text with gene and allele in italics."""
-    italic = lambda part: r" \cap ".join(rf"\mathit{{{word.strip()}}}" for word in part.split("&"))
-    gene, _, allele = name.partition("^")
-    return f"${italic(gene)}" + (f"^{{{italic(allele)}}}" if allele else "") + "$"
+def _read(name: str, columns: List[str], index: str) -> pd.DataFrame:
+    table = pd.read_csv(Path(__file__).with_name(name), dtype=str, keep_default_na=False, encoding="utf-8-sig")
+    if missing := set(columns) - set(table.columns):
+        raise ValueError(f"{name}: missing columns {sorted(missing)}")
+    return table.set_index(index, verify_integrity=True)
+
+
+TRANSGENES = _read("transgenes.csv", ["transgene", "role", "type", "mpn", "mapzebrain", "zfin", "zfin_id"], "transgene")
+LINES = _read("lines.csv", ["folder", "short", "transgenes"], "folder")
+for column, allowed in (("role", ROLES), ("type", TYPES)):
+    if unknown := set(TRANSGENES[column]) - allowed - {""}:
+        raise ValueError(f"transgenes.csv: unknown {column} {sorted(unknown)}; use one of {sorted(allowed)}")
+COMPONENTS = {folder: [t.strip() for t in listed.split(";") if t.strip()] for folder, listed in LINES["transgenes"].items()}
+if undefined := sorted({t for ts in COMPONENTS.values() for t in ts} - set(TRANSGENES.index)):
+    raise ValueError(f"lines.csv lists transgenes missing from transgenes.csv: {undefined}")
+
+
+def _italic(label: str) -> str:
+    """'atoh7^th241' or 'mafaa & ebf1b:Cre' -> matplotlib text with the gene names (and alleles) in italics."""
+    def piece(part: str) -> str:
+        gene, colon, construct = part.strip().partition(":")
+        gene, caret, allele = gene.partition("^")
+        return rf"$\mathit{{{gene}}}" + (rf"^{{\mathit{{{allele}}}}}" if caret else "") + "$" + colon + construct
+    return r" $\cap$ ".join(piece(part) for part in label.split("&"))
+
+
+def is_italic(line: str) -> bool:
+    types = [TRANSGENES.at[t, "type"] for t in COMPONENTS[line] if TRANSGENES.at[t, "role"] in NAMED_ROLES]
+    return bool(types) and all(t in ITALIC_TYPES for t in types)
 
 
 def line_name(line: str, column: str = "short") -> str:
-    if line not in LINE_NAMES.index:
+    """
+    Plot label (column 'short'), or the line's transgenes joined by '; ' by
+    their mpn, mapzebrain, zfin or zfin_id entry (their handle where empty).
+    Folders without a row keep their folder name.
+    """
+    if line not in LINES.index:
         return line
-    row = LINE_NAMES.loc[line]
     if column == "short":
-        return _italic(row["short"] or line) if row["type"] in ITALIC_TYPES else row["short"] or line
-    return row[column] or row["short"] or line
+        short = LINES.at[line, "short"] or line
+        return _italic(short) if is_italic(line) else short
+    return "; ".join(TRANSGENES.at[t, column] or t for t in COMPONENTS[line])
 
 
 def warn_unnamed(lines: Iterable[str]) -> None:
-    """Warn about line folders in the data without a row in line_names.csv (their plots show the folder name)."""
-    if unnamed := sorted(set(lines) - set(LINE_NAMES.index)):
-        warnings.warn(f"line_names.csv has no row for {unnamed}")
+    """Warn about line folders in the data without a row in lines.csv (their plots show the folder name)."""
+    if unnamed := sorted(set(lines) - set(LINES.index)):
+        warnings.warn(f"lines.csv has no row for {unnamed}")

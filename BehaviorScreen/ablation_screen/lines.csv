@@ -1,0 +1,47 @@
+folder,short,transgenes,notes
+1010,s1010tEt,s1010tEt; UAS:NTR-mCherry,12.05 cross with s1149t: do the larvae carry s1149t too?
+1026,s1026tEt,s1026tEt; 81C,
+1042,s1042tEt,s1042tEt; vglut2a:NTR,
+1146,s1146tEt,s1146tEt; vglut2a:NTR,
+242A,nk242AGt,nk242AGt; 81C,
+AB,AB,AB,
+atf5b,atf5b:QF2,atf5b:QF2; QUAS:NTR; TLN,atf5b:NTR x TLN in the log: effector assumed QUAS:NTR
+blu,blu^tc257z,blu^tc257z,
+cart2,cart2:QF2,cart2:QF2; QUAS:NTR,cross not in the log: effector assumed
+ccka,ccka:QF2,ccka:QF2; QUAS:NTR; TLN,effector assumed QUAS:NTR
+chata,chata:Gal4,chata:Gal4; 81C,
+cort,cort:QF2,cort:QF2; QUAS:NTR; TLN,effector assumed QUAS:NTR; stocks 7631 and 7703
+drd2a,drd2a:Gal4,drd2a:Gal4; vglut2a:NTR,
+gbx,gbx:QF2,gbx2:QF2; QUAS:epNTR,the cross also carries mpn1
+gfra,gfra,gfra:QF2,"log: gfra:QF2 x QUAS-tagRFP, no NTR effector listed"
+gr,gr,gr^s357,
+id2b,id2b:Gal4,id2b:Gal4; UAS:NTR-mCherry; TLN,id2b:NTR x TLN: effector assumed
+insm2,insm2 & ebf1b:Cre,insm2:QF2; QUAS:switchG6; ebf1b:Cre,the cross also carries mpn168 and mpn408 (mafaa:QF2?)
+isl1,isl1,isl1:Gal4; vglut2a:NTR,isl1 stock 7910 also carries m1230
+itpr1b,itpr1b,itpr1b:QF2; QUAS:NTR; TLN,effector assumed QUAS:NTR
+lak,atoh7^th241,atoh7^th241,
+lhx2b,lhx2b,lhx2b:Gal4; 81C,
+lhx9,lhx9,lhx9:NTR; TLN,two stocks: 7519 (strong) and 7576
+mafaa,mafaa,mafaa:QF2; QUAS:NTR; TLN,effector assumed QUAS:NTR
+mafaa-switchNTR-ath5-Cre,mafaa & atoh7,mafaa:QF2; QUAS:switchNTR; ath5:Cre; TLN,
+mafaa-switchNTR-Huc-Cre,mafaa & elavl3,mafaa:QF2; QUAS:switchNTR; elavl3:Cre,
+mecp2,mecp2^Q63*,mecp2^Q63*,
+meis2b-cre-mafaa-switchNTR,mafaa & meis2b,mafaa:QF2; QUAS:switchNTR; meis2b:Cre,cross not in the log
+mpn206,mpn206,mpn206; UAS:NTR-mCherry; TLN,
+mpn302,mpn302,mpn302; vglut2a:NTR,vglut:Ntr-Cherry in the log
+mpn304,mpn304,mpn304,effector not in the log
+mpn310,mpn310,mpn310; vglut2a:NTR,vglut:Ntr-Cherry in the log
+mpn318,mpn318,mpn318,"not in the log (mpn317 is, 21.10)"
+opn4b,opn4b,opn4b:NTR,opn4b in-x in the log
+pcbp3,pcbp3,pcbp3:QF2; QUAS:NTR,
+pmch2,pmch2,pmch2:Gal4; 81C,
+pmchl,pmchl,pmchl:NTR; TLN,
+pth2,pth2,pth2:NTR; TLN,
+rspo1,rspo1,rspo1:NTR; TLN,
+tbr1b,tbr1b,tbr1b:QF2; QUAS:NTR; TLN,failed ablation; effector assumed QUAS:NTR
+tbr1b_run3,tbr1b,tbr1b:QF2; QUAS:NTR,
+th,th,th:Gal4; vglut2a:NTR,th stock 7875 also carries m1233
+wik,WIK,WIK,
+WT,TL,TLN,TLN in-crosses in the log: label TL or TLN?
+y359,y359,y359Et; 81C,
+y532,y532,y532Et; UAS:NTR-mCherry; TLN,y532:NTR x TLN: effector assumed
