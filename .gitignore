@@ -2,6 +2,7 @@
 *.mat
 *.joblib
 *.csv
+!BehaviorScreen/ablation_screen/line_names.csv
 model/
 figures/
 tier1_results/

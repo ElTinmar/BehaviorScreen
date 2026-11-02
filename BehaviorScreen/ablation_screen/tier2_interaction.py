@@ -24,6 +24,7 @@ from BehaviorScreen.point_process.point_process.parallel import parallel_map, re
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 
 from .dataset_utils import Arms
+from .line_names import line_name
 from .multi_group_process import GroupSpec, MultiGroupProcess
 from .param_links import LogLink
 from .tier1_omnibus import plot_tier1_map
@@ -148,5 +149,5 @@ def plot_tier2_map(
         effects, status, behaviors, list(dict.fromkeys(effects["line"])),
         colorbar_label=f"log2 fold change: line minus {reference}",
     )
-    fig.suptitle(f"Drug effect beyond {reference} (reference: {reference} vehicle -> ronidazole)", fontsize=9, y=1.0)
+    fig.suptitle(f"Drug effect beyond {line_name(reference)} (reference: {line_name(reference)} vehicle -> ronidazole)", fontsize=9, y=1.0)
     return fig, ax

@@ -33,6 +33,7 @@ from BehaviorScreen.point_process.point_process.frailty_analysis import (
 from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric
 from .arm_contrast import output_metric
 from .model_qc import assess_group_fit
+from .line_names import line_name
 
 # Behavior-specific minimum total-event floor. Fish count is the WRONG
 # denominator for point-process/survival identifiability -- total events
@@ -397,7 +398,8 @@ def plot_tier1_map(
 
     def label(name: str) -> str:
         return (row_labels or {}).get(name) or (
-            name if contrasts.loc[name, "family"] == "ntr" else f"{name} (vs {contrasts.loc[name, 'reference'].split('/')[0]})"
+            line_name(name) if contrasts.loc[name, "family"] == "ntr"
+            else f"{line_name(name)} (vs {line_name(contrasts.loc[name, 'reference'].split('/')[0])})"
         )
 
     # Layout in inches: one 0.32 in unit per column and row, margins from label lengths.
@@ -633,7 +635,7 @@ def generate_arm_surface_grids(cells: pd.DataFrame, arms: Arms, output_dir: Path
             continue
 
         reason = row.get("plot_reason", "")
-        title = f"{line} / {behavior}" + (f"  [{reason}]" if reason else "")
+        title = f"{line_name(line)} / {behavior}" + (f"  [{reason}]" if reason else "")
         fig = plot_arm_surface_grid_with_marginals(ds_ref, ds_test, m_ref, m_test, title=title)
         path = save_fig(fig, output_dir / (reason or "all"), f"{line}_{behavior}")
         plt.close(fig)
@@ -853,7 +855,7 @@ def plot_fish_gain_correlation_reference_vs_test(contrast: str, arms: Arms, min_
         collect_fish_gains(build_models_and_datasets_for_line(*c.reference, arms)),
         collect_fish_gains(build_models_and_datasets_for_line(*c.test, arms)),
         label_a="/".join(c.reference), label_b="/".join(c.test),
-        suptitle=f"{contrast}: fish-level frailty gain correlation, {'/'.join(c.reference)} vs {'/'.join(c.test)}",
+        suptitle=f"{line_name(contrast)}: fish-level frailty gain correlation, {'/'.join(c.reference)} vs {'/'.join(c.test)}",
         min_behaviors=min_behaviors,
     )
 
@@ -1014,7 +1016,7 @@ def plot_parameter_forest(
         ax.axvline(0, color="black", linewidth=0.8, linestyle="--", zorder=0)
 
         ax.set_yticks(y_pos)
-        ax.set_yticklabels(psub["line"], fontsize=7)
+        ax.set_yticklabels(psub["line"].map(line_name), fontsize=7)
         transform = psub["transform"].iloc[0]
         xlabel = f"log2({pname}_test / {pname}_reference)" if transform == "log2_ratio" else f"Δ{pname} (test − reference)"
         ax.set_xlabel(xlabel, fontsize=8)

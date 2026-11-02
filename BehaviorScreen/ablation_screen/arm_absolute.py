@@ -31,6 +31,7 @@ from BehaviorScreen.point_process.point_process.parallel import parallel_map
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 
 from .dataset_utils import Arms, Contrast
+from .line_names import line_name
 from .tier1_config import MAP_COLUMNS
 from .tier1_omnibus import PARAMETER_LABELS, compute_parameter_deltas, map_rows
 
@@ -272,7 +273,7 @@ def plot_absolute(behavior: str, boot_df: pd.DataFrame, contrasts: List[Contrast
         ax.tick_params(axis="y", length=0)
 
     ticks = [(y, line) for _, lines in sections for y, line in lines]
-    axes[0][0].set_yticks([y for y, _ in ticks], [line for _, line in ticks], fontsize=8)
+    axes[0][0].set_yticks([y for y, _ in ticks], [line_name(line) for _, line in ticks], fontsize=8)
     axes[0][0].set_ylim(ticks[-1][0] - 0.8, 0.8)
     fig.suptitle(f"{title or behavior}: absolute values per arm (NTR: vehicle → ronidazole; mutants: WT background → mutant)",
                  fontsize=11, x=0.01, ha="left")
