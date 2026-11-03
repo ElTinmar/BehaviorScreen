@@ -24,7 +24,7 @@ from BehaviorScreen.point_process.point_process.poisson_process import (
     RateKernel,
     RateKernelFactory,
 )
-from BehaviorScreen.point_process.point_process.sided_process import SidedPoissonProcess, SidedRenewalProcess, SidedSurvivalProcess
+from BehaviorScreen.point_process.point_process.sided_process import SidedPoissonProcess, SidedRenewalProcess, SidedSurvivalProcess, sided_base
 from BehaviorScreen.point_process.point_process.renewal_process import (
     RenewalKernelFactory,
     RenewalProcess,
@@ -180,11 +180,14 @@ def survival_models(*kernels: Callable[[], object]) -> List[PointProcess]:
 def experiment(
     dataset_args: dict, models: List[PointProcess], events: str = "bouts"
 ) -> dict:
-    null = (
-        SurvivalProcess(SurvivalKernelFactory.constant_hazard())
-        if models[0].is_survival
-        else poisson(flat())
-    )
+    """
+    The null model describes the same data as the candidates: sided models also
+    predict each event's side, so their null is the sided constant-rate model.
+    """
+    if models[0].is_survival:
+        null = SurvivalProcess(SurvivalKernelFactory.constant_hazard())
+    else:
+        null = sided(flat(), flat()) if sided_base(models[0]) is not None else poisson(flat())
     return {
         "events": events,
         "dataset": dataset_args,
