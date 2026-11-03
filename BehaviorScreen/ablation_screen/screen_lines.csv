@@ -12,8 +12,8 @@ ccka;ccka:QF2;ccka:NTR;TLN;
 chata;chata:Gal4;chata:Gal4;81C;
 cort;cort:QF2;cort:NTR;TLN;
 drd2a;drd2a:Gal4;drd2a:Gal4;vglut2a + UAS:NTR;
-gbx;gbx:QF2;gbx:QF2 + mpn1;QUAS:epNTR + mpn1 + BH+;
-gfra;gfra;gfra:QF2;QUAS-tagRFP;no NTR in this cross: which was recorded?
+gbx;gbx:QF2;gbx:QF2 + mpn1;QUAS:epNTR;
+gfra;gfra;gfra:QF2;;no NTR in this cross: which was recorded?
 gr;gr;gr;;in-cross
 id2b;id2b:Gal4;id2b:NTR;TLN;
 insm2;insm2 & ebf1b:Cre;mpn168 + insm2:QF2;mpn169 + mpn408 + ebf1b:Cre;
@@ -21,7 +21,7 @@ isl1;isl1;isl1:Gal4 + m1230;vglut2a + UAS:NTR;
 itpr1b;itpr1b;itpr1b:NTR;TLN;
 lak;atoh7^th241;lak;;in-cross
 lhx2b;lhx2b;lhx2b;81C;
-lhx9;lhx9;Lhx9:NTR strong;TLN;also Lhx9:NTR (7576) x TLN: pooled?
+lhx9;lhx9;lhx9:NTR;TLN;also Lhx9:NTR (7576) x TLN: pooled?
 mafaa;mafaa;mafaa:NTR;TLN;
 mafaa-switchNTR-ath5-Cre;mafaa & atoh7;mafaa:switchNTR;TLN;ath5:Cre in 7684?
 mafaa-switchNTR-Huc-Cre;mafaa & elavl3;mafaa:switchNTR;Huc:Cre;
@@ -38,7 +38,7 @@ pmch2;pmch2;pmch2:Gal4;81C;
 pmchl;pmchl;pmchl:NTR;TLN;
 pth2;pth2;pth2:NTR;TLN;
 rspo1;rspo1;rspo1:NTR;TLN;
-tbr1b;tbr1b;tbr1b:NTR;TLN;failed ablation
+tbr1b;tbr1b_failed;tbr1b:NTR;TLN;failed ablation
 tbr1b_run3;tbr1b;tbr1b:NTR;QUAS:NTR;
 th;th;th:Gal4 + m1233;vglut2a + UAS:NTR;
 wik;WIK;WIK;;in-cross
