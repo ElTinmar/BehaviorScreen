@@ -1,7 +1,7 @@
 """Experiments: the dataset each one is built from and the candidate models, in a fixed order."""
 
 from pathlib import Path
-from typing import Callable, Dict, List
+from typing import Callable, Dict, List, Optional
 
 from megabouts.utils import bouts_category_name_short
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, Laterality, Stim
@@ -24,7 +24,7 @@ from BehaviorScreen.point_process.point_process.poisson_process import (
     RateKernel,
     RateKernelFactory,
 )
-from BehaviorScreen.point_process.point_process.sided_process import SidedPoissonProcess, SidedSurvivalProcess
+from BehaviorScreen.point_process.point_process.sided_process import SidedPoissonProcess, SidedRenewalProcess, SidedSurvivalProcess
 from BehaviorScreen.point_process.point_process.renewal_process import (
     RenewalKernelFactory,
     RenewalProcess,
@@ -116,14 +116,24 @@ def sided(ipsi: RateKernel, contra: RateKernel) -> SidedPoissonProcess:
     return SidedPoissonProcess(ipsi, contra)
 
 
+def sided_renewal(ipsi: RateKernel, contra: RateKernel, dead_time_s: float) -> SidedRenewalProcess:
+    return SidedRenewalProcess(ipsi, contra, RenewalKernelFactory.dead_time_delayed_excitation(dead_time_s))
+
+
 def sided_survival(kernel: RateKernel) -> SidedSurvivalProcess:
     """Escapes to either side as competing risks; D: odds of escaping away (contra)."""
     return SidedSurvivalProcess(kernel)
 
 
-def sided_models(ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel]) -> List[PointProcess]:
-    """Both sides of a stimulus in one model: without a fish effect, with a fish gain, and with a gain and a side preference."""
-    return [sided(ipsi(), contra()), gamma(sided(ipsi(), contra())), side_gamma(sided(ipsi(), contra()))]
+def sided_models(
+    ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel], dead_time_s: Optional[float] = None
+) -> List[PointProcess]:
+    """
+    Both sides of a stimulus in one model: without a fish effect, with a fish gain, and with a gain
+    and a side preference; for bouts (dead_time_s given), the last also as a renewal process.
+    """
+    models = [sided(ipsi(), contra()), gamma(sided(ipsi(), contra())), side_gamma(sided(ipsi(), contra()))]
+    return models + ([side_gamma(sided_renewal(ipsi(), contra(), dead_time_s))] if dead_time_s is not None else [])
 
 
 def dataset(category, laterality, t_end: float, binning_dt: float = 0.05, **selection) -> dict:
@@ -143,25 +153,19 @@ def flat_models(dead_time_s: float) -> List[PointProcess]:
         poisson(flat()),
         gamma(poisson(flat())),
         zero_inflated(poisson(flat())),
-        # zero_inflated(renewal(flat())),
-        # zero_inflated(dead_time_renewal(flat(), dead_time_s)),
+        gamma(dead_time_renewal(flat(), dead_time_s)),
     ]
 
 
-def rate_models(
-    kernel: Callable[[], RateKernel], dead_time_s: float, flat_renewal: bool = True
-) -> List[PointProcess]:
-    models = [
+def rate_models(kernel: Callable[[], RateKernel], dead_time_s: float) -> List[PointProcess]:
+    return [
         poisson(flat()),
         poisson(kernel()),
         gamma(poisson(flat())),
         gamma(poisson(kernel())),
         zero_inflated(poisson(kernel())),
-        # zero_inflated(renewal(kernel())),
+        gamma(dead_time_renewal(kernel(), dead_time_s)),
     ]
-    # models += [zero_inflated(renewal(flat()))] if flat_renewal else []
-    # return models + [zero_inflated(dead_time_renewal(kernel(), dead_time_s))]
-    return models
 
 
 def survival_models(*kernels: Callable[[], object]) -> List[PointProcess]:
@@ -240,7 +244,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 # hawkes(prey("Peak_Baseline_Ripple")),
                 # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
                 # renewal(prey("Peak_Baseline_Ripple")),
-                # gamma(renewal(prey("Peak_Baseline_Ripple"))),
+                gamma(dead_time_renewal(prey("Peak_Baseline_Ripple"), dead_time_s)),
             ],
         ),
         "prey_capture_contra": experiment(
@@ -252,7 +256,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 # BaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
                 zero_inflated(poisson(flat())),
                 # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
-                # zero_inflated(renewal(flat())),
+                gamma(dead_time_renewal(flat(), dead_time_s)),
             ],
         ),
         "prey_capture_convergent_saccade": experiment(
@@ -328,7 +332,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 gamma(poisson(flat())),
                 gamma(poisson(RateKernelFactory.phototaxis_ipsi())),
                 gamma(poisson(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
-                # gamma(renewal(RateKernelFactory.phototaxis_exgaussian_peak_no_dip())),
+                gamma(dead_time_renewal(RateKernelFactory.phototaxis_dip_exgaussian_peak(), dead_time_s)),
             ],
         ),
         "phototaxis_contra": experiment(
@@ -350,7 +354,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
         ),
         "omr_forward": experiment(
             dataset(FORWARD_SWIMS, NONDIRECTIONAL, 9.0, epoch_name="grating forward"),
-            rate_models(RateKernelFactory.omr_forward, dead_time_s, flat_renewal=False),
+            rate_models(RateKernelFactory.omr_forward, dead_time_s),
         ),
         "okr_ipsi": experiment(
             dataset(OKR_SWIMS, IPSI, 9.0, stim=Stim.OKR), flat_models(dead_time_s),
@@ -361,18 +365,18 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
         # Both sides of a directional stimulus: strength (ipsi amplitudes) and directionality D
         "prey_capture": experiment(
             dataset("JT", [IPSI, CONTRA], 24.0, stim=Stim.PREY_CAPTURE),
-            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat),
+            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat, dead_time_s),
         ),
         "phototaxis": experiment(
             dataset("RT", [IPSI, CONTRA], 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER),
-            sided_models(RateKernelFactory.phototaxis_dip_exgaussian_peak, RateKernelFactory.phototaxis_contra),
+            sided_models(RateKernelFactory.phototaxis_dip_exgaussian_peak, RateKernelFactory.phototaxis_contra, dead_time_s),
         ),
         "omr_lateral": experiment(
             dataset(LATERAL_TURNS, [IPSI, CONTRA], 9.0, epoch_name=gratings),
-            sided_models(RateKernelFactory.omr_lateral, RateKernelFactory.omr_lateral),
+            sided_models(RateKernelFactory.omr_lateral, RateKernelFactory.omr_lateral, dead_time_s),
         ),
         "okr": experiment(
-            dataset(OKR_SWIMS, [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat),
+            dataset(OKR_SWIMS, [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat, dead_time_s),
         ),
         "okr_conjugate_saccades": experiment(
             dataset("Conjugate", [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat), events="saccades",
@@ -415,8 +419,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
             [
                 gamma(poisson(RateKernelFactory.after_looming())),
                 zero_inflated(poisson(RateKernelFactory.after_looming())),
-                # zero_inflated(renewal(RateKernelFactory.after_looming())),
-                # zero_inflated(renewal(flat())),
+                gamma(dead_time_renewal(RateKernelFactory.after_looming(), dead_time_s)),
             ],
         ),
         "okr_conjugate_contra_saccades": experiment(

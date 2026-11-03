@@ -479,9 +479,9 @@ class SideFrailty(Frailty):
         gains = self._draw_fish_gains(num_fish, 1, rng)[:, 0]
         return list(zip(gains, rng.normal(0.0, self.params_[-1], num_fish)))
 
-    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, draw: Tuple[float, float], rng: np.random.Generator):
+    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, draw: Tuple[float, float], rng: np.random.Generator, **history):
         gain, u = draw
-        return self.base_process.simulate_stream(dataset, t_idx, gain, rng, side_shift=u)
+        return self.base_process.simulate_stream(dataset, t_idx, gain, rng, side_shift=u, **history)
 
 
 class BaselineFrailty(_GainWrapper):

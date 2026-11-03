@@ -21,6 +21,10 @@ either side, split between them as competing risks with odds D:
 so h (its H) is the strength of escaping at all and D the odds that the
 escape goes the preferred way (away from a looming stimulus: contra).
 
+SidedRenewalProcess, recurrent events with refractoriness: the sided Poisson
+rates times a renewal kernel of the time since the last bout (any category or
+side), i.e. a renewal process of both sides together with the same side split.
+
 side_terms gives, for every event that has a side, its log odds of the
 preferred side; SideFrailty shifts them per fish.
 """
@@ -35,6 +39,7 @@ from BehaviorScreen.core import Laterality
 from .dataset import PointProcessDataset
 from .point_process import PointProcess, thin
 from .poisson_process import RateKernel
+from .renewal_process import RenewalKernel, RenewalProcess
 from .survival_process import SurvivalProcess
 
 IPSI, CONTRA = int(Laterality.IPSILATERAL), int(Laterality.CONTRALATERAL)
@@ -210,6 +215,91 @@ class SidedSurvivalProcess(SurvivalProcess):
         other = IPSI if self.preferred == CONTRA else CONTRA
         sides = np.where(rng.random(len(events)) < d / (1.0 + d), self.preferred, other)
         return events, {"laterality": sides}
+
+
+class SidedRenewalProcess(PointProcess):
+    """
+    lambda_side(t, m) = kernel_side(t, m) * rho(t - last bout), kernels and D as
+    in SidedPoissonProcess, rho a renewal kernel of the time since the stream's
+    last bout of any category or side (dataset.history). Fitted as a
+    RenewalProcess of all events with kernel ipsi + contra, each event ipsi with
+    probability kernel_ipsi / (kernel_ipsi + kernel_contra): rho cancels there.
+    """
+
+    def __init__(
+        self,
+        ipsi: RateKernel,
+        contra: RateKernel,
+        renewal_kernel: RenewalKernel,
+        d_init: float = 2.0,
+        d_bounds: Tuple[float, float] = (0.02, 50.0),
+        integration_dt: float = 0.02,
+    ) -> None:
+        super().__init__(integration_dt)
+        self.sides = SidedPoissonProcess(ipsi, contra, d_init, d_bounds, integration_dt)
+        self._n_sides = len(self.sides.param_names)
+        both = RateKernel(
+            name=f"{ipsi.name} + {contra.name}",
+            func=lambda t, trial, p: sum(k.evaluate(t, trial, q) for k, q in self.sides._sides(p)),
+            param_names=self.sides.param_names,
+            initial_guesses=self.sides.initial_guesses,
+            bounds=self.sides.bounds,
+        )
+        self.ground = RenewalProcess(both, renewal_kernel, integration_dt)
+        self.param_names, self.initial_guesses, self.bounds = self.ground.param_names, self.ground.initial_guesses, self.ground.bounds
+        self.name = f"SidedRenewal[{ipsi.name} | {contra.name}, history: {renewal_kernel.name}]"
+        self.latex_formula = rf"${self.sides.latex_formula.strip('$')} \times {renewal_kernel.latex_formula.strip('$')}$"
+
+    def set_params(self, params: np.ndarray) -> None:
+        super().set_params(params)
+        self.sides.set_params(self.params_[: self._n_sides])
+        self.ground.set_params(self.params_)
+
+    def side_terms(self, dataset: PointProcessDataset, params: List[float]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        return self.sides.side_terms(dataset, list(params[: self._n_sides]))
+
+    def _side_log_likelihood(self, dataset: PointProcessDataset, params: List[float]) -> float:
+        _, log_odds, is_ipsi = self.side_terms(dataset, params)
+        return -float(np.sum(np.logaddexp(0, np.where(is_ipsi, -log_odds, log_odds))))
+
+    def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
+        return self.ground._nll(params, dataset) - self._side_log_likelihood(dataset, params)
+
+    def mixed_effects_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        log_rates, N, S = self.ground.mixed_effects_likelihood_terms(dataset, params)
+        return log_rates + self._side_log_likelihood(dataset, params), N, S
+
+    def ipsi_probability(self, t: np.ndarray, trial: np.ndarray) -> np.ndarray:
+        return self.sides.ipsi_probability(t, trial)
+
+    def compute_expected_rate(self, dataset: PointProcessDataset, side: Optional[int] = None) -> np.ndarray:
+        """Rate to either side (None) or to one, given each stream's observed bouts."""
+        total = self.ground.compute_expected_rate(dataset)
+        if side is None:
+            return total
+        p_ipsi = self.ipsi_probability(dataset.t_centers[None, :], np.arange(dataset.num_trials)[:, None])
+        return total * (p_ipsi if side == IPSI else 1 - p_ipsi)
+
+    def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float, history: Optional[np.ndarray] = None) -> np.ndarray:
+        return self.ground.cumulative_integrated_intensity(t_events, trial, history=history)
+
+    def stream_compensator_profile(self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None):
+        return self.ground.stream_compensator_profile(t_ev, trial, duration_s, history=history)
+
+    @property
+    def uses_history(self) -> bool:
+        return True
+
+    def simulate_stream(
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator,
+        others: Optional[np.ndarray] = None, side_shift: float = 0.0,
+    ) -> Tuple[np.ndarray, dict]:
+        """Bouts of either side given the stream's other bouts, then each one's side; side_shift is added to the log odds of ipsi."""
+        times = self.ground.simulate_stream(dataset, t_idx, gain, rng, others=others)
+        p_ipsi = expit(logit(self.ipsi_probability(times, np.full_like(times, t_idx))) + side_shift)
+        return times, {"laterality": np.where(rng.random(len(times)) < p_ipsi, IPSI, CONTRA)}
 
 
 def sided_base(model: PointProcess) -> Optional[PointProcess]:
