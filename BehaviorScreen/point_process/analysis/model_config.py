@@ -41,9 +41,6 @@ IPSI, CONTRA, NONDIRECTIONAL = (
 )
 PHOTOTAXIS_FILTER = {"foreground_color": "[0.1, 0.1, 0.0, 1.0]"}
 PREY_STIM_FREQ = 90 / (2 * 70)  # stimulus speed (deg/s) / sweep range (deg)
-BOUT_DEAD_TIME_S = (
-    0.25  # shortest bout onset-to-onset gap within a trial (control screen)
-)
 
 # Tracking-quality filters of screen.yaml applied to the models; classifier-confidence
 # filters are not (readouts merge neighbouring categories instead).
@@ -98,10 +95,9 @@ def renewal(kernel: RateKernel) -> RenewalProcess:
     return RenewalProcess(kernel, RenewalKernelFactory.delayed_excitation())
 
 
-def dead_time_renewal(kernel: RateKernel, dead_time_s: float) -> RenewalProcess:
-    return RenewalProcess(
-        kernel, RenewalKernelFactory.dead_time_delayed_excitation(dead_time_s)
-    )
+def refractory_renewal(kernel: RateKernel) -> RenewalProcess:
+    """Bout rate times a smooth recovery from the last bout (any kind), fitted, plus delayed excitation."""
+    return RenewalProcess(kernel, RenewalKernelFactory.refractory_delayed_excitation())
 
 
 def hawkes(kernel: RateKernel) -> HawkesProcess:
@@ -116,8 +112,8 @@ def sided(ipsi: RateKernel, contra: RateKernel) -> SidedPoissonProcess:
     return SidedPoissonProcess(ipsi, contra)
 
 
-def sided_renewal(ipsi: RateKernel, contra: RateKernel, dead_time_s: float) -> SidedRenewalProcess:
-    return SidedRenewalProcess(ipsi, contra, RenewalKernelFactory.dead_time_delayed_excitation(dead_time_s))
+def sided_renewal(ipsi: RateKernel, contra: RateKernel) -> SidedRenewalProcess:
+    return SidedRenewalProcess(ipsi, contra, RenewalKernelFactory.refractory_delayed_excitation())
 
 
 def sided_survival(kernel: RateKernel) -> SidedSurvivalProcess:
@@ -126,14 +122,14 @@ def sided_survival(kernel: RateKernel) -> SidedSurvivalProcess:
 
 
 def sided_models(
-    ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel], dead_time_s: Optional[float] = None
+    ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel], renewal: bool = False
 ) -> List[PointProcess]:
     """
     Both sides of a stimulus in one model: without a fish effect, with a fish gain, and with a gain
-    and a side preference; for bouts (dead_time_s given), the last also as a renewal process.
+    and a side preference; for bouts (renewal), the last also as a renewal process.
     """
     models = [sided(ipsi(), contra()), gamma(sided(ipsi(), contra())), side_gamma(sided(ipsi(), contra()))]
-    return models + ([side_gamma(sided_renewal(ipsi(), contra(), dead_time_s))] if dead_time_s is not None else [])
+    return models + ([side_gamma(sided_renewal(ipsi(), contra()))] if renewal else [])
 
 
 def dataset(category, laterality, t_end: float, binning_dt: float = 0.05, **selection) -> dict:
@@ -148,23 +144,23 @@ def dataset(category, laterality, t_end: float, binning_dt: float = 0.05, **sele
     )
 
 
-def flat_models(dead_time_s: float) -> List[PointProcess]:
+def flat_models() -> List[PointProcess]:
     return [
         poisson(flat()),
         gamma(poisson(flat())),
         zero_inflated(poisson(flat())),
-        gamma(dead_time_renewal(flat(), dead_time_s)),
+        gamma(refractory_renewal(flat())),
     ]
 
 
-def rate_models(kernel: Callable[[], RateKernel], dead_time_s: float) -> List[PointProcess]:
+def rate_models(kernel: Callable[[], RateKernel]) -> List[PointProcess]:
     return [
         poisson(flat()),
         poisson(kernel()),
         gamma(poisson(flat())),
         gamma(poisson(kernel())),
         zero_inflated(poisson(kernel())),
-        gamma(dead_time_renewal(kernel(), dead_time_s)),
+        gamma(refractory_renewal(kernel())),
     ]
 
 
@@ -196,7 +192,7 @@ def experiment(
     }
 
 
-def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
+def get_model_config() -> Dict[str, dict]:
     """
     Fresh (unfitted) models every call. Keep the model order: best_model.json
     stores an index (new models go at the end of a list).
@@ -247,7 +243,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 # hawkes(prey("Peak_Baseline_Ripple")),
                 # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
                 # renewal(prey("Peak_Baseline_Ripple")),
-                gamma(dead_time_renewal(prey("Peak_Baseline_Ripple"), dead_time_s)),
+                gamma(refractory_renewal(prey("Peak_Baseline_Ripple"))),
             ],
         ),
         "prey_capture_contra": experiment(
@@ -259,7 +255,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 # BaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
                 zero_inflated(poisson(flat())),
                 # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
-                gamma(dead_time_renewal(flat(), dead_time_s)),
+                gamma(refractory_renewal(flat())),
             ],
         ),
         "prey_capture_convergent_saccade": experiment(
@@ -335,7 +331,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 gamma(poisson(flat())),
                 gamma(poisson(RateKernelFactory.phototaxis_ipsi())),
                 gamma(poisson(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
-                gamma(dead_time_renewal(RateKernelFactory.phototaxis_dip_exgaussian_peak(), dead_time_s)),
+                gamma(refractory_renewal(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
             ],
         ),
         "phototaxis_contra": experiment(
@@ -346,40 +342,40 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
                 stim=Stim.PHOTOTAXIS,
                 trial_filters=PHOTOTAXIS_FILTER,
             ),
-            rate_models(RateKernelFactory.phototaxis_contra, dead_time_s),
+            rate_models(RateKernelFactory.phototaxis_contra),
         ),
         "omr_lateral_ipsi": experiment(
-            dataset(LATERAL_TURNS, IPSI, 9.0, epoch_name=gratings), flat_models(dead_time_s),
+            dataset(LATERAL_TURNS, IPSI, 9.0, epoch_name=gratings), flat_models(),
         ),
         "omr_lateral_contra": experiment(
             dataset(LATERAL_TURNS, CONTRA, 9.0, epoch_name=gratings),
-            rate_models(RateKernelFactory.omr_lateral_contra, dead_time_s),
+            rate_models(RateKernelFactory.omr_lateral_contra),
         ),
         "omr_forward": experiment(
             dataset(FORWARD_SWIMS, NONDIRECTIONAL, 9.0, epoch_name="grating forward"),
-            rate_models(RateKernelFactory.omr_forward, dead_time_s),
+            rate_models(RateKernelFactory.omr_forward),
         ),
         "okr_ipsi": experiment(
-            dataset(OKR_SWIMS, IPSI, 9.0, stim=Stim.OKR), flat_models(dead_time_s),
+            dataset(OKR_SWIMS, IPSI, 9.0, stim=Stim.OKR), flat_models(),
         ),
         "okr_contra": experiment(
-            dataset(OKR_SWIMS, CONTRA, 9.0, stim=Stim.OKR), flat_models(dead_time_s),
+            dataset(OKR_SWIMS, CONTRA, 9.0, stim=Stim.OKR), flat_models(),
         ),
         # Both sides of a directional stimulus: strength (ipsi amplitudes) and directionality D
         "prey_capture": experiment(
             dataset("JT", [IPSI, CONTRA], 24.0, stim=Stim.PREY_CAPTURE),
-            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat, dead_time_s),
+            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat, renewal=True),
         ),
         "phototaxis": experiment(
             dataset("RT", [IPSI, CONTRA], 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER),
-            sided_models(RateKernelFactory.phototaxis_dip_exgaussian_peak, RateKernelFactory.phototaxis_contra, dead_time_s),
+            sided_models(RateKernelFactory.phototaxis_dip_exgaussian_peak, RateKernelFactory.phototaxis_contra, renewal=True),
         ),
         "omr_lateral": experiment(
             dataset(LATERAL_TURNS, [IPSI, CONTRA], 9.0, epoch_name=gratings),
-            sided_models(RateKernelFactory.omr_lateral, RateKernelFactory.omr_lateral, dead_time_s),
+            sided_models(RateKernelFactory.omr_lateral, RateKernelFactory.omr_lateral, renewal=True),
         ),
         "okr": experiment(
-            dataset(OKR_SWIMS, [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat, dead_time_s),
+            dataset(OKR_SWIMS, [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat, renewal=True),
         ),
         "okr_conjugate_saccades": experiment(
             dataset("Conjugate", [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat), events="saccades",
@@ -406,11 +402,11 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
         ),
         "spont_dark": experiment(
             dataset(None, None, 24.0, epoch_name="spontaneous dark"),
-            rate_models(RateKernelFactory.spont, dead_time_s),
+            rate_models(RateKernelFactory.spont),
         ),
         "spont_bright": experiment(
             dataset(None, None, 24.0, epoch_name="spontaneous bright"),
-            rate_models(RateKernelFactory.spont, dead_time_s),
+            rate_models(RateKernelFactory.spont),
         ),
         "after_looming": experiment(
             dataset(
@@ -422,7 +418,7 @@ def get_model_config(dead_time_s: float = BOUT_DEAD_TIME_S) -> Dict[str, dict]:
             [
                 gamma(poisson(RateKernelFactory.after_looming())),
                 zero_inflated(poisson(RateKernelFactory.after_looming())),
-                gamma(dead_time_renewal(RateKernelFactory.after_looming(), dead_time_s)),
+                gamma(refractory_renewal(RateKernelFactory.after_looming())),
             ],
         ),
         "okr_conjugate_contra_saccades": experiment(
