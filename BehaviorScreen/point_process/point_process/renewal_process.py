@@ -265,8 +265,9 @@ class RenewalProcess(PointProcess):
     """
     Modulated renewal process: intensity depends on absolute time-in-trial
     AND trial number (via `kernel`, exactly as in PoissonProcess), multiplied
-    by a recovery function of time-since-THIS-STREAM'S-OWN-most-recent-event
-    (via `renewal_kernel`).
+    by a recovery function of the time since the stream's most recent bout
+    (via `renewal_kernel`), of any category or side (dataset.history): the
+    selected bouts are predicted from all of them.
 
         lambda(t | history) = kernel(t, m) * renewal_kernel(t - t_last)
 
@@ -356,8 +357,8 @@ class RenewalProcess(PointProcess):
 
     def _stream_grid(self, t_events: np.ndarray, duration_s: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Trapezoid grid of one stream, split at its events: times, weights,
-        and age since the previous event (NaN before the first event).
+        Trapezoid grid of one stream, split at its bouts (t_events): times,
+        weights, and age since the previous bout (NaN before the first).
         """
         bounds = np.concatenate([[0.0], t_events, [duration_s]])
         refs = np.concatenate([[np.nan], t_events])
@@ -374,13 +375,15 @@ class RenewalProcess(PointProcess):
         """All streams' grids and events in flat arrays (data only, so cached on the dataset)."""
         parts = {key: [] for key in ("times", "weights", "ages", "trials", "fish", "event_times", "event_lags", "event_trials", "event_fish")}
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            times, weights, ages = self._stream_grid(t_ev, dataset.duration_s)
+            bouts = dataset.history_times(f_idx, t_idx)
+            times, weights, ages = self._stream_grid(bouts, dataset.duration_s)
             for key, value in zip(("times", "weights", "ages"), (times, weights, ages)):
                 parts[key].append(value)
             parts["trials"].append(np.full(len(times), t_idx, dtype=float))
             parts["fish"].append(np.full(len(times), f_idx))
             parts["event_times"].append(t_ev)
-            parts["event_lags"].append(np.diff(t_ev, prepend=np.nan))
+            previous = np.searchsorted(bouts, t_ev) - 1  # the bout before each event
+            parts["event_lags"].append(np.where(previous >= 0, t_ev - bouts[np.maximum(previous, 0)], np.nan))
             parts["event_trials"].append(np.full(len(t_ev), t_idx, dtype=float))
             parts["event_fish"].append(np.full(len(t_ev), f_idx))
         grid = {key: np.concatenate([np.empty(0)] + values) for key, values in parts.items()}
@@ -509,7 +512,7 @@ class RenewalProcess(PointProcess):
 
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             stream_rate = self.predict(
-                t=dataset.t_centers, trial=t_idx, history_events=t_ev
+                t=dataset.t_centers, trial=t_idx, history_events=dataset.history_times(f_idx, t_idx)
             )
             rate_sum[t_idx, :] += stream_rate
             active_count[t_idx] += 1
@@ -522,30 +525,34 @@ class RenewalProcess(PointProcess):
             )
 
     def cumulative_integrated_intensity(
-        self, t_events: np.ndarray, trial: float
+        self, t_events: np.ndarray, trial: float, history: Optional[np.ndarray] = None
     ) -> np.ndarray:
+        """
+        Compensator at each of t_events: every point but the last must be a
+        bout. history: the stream's bouts (default: t_events but the last).
+        """
         self._require_fitted()
         params_base, params_renewal = self._split_params(self.params_)
-        t_events = np.sort(np.asarray(t_events))
-        if len(t_events) == 0:
-            return np.array([], dtype=float)
+        t_events = np.sort(np.asarray(t_events, dtype=float))
+        bouts = t_events[:-1] if history is None else np.asarray(history, dtype=float)
+        edges = np.union1d(bouts, t_events)
+        starts = np.concatenate([[0.0], edges[:-1]])
+        segments = [
+            self._segment_integral(a, b, trial, params_base, a if i else None, params_renewal)
+            for i, (a, b) in enumerate(zip(starts, edges))
+        ]
+        return np.cumsum(segments)[np.searchsorted(edges, t_events)]
 
-        Lambda = np.zeros_like(t_events, dtype=float)
-        Lambda[0] = (
-            self._segment_integral(0.0, t_events[0], trial, params_base, None, None)
-            if len(t_events)
-            else 0.0
-        )
-        for i in range(1, len(t_events)):
-            Lambda[i] = Lambda[i - 1] + self._segment_integral(
-                t_events[i - 1],
-                t_events[i],
-                trial,
-                params_base,
-                t_events[i - 1],
-                params_renewal,
-            )
-        return Lambda
+    def stream_compensator_profile(
+        self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None
+    ) -> Tuple[np.ndarray, np.ndarray, bool, float]:
+        probes = np.append(np.sort(np.asarray(t_ev, dtype=float)), float(duration_s))
+        cumulative = self.cumulative_integrated_intensity(probes, trial, history=history)
+        return probes, cumulative, True, float(cumulative[-1])
+
+    @property
+    def uses_history(self) -> bool:
+        return True
 
     def mixed_effects_likelihood_terms(
         self, dataset: PointProcessDataset, params: List[float]
@@ -560,12 +567,16 @@ class RenewalProcess(PointProcess):
         return float(np.sum(log_intensities)), n_events, exposure
 
     def simulate_stream(
-        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator
+        self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator,
+        others: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """
-        Thinning with gain * kernel(t) * renewal(t - last event). The bound
+        Thinning with gain * kernel(t) * renewal(t - last bout), the last bout
+        being the last simulated event or the last of `others` (the stream's
+        observed bouts that are not events), whichever is later. The bound
         includes the renewal kernel's maximum, which can exceed 1 (excitation).
         """
+        others = np.empty(0) if others is None else np.sort(others)
         params_base, params_renewal = self._split_params(self.params_)
         upper = gain * self._intensity_upper_bound(dataset, t_idx) * self._renewal_kernel_upper_bound(
             params_renewal, dataset
@@ -573,9 +584,11 @@ class RenewalProcess(PointProcess):
 
         def intensity(t: float, events: List[float]) -> float:
             base = gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), params_base)[0]
-            if not events:
+            k = np.searchsorted(others, t)
+            last = max(events[-1] if events else -np.inf, others[k - 1] if k else -np.inf)
+            if last == -np.inf:
                 return base
-            return base * self.renewal_kernel.evaluate(np.array([t - events[-1]]), params_renewal)[0]
+            return base * self.renewal_kernel.evaluate(np.array([t - last]), params_renewal)[0]
 
         return thin(intensity, lambda t, events: upper, dataset.duration_s, rng)
 

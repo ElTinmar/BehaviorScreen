@@ -1,5 +1,5 @@
 """Processes defined on top of another process's parameters."""
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import numpy as np
 
@@ -33,14 +33,14 @@ class Wrapper(PointProcess):
     def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
         return self.base_process.cumulative_integrated_intensity(t_events, trial)
 
-    def stream_compensator_profile(self, t_ev: np.ndarray, trial: float, duration_s: float):
-        return self.base_process.stream_compensator_profile(t_ev, trial, duration_s)
+    def stream_compensator_profile(self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None):
+        return self.base_process.stream_compensator_profile(t_ev, trial, duration_s, history=history)
 
     def mixed_effects_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
         return self.base_process.mixed_effects_likelihood_terms(dataset, self._base_params(params))
 
-    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator) -> np.ndarray:
-        return self.base_process.simulate_stream(dataset, t_idx, gain, rng)
+    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator, **history) -> np.ndarray:
+        return self.base_process.simulate_stream(dataset, t_idx, gain, rng, **history)
 
     def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx: int) -> float:
         return self.base_process._intensity_upper_bound(dataset, t_idx)
@@ -67,6 +67,10 @@ class Wrapper(PointProcess):
     @property
     def is_survival(self) -> bool:
         return self.base_process.is_survival
+
+    @property
+    def uses_history(self) -> bool:
+        return self.base_process.uses_history
 
 
 class PartiallyFixedProcess(Wrapper):

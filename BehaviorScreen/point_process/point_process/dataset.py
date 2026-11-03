@@ -32,6 +32,9 @@ class PointProcessDataset:
     duration_s: float = 24.0
     binning_dt: float = 0.02
     marks: Mapping[str, np.ndarray] = field(default_factory=dict)  # per event, e.g. category, laterality
+    # Every bout of the same streams, of any category or side: the events are a selection of
+    # them. What a renewal process counts as "the last bout". None: the events themselves.
+    history: Optional["PointProcessDataset"] = None
 
     @property
     def num_fish(self) -> int:
@@ -107,6 +110,28 @@ class PointProcessDataset:
                 if active_only and not self.fish_trial_mask[f_idx, t_idx]:
                     continue
                 yield f_idx, t_idx, self._stream_index.get((f_idx, t_idx), empty)
+
+    def history_times(self, f_idx: int, t_idx: int) -> np.ndarray:
+        """Sorted times of every bout of one stream (its events if there is no history)."""
+        source = self if self.history is None else self.history
+        return source._stream_index.get((f_idx, t_idx), np.array([], dtype=float))
+
+    def other_times(self, f_idx: int, t_idx: int) -> np.ndarray:
+        """Bouts of one stream that are not events (what a simulation keeps from the data)."""
+        return np.setdiff1d(self.history_times(f_idx, t_idx), self._stream_index.get((f_idx, t_idx), np.array([])))
+
+    def with_history_from(self, template: "PointProcessDataset") -> "PointProcessDataset":
+        """This dataset (simulated with template's design) with template's other bouts around its own events as history."""
+        if template.history is None:
+            return self
+        streams = [(f, t, np.concatenate([template.other_times(f, t), ev])) for f, t, ev in self.iter_streams()]
+        history = PointProcessDataset(
+            event_times=np.concatenate([[]] + [ev for _, _, ev in streams]).astype(float),
+            event_trials_idx=np.concatenate([[]] + [np.full(len(ev), t) for _, t, ev in streams]).astype(int),
+            event_fish_idx=np.concatenate([[]] + [np.full(len(ev), f) for f, _, ev in streams]).astype(int),
+            fish_trial_mask=self.fish_trial_mask, fish_ids=self.fish_ids, duration_s=self.duration_s,
+        )
+        return replace(self, history=history)
 
     @property
     def time_histogram_counts(self) -> np.ndarray:
@@ -300,7 +325,8 @@ class PointProcessDataset:
         take = np.concatenate([np.empty(0, dtype=int)] + pieces)
         new_fish_idx = np.repeat(np.arange(len(indices)), [len(piece) for piece in pieces])
         return self._with_events(
-            take, new_fish_idx, fish_trial_mask=self.fish_trial_mask[indices], fish_ids=self.fish_ids[indices]
+            take, new_fish_idx, fish_trial_mask=self.fish_trial_mask[indices], fish_ids=self.fish_ids[indices],
+            history=None if self.history is None else self.history.fish(indices),
         )
 
     def first_events(self) -> "PointProcessDataset":
@@ -332,6 +358,7 @@ class PointProcessDataset:
             fish_trial_mask=np.vstack([d.fish_trial_mask for d in datasets]),
             fish_ids=joined(d.fish_ids for d in datasets),
             marks={key: joined(d.marks[key] for d in datasets) for key in first.marks},
+            history=None if any(d.history is None for d in datasets) else PointProcessDataset.concat(*(d.history for d in datasets)),
         )
 
 
@@ -535,7 +562,7 @@ class BehavioralDataLoader:
             },
         )
         criteria = {"category": codes, "laterality": lateralities}
-        return dataset.select(**{key: values for key, values in criteria.items() if values is not None})
+        return replace(dataset.select(**{key: values for key, values in criteria.items() if values is not None}), history=dataset)
 
 
 def _coarse_trial_rates(

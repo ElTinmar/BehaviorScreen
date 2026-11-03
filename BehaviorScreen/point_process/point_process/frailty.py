@@ -329,7 +329,7 @@ class Frailty(_GainWrapper):
             n_events = 0
             for _, t_idx, t_ev in streams:
                 _, cum, last_censored, exposure = self.base_process.stream_compensator_profile(
-                    t_ev, t_idx, dataset.duration_s
+                    t_ev, t_idx, dataset.duration_s, history=dataset.history_times(f_idx, t_idx)
                 )
                 pairs = []
                 for k, value in enumerate(cum):

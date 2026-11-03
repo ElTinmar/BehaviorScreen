@@ -301,6 +301,7 @@ class SurvivalProcess(PointProcess):
         t_ev: np.ndarray,
         trial: float,
         duration_s: float,
+        history: Optional[np.ndarray] = None,
     ) -> Tuple[np.ndarray, np.ndarray, bool, float]:
         """
         Overrides PointProcess's recurrent default: this process

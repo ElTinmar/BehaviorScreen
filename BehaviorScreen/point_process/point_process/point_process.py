@@ -125,14 +125,16 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         One dataset from the current parameters with the design of `template`
         (fish, trials, mask, duration): one gain per fish shared by its
         trials, history reset in every trial. A marked process's streams come
-        as (times, marks) and keep their marks.
+        as (times, marks) and keep their marks. The template's other bouts (not
+        events) are kept as they are, around the simulated events, as history.
         """
         self._require_fitted()
         rng = rng or np.random.default_rng()
         draws = self._fish_draws(template.num_fish, rng)
+        others = lambda f_idx, t_idx: {"others": template.other_times(f_idx, t_idx)} if self.uses_history else {}
 
         streams = [
-            (f_idx, t_idx, self.simulate_stream(template, t_idx, draws[f_idx], rng))
+            (f_idx, t_idx, self.simulate_stream(template, t_idx, draws[f_idx], rng, **others(f_idx, t_idx)))
             for f_idx, t_idx, _ in template.iter_streams()
         ]
         marks = [ev[1] for _, _, ev in streams if isinstance(ev, tuple)]
@@ -148,15 +150,16 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
             duration_s=template.duration_s,
             binning_dt=template.binning_dt,
             marks={key: np.concatenate([m[key] for m in marks]) for key in (marks[0] if marks else {})},
-        )
+        ).with_history_from(template)
 
     def stream_compensator_profile(
-        self, t_ev: np.ndarray, trial: float, duration_s: float
+        self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None
     ) -> Tuple[np.ndarray, np.ndarray, bool, float]:
         """
         (probe times, compensator at the probes, last probe censored, total
         exposure) for one recurrent stream: each event ends an exact interval
-        and trial end one censored interval.
+        and trial end one censored interval. history: every bout of the stream,
+        for processes that use it (uses_history).
         """
         self._require_fitted()
         probes = np.append(np.sort(np.asarray(t_ev, dtype=float)), float(duration_s))
@@ -171,7 +174,9 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         """
         result: StreamTaus = {}
         for f_idx, t_idx, t_ev in dataset.iter_streams():
-            _, cum, last_censored, _ = self.stream_compensator_profile(t_ev, t_idx, dataset.duration_s)
+            _, cum, last_censored, _ = self.stream_compensator_profile(
+                t_ev, t_idx, dataset.duration_s, history=dataset.history_times(f_idx, t_idx)
+            )
             pairs = [(float(d), False) for d in np.diff(cum, prepend=0.0)]
             if last_censored:
                 pairs[-1] = (pairs[-1][0], True)
@@ -189,4 +194,9 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
 
     @property
     def is_survival(self) -> bool:
+        return False
+
+    @property
+    def uses_history(self) -> bool:
+        """Whether the intensity depends on the stream's bouts outside the events (dataset.history)."""
         return False
