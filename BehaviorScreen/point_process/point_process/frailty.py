@@ -311,7 +311,8 @@ class Frailty(_GainWrapper):
 
     With a base whose gain scales its driven rate only (gain_scales_drive_only,
     e.g. a renewal process with bursts), lambda_f = drive * g_f + rest, g_f
-    integrated by quadrature (gamma_gain_evidence_by_fish); no trial gain then.
+    integrated by quadrature (gamma_gain_evidence_by_fish), with a trial gain
+    g_f h_fm by nested quadrature (log_nested_drive_marginal).
 
     trial_gain (Gamma gains only): a second gain per trial, h_fm ~ Gamma(a, a)
     (a: 'r_trial'), lambda_fm = g_f h_fm lambda_base: a fish's engagement varies
@@ -323,8 +324,6 @@ class Frailty(_GainWrapper):
 
     def __init__(self, base_process: PointProcess, gains: GainFamily, trial_gain: bool = False, a_init: float = 5.0) -> None:
         super().__init__(base_process, gains)
-        if trial_gain and base_process.gain_scales_drive_only:
-            raise ValueError(f"{base_process.name}: a trial gain needs a gain on the whole intensity")
         self.trial_gain = trial_gain
         trial = "+Trial" if trial_gain else ""
         self.name = f"{gains.prefix}GammaMixedEffects{trial}[{base_process.name}]{gains.suffix}"
@@ -344,24 +343,33 @@ class Frailty(_GainWrapper):
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         if self.base_process.gain_scales_drive_only:
-            constant, drive_rates, burst_rates, fish, drive_exposure, burst_exposure = self.base_process.drive_likelihood_terms(
+            constant, drive_rates, burst_rates, stream, drive_exposure, burst_exposure = self.base_process.drive_likelihood_terms(
                 dataset, self._base_params(params)
             )
-            log_z, _ = self._gain(params).evidence_by_fish(drive_rates, burst_rates, fish, drive_exposure, n_nodes=30)
             active = dataset.fish_trial_mask.any(axis=1)
-            return -(constant + float(np.sum(log_z[active] - burst_exposure[active])))
+            if self.trial_gain:
+                log_z, self._gain_mode = log_nested_drive_marginal(
+                    drive_rates, burst_rates, stream, drive_exposure, dataset.fish_trial_mask, self._gain(params).shape,
+                    self._r_trial(params), self._gain_nodes, self._gain_log_weights, self._fish_modes(dataset),
+                )
+            else:
+                fish = stream // dataset.num_trials
+                log_z, _ = self._gain(params).evidence_by_fish(drive_rates, burst_rates, fish, drive_exposure.sum(axis=1), n_nodes=30)
+            return -(constant + float(np.sum(log_z[active] - burst_exposure.sum(axis=1)[active])))
         if self.trial_gain:
             base_ll, n, S = self.base_process.stream_likelihood_terms(dataset, self._base_params(params))
-            if len(self._gain_mode) != dataset.num_fish:
-                self._gain_mode = np.zeros(dataset.num_fish)
             log_marginal, self._gain_mode = log_nested_gamma_marginal(
                 n, S, dataset.fish_trial_mask, self._gain(params).shape, self._r_trial(params),
-                self._gain_nodes, self._gain_log_weights, self._gain_mode,
+                self._gain_nodes, self._gain_log_weights, self._fish_modes(dataset),
             )
             return -(base_ll + float(np.sum(log_marginal)))
         base_ll, N, S = self.base_process.mixed_effects_likelihood_terms(dataset, self._base_params(params))
         active = dataset.fish_trial_mask.any(axis=1)
         return -(base_ll + float(np.sum(self._gain(params).log_marginal(N[active], S[active]))))
+
+    def _fish_modes(self, dataset: PointProcessDataset) -> np.ndarray:
+        """Posterior log fish gains of the last call (where Newton starts), zeros for a new dataset size."""
+        return self._gain_mode if len(self._gain_mode) == dataset.num_fish else np.zeros(dataset.num_fish)
 
     def _stream_gain(self, gain: float, rng: np.random.Generator) -> float:
         """A stream's gain: the fish's, times its trial's when there is a trial gain."""
@@ -432,8 +440,9 @@ class Frailty(_GainWrapper):
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         """Whole-session posterior per fish (for reporting, not for time rescaling)."""
         if self.base_process.gain_scales_drive_only:
-            _, drive_rates, burst_rates, fish, drive_exposure, _ = self.base_process.drive_likelihood_terms(dataset, self._base_params(self.params_))
-            _, gains = self._gain().evidence_by_fish(drive_rates, burst_rates, fish, drive_exposure, n_nodes=30)
+            _, drive_rates, burst_rates, stream, drive_exposure, _ = self.base_process.drive_likelihood_terms(dataset, self._base_params(self.params_))
+            fish = stream // dataset.num_trials
+            _, gains = self._gain().evidence_by_fish(drive_rates, burst_rates, fish, drive_exposure.sum(axis=1), n_nodes=30)
             active = np.flatnonzero(dataset.fish_trial_mask.any(axis=1))
             return pd.DataFrame({"fish_idx": active, "n_events": np.bincount(fish, minlength=dataset.num_fish)[active], "estimated_gain": gains[active]})
         gain = self._gain()
@@ -496,9 +505,25 @@ def log_normal_mixture(
     return logsumexp(log_weights + log_f(u) - u**2 / (2 * s**2) + nodes**2 / 2, axis=1) + np.log(sd / s), mode
 
 
+def _log_gain_mode(
+    n: np.ndarray, S: np.ndarray, mask: np.ndarray, r: float, a: float, mode: np.ndarray, tol: float = 1e-10
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Mode and curvature scale, per fish, of the closed-form integrand of log_nested_gamma_marginal in v = log g (Newton)."""
+    w, N = (n + a) * mask, (n * mask).sum(axis=1)
+    for _ in range(100):
+        e = np.exp(mode)
+        share = S * e[:, None] / (a + S * e[:, None])
+        hess = -r * e - (w * share * (1 - share)).sum(axis=1)
+        step = np.clip((r + N - r * e - (w * share).sum(axis=1)) / hess, -1.0, 1.0)
+        mode = mode - step
+        if np.max(np.abs(step), initial=0.0) < tol:
+            break
+    return mode, 1 / np.sqrt(-hess)
+
+
 def log_nested_gamma_marginal(
     n: np.ndarray, S: np.ndarray, mask: np.ndarray, r: float, a: float,
-    nodes: np.ndarray, log_weights: np.ndarray, mode: np.ndarray, tol: float = 1e-10,
+    nodes: np.ndarray, log_weights: np.ndarray, mode: np.ndarray,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Per fish, the log of the integral over g ~ Gamma(r, r) of the product over its
@@ -508,26 +533,46 @@ def log_nested_gamma_marginal(
     (log-concave) integrand's mode and scaled to its curvature. Also returns the
     modes, where the next call's Newton starts.
     """
-    w = (n + a) * mask
-    N = (n * mask).sum(axis=1)
-
-    def log_integrand(v: np.ndarray) -> np.ndarray:  # v: fish x nodes
-        e = np.exp(v)
-        return (r + N)[:, None] * v - r * e - np.einsum("ft,ftk->fk", w, np.log(a + S[:, :, None] * e[:, None, :]))
-
-    for _ in range(100):
-        e = np.exp(mode)
-        share = S * e[:, None] / (a + S * e[:, None])
-        hess = -r * e - (w * share * (1 - share)).sum(axis=1)
-        step = np.clip((r + N - r * e - (w * share).sum(axis=1)) / hess, -1.0, 1.0)
-        mode = mode - step
-        if np.max(np.abs(step), initial=0.0) < tol:
-            break
-    sd = 1 / np.sqrt(-hess)
+    mode, sd = _log_gain_mode(n, S, mask, r, a, mode)
     v = mode[:, None] + sd[:, None] * nodes
+    w, N = (n + a) * mask, (n * mask).sum(axis=1)
+    log_integrand = (r + N)[:, None] * v - r * np.exp(v) - np.einsum("ft,ftk->fk", w, np.log(a + S[:, :, None] * np.exp(v)[:, None, :]))
     constant = r * np.log(r) - gammaln(r) + (mask * (a * np.log(a) - gammaln(a) + gammaln(n + a))).sum(axis=1)
-    log_integral = logsumexp(log_weights + log_integrand(v) + nodes**2 / 2, axis=1) + np.log(sd) + 0.5 * np.log(2 * np.pi)
+    log_integral = logsumexp(log_weights + log_integrand + nodes**2 / 2, axis=1) + np.log(sd) + 0.5 * np.log(2 * np.pi)
     return log_integral + constant, mode
+
+
+def log_nested_drive_marginal(
+    drive_rates: np.ndarray, burst_rates: np.ndarray, stream: np.ndarray, S: np.ndarray, mask: np.ndarray,
+    r: float, a: float, nodes: np.ndarray, log_weights: np.ndarray, mode: np.ndarray, n_inner: int = 24,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Per fish, the log of the integral over g ~ Gamma(r, r) of the product over its
+    trials of the integral over h ~ Gamma(a, a) of e^(-g h S) prod over the trial's
+    events (g h d + b); d, b: driven and burst rate at every event, stream: its
+    stream (fish * trials + trial, non-decreasing), S: driven exposure, fish x trial.
+    h by Gauss-Laguerre (exact up to 2 n_inner - 1 events in a trial), v = log g
+    by Gauss-Hermite centred and scaled as log_nested_gamma_marginal's with every
+    event counted by its driven share. Also returns the modes.
+    """
+    n_fish, n_trials = S.shape
+    x, log_w = gauss_laguerre(n_inner, a - 1.0)
+    groups = np.flatnonzero(np.diff(stream, prepend=-1))  # first event of each stream with events
+    g_events = np.exp(mode)[stream // n_trials] * drive_rates
+    share = np.bincount(stream, weights=g_events / np.maximum(g_events + burst_rates, 1e-300), minlength=S.size).reshape(S.shape)
+    mode, sd = _log_gain_mode(share, S, mask, r, a, mode)
+    log_integrand = np.empty((n_fish, len(nodes)))
+    for j, node in enumerate(nodes):
+        v = mode + sd * node
+        c = a + np.exp(v)[:, None] * S  # fish x trial
+        scale = (np.exp(v)[stream // n_trials] * drive_rates / c.ravel()[stream])[:, None]
+        sums = np.zeros((S.size, n_inner))
+        if len(groups):
+            sums[stream[groups]] = np.add.reduceat(np.log(np.maximum(scale * x + burst_rates[:, None], 1e-300)), groups, axis=0)
+        log_z = a * np.log(a) - gammaln(a) - a * np.log(c) + logsumexp(log_w + sums, axis=1).reshape(S.shape)
+        log_integrand[:, j] = r * v - r * np.exp(v) + (mask * log_z).sum(axis=1)
+    log_integral = logsumexp(log_weights + log_integrand + nodes**2 / 2, axis=1) + np.log(sd) + 0.5 * np.log(2 * np.pi)
+    return log_integral + r * np.log(r) - gammaln(r), mode
 
 
 def log_sigmoid(x: np.ndarray) -> np.ndarray:

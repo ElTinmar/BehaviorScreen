@@ -446,7 +446,7 @@ class RenewalProcess(PointProcess):
                 "event_lags": np.where(previous >= 0, t_ev - bouts[np.maximum(previous, 0)], np.nan),
                 "event_event_lags": np.diff(t_ev, prepend=np.nan),
                 "event_trials": np.full(len(t_ev), t_idx, dtype=float),
-                "event_fish": np.full(len(t_ev), f_idx),
+                "event_stream": np.full(len(t_ev), f_idx * dataset.num_trials + t_idx),
             }
             if self.excitation is not None:
                 none = np.isnan(event_ages)  # before the first event: the table's last points hold 0
@@ -484,8 +484,8 @@ class RenewalProcess(PointProcess):
         self, dataset: PointProcessDataset, params: List[float]
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        At every event (by fish, in order) the driven and the burst rate, its fish,
-        and per stream (fish x trial) the integrals of both. The grid is processed
+        At every event (by stream, in order) the driven and the burst rate, its
+        stream (fish * num_trials + trial), and per stream (fish x trial) the integrals of both. The grid is processed
         in chunks that stay in the CPU cache.
         """
         params_base, params_renewal, params_excitation = self._split(params)
@@ -517,7 +517,7 @@ class RenewalProcess(PointProcess):
         drive_rates = rho_events * self.kernel.evaluate(grid["event_times"], grid["event_trials"], params_base)
         burst_rates = rho_events * self._excitation(grid["event_event_lags"], params_excitation)
         shape = (dataset.num_fish, dataset.num_trials)
-        return drive_rates, burst_rates, grid["event_fish"], drive_exposure.reshape(shape), burst_exposure.reshape(shape)
+        return drive_rates, burst_rates, grid["event_stream"], drive_exposure.reshape(shape), burst_exposure.reshape(shape)
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         drive_rates, burst_rates, _, drive_exposure, burst_exposure = self._drive_terms(dataset, params)
@@ -529,11 +529,10 @@ class RenewalProcess(PointProcess):
     ) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         For a gain on the driven rate only: a constant log-likelihood term, the
-        driven and burst rates at every event and its fish (non-decreasing), and
-        the driven and burst exposure per fish.
+        driven and burst rates at every event and its stream (fish * num_trials
+        + trial, non-decreasing), and the driven and burst exposure per stream (fish x trial).
         """
-        drive_rates, burst_rates, fish, drive_exposure, burst_exposure = self._drive_terms(dataset, params)
-        return 0.0, drive_rates, burst_rates, fish, drive_exposure.sum(axis=1), burst_exposure.sum(axis=1)
+        return (0.0, *self._drive_terms(dataset, params))
 
     def stream_likelihood_terms(
         self, dataset: PointProcessDataset, params: List[float]
