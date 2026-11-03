@@ -1,3 +1,4 @@
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
@@ -416,45 +417,48 @@ class RenewalProcess(PointProcess):
         return start, (position - start).astype(np.float32)
 
     def _dataset_grid(self, dataset: PointProcessDataset) -> Dict[str, np.ndarray]:
-        """All streams' grids and events in flat arrays (data only, so cached on the dataset)."""
-        keys = ("times", "weights", "ages", "event_ages", "trials", "stream", "event_times", "event_lags", "event_event_lags", "event_trials", "event_fish")
-        parts = {key: [] for key in keys}
+        """
+        All streams' grids and events in flat arrays (data only, so cached on the
+        dataset), stored compactly stream by stream to keep the peak memory near the result's.
+        Ages after a bout mostly sit on the k * integration_dt lattice (segment ends
+        do not); the step past the lattice holds 1: no previous bout. The rate kernel
+        (trial x time) and the excitation (time since the last event) are interpolated
+        on the grid from tables _TABLE_STEPS times finer than it.
+        """
+        columns, parts, n_points = self._table_columns(dataset), defaultdict(list), 0
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             bouts = dataset.history_times(f_idx, t_idx)
             times, weights, ages, event_ages = self._stream_grid(bouts, t_ev, dataset.duration_s)
-            for key, value in zip(("times", "weights", "ages", "event_ages"), (times, weights, ages, event_ages)):
-                parts[key].append(value)
-            parts["trials"].append(np.full(len(times), t_idx, dtype=float))
-            parts["stream"].append(np.full(len(times), f_idx * dataset.num_trials + t_idx))
-            parts["event_times"].append(t_ev)
+            steps = np.rint(ages / self.integration_dt)
+            on_lattice = np.abs(ages - steps * self.integration_dt) < 1e-9
+            off = np.flatnonzero(~on_lattice & ~np.isnan(ages))
+            start, fraction = self._table_positions(times, columns)
             previous = np.searchsorted(bouts, t_ev) - 1  # the bout before each event
-            parts["event_lags"].append(np.where(previous >= 0, t_ev - bouts[np.maximum(previous, 0)], np.nan))
-            parts["event_event_lags"].append(np.diff(t_ev, prepend=np.nan))
-            parts["event_trials"].append(np.full(len(t_ev), t_idx, dtype=float))
-            parts["event_fish"].append(np.full(len(t_ev), f_idx))
-        grid = {key: np.concatenate([np.empty(0)] + values) for key, values in parts.items()}
-        grid["stream"], grid["event_fish"] = grid["stream"].astype(np.int32), grid["event_fish"].astype(int)  # events by fish, in order
-        grid["weights"] = grid["weights"].astype(np.float32)
-        # Ages after a bout mostly sit on the k * integration_dt lattice (segment
-        # ends do not). The step past the lattice holds 1: no previous bout.
-        steps = np.rint(grid["ages"] / self.integration_dt)
-        on_lattice = np.abs(grid["ages"] - steps * self.integration_dt) < 1e-9
-        n_lattice = int(np.max(steps[on_lattice], initial=0)) + 1
-        grid["lattice_step"] = np.where(on_lattice, steps, n_lattice).astype(np.int32)
-        grid["n_lattice"] = n_lattice
-        grid["off_lattice"] = np.flatnonzero(~on_lattice & ~np.isnan(grid["ages"]))
-        grid["off_ages"] = grid.pop("ages")[grid["off_lattice"]]
-        # The rate kernel (trial x time) and the excitation (time since the last event)
-        # are interpolated on the grid from tables _TABLE_STEPS times finer than it.
-        columns = self._table_columns(dataset)
-        start, grid["table_fraction"] = self._table_positions(grid.pop("times"), columns)
-        grid["table_index"] = (grid.pop("trials") * columns + start).astype(np.int32)
-        event_ages = grid.pop("event_ages")
-        if self.excitation is not None:
-            none = np.isnan(event_ages)  # before the first event: the table's last points hold 0
-            start, fraction = self._table_positions(np.where(none, 0.0, event_ages), columns)
-            grid["excitation_index"] = np.where(none, columns, start).astype(np.int32)
-            grid["excitation_fraction"] = np.where(none, 0.0, fraction).astype(np.float32)
+            stream = {
+                "weights": weights.astype(np.float32),
+                "stream": np.full(len(times), f_idx * dataset.num_trials + t_idx, dtype=np.int32),
+                "lattice_step": np.where(on_lattice, steps, -1).astype(np.int32),
+                "off_lattice": off + n_points,
+                "off_ages": ages[off],
+                "table_index": (t_idx * columns + start).astype(np.int32),
+                "table_fraction": fraction,
+                "event_times": t_ev,
+                "event_lags": np.where(previous >= 0, t_ev - bouts[np.maximum(previous, 0)], np.nan),
+                "event_event_lags": np.diff(t_ev, prepend=np.nan),
+                "event_trials": np.full(len(t_ev), t_idx, dtype=float),
+                "event_fish": np.full(len(t_ev), f_idx),
+            }
+            if self.excitation is not None:
+                none = np.isnan(event_ages)  # before the first event: the table's last points hold 0
+                start, fraction = self._table_positions(np.where(none, 0.0, event_ages), columns)
+                stream["excitation_index"] = np.where(none, columns, start).astype(np.int32)
+                stream["excitation_fraction"] = np.where(none, 0.0, fraction).astype(np.float32)
+            for key, value in stream.items():
+                parts[key].append(value)
+            n_points += len(times)
+        grid = {key: np.concatenate(values) for key, values in parts.items()}
+        grid["n_lattice"] = int(grid["lattice_step"].max(initial=-1)) + 1
+        grid["lattice_step"][grid["lattice_step"] < 0] = grid["n_lattice"]
         return grid
 
     @property
