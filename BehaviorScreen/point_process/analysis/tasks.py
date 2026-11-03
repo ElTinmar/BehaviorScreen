@@ -67,7 +67,7 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
     model_dir = output_root / exp_name / "models"
 
     summary_table, fitted_models = ModelComparator.compare(
-        models=config["models"], dataset=dataset, null_model=config["null_model"], n_starts=40, n_jobs=n_jobs
+        models=config["models"], dataset=dataset, null_model=config["null_model"], n_starts=20, n_jobs=n_jobs
     )
     summary_table.insert(0, "Condition", exp_name)
     save_csv(summary_table, model_dir, "model_comparison_table")
