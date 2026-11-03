@@ -1,52 +1,52 @@
-line,type,facility_ids,mpn,zfin,zfin_id,mapzebrain,notes
-s1010t + UAS:NTR,enhancer trap,7923,,s1010tEt,ZDB-ALT-070420-11,s1010tEt,which UAS:NTR allele?
-s1149t,enhancer trap,7746,,s1149tEt,,,
-s1026t,enhancer trap,7927,,s1026tEt,ZDB-ALT-080327-4,s1026tEt,
-s1042t,enhancer trap,8187,,s1042tEt,ZDB-ALT-080327-20,,
-s1146t,enhancer trap,8173,,s1146tEt,ZDB-ALT-080327-115,s1146tEt,
-gSAIzGFFM242A,gene trap,7697,,,,nk242AGt,ZFIN name nk242AGt?
-y359:Gal4,enhancer trap,7720,,y359Et,,,
-y532:NTR,enhancer trap,7572 / 7686,,Et(cfos:Gal4ff)y532,,,which NTR allele?
-atf5b:NTR,CRISPR knock-in,7793,,,,mpn(atf5b:QF2)Tg,atf5b:QF2 + QUAS:NTR?
-cart2:QF2,CRISPR knock-in,7952 / 7915,,,,mpn(cart2:QF2)tg,effector of the screen cross unknown
-ccka:NTR,CRISPR knock-in,7794,,,,mpn(ccka:QF2)Tg,ccka:QF2 + QUAS:NTR?
-chata:Gal4,BAC Tg,7880,mpn202,mpn202Tg,ZDB-ALT-170908-4,mpn202Tg,
-cort:NTR,CRISPR knock-in,7631 / 7703,mpn430,,,mpn(sst7:QF2)Tg,cort:QF2 (mpn430) + QUAS:NTR?
-drd2a:Gal4,BAC Tg,7881,mpn211,mpn211Tg,ZDB-ALT-170908-9,mpn211Tg,
-gbx:QF2 + mpn1,CRISPR knock-in,8022,,,,mpn(gbx2:QF2)Tg,what is mpn1?
-gfra:QF2,gene driver,8019,,,,,which gfra gene?
-id2b:NTR,BAC Tg,7669,mpn215,mpn215Tg,ZDB-ALT-170908-14,mpn215Tg,id2b:Gal4 (mpn215) + which UAS:NTR?
-mpn168 + insm2:QF2,gene driver,7953,mpn168,,,mpn(insm2:QF2),
-mpn169 + mpn408 + ebf1b:Cre,Tg,7978,mpn169 + mpn408,,,mpn169(QUAS:switchG6) + ebf1b:Cre,mpn169 = QUAS:switchG6 (NTR?) - mpn408 = mafaa:QF2?
-isl1:Gal4 + m1230,gene driver,7910,,,,,what is m1230?
-lhx2b,gene driver,7690,,,,,Gal4?
-lhx9:NTR,gene driver,7912 / 7913,,,,,tank labeled strongest
-mafaa:NTR,gene driver,7914,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:NTR?
-mafaa:switchNTR,gene driver,7915,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:switchNTR - carries ath5:Cre?
-Huc:Cre,gene driver,7916,mpn403,,,,elavl3:Cre
-meis2b:Cre,gene driver,8164,,,,,
-mpn206 + UAS:NTR-mCherry,MPN line,8153,mpn206,,,,sperm
-mpn302 + Dendra,MPN line,8151,mpn302,,,,sperm
-mpn304,MPN line,8197,mpn304,,,,
-mpn310 + Dendra,MPN line,8152,mpn310,,,,sperm
-mpn318,MPN line,8155,mpn318,,,,
-opn4b,gene driver,,,,,,
-pcbp3:QF2,gene driver,7687 / 8099,mpn429,,,,
-pmch2:Gal4,gene driver,7670,,,,,pmch2:Gal4 - UAS:Dendra in one cross
-pmchl:NTR,gene driver,7529,,,,,
-pth2:NTR,gene driver,7854,,,,,
-rspo1:NTR,gene driver,7798,,,,,
-tbr1b:NTR,gene driver,7799,,,,,QF2? crossed to QUAS:NTR for run3
-th:Gal4 + m1233,gene driver,7875,,,,,what is m1233?
-itpr1b:NTR,gene driver,7796,mpn423,,,,itpr1b:QF2 (mpn423) + QUAS:NTR?
-81C,Tg,7532,,,,,UAS:NTR-RFP
-vglut2a + UAS:NTR,Tg,7946,,,,,
-QUAS:NTR,Tg,7729,,,,,
-QUAS:epNTR,Tg,7931,mpn165,,,,called QUAS:NTR in the 28.10 pcbp3 cross
-blu,ENU point mutation,,,tc257z,ZDB-ALT-980203-1099,,imported from JL
-gr,ENU point mutation,7664,,s357,ZDB-ALT-050617-30,,
-lak,mutant,7683 / 7853,,atoh7^th241,,,
-mecp2,ENU point mutation,7986,,mecp2^Q63*,,,
-TLN,wild type,7654,,,,,TL nacre
-AB,wild type,8113,,AB,ZDB-GENO-960809-7,,from Bettina Schmid/DZNE
-WIK,wild type,7177 / 7066,,WIK,,,
+line,type,facility_ids,mpn,zfin,zfin_id,mapzebrain,notes,genetic_elements
+s1010t + UAS:NTR,enhancer trap,7923,,s1010tEt,ZDB-ALT-070420-11,s1010tEt,which UAS:NTR allele?,Gal4s1010t / WT-TLN / UAS:Kaede[s1999t] / UAS-E1b:NTR-mCherry c264Tg
+s1149t,enhancer trap,7746,,s1149tEt,,,,Gal4s1149t / WT-TL / WT-TLN
+s1026t,enhancer trap,7927,,s1026tEt,ZDB-ALT-080327-4,s1026tEt,,Gal4s1026t / WT-TLN / UAS-E1b:NTR-mCherry c264Tg
+s1042t,enhancer trap,8187,,s1042tEt,ZDB-ALT-080327-20,,,Gal4s1042t / WT-TLN / UAS:Kaede[s1999t]
+s1146t,enhancer trap,8173,,s1146tEt,ZDB-ALT-080327-115,s1146tEt,,Gal4s1146t / WT-TLN / UAS:Kaede[s1999t]
+gSAIzGFFM242A,gene trap,7697,,,,nk242AGt,ZFIN name nk242AGt?,UAS:Dendra[s1998] / gSAIzGFFM242A
+y359:Gal4,enhancer trap,7720,,y359Et,,,,WT-TLN / UAS:Kaede[s1999t] / Tg(-3.0dbh:Gal4ff)[y359]
+y532:NTR,enhancer trap,7572 / 7686,,Et(cfos:Gal4ff)y532,,,which NTR allele?,UAS-E1b:NTR-mCherry c264Tg / y532
+atf5b:NTR,CRISPR knock-in,7793,,,,mpn(atf5b:QF2)Tg,atf5b:QF2 + QUAS:NTR?,WT-TLN / QUAS:epNTR-tagRFP[mpn165] / atf5b:QF2[mpn422]
+cart2:QF2,CRISPR knock-in,7952 / 7915,,,,mpn(cart2:QF2)tg,effector of the screen cross unknown,QUAS:epNTR-tagRFP[mpn165]
+ccka:NTR,CRISPR knock-in,7794,,,,mpn(ccka:QF2)Tg,ccka:QF2 + QUAS:NTR?,WT-TLN / QUAS:GCamp6s[mpn164] / QUAS:epNTR-tagRFP[mpn165] / ccka:QF2
+chata:Gal4,BAC Tg,7880,mpn202,mpn202Tg,ZDB-ALT-170908-4,mpn202Tg,,WT-TLN / UAS:Dendra[s1998] / Chata: Gal4VP16 (A6)[mpn202]
+cort:NTR,CRISPR knock-in,7631 / 7703,mpn430,,,mpn(sst7:QF2)Tg,cort:QF2 (mpn430) + QUAS:NTR?,QUAS:epNTR-tagRFP[mpn165] / Tg(cort:QF2)[mpn430]
+drd2a:Gal4,BAC Tg,7881,mpn211,mpn211Tg,ZDB-ALT-170908-9,mpn211Tg,,UAS:Dendra[s1998] / drd2a:Gal4[mpn211]
+gbx:QF2 + mpn1,CRISPR knock-in,8022,,,,mpn(gbx2:QF2)Tg,what is mpn1?,QUAS:epNTR-tagRFP[mpn165]
+gfra:QF2,gene driver,8019,,,,,which gfra gene?,QUAS:epNTR-tagRFP[mpn165]
+id2b:NTR,BAC Tg,7669,mpn215,mpn215Tg,ZDB-ALT-170908-14,mpn215Tg,id2b:Gal4 (mpn215) + which UAS:NTR?,WT-TL / WT-TLN / UAS:GCaMP6s[mpn101] / Id2b:Gal4VP16[mpn215] / UAS:epNTR-tRFPt[mpn123]
+mpn168 + insm2:QF2,gene driver,7953,mpn168,,,mpn(insm2:QF2),,QUAS:switchNTR[mpn168] / insm2:QF2
+mpn169 + mpn408 + ebf1b:Cre,Tg,7978,mpn169 + mpn408,,,mpn169(QUAS:switchG6) + ebf1b:Cre,mpn169 = QUAS:switchG6 (NTR?) - mpn408 = mafaa:QF2?,WT-TLN / QUAS:switchNTR[mpn168] / mafaa:QF2[mpn408] / ebf1b:Cre_CH
+isl1:Gal4 + m1230,gene driver,7910,,,,,what is m1230?,WT-TLN / Tg(UAS:EGFPCAAX) m1230 / isl1:Gal4[hu10018Tg]
+lhx2b,gene driver,7690,,,,,Gal4?,UAS:Dendra[s1998] / Lhx2b:Gal4VP16[mpn216]
+lhx9:NTR,gene driver,7912 / 7913,,,,,tank labeled strongest,isl2b:tagRFP[zc80Tg] | QUAS:epNTR-tagRFP[mpn165]
+mafaa:NTR,gene driver,7914,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:NTR?,QUAS:epNTR-tagRFP[mpn165]
+mafaa:switchNTR,gene driver,7915,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:switchNTR - carries ath5:Cre?,QUAS:epNTR-tagRFP[mpn165]
+Huc:Cre,gene driver,7916,mpn403,,,,elavl3:Cre,insm2:QF2
+meis2b:Cre,gene driver,8164,,,,,,WT-TLN / QUAS:switchNTR[mpn168] / meis2b:Cre_CH
+mpn206 + UAS:NTR-mCherry,MPN line,8153,mpn206,,,,sperm,WT-TLN / UAS:Ntr-mCherry[c264Tg] / cxcr4b:Gal4[mpn206]
+mpn302 + Dendra,MPN line,8151,mpn302,,,,sperm,Gal4mpn302[mpn302] / WT-TLN / UAS:Kaede[s1999t] / UAS-E1b:NTR-mCherry c264Tg
+mpn304,MPN line,8197,mpn304,,,,,Gal4mpn304[mpn304] / UAS:Kaede[s1999t] / UAS:Ntr-mCherry[c264Tg]
+mpn310 + Dendra,MPN line,8152,mpn310,,,,sperm,Gal4mpn310[mpn310] / WT-TLN / UAS:Dendra[s1998] / UAS-E1b:NTR-mCherry c264Tg
+mpn318,MPN line,8155,mpn318,,,,,Gal4mpn318[mpn318] / WT-TLN / UAS-E1b:NTR-mCherry c264Tg
+opn4b,gene driver,,,,,,,
+pcbp3:QF2,gene driver,7687 / 8099,mpn429,,,,,QUAS:GCamp6s[mpn164] / Tg(pcbp3:QF2)[mpn429]
+pmch2:Gal4,gene driver,7670,,,,,pmch2:Gal4 - UAS:Dendra in one cross,WT-TL / WT-TLN / UAS:Dendra[s1998] / pmch:gal4[mpn419]
+pmchl:NTR,gene driver,7529,,,,,,WT-TLN / UAS:Dendra[s1998] / UAS-E1b:NTR-mCherry c264Tg / pmchl:Gal4[mpn418]
+pth2:NTR,gene driver,7854,,,,,,QUAS:epNTR-tagRFP[mpn165] / pth2:QF2
+rspo1:NTR,gene driver,7798,,,,,,WT-TLN / QUAS:epNTR-tagRFP[mpn165] / rspo1:QF2[mpn424]
+tbr1b:NTR,gene driver,7799,,,,,QF2? crossed to QUAS:NTR for run3,WT-TLN / QUAS:epNTR-tagRFP[mpn165] / tbr1b:QF2[mpn409]
+th:Gal4 + m1233,gene driver,7875,,,,,what is m1233?,WT-TLN / UAS:GCaMP6s[mpn101] / th:Gal4[m1233]
+itpr1b:NTR,gene driver,7796,mpn423,,,,itpr1b:QF2 (mpn423) + QUAS:NTR?,WT-TLN / QUAS:epNTR-tagRFP[mpn165] / itpr1b:QF2[mpn423]
+81C,Tg,7532,,,,,UAS:NTR-RFP,WT-TLN / SAGFF(LF)81C / UAS-E1b:NTR-mCherry c264Tg
+vglut2a + UAS:NTR,Tg,7946,,,,,,WT-TLN / Vglut2a:Gal4 / UAS-E1b:NTR-mCherry c264Tg
+QUAS:NTR,Tg,7729,,,,,,QUAS:epNTR-tagRFP[mpn165]
+QUAS:epNTR,Tg,7931,mpn165,,,,called QUAS:NTR in the 28.10 pcbp3 cross,WT-TLN / QUAS:epNTR-tagRFP[mpn165]
+blu,ENU point mutation,,,tc257z,ZDB-ALT-980203-1099,,imported from JL,
+gr,ENU point mutation,7664,,s357,ZDB-ALT-050617-30,,,WT-TL / GR s357
+lak,mutant,7683 / 7853,,atoh7^th241,,,,WT-TL / Lak th241
+mecp2,ENU point mutation,7986,,mecp2^Q63*,,,,WT-AB / mecp2[fh232]
+TLN,wild type,7654,,,,,TL nacre,WT-TL / WT-TLN
+AB,wild type,8113,,AB,ZDB-GENO-960809-7,,from Bettina Schmid/DZNE,WT-AB
+WIK,wild type,7177 / 7066,,WIK,,,,dlx5a-dlx6a:itTA / GTac:GCaMP5[tf0006] | WT-Wik
