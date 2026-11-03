@@ -225,12 +225,13 @@ class SidedSurvivalProcess(SurvivalProcess):
 
 class SidedRenewalProcess(PointProcess):
     """
-    lambda_side(t, m) = kernel_side(t, m) * rho(t - last bout) * excitation(t - last event),
+    lambda(t, m) = rho(t - last bout) * (kernel_ipsi + kernel_contra + excitation(t - last event)),
+    each event ipsi with probability kernel_ipsi / (kernel_ipsi + kernel_contra):
     kernels and D as in SidedPoissonProcess, rho a renewal kernel of the time since
     the stream's last bout of any category or side (dataset.history), excitation
-    (optional) one of the time since the last event of either side. Fitted as a
-    RenewalProcess of all events with kernel ipsi + contra, each event ipsi with
-    probability kernel_ipsi / (kernel_ipsi + kernel_contra): rho cancels there.
+    (optional, an absolute burst rate) one of the time since the last event of
+    either side, whose bursts share the stimulus-driven side split. Fitted as a
+    RenewalProcess of all events with kernel ipsi + contra and the side split.
     """
 
     def __init__(
@@ -259,7 +260,8 @@ class SidedRenewalProcess(PointProcess):
         self.name = f"SidedRenewal[{ipsi.name} | {contra.name}, history: {renewal_kernel.name}" + (
             f", events: {excitation.name}]" if excitation is not None else "]"
         )
-        self.latex_formula = "$" + r" \times ".join([self.sides.latex_formula.strip("$")] + [k.latex_formula.strip("$") for k in history]) + "$"
+        total = r"\lambda = \rho(\Delta t)\,(\lambda_{ipsi} + \lambda_{contra}" + (r" + E(\Delta t))" if excitation is not None else ")")
+        self.latex_formula = "$" + r";\ ".join([self.sides.latex_formula.strip("$"), total] + [k.latex_formula.strip("$") for k in history]) + "$"
 
     def set_params(self, params: np.ndarray) -> None:
         super().set_params(params)
@@ -287,6 +289,17 @@ class SidedRenewalProcess(PointProcess):
     ) -> Tuple[float, np.ndarray, np.ndarray]:
         log_rates, n, S = self.ground.stream_likelihood_terms(dataset, params)
         return log_rates + self._side_log_likelihood(dataset, params), n, S
+
+    @property
+    def gain_scales_drive_only(self) -> bool:
+        return self.ground.gain_scales_drive_only
+
+    def drive_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
+        constant, *terms = self.ground.drive_likelihood_terms(dataset, params)
+        return (constant + self._side_log_likelihood(dataset, params), *terms)
+
+    def drive_stream_profile(self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None):
+        return self.ground.drive_stream_profile(t_ev, trial, duration_s, history=history)
 
     def ipsi_probability(self, t: np.ndarray, trial: np.ndarray) -> np.ndarray:
         return self.sides.ipsi_probability(t, trial)

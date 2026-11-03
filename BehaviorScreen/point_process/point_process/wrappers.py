@@ -75,6 +75,16 @@ class Wrapper(PointProcess):
     def uses_history(self) -> bool:
         return self.base_process.uses_history
 
+    @property
+    def gain_scales_drive_only(self) -> bool:
+        return self.base_process.gain_scales_drive_only
+
+    def drive_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
+        return self.base_process.drive_likelihood_terms(dataset, self._base_params(params))
+
+    def drive_stream_profile(self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None):
+        return self.base_process.drive_stream_profile(t_ev, trial, duration_s, history=history)
+
 
 class PartiallyFixedProcess(Wrapper):
     """

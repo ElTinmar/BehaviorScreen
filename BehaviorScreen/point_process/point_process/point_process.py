@@ -200,3 +200,8 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
     def uses_history(self) -> bool:
         """Whether the intensity depends on the stream's bouts outside the events (dataset.history)."""
         return False
+
+    @property
+    def gain_scales_drive_only(self) -> bool:
+        """Whether a fish gain scales only part of the intensity (drive_likelihood_terms) instead of all of it."""
+        return False

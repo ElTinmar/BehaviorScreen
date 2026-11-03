@@ -229,6 +229,32 @@ class RenewalKernelFactory:
 
 
     @staticmethod
+    def burst_excitation(shape_k: float = 2.0, rate_init: float = 0.5, peak_lag_init: float = 0.4) -> RenewalKernel:
+        """
+        Extra rate (Hz) after an event, added to the stimulus-driven rate:
+
+            E(lag) = A_burst * pulse(lag; t_peak, k),  pulse(t_peak) = 1
+
+        Absolute, not relative to the driven rate: a fish's gain scales what the
+        stimulus drives, not its bursts, so no fish can run away into endless bursts.
+        """
+        def _func(lag, params):
+            A_burst, burst_peak_lag = params
+            return A_burst * peak_normalized_pulse(lag, burst_peak_lag, shape_k)
+
+        return RenewalKernel(
+            name=f"Burst(k={shape_k:g})",
+            func=_func,
+            param_names=["A_burst", "burst_peak_lag"],
+            initial_guesses=[rate_init, peak_lag_init],
+            bounds=[(0.0, 20.0), (0.02, 5.0)],
+            latex_formula=(
+                r"$E(\Delta t)=A_{\mathrm{burst}}\left(\frac{\Delta t}{t_p}\right)^k"
+                r"\exp\left[k\left(1-\frac{\Delta t}{t_p}\right)\right]$"
+            ),
+        )
+
+    @staticmethod
     def dead_time_delayed_excitation(
         dead_time_s: float,
         shape_k: float = 2.0,
@@ -264,16 +290,17 @@ class RenewalKernelFactory:
 class RenewalProcess(PointProcess):
     """
     Modulated renewal process: a rate kernel of time in trial and trial number
-    (as in PoissonProcess) times a recovery function of the time since the
-    stream's last bout of any category or side (dataset.history), and
-    optionally times an excitation function of the time since the last event
-    (selected bout):
+    (as in PoissonProcess), plus optionally a burst rate after each event
+    (selected bout), both times a recovery function of the time since the
+    stream's last bout of any category or side (dataset.history):
 
-        lambda(t | history) = kernel(t, m) * renewal_kernel(t - t_last bout) * excitation(t - t_last event)
+        lambda(t | history) = renewal_kernel(t - t_last bout) * (kernel(t, m) + excitation(t - t_last event))
 
-    The recovery describes refractoriness after any bout; the excitation,
-    bursts of the selected bouts (e.g. hunting sequences of J-turns). Each is 1
-    before the first bout or event of a trial.
+    The recovery describes refractoriness after any bout; the excitation
+    (an absolute rate, e.g. RenewalKernelFactory.burst_excitation), bursts of the
+    selected bouts such as hunting sequences of J-turns. Each is absent before the
+    first bout or event of a trial. A fish gain scales kernel only
+    (gain_scales_drive_only when there is an excitation).
     """
 
     _CHUNK: ClassVar[int] = 8192 #65536
@@ -292,10 +319,17 @@ class RenewalProcess(PointProcess):
         self.name = f"Renewal rate: {kernel.name}, history: {renewal_kernel.name}" + (
             f", events: {excitation.name}" if excitation is not None else ""
         )
-        self.latex_formula = "$" + r" \times ".join(p.latex_formula.strip("$") for p in parts) + "$"
+        formula = lambda k: k.latex_formula.strip("$").split("=", 1)[-1]
+        drive = formula(kernel) + (f" + {formula(excitation)}" if excitation is not None else "")
+        self.latex_formula = rf"$\lambda = {formula(renewal_kernel)} \times \left({drive}\right)$"
         self.initial_guesses = sum((list(p.initial_guesses) for p in parts), [])
         self.bounds = sum((list(p.bounds) for p in parts), [])
         self.param_names = sum((list(p.param_names) for p in parts), [])
+
+    @property
+    def gain_scales_drive_only(self) -> bool:
+        """A fish gain scales the stimulus-driven rate, not the bursts: not a gain on the whole intensity."""
+        return self.excitation is not None
 
     def _split(self, params: List[float]) -> Tuple[List[float], List[float], List[float]]:
         """(rate kernel, renewal kernel, excitation) parameters."""
@@ -304,28 +338,29 @@ class RenewalProcess(PointProcess):
         return list(params[:a]), list(params[a:b]), list(params[b:])
 
     def _excitation(self, lags: np.ndarray, params_excitation: List[float]) -> np.ndarray:
-        """excitation(lag), and 1 without excitation or before the first event (lag NaN)."""
-        result = np.ones(np.shape(lags))
+        """excitation(lag), and 0 without excitation or before the first event (lag NaN)."""
+        result = np.zeros(np.shape(lags))
         prior = ~np.isnan(lags)
         if self.excitation is not None:
             result[prior] = self.excitation.evaluate(np.asarray(lags)[prior], params_excitation)
         return result
 
-    def _segment_integral(
+    def _segment_integrals(
         self, t0: float, t1: float, trial: float, params: List[float], t_bout: Optional[float], t_event: Optional[float]
-    ) -> float:
-        """Integral of the intensity over [t0, t1], the last bout at t_bout and the last event at t_event (None: none)."""
+    ) -> Tuple[float, float]:
+        """Integrals over [t0, t1] of the driven and the burst intensity, the last bout at t_bout and the last event at t_event."""
         if t1 <= t0:
-            return 0.0
+            return 0.0, 0.0
         params_base, params_renewal, params_excitation = self._split(params)
         grid = np.arange(t0, t1 + self.integration_dt, self.integration_dt)
         grid[-1] = min(grid[-1], t1)
-        lam = self.kernel.evaluate(grid, np.full_like(grid, trial), params_base)
-        if t_bout is not None:
-            lam = lam * self.renewal_kernel.evaluate(grid - t_bout, params_renewal)
-        if t_event is not None:
-            lam = lam * self._excitation(grid - t_event, params_excitation)
-        return trapezoid(lam, grid)
+        rho = np.ones_like(grid) if t_bout is None else self.renewal_kernel.evaluate(grid - t_bout, params_renewal)
+        drive = rho * self.kernel.evaluate(grid, np.full_like(grid, trial), params_base)
+        burst = rho * (self._excitation(grid - t_event, params_excitation) if t_event is not None else 0.0 * grid)
+        return trapezoid(drive, grid), trapezoid(burst, grid)
+
+    def _segment_integral(self, t0: float, t1: float, trial: float, params: List[float], t_bout: Optional[float], t_event: Optional[float]) -> float:
+        return sum(self._segment_integrals(t0, t1, trial, params, t_bout, t_event))
 
     @staticmethod
     def _trapezoid_weights(grid: np.ndarray) -> np.ndarray:
@@ -382,24 +417,23 @@ class RenewalProcess(PointProcess):
 
     def _dataset_grid(self, dataset: PointProcessDataset) -> Dict[str, np.ndarray]:
         """All streams' grids and events in flat arrays (data only, so cached on the dataset)."""
-        keys = ("times", "weights", "ages", "event_ages", "trials", "stream", "event_times", "event_lags", "event_event_lags", "event_trials", "event_stream")
+        keys = ("times", "weights", "ages", "event_ages", "trials", "stream", "event_times", "event_lags", "event_event_lags", "event_trials", "event_fish")
         parts = {key: [] for key in keys}
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             bouts = dataset.history_times(f_idx, t_idx)
             times, weights, ages, event_ages = self._stream_grid(bouts, t_ev, dataset.duration_s)
             for key, value in zip(("times", "weights", "ages", "event_ages"), (times, weights, ages, event_ages)):
                 parts[key].append(value)
-            stream = f_idx * dataset.num_trials + t_idx
             parts["trials"].append(np.full(len(times), t_idx, dtype=float))
-            parts["stream"].append(np.full(len(times), stream))
+            parts["stream"].append(np.full(len(times), f_idx * dataset.num_trials + t_idx))
             parts["event_times"].append(t_ev)
             previous = np.searchsorted(bouts, t_ev) - 1  # the bout before each event
             parts["event_lags"].append(np.where(previous >= 0, t_ev - bouts[np.maximum(previous, 0)], np.nan))
             parts["event_event_lags"].append(np.diff(t_ev, prepend=np.nan))
             parts["event_trials"].append(np.full(len(t_ev), t_idx, dtype=float))
-            parts["event_stream"].append(np.full(len(t_ev), stream))
+            parts["event_fish"].append(np.full(len(t_ev), f_idx))
         grid = {key: np.concatenate([np.empty(0)] + values) for key, values in parts.items()}
-        grid["stream"], grid["event_stream"] = grid["stream"].astype(np.int32), grid["event_stream"].astype(int)
+        grid["stream"], grid["event_fish"] = grid["stream"].astype(np.int32), grid["event_fish"].astype(int)  # events by fish, in order
         grid["weights"] = grid["weights"].astype(np.float32)
         # Ages after a bout mostly sit on the k * integration_dt lattice (segment
         # ends do not). The step past the lattice holds 1: no previous bout.
@@ -417,7 +451,7 @@ class RenewalProcess(PointProcess):
         grid["table_index"] = (grid.pop("trials") * columns + start).astype(np.int32)
         event_ages = grid.pop("event_ages")
         if self.excitation is not None:
-            none = np.isnan(event_ages)  # before the first event: the table's last points hold 1
+            none = np.isnan(event_ages)  # before the first event: the table's last points hold 0
             start, fraction = self._table_positions(np.where(none, 0.0, event_ages), columns)
             grid["excitation_index"] = np.where(none, columns, start).astype(np.int32)
             grid["excitation_fraction"] = np.where(none, 0.0, fraction).astype(np.float32)
@@ -442,13 +476,13 @@ class RenewalProcess(PointProcess):
         rho[prior] = self.renewal_kernel.evaluate(ages[prior], params_renewal)
         return rho
 
-    def _log_intensities_and_exposure(
+    def _drive_terms(
         self, dataset: PointProcessDataset, params: List[float]
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
-        Log intensity at every event, and the compensator per stream (fish x
-        trial). The grid is processed in chunks that stay in the CPU cache
-        (whole-array temporaries cost page faults and memory bandwidth).
+        At every event (by fish, in order) the driven and the burst rate, its fish,
+        and per stream (fish x trial) the integrals of both. The grid is processed
+        in chunks that stay in the CPU cache.
         """
         params_base, params_renewal, params_excitation = self._split(params)
         grid = dataset.cached(
@@ -460,24 +494,58 @@ class RenewalProcess(PointProcess):
         table = self._rate_table(dataset, params_base)
         if self.excitation is not None:
             lags = np.arange(self._table_columns(dataset)) * self._table_dt
-            excitation = np.append(self.excitation.evaluate(lags, params_excitation), [1.0, 1.0])
-        exposure = np.zeros(dataset.num_fish * dataset.num_trials)
+            excitation = np.append(self.excitation.evaluate(lags, params_excitation), [0.0, 0.0])
+        n_streams = dataset.num_fish * dataset.num_trials
+        drive_exposure, burst_exposure = np.zeros(n_streams), np.zeros(n_streams)
         interpolate = lambda values, index, fraction: values[index] + fraction * (values[index + 1] - values[index])
         for a in range(0, len(grid["weights"]), self._CHUNK):
             b = a + self._CHUNK
             rho = lattice[grid["lattice_step"][a:b]]
             lo, hi = np.searchsorted(off, [a, b])
             rho[off[lo:hi] - a] = off_rho[lo:hi]
-            integrand = grid["weights"][a:b] * interpolate(table, grid["table_index"][a:b], grid["table_fraction"][a:b]) * rho
+            weight, stream = grid["weights"][a:b] * rho, grid["stream"][a:b]
+            drive = weight * interpolate(table, grid["table_index"][a:b], grid["table_fraction"][a:b])
+            drive_exposure += np.bincount(stream, weights=drive, minlength=n_streams)
             if self.excitation is not None:
-                integrand *= interpolate(excitation, grid["excitation_index"][a:b], grid["excitation_fraction"][a:b])
-            exposure += np.bincount(grid["stream"][a:b], weights=integrand, minlength=len(exposure))
-        event_rates = (
-            self.kernel.evaluate(grid["event_times"], grid["event_trials"], params_base)
-            * self._modulation(grid["event_lags"], params_renewal)
-            * self._excitation(grid["event_event_lags"], params_excitation)
-        )
-        return np.log(np.maximum(event_rates, 1e-300)), exposure.reshape(dataset.num_fish, dataset.num_trials)
+                burst = weight * interpolate(excitation, grid["excitation_index"][a:b], grid["excitation_fraction"][a:b])
+                burst_exposure += np.bincount(stream, weights=burst, minlength=n_streams)
+        rho_events = self._modulation(grid["event_lags"], params_renewal)
+        drive_rates = rho_events * self.kernel.evaluate(grid["event_times"], grid["event_trials"], params_base)
+        burst_rates = rho_events * self._excitation(grid["event_event_lags"], params_excitation)
+        shape = (dataset.num_fish, dataset.num_trials)
+        return drive_rates, burst_rates, grid["event_fish"], drive_exposure.reshape(shape), burst_exposure.reshape(shape)
+
+    def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
+        drive_rates, burst_rates, _, drive_exposure, burst_exposure = self._drive_terms(dataset, params)
+        log_rates = np.log(np.maximum(drive_rates + burst_rates, 1e-300))
+        return -(float(np.sum(log_rates)) - float(drive_exposure.sum() + burst_exposure.sum()))
+
+    def drive_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        For a gain on the driven rate only: a constant log-likelihood term, the
+        driven and burst rates at every event and its fish (non-decreasing), and
+        the driven and burst exposure per fish.
+        """
+        drive_rates, burst_rates, fish, drive_exposure, burst_exposure = self._drive_terms(dataset, params)
+        return 0.0, drive_rates, burst_rates, fish, drive_exposure.sum(axis=1), burst_exposure.sum(axis=1)
+
+    def stream_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        """Sum of log intensities, and events and compensator per stream (fish x trial); a gain on the whole intensity."""
+        if self.excitation is not None:
+            raise ValueError(f"{self.name}: a gain scales its driven rate only (drive_likelihood_terms)")
+        drive_rates, _, _, drive_exposure, _ = self._drive_terms(dataset, params)
+        return float(np.sum(np.log(np.maximum(drive_rates, 1e-300)))), dataset.event_counts_per_stream(), drive_exposure
+
+    def mixed_effects_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        """Terms per fish of a gain on the whole intensity (no excitation)."""
+        log_rates, n_events, exposure = self.stream_likelihood_terms(dataset, params)
+        return log_rates, n_events.sum(axis=1), exposure.sum(axis=1)
 
     def _stream_integral_and_ll(
         self, t_events: np.ndarray, trial: float, duration_s: float, params_base: List[float], params_renewal: List[float]
@@ -490,24 +558,6 @@ class RenewalProcess(PointProcess):
         integrand = weights * self.kernel.evaluate(times, np.full(len(times), trial, dtype=float), params_base)
         return float(np.sum(np.log(np.maximum(event_rates, 1e-300)))), float(np.dot(integrand, self._modulation(ages, params_renewal)))
 
-    def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
-        log_intensities, exposure = self._log_intensities_and_exposure(dataset, params)
-        return -(float(np.sum(log_intensities)) - float(np.sum(exposure)))
-
-    def stream_likelihood_terms(
-        self, dataset: PointProcessDataset, params: List[float]
-    ) -> Tuple[float, np.ndarray, np.ndarray]:
-        """Sum of log intensities, and events and compensator per stream (fish x trial)."""
-        log_intensities, exposure = self._log_intensities_and_exposure(dataset, params)
-        return float(np.sum(log_intensities)), dataset.event_counts_per_stream(), exposure
-
-    def mixed_effects_likelihood_terms(
-        self, dataset: PointProcessDataset, params: List[float]
-    ) -> Tuple[float, np.ndarray, np.ndarray]:
-        """The intensity is multiplicative, so a fish gain scales all of it: terms per fish."""
-        log_rates, n_events, exposure = self.stream_likelihood_terms(dataset, params)
-        return log_rates, n_events.sum(axis=1), exposure.sum(axis=1)
-
     def predict(
         self,
         t: np.ndarray,
@@ -515,7 +565,7 @@ class RenewalProcess(PointProcess):
         history_events: Optional[np.ndarray] = None,
         selected_events: Optional[np.ndarray] = None,
     ) -> np.ndarray:
-        """Intensity at t given the stream's bouts (history_events) and its events (selected_events)."""
+        """Intensity at t (gain 1) given the stream's bouts (history_events) and its events (selected_events)."""
         self._require_fitted()
         params_base, params_renewal, params_excitation = self._split(self.params_)
         t = np.asarray(t, dtype=float)
@@ -525,9 +575,8 @@ class RenewalProcess(PointProcess):
             k = np.searchsorted(points, t, side="right") - 1
             return np.where(k >= 0, t - points[np.maximum(k, 0)] if len(points) else np.nan, np.nan)
 
-        rate = self.kernel.evaluate(t, trial, params_base)
-        rate = rate * self._modulation(since_last(history_events).ravel(), params_renewal).reshape(t.shape)
-        rate = rate * self._excitation(since_last(selected_events), params_excitation)
+        rho = self._modulation(since_last(history_events).ravel(), params_renewal).reshape(t.shape)
+        rate = rho * (self.kernel.evaluate(t, trial, params_base) + self._excitation(since_last(selected_events), params_excitation))
         return np.maximum(rate, 1e-9)
 
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
@@ -539,12 +588,12 @@ class RenewalProcess(PointProcess):
             active_count[t_idx] += 1
         return np.where(active_count[:, None] > 0, rate_sum / np.maximum(active_count, 1)[:, None], 0.0)
 
-    def cumulative_integrated_intensity(
+    def compensator_parts(
         self, t_events: np.ndarray, trial: float, history: Optional[np.ndarray] = None
-    ) -> np.ndarray:
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Compensator at each of t_events: every point but the last is an event
-        (a bout). history: the stream's bouts (default: those events).
+        Driven and burst compensators at each of t_events: every point but the
+        last is an event (a bout). history: the stream's bouts (default: those events).
         """
         self._require_fitted()
         t_events = np.sort(np.asarray(t_events, dtype=float))
@@ -553,11 +602,17 @@ class RenewalProcess(PointProcess):
         edges = np.union1d(bouts, t_events)
         starts = np.concatenate([[0.0], edges[:-1]])
         last_event = np.searchsorted(events, starts, side="right") - 1
-        segments = [
-            self._segment_integral(a, b, trial, self.params_, a if i else None, events[k] if k >= 0 else None)
+        segments = np.array([
+            self._segment_integrals(a, b, trial, self.params_, a if i else None, events[k] if k >= 0 else None)
             for i, (a, b, k) in enumerate(zip(starts, edges, last_event))
-        ]
-        return np.cumsum(segments)[np.searchsorted(edges, t_events)]
+        ]).reshape(-1, 2)
+        positions = np.searchsorted(edges, t_events)
+        return np.cumsum(segments[:, 0])[positions], np.cumsum(segments[:, 1])[positions]
+
+    def cumulative_integrated_intensity(
+        self, t_events: np.ndarray, trial: float, history: Optional[np.ndarray] = None
+    ) -> np.ndarray:
+        return np.add(*self.compensator_parts(t_events, trial, history))
 
     def stream_compensator_profile(
         self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None
@@ -565,6 +620,19 @@ class RenewalProcess(PointProcess):
         probes = np.append(np.sort(np.asarray(t_ev, dtype=float)), float(duration_s))
         cumulative = self.cumulative_integrated_intensity(probes, trial, history=history)
         return probes, cumulative, True, float(cumulative[-1])
+
+    def drive_stream_profile(
+        self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """For a gain on the driven rate only: driven and burst compensators at the events and trial end, and both rates at the events."""
+        t_ev = np.sort(np.asarray(t_ev, dtype=float))
+        drive_cum, burst_cum = self.compensator_parts(np.append(t_ev, float(duration_s)), trial, history)
+        bouts = t_ev if history is None else np.asarray(history, dtype=float)
+        previous = np.searchsorted(bouts, t_ev) - 1
+        _, params_renewal, params_excitation = self._split(self.params_)
+        rho = self._modulation(np.where(previous >= 0, t_ev - bouts[np.maximum(previous, 0)], np.nan), params_renewal)
+        drive_rates = rho * self.kernel.evaluate(t_ev, np.full(t_ev.shape, trial, dtype=float), self._split(self.params_)[0])
+        return drive_cum, burst_cum, drive_rates, rho * self._excitation(np.diff(t_ev, prepend=np.nan), params_excitation)
 
     @property
     def uses_history(self) -> bool:
@@ -575,27 +643,26 @@ class RenewalProcess(PointProcess):
         others: Optional[np.ndarray] = None,
     ) -> np.ndarray:
         """
-        Thinning, the last bout being the last simulated event or the last of
-        `others` (the stream's observed bouts that are not events), whichever
-        is later; the last event, the last simulated one.
+        Thinning of renewal * (gain * kernel + excitation), the last bout being the
+        last simulated event or the last of `others` (the stream's observed bouts
+        that are not events), whichever is later; the last event, the last simulated one.
         """
         others = np.empty(0) if others is None else np.sort(others)
         params_base, params_renewal, params_excitation = self._split(self.params_)
         lags = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
         upper = (
-            gain * self._intensity_upper_bound(dataset, t_idx)
-            * max(1.0, float(np.max(self.renewal_kernel.evaluate(lags, params_renewal))))
-            * float(np.max(self._excitation(lags, params_excitation)))
-        )  # _intensity_upper_bound has the safety margin
+            max(1.0, float(np.max(self.renewal_kernel.evaluate(lags, params_renewal))))
+            * (gain * self._intensity_upper_bound(dataset, t_idx) + float(np.max(self._excitation(lags, params_excitation))) * self._THINNING_SAFETY_MARGIN)
+        )
 
         def intensity(t: float, events: List[float]) -> float:
             k = np.searchsorted(others, t)
             last_bout = max(events[-1] if events else -np.inf, others[k - 1] if k else -np.inf)
             rate = gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), params_base)[0]
+            if events:
+                rate += self._excitation(np.array([t - events[-1]]), params_excitation)[0]
             if last_bout > -np.inf:
                 rate *= self.renewal_kernel.evaluate(np.array([t - last_bout]), params_renewal)[0]
-            if events:
-                rate *= self._excitation(np.array([t - events[-1]]), params_excitation)[0]
             return rate
 
         return thin(intensity, lambda t, events: upper, dataset.duration_s, rng)

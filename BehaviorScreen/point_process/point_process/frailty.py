@@ -309,6 +309,10 @@ class Frailty(_GainWrapper):
     (a gain on the whole intensity). predict and the compensators are the
     population average (E[g] = 1); use estimate_fish_gains per fish.
 
+    With a base whose gain scales its driven rate only (gain_scales_drive_only,
+    e.g. a renewal process with bursts), lambda_f = drive * g_f + rest, g_f
+    integrated by quadrature (gamma_gain_evidence_by_fish); no trial gain then.
+
     trial_gain (Gamma gains only): a second gain per trial, h_fm ~ Gamma(a, a)
     (a: 'r_trial'), lambda_fm = g_f h_fm lambda_base: a fish's engagement varies
     from trial to trial around its own level. Needs
@@ -319,6 +323,8 @@ class Frailty(_GainWrapper):
 
     def __init__(self, base_process: PointProcess, gains: GainFamily, trial_gain: bool = False, a_init: float = 5.0) -> None:
         super().__init__(base_process, gains)
+        if trial_gain and base_process.gain_scales_drive_only:
+            raise ValueError(f"{base_process.name}: a trial gain needs a gain on the whole intensity")
         self.trial_gain = trial_gain
         trial = "+Trial" if trial_gain else ""
         self.name = f"{gains.prefix}GammaMixedEffects{trial}[{base_process.name}]{gains.suffix}"
@@ -337,6 +343,13 @@ class Frailty(_GainWrapper):
         return float(params[self._n_base + len(self.gains.param_names)])
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
+        if self.base_process.gain_scales_drive_only:
+            constant, drive_rates, burst_rates, fish, drive_exposure, burst_exposure = self.base_process.drive_likelihood_terms(
+                dataset, self._base_params(params)
+            )
+            log_z, _ = self._gain(params).evidence_by_fish(drive_rates, burst_rates, fish, drive_exposure, n_nodes=30)
+            active = dataset.fish_trial_mask.any(axis=1)
+            return -(constant + float(np.sum(log_z[active] - burst_exposure[active])))
         if self.trial_gain:
             base_ll, n, S = self.base_process.stream_likelihood_terms(dataset, self._base_params(params))
             if len(self._gain_mode) != dataset.num_fish:
@@ -365,6 +378,8 @@ class Frailty(_GainWrapper):
         Predictable compensator: each fish's trials in order, the gain
         posterior conditioned on events and exposure strictly before each probe.
         """
+        if self.base_process.gain_scales_drive_only:
+            return self._drive_stream_tau_values(dataset)
         gain = self._gain()
         result: StreamTaus = {}
         for f_idx, streams in groupby(dataset.iter_streams(), key=lambda stream: stream[0]):
@@ -387,8 +402,40 @@ class Frailty(_GainWrapper):
                 S_prev = S_offset
         return result
 
+    def _drive_stream_tau_values(self, dataset: PointProcessDataset) -> StreamTaus:
+        """
+        Time rescaling with a gain on the driven rate only: the marginal no-event
+        probability over each interval, tau = d burst + log Z(S) - log Z(S + d drive),
+        the gain posterior carried over the fish's trials (as BaselineFrailty).
+        """
+        gain, base = self._gain(), self.base_process
+        result: StreamTaus = {}
+        for f_idx, streams in groupby(dataset.iter_streams(), key=lambda stream: stream[0]):
+            drive_rates, burst_rates, S_drive = np.empty(0), np.empty(0), 0.0
+            for _, t_idx, t_ev in streams:
+                drive_cum, burst_cum, event_drive, event_burst = base.drive_stream_profile(
+                    t_ev, t_idx, dataset.duration_s, history=dataset.history_times(f_idx, t_idx)
+                )
+                d_drive, d_burst = np.diff(drive_cum, prepend=0.0), np.diff(burst_cum, prepend=0.0)
+                pairs = []
+                for k in range(len(d_drive)):
+                    log_z = gain.evidence(drive_rates, burst_rates, S_drive, 30)[0]
+                    tau = d_burst[k] + log_z - gain.evidence(drive_rates, burst_rates, S_drive + d_drive[k], 30)[0]
+                    censored = k == len(t_ev)
+                    pairs.append((float(max(tau, 0.0)), censored))
+                    S_drive += d_drive[k]
+                    if not censored:
+                        drive_rates, burst_rates = np.append(drive_rates, event_drive[k]), np.append(burst_rates, event_burst[k])
+                result[(f_idx, t_idx)] = pairs
+        return result
+
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         """Whole-session posterior per fish (for reporting, not for time rescaling)."""
+        if self.base_process.gain_scales_drive_only:
+            _, drive_rates, burst_rates, fish, drive_exposure, _ = self.base_process.drive_likelihood_terms(dataset, self._base_params(self.params_))
+            _, gains = self._gain().evidence_by_fish(drive_rates, burst_rates, fish, drive_exposure, n_nodes=30)
+            active = np.flatnonzero(dataset.fish_trial_mask.any(axis=1))
+            return pd.DataFrame({"fish_idx": active, "n_events": np.bincount(fish, minlength=dataset.num_fish)[active], "estimated_gain": gains[active]})
         gain = self._gain()
         _, N, S = self.base_process.mixed_effects_likelihood_terms(dataset, self._base_params(self.params_))
         active = dataset.fish_trial_mask.any(axis=1)
