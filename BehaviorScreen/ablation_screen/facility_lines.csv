@@ -24,7 +24,7 @@ lhx9:NTR,gene driver,7912 / 7913,,,,,tank labeled strongest
 mafaa:NTR,gene driver,7914,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:NTR?
 mafaa:switchNTR,gene driver,7915,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:switchNTR - carries ath5:Cre?
 Huc:Cre,gene driver,7916,mpn403,,,,elavl3:Cre
-meis2b:Cre,gene driver,,,,,,
+meis2b:Cre,gene driver,8164,,,,,
 mpn206 + UAS:NTR-mCherry,MPN line,8153,mpn206,,,,sperm
 mpn302 + Dendra,MPN line,8151,mpn302,,,,sperm
 mpn304,MPN line,8197,mpn304,,,,
