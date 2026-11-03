@@ -279,6 +279,7 @@ class RenewalProcess(PointProcess):
     """
 
     _CHUNK: ClassVar[int] = 8192 #65536
+    _TABLE_STEPS: ClassVar[int] = 4  # rate-kernel table points per integration step
 
     def __init__(
         self,
@@ -394,7 +395,25 @@ class RenewalProcess(PointProcess):
         grid["n_lattice"] = n_lattice
         grid["off_lattice"] = np.flatnonzero(~on_lattice & ~np.isnan(grid["ages"]))
         grid["off_ages"] = grid.pop("ages")[grid["off_lattice"]]
+        # The rate kernel on the grid is interpolated from a (trial x time) table:
+        # row-major index of the table point at or before each grid time, and the fraction past it.
+        position = grid.pop("times") / self._table_dt
+        start = np.minimum(np.floor(position), self._table_columns(dataset) - 2)
+        grid["table_index"] = (grid.pop("trials") * self._table_columns(dataset) + start).astype(np.int32)
+        grid["table_fraction"] = (position - start).astype(np.float32)
         return grid
+
+    @property
+    def _table_dt(self) -> float:
+        return self.integration_dt / self._TABLE_STEPS
+
+    def _table_columns(self, dataset: PointProcessDataset) -> int:
+        return int(np.ceil(dataset.duration_s / self._table_dt)) + 2
+
+    def _rate_table(self, dataset: PointProcessDataset, params_base: List[float]) -> np.ndarray:
+        """kernel(t, m) at every table time and trial, flattened row-major (trial x time)."""
+        t = np.arange(self._table_columns(dataset)) * self._table_dt
+        return self.kernel.evaluate(t[None, :], np.arange(dataset.num_trials)[:, None], params_base).ravel()
 
     def _modulation(self, ages: np.ndarray, params_renewal: List[float]) -> np.ndarray:
         """renewal_kernel(age), and 1 where there is no previous event (age NaN)."""
@@ -409,20 +428,25 @@ class RenewalProcess(PointProcess):
         """
         Log intensity at every event, and the compensator per fish. The grid
         is processed in chunks that stay in the CPU cache (whole-array
-        temporaries cost page faults and memory bandwidth).
+        temporaries cost page faults and memory bandwidth); on it the rate
+        kernel is linearly interpolated from a table _TABLE_STEPS times finer
+        than the grid (an error far below the trapezoid rule's own).
         """
         params_base, params_renewal = self._split_params(params)
         grid = dataset.cached(("renewal_grid", self.integration_dt), lambda: self._dataset_grid(dataset))
         lattice = self.renewal_kernel.evaluate(np.arange(grid["n_lattice"]) * self.integration_dt, params_renewal)
         lattice = np.append(lattice, 1.0)
         off, off_rho = grid["off_lattice"], self.renewal_kernel.evaluate(grid["off_ages"], params_renewal)
+        table = self._rate_table(dataset, params_base)
         exposure = np.zeros(dataset.num_fish)
-        for a in range(0, len(grid["times"]), self._CHUNK):
+        for a in range(0, len(grid["weights"]), self._CHUNK):
             b = a + self._CHUNK
             rho = lattice[grid["lattice_step"][a:b]]
             lo, hi = np.searchsorted(off, [a, b])
             rho[off[lo:hi] - a] = off_rho[lo:hi]
-            integrand = grid["weights"][a:b] * self.kernel.evaluate(grid["times"][a:b], grid["trials"][a:b], params_base) * rho
+            index, fraction = grid["table_index"][a:b], grid["table_fraction"][a:b]
+            rate = table[index] + fraction * (table[index + 1] - table[index])
+            integrand = grid["weights"][a:b] * rate * rho
             exposure += np.bincount(grid["fish"][a:b], weights=integrand, minlength=dataset.num_fish)
         event_rates = self.kernel.evaluate(grid["event_times"], grid["event_trials"], params_base) * self._modulation(
             grid["event_lags"], params_renewal

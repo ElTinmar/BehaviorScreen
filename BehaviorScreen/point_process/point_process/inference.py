@@ -426,7 +426,16 @@ class ModelComparator:
         else:
             ll_null = np.nan
 
-        results = [_fit_one_model(m, dataset, method, kwargs) for m in models]
+        results = []
+        fitted_values: Dict[str, float] = {}  # parameters already fitted, by name: where the next models start
+        for m in models:
+            m.initial_guesses = [
+                float(np.clip(fitted_values.get(n, g), lo if lo is not None else -np.inf, hi if hi is not None else np.inf))
+                for n, g, (lo, hi) in zip(m.param_names, m.initial_guesses, m.bounds)
+            ]
+            results.append(_fit_one_model(m, dataset, method, kwargs))
+            if results[-1][1] is None:
+                fitted_values.update(m.param_dict_)
         fitted_models: List[PointProcess] = []
         records = []
 
