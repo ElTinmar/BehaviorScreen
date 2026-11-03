@@ -39,6 +39,9 @@ class Wrapper(PointProcess):
     def mixed_effects_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
         return self.base_process.mixed_effects_likelihood_terms(dataset, self._base_params(params))
 
+    def stream_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
+        return self.base_process.stream_likelihood_terms(dataset, self._base_params(params))
+
     def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator, **history) -> np.ndarray:
         return self.base_process.simulate_stream(dataset, t_idx, gain, rng, **history)
 

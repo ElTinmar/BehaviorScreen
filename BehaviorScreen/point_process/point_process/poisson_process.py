@@ -627,6 +627,14 @@ class PoissonProcess(PointProcess):
             integration_dt=self.integration_dt,
         )
 
+    def stream_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        """Sum of log rates at the events, and events and expected events per stream (fish x trial)."""
+        log_rates = float(np.sum(np.log(self.kernel.evaluate(dataset.event_times, dataset.event_trials_idx, params))))
+        per_trial = self.kernel.integrate(dataset.duration_s, np.arange(dataset.num_trials), params, self.integration_dt)
+        return log_rates, dataset.event_counts_per_stream(), dataset.fish_trial_mask * per_trial[None, :]
+
     def mixed_effects_likelihood_terms(
         self, dataset: PointProcessDataset, params: List[float]
     ) -> Tuple[float, np.ndarray, np.ndarray]:

@@ -96,8 +96,11 @@ def renewal(kernel: RateKernel) -> RenewalProcess:
 
 
 def refractory_renewal(kernel: RateKernel) -> RenewalProcess:
-    """Bout rate times a smooth recovery from the last bout (any kind), fitted, plus delayed excitation."""
-    return RenewalProcess(kernel, RenewalKernelFactory.refractory_delayed_excitation())
+    """
+    Bout rate times a smooth recovery from the last bout of any kind (refractoriness)
+    and a delayed excitation from the last selected bout (bursts).
+    """
+    return RenewalProcess(kernel, RenewalKernelFactory.exponential_recovery(), RenewalKernelFactory.delayed_excitation())
 
 
 def hawkes(kernel: RateKernel) -> HawkesProcess:
@@ -113,7 +116,9 @@ def sided(ipsi: RateKernel, contra: RateKernel) -> SidedPoissonProcess:
 
 
 def sided_renewal(ipsi: RateKernel, contra: RateKernel) -> SidedRenewalProcess:
-    return SidedRenewalProcess(ipsi, contra, RenewalKernelFactory.refractory_delayed_excitation())
+    return SidedRenewalProcess(
+        ipsi, contra, RenewalKernelFactory.exponential_recovery(), RenewalKernelFactory.delayed_excitation()
+    )
 
 
 def sided_survival(kernel: RateKernel) -> SidedSurvivalProcess:
@@ -125,11 +130,14 @@ def sided_models(
     ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel], renewal: bool = False
 ) -> List[PointProcess]:
     """
-    Both sides of a stimulus in one model: without a fish effect, with a fish gain, and with a gain
-    and a side preference; for bouts (renewal), the last also as a renewal process.
+    Both sides of a stimulus in one model: without a fish effect, with a fish gain, with a gain and a
+    side preference, and with a trial gain as well; for bouts (renewal), the last two also as renewal processes.
     """
     models = [sided(ipsi(), contra()), gamma(sided(ipsi(), contra())), side_gamma(sided(ipsi(), contra()))]
-    return models + ([side_gamma(sided_renewal(ipsi(), contra()))] if renewal else [])
+    models.append(side_gamma(sided(ipsi(), contra()), trial_gain=True))
+    if renewal:
+        models += [side_gamma(sided_renewal(ipsi(), contra())), side_gamma(sided_renewal(ipsi(), contra()), trial_gain=True)]
+    return models
 
 
 def dataset(category, laterality, t_end: float, binning_dt: float = 0.05, **selection) -> dict:
@@ -149,7 +157,9 @@ def flat_models() -> List[PointProcess]:
         poisson(flat()),
         gamma(poisson(flat())),
         zero_inflated(poisson(flat())),
+        gamma(poisson(flat()), trial_gain=True),
         gamma(refractory_renewal(flat())),
+        gamma(refractory_renewal(flat()), trial_gain=True),
     ]
 
 
@@ -160,7 +170,9 @@ def rate_models(kernel: Callable[[], RateKernel]) -> List[PointProcess]:
         gamma(poisson(flat())),
         gamma(poisson(kernel())),
         zero_inflated(poisson(kernel())),
+        gamma(poisson(kernel()), trial_gain=True),
         gamma(refractory_renewal(kernel())),
+        gamma(refractory_renewal(kernel()), trial_gain=True),
     ]
 
 
@@ -243,7 +255,9 @@ def get_model_config() -> Dict[str, dict]:
                 # hawkes(prey("Peak_Baseline_Ripple")),
                 # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
                 # renewal(prey("Peak_Baseline_Ripple")),
+                gamma(poisson(prey("Peak_Baseline_Ripple")), trial_gain=True),
                 gamma(refractory_renewal(prey("Peak_Baseline_Ripple"))),
+                gamma(refractory_renewal(prey("Peak_Baseline_Ripple")), trial_gain=True),
             ],
         ),
         "prey_capture_contra": experiment(
@@ -255,7 +269,9 @@ def get_model_config() -> Dict[str, dict]:
                 # BaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
                 zero_inflated(poisson(flat())),
                 # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
+                gamma(poisson(flat()), trial_gain=True),
                 gamma(refractory_renewal(flat())),
+                gamma(refractory_renewal(flat()), trial_gain=True),
             ],
         ),
         "prey_capture_convergent_saccade": experiment(
@@ -331,7 +347,9 @@ def get_model_config() -> Dict[str, dict]:
                 gamma(poisson(flat())),
                 gamma(poisson(RateKernelFactory.phototaxis_ipsi())),
                 gamma(poisson(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
+                gamma(poisson(RateKernelFactory.phototaxis_dip_exgaussian_peak()), trial_gain=True),
                 gamma(refractory_renewal(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
+                gamma(refractory_renewal(RateKernelFactory.phototaxis_dip_exgaussian_peak()), trial_gain=True),
             ],
         ),
         "phototaxis_contra": experiment(
@@ -418,7 +436,9 @@ def get_model_config() -> Dict[str, dict]:
             [
                 gamma(poisson(RateKernelFactory.after_looming())),
                 zero_inflated(poisson(RateKernelFactory.after_looming())),
+                gamma(poisson(RateKernelFactory.after_looming()), trial_gain=True),
                 gamma(refractory_renewal(RateKernelFactory.after_looming())),
+                gamma(refractory_renewal(RateKernelFactory.after_looming()), trial_gain=True),
             ],
         ),
         "okr_conjugate_contra_saccades": experiment(

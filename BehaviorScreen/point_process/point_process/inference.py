@@ -101,7 +101,7 @@ def _fit_one_model(
 
 class InferenceMixin:
     _LOG_SCALE_PATTERN = re.compile(
-        r"(tau|sigma|beta|r_dispersion|excitation|^D$)", re.IGNORECASE
+        r"(tau|sigma|beta|r_dispersion|r_trial|excitation|^D$)", re.IGNORECASE
     )
 
     def _minimize(self, x0: Union[List[float], np.ndarray], dataset: PointProcessDataset, method: str, max_restarts: int = 5, **kwargs) -> Any:

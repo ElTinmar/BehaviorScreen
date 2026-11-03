@@ -290,6 +290,9 @@ class _GainWrapper(Wrapper):
     def mixed_effects_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
         raise NotImplementedError(f"{self.name} already integrates a fish gain.")
 
+    def stream_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
+        raise NotImplementedError(f"{self.name} already integrates a fish gain.")
+
     def _draw_fish_gains(self, num_fish: int, n_sims: int, rng: np.random.Generator) -> np.ndarray:
         return self._gain().draw(rng, (num_fish, n_sims))
 
@@ -305,17 +308,57 @@ class Frailty(_GainWrapper):
     lambda_f = g_f * lambda_base. Needs base_process.mixed_effects_likelihood_terms
     (a gain on the whole intensity). predict and the compensators are the
     population average (E[g] = 1); use estimate_fish_gains per fish.
+
+    trial_gain (Gamma gains only): a second gain per trial, h_fm ~ Gamma(a, a)
+    (a: 'r_trial'), lambda_fm = g_f h_fm lambda_base: a fish's engagement varies
+    from trial to trial around its own level. Needs
+    base_process.stream_likelihood_terms; h is integrated in closed form, g by
+    adaptive Gauss-Hermite quadrature on log g. The compensators (time-rescaling
+    diagnostics) still condition on the fish gain only.
     """
 
-    def __init__(self, base_process: PointProcess, gains: GainFamily) -> None:
+    def __init__(self, base_process: PointProcess, gains: GainFamily, trial_gain: bool = False, a_init: float = 5.0) -> None:
         super().__init__(base_process, gains)
-        self.name = f"{gains.prefix}GammaMixedEffects[{base_process.name}]{gains.suffix}"
+        self.trial_gain = trial_gain
+        trial = "+Trial" if trial_gain else ""
+        self.name = f"{gains.prefix}GammaMixedEffects{trial}[{base_process.name}]{gains.suffix}"
         self.latex_formula = rf"${base_process.latex_formula.strip('$')} \times g_f,\ {gains.latex}$"
+        if trial_gain:
+            self.param_names = self.param_names + ["r_trial"]
+            self.initial_guesses = self.initial_guesses + [a_init]
+            self.bounds = self.bounds + [(1e-2, 1e3)]
+            self.latex_formula = self.latex_formula[:-1] + r",\ \times h_{fm}\sim\Gamma(a,a)$"
+            nodes, weights = np.polynomial.hermite_e.hermegauss(15)
+            self._gain_nodes, self._gain_log_weights = nodes, np.log(weights / weights.sum())
+            self._gain_mode = np.zeros(0)  # posterior log fish gains of the last call: where Newton starts
+
+    def _r_trial(self, params: Optional[List[float]] = None) -> float:
+        params = self.params_ if params is None else params
+        return float(params[self._n_base + len(self.gains.param_names)])
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
+        if self.trial_gain:
+            base_ll, n, S = self.base_process.stream_likelihood_terms(dataset, self._base_params(params))
+            if len(self._gain_mode) != dataset.num_fish:
+                self._gain_mode = np.zeros(dataset.num_fish)
+            log_marginal, self._gain_mode = log_nested_gamma_marginal(
+                n, S, dataset.fish_trial_mask, self._gain(params).shape, self._r_trial(params),
+                self._gain_nodes, self._gain_log_weights, self._gain_mode,
+            )
+            return -(base_ll + float(np.sum(log_marginal)))
         base_ll, N, S = self.base_process.mixed_effects_likelihood_terms(dataset, self._base_params(params))
         active = dataset.fish_trial_mask.any(axis=1)
         return -(base_ll + float(np.sum(self._gain(params).log_marginal(N[active], S[active]))))
+
+    def _stream_gain(self, gain: float, rng: np.random.Generator) -> float:
+        """A stream's gain: the fish's, times its trial's when there is a trial gain."""
+        if not self.trial_gain:
+            return gain
+        a = self._r_trial()
+        return gain * rng.gamma(a, 1.0 / a)
+
+    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator, **history):
+        return self.base_process.simulate_stream(dataset, t_idx, self._stream_gain(gain, rng), rng, **history)
 
     def _stream_tau_values(self, dataset: PointProcessDataset) -> StreamTaus:
         """
@@ -406,6 +449,40 @@ def log_normal_mixture(
     return logsumexp(log_weights + log_f(u) - u**2 / (2 * s**2) + nodes**2 / 2, axis=1) + np.log(sd / s), mode
 
 
+def log_nested_gamma_marginal(
+    n: np.ndarray, S: np.ndarray, mask: np.ndarray, r: float, a: float,
+    nodes: np.ndarray, log_weights: np.ndarray, mode: np.ndarray, tol: float = 1e-10,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Per fish, the log of the integral over g ~ Gamma(r, r) of the product over its
+    trials of the integral over h ~ Gamma(a, a) of (g h)^n e^(-g h S); n, S: events
+    and expected events (g = h = 1) per stream, fish x trial; mask: recorded streams.
+    h in closed form; v = log g by Gauss-Hermite quadrature centred on the
+    (log-concave) integrand's mode and scaled to its curvature. Also returns the
+    modes, where the next call's Newton starts.
+    """
+    w = (n + a) * mask
+    N = (n * mask).sum(axis=1)
+
+    def log_integrand(v: np.ndarray) -> np.ndarray:  # v: fish x nodes
+        e = np.exp(v)
+        return (r + N)[:, None] * v - r * e - np.einsum("ft,ftk->fk", w, np.log(a + S[:, :, None] * e[:, None, :]))
+
+    for _ in range(100):
+        e = np.exp(mode)
+        share = S * e[:, None] / (a + S * e[:, None])
+        hess = -r * e - (w * share * (1 - share)).sum(axis=1)
+        step = np.clip((r + N - r * e - (w * share).sum(axis=1)) / hess, -1.0, 1.0)
+        mode = mode - step
+        if np.max(np.abs(step), initial=0.0) < tol:
+            break
+    sd = 1 / np.sqrt(-hess)
+    v = mode[:, None] + sd[:, None] * nodes
+    constant = r * np.log(r) - gammaln(r) + (mask * (a * np.log(a) - gammaln(a) + gammaln(n + a))).sum(axis=1)
+    log_integral = logsumexp(log_weights + log_integrand(v) + nodes**2 / 2, axis=1) + np.log(sd) + 0.5 * np.log(2 * np.pi)
+    return log_integral + constant, mode
+
+
 def log_sigmoid(x: np.ndarray) -> np.ndarray:
     """log(sigmoid(x)), stable, and twice as fast as -np.logaddexp(0, -x)."""
     return -np.log1p(np.exp(-np.abs(x))) - np.maximum(-x, 0)
@@ -426,18 +503,21 @@ class SideFrailty(Frailty):
     g_f is integrated in closed form, u_f by adaptive Gauss-Hermite quadrature.
     """
 
-    def __init__(self, base_process: PointProcess, r_init: float = 5.0, s_init: float = 0.5, n_nodes: int = 15) -> None:
-        super().__init__(base_process, GammaFamily(r_init))
+    def __init__(
+        self, base_process: PointProcess, r_init: float = 5.0, s_init: float = 0.5, n_nodes: int = 15, trial_gain: bool = False
+    ) -> None:
+        super().__init__(base_process, GammaFamily(r_init), trial_gain=trial_gain)
         self.param_names = self.param_names + ["s_side"]
         self.initial_guesses = self.initial_guesses + [s_init]
         self.bounds = self.bounds + [(1e-3, 5.0)]
         nodes, weights = np.polynomial.hermite_e.hermegauss(n_nodes)
         self._nodes, self._log_weights = nodes, np.log(weights / weights.sum())
         self._mode = np.zeros(0)  # posterior side shifts of the last fit's fish: where the next Newton starts
-        self.name = f"GammaSideMixedEffects[{base_process.name}]"
+        self.name = f"GammaSideMixedEffects{'+Trial' if trial_gain else ''}[{base_process.name}]"
         self.latex_formula = (
             rf"${base_process.latex_formula.strip('$')} \times g_f,\ g_f\sim\Gamma(r,r),\ "
-            r"\mathrm{logit}\,P_{ipsi} + u_f,\ u_f\sim N(0,s^2)$"
+            r"\mathrm{logit}\,P_{ipsi} + u_f,\ u_f\sim N(0,s^2)"
+            + (r",\ \times h_{fm}\sim\Gamma(a,a)$" if trial_gain else "$")
         )
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
@@ -481,7 +561,7 @@ class SideFrailty(Frailty):
 
     def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, draw: Tuple[float, float], rng: np.random.Generator, **history):
         gain, u = draw
-        return self.base_process.simulate_stream(dataset, t_idx, gain, rng, side_shift=u, **history)
+        return self.base_process.simulate_stream(dataset, t_idx, self._stream_gain(gain, rng), rng, side_shift=u, **history)
 
 
 class BaselineFrailty(_GainWrapper):
@@ -585,8 +665,8 @@ class _ZeroInflatedProperties:
 
 
 class GammaMixedEffectsProcess(Frailty):
-    def __init__(self, base_process: PointProcess, r_init: float = 5.0) -> None:
-        super().__init__(base_process, GammaFamily(r_init))
+    def __init__(self, base_process: PointProcess, r_init: float = 5.0, trial_gain: bool = False) -> None:
+        super().__init__(base_process, GammaFamily(r_init), trial_gain=trial_gain)
 
 
 class ZeroInflatedGammaMixedEffectsProcess(_ZeroInflatedProperties, Frailty):

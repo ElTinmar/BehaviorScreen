@@ -111,6 +111,11 @@ class PointProcessDataset:
                     continue
                 yield f_idx, t_idx, self._stream_index.get((f_idx, t_idx), empty)
 
+    def event_counts_per_stream(self) -> np.ndarray:
+        """Events per stream: fish x trial."""
+        streams = self.event_fish_idx * self.num_trials + self.event_trials_idx
+        return np.bincount(streams, minlength=self.num_fish * self.num_trials).reshape(self.num_fish, self.num_trials).astype(float)
+
     def history_times(self, f_idx: int, t_idx: int) -> np.ndarray:
         """Sorted times of every bout of one stream (its events if there is no history)."""
         source = self if self.history is None else self.history

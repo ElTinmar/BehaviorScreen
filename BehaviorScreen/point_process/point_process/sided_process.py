@@ -84,9 +84,10 @@ class SidedPoissonProcess(PointProcess):
     def _is_ipsi(dataset: PointProcessDataset) -> np.ndarray:
         return dataset.cached("sided_is_ipsi", lambda: np.asarray(dataset.marks["laterality"]) == IPSI)
 
-    def mixed_effects_likelihood_terms(
+    def stream_likelihood_terms(
         self, dataset: PointProcessDataset, params: List[float]
     ) -> Tuple[float, np.ndarray, np.ndarray]:
+        """Sum of log rates at the events, and events and expected events per stream (fish x trial)."""
         is_ipsi = self._is_ipsi(dataset)
         t, m = dataset.event_times, dataset.event_trials_idx
         trials = np.arange(dataset.num_trials)
@@ -94,8 +95,13 @@ class SidedPoissonProcess(PointProcess):
         for (kernel, p), side in zip(self._sides(params), (is_ipsi, ~is_ipsi)):
             log_rates += float(np.sum(np.log(kernel.evaluate(t[side], m[side], p))))
             per_trial += kernel.integrate(dataset.duration_s, trials, p, self.integration_dt)
-        N = np.bincount(dataset.event_fish_idx, minlength=dataset.num_fish).astype(float)
-        return log_rates, N, dataset.fish_trial_mask.astype(float) @ per_trial
+        return log_rates, dataset.event_counts_per_stream(), dataset.fish_trial_mask * per_trial[None, :]
+
+    def mixed_effects_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        log_rates, n, S = self.stream_likelihood_terms(dataset, params)
+        return log_rates, n.sum(axis=1), S.sum(axis=1)
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         log_rates, _, S = self.mixed_effects_likelihood_terms(dataset, params)
@@ -219,9 +225,10 @@ class SidedSurvivalProcess(SurvivalProcess):
 
 class SidedRenewalProcess(PointProcess):
     """
-    lambda_side(t, m) = kernel_side(t, m) * rho(t - last bout), kernels and D as
-    in SidedPoissonProcess, rho a renewal kernel of the time since the stream's
-    last bout of any category or side (dataset.history). Fitted as a
+    lambda_side(t, m) = kernel_side(t, m) * rho(t - last bout) * excitation(t - last event),
+    kernels and D as in SidedPoissonProcess, rho a renewal kernel of the time since
+    the stream's last bout of any category or side (dataset.history), excitation
+    (optional) one of the time since the last event of either side. Fitted as a
     RenewalProcess of all events with kernel ipsi + contra, each event ipsi with
     probability kernel_ipsi / (kernel_ipsi + kernel_contra): rho cancels there.
     """
@@ -231,6 +238,7 @@ class SidedRenewalProcess(PointProcess):
         ipsi: RateKernel,
         contra: RateKernel,
         renewal_kernel: RenewalKernel,
+        excitation: Optional[RenewalKernel] = None,
         d_init: float = 2.0,
         d_bounds: Tuple[float, float] = (0.02, 50.0),
         integration_dt: float = 0.02,
@@ -245,10 +253,13 @@ class SidedRenewalProcess(PointProcess):
             initial_guesses=self.sides.initial_guesses,
             bounds=self.sides.bounds,
         )
-        self.ground = RenewalProcess(both, renewal_kernel, integration_dt)
+        self.ground = RenewalProcess(both, renewal_kernel, excitation, integration_dt=integration_dt)
         self.param_names, self.initial_guesses, self.bounds = self.ground.param_names, self.ground.initial_guesses, self.ground.bounds
-        self.name = f"SidedRenewal[{ipsi.name} | {contra.name}, history: {renewal_kernel.name}]"
-        self.latex_formula = rf"${self.sides.latex_formula.strip('$')} \times {renewal_kernel.latex_formula.strip('$')}$"
+        history = [renewal_kernel] + ([excitation] if excitation is not None else [])
+        self.name = f"SidedRenewal[{ipsi.name} | {contra.name}, history: {renewal_kernel.name}" + (
+            f", events: {excitation.name}]" if excitation is not None else "]"
+        )
+        self.latex_formula = "$" + r" \times ".join([self.sides.latex_formula.strip("$")] + [k.latex_formula.strip("$") for k in history]) + "$"
 
     def set_params(self, params: np.ndarray) -> None:
         super().set_params(params)
@@ -270,6 +281,12 @@ class SidedRenewalProcess(PointProcess):
     ) -> Tuple[float, np.ndarray, np.ndarray]:
         log_rates, N, S = self.ground.mixed_effects_likelihood_terms(dataset, params)
         return log_rates + self._side_log_likelihood(dataset, params), N, S
+
+    def stream_likelihood_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[float, np.ndarray, np.ndarray]:
+        log_rates, n, S = self.ground.stream_likelihood_terms(dataset, params)
+        return log_rates + self._side_log_likelihood(dataset, params), n, S
 
     def ipsi_probability(self, t: np.ndarray, trial: np.ndarray) -> np.ndarray:
         return self.sides.ipsi_probability(t, trial)
