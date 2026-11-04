@@ -1,7 +1,7 @@
 """Experiments: the dataset each one is built from and the candidate models, in a fixed order."""
 
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Sequence
 
 from megabouts.utils import bouts_category_name_short
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, Laterality, Stim
@@ -104,9 +104,9 @@ def refractory_renewal(kernel: RateKernel) -> RenewalProcess:
     return RenewalProcess(kernel, RenewalKernelFactory.exponential_recovery(), stimulus_burst())
 
 
-def stimulus_burst() -> RenewalKernel:
+def stimulus_burst(shape_k: float = 2.0) -> RenewalKernel:
     """Bursts as a multiple of the stimulus-driven rate: they follow the stimulus but not the fish and trial gains."""
-    return RenewalKernelFactory.burst_excitation(rate_init=2.0, relative=True)
+    return RenewalKernelFactory.burst_excitation(shape_k, rate_init=2.0, relative=True)
 
 
 def hawkes(kernel: RateKernel) -> HawkesProcess:
@@ -121,10 +121,8 @@ def sided(ipsi: RateKernel, contra: RateKernel) -> SidedPoissonProcess:
     return SidedPoissonProcess(ipsi, contra)
 
 
-def sided_renewal(ipsi: RateKernel, contra: RateKernel) -> SidedRenewalProcess:
-    return SidedRenewalProcess(
-        ipsi, contra, RenewalKernelFactory.exponential_recovery(), stimulus_burst()
-    )
+def sided_renewal(ipsi: RateKernel, contra: RateKernel, shape_k: float = 2.0) -> SidedRenewalProcess:
+    return SidedRenewalProcess(ipsi, contra, RenewalKernelFactory.exponential_recovery(), stimulus_burst(shape_k))
 
 
 def sided_survival(kernel: RateKernel) -> SidedSurvivalProcess:
@@ -133,17 +131,20 @@ def sided_survival(kernel: RateKernel) -> SidedSurvivalProcess:
 
 
 def sided_models(
-    ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel], renewal: bool = False
+    ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel], renewal: bool = False,
+    burst_shapes: Sequence[float] = (),
 ) -> List[PointProcess]:
     """
     Both sides of a stimulus in one model: without a fish effect, with a fish gain, with a gain and a
     side preference, and with a trial gain as well; for bouts (renewal), the last two also as renewal
     processes with bursts that follow the stimulus, the gains scaling the stimulus-driven rate only.
+    burst_shapes: the last again with other burst shapes k (a profile of k, warm-started from k = 2).
     """
     models = [sided(ipsi(), contra()), gamma(sided(ipsi(), contra())), side_gamma(sided(ipsi(), contra()))]
     models.append(side_gamma(sided(ipsi(), contra()), trial_gain=True))
     if renewal:
         models += [side_gamma(sided_renewal(ipsi(), contra())), side_gamma(sided_renewal(ipsi(), contra()), trial_gain=True)]
+        models += [side_gamma(sided_renewal(ipsi(), contra(), k), trial_gain=True) for k in burst_shapes]
     return models
 
 
@@ -389,7 +390,7 @@ def get_model_config() -> Dict[str, dict]:
         # Both sides of a directional stimulus: strength (ipsi amplitudes) and directionality D
         "prey_capture": experiment(
             dataset("JT", [IPSI, CONTRA], 24.0, stim=Stim.PREY_CAPTURE),
-            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat, renewal=True),
+            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat, renewal=True, burst_shapes=(1.0, 1.5, 3.0, 4.0, 6.0)),
         ),
         "phototaxis": experiment(
             dataset("RT", [IPSI, CONTRA], 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER),
