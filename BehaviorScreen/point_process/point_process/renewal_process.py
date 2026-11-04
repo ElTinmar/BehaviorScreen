@@ -162,7 +162,7 @@ class RenewalKernelFactory:
                 r"$\rho(\Delta t)=1-e^{-\Delta t/\tau_r}"
                 r"+A_{\mathrm{exc}}"
                 r"\left(\frac{\Delta t}{t_p}\right)^k"
-                r"\exp\left[k\left(1-\frac{\Delta t}{t_p}\right)\right]$"
+                r"\exp\left[k\left(1-\frac{\Delta t}{t_p}\right)\right],\ k = " + f"{shape_k:g}$"
             ),
         )
 
@@ -224,7 +224,7 @@ class RenewalKernelFactory:
                 r"$\rho(\Delta t)="
                 r"1+A_{\mathrm{exc}}"
                 r"\left(\frac{\Delta t}{t_p}\right)^k"
-                r"\exp\left[k\left(1-\frac{\Delta t}{t_p}\right)\right]$"
+                r"\exp\left[k\left(1-\frac{\Delta t}{t_p}\right)\right],\ k = " + f"{shape_k:g}$"
             ),
         )
 
@@ -251,7 +251,7 @@ class RenewalKernelFactory:
             bounds=[(0.0, 20.0), (0.02, 5.0)],
             latex_formula=(
                 r"$E(\Delta t)=A_{\mathrm{burst}}\left(\frac{\Delta t}{t_p}\right)^k"
-                r"\exp\left[k\left(1-\frac{\Delta t}{t_p}\right)\right]$"
+                r"\exp\left[k\left(1-\frac{\Delta t}{t_p}\right)\right],\ k = " + f"{shape_k:g}$"
             ),
         )
 
@@ -282,8 +282,8 @@ class RenewalKernelFactory:
             bounds=excitation.bounds,
             latex_formula=(
                 rf"$\rho(\Delta t)=[\Delta t\geq {dead_time_s:g}]\,("
-                + excitation.latex_formula.strip("$").split("=", 1)[1]
-                + ")$"
+                + excitation.latex_formula.strip("$").split("=", 1)[1].replace(r",\ k =", r"),\ k =")
+                + "$"
             ),
         )
 

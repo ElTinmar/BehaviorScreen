@@ -64,7 +64,8 @@ class SidedPoissonProcess(PointProcess):
         self.name = f"Sided[{ipsi.name} | {contra.name}]"
         self.latex_formula = (
             rf"$\lambda_{{ipsi}}: {ipsi.latex_formula.strip('$')};\ "
-            rf"\lambda_{{contra}}: {contra.latex_formula.strip('$')},\ B_{{contra}} = B / D$"
+            rf"\lambda_{{contra}}: {contra.latex_formula.strip('$')},\ B_{{contra}} = B / D"
+            + (r"\text{, its other parameters fitted separately}$" if rest else "$")
         )
         self.param_names = ipsi.param_names + ["D"] + [f"contra_{contra.param_names[i]}" for i in rest]
         self.initial_guesses = list(ipsi.initial_guesses) + [d_init] + [contra.initial_guesses[i] for i in rest]

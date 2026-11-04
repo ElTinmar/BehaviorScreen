@@ -181,7 +181,7 @@ class PreyCapture:
             bounds=cls._BOUNDS + [cls._ALPHA_RIPPLE_BOUNDS if p == "alpha_ripple" else cls._ALPHA_BOUNDS for p in alphas],
             latex_formula=(
                 rf"$\lambda(t,m) = \left(A e^{{-t/\tau}}{factor('peak')} + B{factor('baseline')}\right)"
-                rf"\left(1 + {depth} {wave}\right)$"
+                rf"\left(1 + {depth} {wave}\right),\ \omega = 2\pi \times {stim_freq:.3g}\,\mathrm{{Hz}}$"
             ),
         )
 

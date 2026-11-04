@@ -20,7 +20,7 @@ from scipy.special import expit, gammaln, logit, logsumexp
 from .dataset import PointProcessDataset
 from .kernel_shapes import logit_bounded, sigmoid_bounded
 from .point_process import PointProcess, StreamTaus, thin
-from .sided_process import IPSI
+from .sided_process import IPSI, SidedSurvivalProcess
 from .wrappers import Wrapper
 
 ArrayLike = Union[float, np.ndarray]
@@ -602,7 +602,7 @@ def gain_formula(base: PointProcess, trial_gain: bool) -> str:
     gain = r"g_f h_{fm}" if trial_gain else "g_f"
     if base.gain_scales_drive_only:
         return base.latex_with_gain(gain).strip("$")
-    return rf"{base.latex_formula.strip('$')} \times {gain}"
+    return rf"\left[{base.latex_formula.strip('$')}\right] \times {gain}"
 
 
 def log_sigmoid(x: np.ndarray) -> np.ndarray:
@@ -636,9 +636,10 @@ class SideFrailty(Frailty):
         self._nodes, self._log_weights = nodes, np.log(weights / weights.sum())
         self._mode = np.zeros(0)  # posterior side shifts of the last fit's fish: where the next Newton starts
         self.name = f"GammaSideMixedEffects{'+Trial' if trial_gain else ''}[{base_process.name}]"
+        side = "preferred" if isinstance(base_process, SidedSurvivalProcess) else "ipsi"
         self.latex_formula = (
             rf"${gain_formula(base_process, trial_gain)},\ g_f\sim\Gamma(r,r),\ "
-            r"\mathrm{logit}\,P_{ipsi} + u_f,\ u_f\sim N(0,s^2)"
+            rf"\mathrm{{logit}}\,P_{{{side}}} + u_f,\ u_f\sim N(0,s^2)"
             + (r",\ h_{fm}\sim\Gamma(a,a)$" if trial_gain else "$")
         )
 
