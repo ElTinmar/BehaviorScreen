@@ -7,14 +7,10 @@ and the arms they compare. Importing it loads the event tables.
 from pathlib import Path
 
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
-from BehaviorScreen.point_process.analysis.model_config import (
-    EVENT_TABLES, flat, gamma, get_model_config, poisson, prey, side_gamma, sided, sided_survival,
-)
-from BehaviorScreen.point_process.point_process.poisson_process import RateKernelFactory
-from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
+from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, get_model_config
 from BehaviorScreen.ablation_screen.dataset_utils import Arms, mutant_contrast, ntr_contrast
 from BehaviorScreen.ablation_screen.line_names import warn_unnamed
-from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS, tier1_behaviors
+from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS, PINNED_AMPLITUDES, TIER1_MODELS, tier1_behaviors
 
 OUTPUT_DIR = Path("./tier1_results")
 OUTPUT_DIR.mkdir(exist_ok=True)
@@ -28,32 +24,11 @@ loaders = {
     for events, csv in EVENTS_CSV.items()
 }
 
-looming = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6))
-# Directional stimuli: both sides in one sided model (strength: ipsi amplitudes; direction: D).
-TIER1_MODELS = {
-    "prey_capture": lambda: side_gamma(sided(prey("Peak_Baseline_Ripple"), flat())),
-    "phototaxis": lambda: side_gamma(sided(RateKernelFactory.phototaxis_dip_exgaussian_peak(), RateKernelFactory.phototaxis_contra())),
-    "omr_lateral": lambda: side_gamma(sided(RateKernelFactory.omr_lateral(), RateKernelFactory.omr_lateral())),
-    "omr_forward": lambda: gamma(poisson(RateKernelFactory.omr_forward())),
-    "okr": lambda: side_gamma(sided(flat(), flat())),
-    "looming": lambda: side_gamma(sided_survival(looming())),  # strength: H (escape at all); direction: D (away)
-    "dark_flash": lambda: gamma(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
-    "spont_dark": lambda: gamma(poisson(RateKernelFactory.spont())),
-    "spont_bright": lambda: gamma(poisson(RateKernelFactory.spont())),
-    "after_looming": lambda: gamma(poisson(RateKernelFactory.after_looming())),
-    "prey_capture_convergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
-    "prey_capture_divergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
-    "okr_conjugate_saccades": lambda: side_gamma(sided(flat(), flat())),
-    "looming_divergent_saccade": lambda: gamma(SurvivalProcess(looming())),
-}
 # Map columns in protocol order, labelled "stimulus · response" with the stimulus names
 # of screen.yaml and the bout or saccade categories each experiment counts.
 untested = set(get_model_config()) - set(TIER1_MODELS)
 if untested:
     print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")
-# Amplitudes also pinned to the control fit: these baselines are near zero (about
-# one event a minute), so their per-arm log ratios are noise.
-PINNED_AMPLITUDES = {name: ["B"] for name in ("looming", "looming_divergent_saccade", "dark_flash")}
 BEHAVIOR_CONFIG = tier1_behaviors(TIER1_MODELS, FITS_ROOT, PINNED_AMPLITUDES)
 BEHAVIORS = list(BEHAVIOR_CONFIG)
 MAP_ORDER = [b for b in MAP_COLUMNS if b in BEHAVIORS] + [b for b in BEHAVIORS if b not in MAP_COLUMNS]

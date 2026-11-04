@@ -7,11 +7,36 @@ from pathlib import Path
 from typing import Callable, Dict, Optional, Sequence
 
 from BehaviorScreen.point_process.analysis.model_config import (
-    FLASH_ESCAPE, FORWARD_SWIMS, LATERAL_TURNS, LOOMING_ESCAPE, OKR_SWIMS, get_model_config,
+    FLASH_ESCAPE, FORWARD_SWIMS, LATERAL_TURNS, LOOMING_ESCAPE, OKR_SWIMS,
+    flat, gamma, get_model_config, poisson, prey, side_gamma, sided, sided_survival,
 )
 from BehaviorScreen.point_process.analysis.tasks import load_fitted_params
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
+from BehaviorScreen.point_process.point_process.poisson_process import RateKernelFactory
+from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
 from BehaviorScreen.point_process.point_process.wrappers import PartiallyFixedProcess
+
+looming = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6))
+# Directional stimuli: both sides in one sided model (strength: ipsi amplitudes; direction: D).
+TIER1_MODELS = {
+    "prey_capture": lambda: side_gamma(sided(prey("Peak_Baseline_Ripple"), flat())),
+    "phototaxis": lambda: side_gamma(sided(RateKernelFactory.phototaxis_dip_exgaussian_peak(), RateKernelFactory.phototaxis_contra())),
+    "omr_lateral": lambda: side_gamma(sided(RateKernelFactory.omr_lateral(), RateKernelFactory.omr_lateral())),
+    "omr_forward": lambda: gamma(poisson(RateKernelFactory.omr_forward())),
+    "okr": lambda: side_gamma(sided(flat(), flat())),
+    "looming": lambda: side_gamma(sided_survival(looming())),  # strength: H (escape at all); direction: D (away)
+    "dark_flash": lambda: gamma(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
+    "spont_dark": lambda: gamma(poisson(RateKernelFactory.spont())),
+    "spont_bright": lambda: gamma(poisson(RateKernelFactory.spont())),
+    "after_looming": lambda: gamma(poisson(RateKernelFactory.after_looming())),
+    "prey_capture_convergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
+    "prey_capture_divergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
+    "okr_conjugate_saccades": lambda: side_gamma(sided(flat(), flat())),
+    "looming_divergent_saccade": lambda: gamma(SurvivalProcess(looming())),
+}
+# Amplitudes also pinned to the control fit: these baselines are near zero (about
+# one event a minute), so their per-arm log ratios are noise.
+PINNED_AMPLITUDES = {name: ["B"] for name in ("looming", "looming_divergent_saccade", "dark_flash")}
 
 # Map column labels (stimulus · events): spontaneous activity first, then protocol order with responses to one stimulus side by side
 cats = "+".join
@@ -33,7 +58,7 @@ MAP_COLUMNS = {
 }
 
 # Fitted per arm: sustained rate, transient amplitude, escape hazard bump and the directionality
-# of sided models; screen_setup.PINNED_AMPLITUDES pins some of them per experiment.
+# of sided models; PINNED_AMPLITUDES pins some of them per experiment.
 AMPLITUDE_PARAMETERS = ("B", "A", "A_peak", "H", "D")
 
 
