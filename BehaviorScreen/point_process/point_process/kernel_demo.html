@@ -32,6 +32,7 @@
   .param-row input[type=range] { width:100%; }
   .plot-title { font-size:12px; font-weight:600; color:#334155; margin-bottom:4px; }
   canvas { background:#fff; border:1px solid var(--border); border-radius:8px; width:100%; height:200px; display:block; }
+  #c-surf { height:260px; }
   .legend { font-size:11px; color:var(--muted); margin-top:3px; }
   .legend span { margin-right:12px; white-space:nowrap; }
   button.small { font-size:11px; padding:4px 10px; border-radius:6px; border:1px solid var(--border); background:#f1f5f9; cursor:pointer; margin:6px 6px 0 0; }
@@ -163,6 +164,11 @@ function selfCheck() {
 }
 
 // ---------------------------------------------------------------- plotting
+function ticks(a, b, n) {  // round values (1, 2, 2.5 or 5 x 10^k apart) from a to b
+  const raw = (b - a) / n, mag = 10 ** Math.floor(Math.log10(raw)), step = mag * [1, 2, 2.5, 5, 10].find(f => f * mag >= raw);
+  const out = []; for (let x = Math.ceil(a / step - 1e-9) * step; x <= b + 1e-9 * step; x += step) out.push(x);
+  return out;
+}
 function plot(canvas, xs, series, opts = {}) {
   const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
   if (!W || !H) return;
@@ -174,13 +180,13 @@ function plot(canvas, xs, series, opts = {}) {
   yMax = yMax > 0 ? yMax * 1.1 : 1;
   const x0 = xs[0], x1 = xs[xs.length - 1], X = x => L + (x - x0) / (x1 - x0) * pw, Y = y => T + ph - Math.min(Math.max(y, 0), yMax) / yMax * ph;
   ctx.font = "10px sans-serif"; ctx.fillStyle = "#64748b";
-  for (let i = 0; i <= 5; i++) {
-    const xv = x0 + i * (x1 - x0) / 5; ctx.strokeStyle = "#f1f5f9"; ctx.beginPath(); ctx.moveTo(X(xv), T); ctx.lineTo(X(xv), T + ph); ctx.stroke();
-    ctx.textAlign = "center"; ctx.fillText(+xv.toPrecision(3), X(xv), T + ph + 13);
+  for (const xv of ticks(x0, x1, 5)) {
+    ctx.strokeStyle = "#f1f5f9"; ctx.beginPath(); ctx.moveTo(X(xv), T); ctx.lineTo(X(xv), T + ph); ctx.stroke();
+    ctx.textAlign = "center"; ctx.fillText(+xv.toPrecision(4), X(xv), T + ph + 13);
   }
-  for (let i = 0; i <= 4; i++) {
-    const yv = i * yMax / 4; ctx.strokeStyle = "#f1f5f9"; ctx.beginPath(); ctx.moveTo(L, Y(yv)); ctx.lineTo(L + pw, Y(yv)); ctx.stroke();
-    ctx.textAlign = "right"; ctx.fillText(+yv.toPrecision(2), L - 5, Y(yv) + 3);
+  for (const yv of ticks(0, yMax, 4)) {
+    ctx.strokeStyle = "#f1f5f9"; ctx.beginPath(); ctx.moveTo(L, Y(yv)); ctx.lineTo(L + pw, Y(yv)); ctx.stroke();
+    ctx.textAlign = "right"; ctx.fillText(+yv.toPrecision(4), L - 5, Y(yv) + 3);
   }
   ctx.strokeStyle = "#cbd5e1"; ctx.beginPath(); ctx.moveTo(L, T); ctx.lineTo(L, T + ph); ctx.lineTo(L + pw, T + ph); ctx.stroke();
   ctx.fillStyle = "#334155"; ctx.textAlign = "center"; ctx.fillText(opts.xLabel || "t (s)", L + pw / 2, H - 3);
@@ -206,7 +212,7 @@ function plot(canvas, xs, series, opts = {}) {
 const legend = items => `<div class="legend">${items.map(([c, t, dash]) => `<span><span style="display:inline-block;width:14px;border-top:2px ${dash ? "dashed" : "solid"} ${c};vertical-align:middle;margin-right:4px"></span>${t}</span>`).join("")}</div>`;
 
 // ---------------------------------------------------------------- page
-const state = {values: {}, m: 0, seed: 1};
+const state = {values: {}, m: 0, seed: 1, trials: 10, bin: 0.1, timer: null};
 let experiment = null, model = null;
 
 function gainOf(gain, v) {  // {draw(u), pdf(x), quantile10/90 (approx.), mass at c}
@@ -286,27 +292,84 @@ function render() {
     document.getElementById("l-hist").innerHTML = legend(items);
   }
 
-  // 6. example trial
+  // 6. simulated histogram surface (after the sliders settle: it simulates many fish)
   if (!survival) {
-    const u = rng(state.seed), dt = 0.01, steps = Math.round(T / dt);
-    const gf = g ? drawGain(g, u) : 1, h = gain && gain.trial ? gammaDraw(u, v.r_trial, v.r_trial) : 1, side = gain && gain.side ? v.s_side * normal(u) : 0;
-    const stimI = sided ? rateOf(base.ipsi, v) : rateOf(base.stim, v), stimC = sided ? rateOf(base.contra, v) : null;
-    const rho = renewal ? lagOf(base.recovery, v) : null, E = renewal && base.burst ? lagOf(base.burst, v) : null;
-    let last = null; const xs = [], lam = [], ipsi = [], contra = [];
-    for (let i = 0; i < steps; i++) {
-      const t = i * dt, stim = stimI(t, m) + (stimC ? stimC(t, m) : 0);
-      const r = rho && last !== null ? rho(t - last) : 1;
-      const burst = E && last !== null ? E(t - last) * (base.burst.relative ? stim : 1) : 0;
-      const rate = r * (gf * h * stim + burst);
-      xs.push(t); lam.push(rate);
-      if (u() < 1 - Math.exp(-rate * dt)) {
-        last = t;
-        if (sided && u() >= sigmoid(Math.log(stimI(t, m) / stimC(t, m)) + side)) contra.push(t); else ipsi.push(t);
+    clearTimeout(state.timer);
+    state.timer = setTimeout(() => surface({base, gain, g, v, T, sided, renewal}), 150);
+  }
+}
+
+const FISH = 200;
+function simulate({base, gain, g, v, T, sided, renewal}) {
+  // Every fish and trial (its own gains and side shift), events by trial and time bin
+  const u = rng(state.seed), dt = 0.01, steps = Math.round(T / dt), nb = Math.round(T / state.bin), M = state.trials;
+  const stimI = rateOf(sided ? base.ipsi : base.stim, v), stimC = sided ? rateOf(base.contra, v) : null;
+  const table = f => Array.from({length: M}, (_, m) => Float64Array.from({length: steps}, (_, i) => f(i * dt, m)));
+  const I = table(stimI), C = stimC ? table(stimC) : null;
+  const lagTable = comp => comp ? Float64Array.from({length: steps}, (_, k) => lagOf(comp, v)(k * dt)) : null;
+  const rho = renewal ? lagTable(base.recovery) : null, E = renewal ? lagTable(base.burst) : null, relative = renewal && base.burst && base.burst.relative;
+  const counts = {ipsi: new Float64Array(M * nb), contra: new Float64Array(M * nb)};
+  for (let f = 0; f < FISH; f++) {
+    const gf = g ? drawGain(g, u) : 1, side = gain && gain.side ? v.s_side * normal(u) : 0;
+    for (let m = 0; m < M; m++) {
+      const h = gain && gain.trial ? gammaDraw(u, v.r_trial, v.r_trial) : 1;
+      let last = -1;
+      for (let i = 0; i < steps; i++) {
+        const stim = I[m][i] + (C ? C[m][i] : 0), since = i - last;
+        const burst = E && last >= 0 ? E[since] * (relative ? stim : 1) : 0;
+        const rate = (rho && last >= 0 ? rho[since] : 1) * (gf * h * stim + burst);
+        if (u() < rate * dt) {
+          last = i;
+          const isIpsi = !C || u() < sigmoid(Math.log(I[m][i] / C[m][i]) + side);
+          counts[isIpsi ? "ipsi" : "contra"][m * nb + Math.min(nb - 1, Math.floor(i * dt / state.bin))]++;
+        }
       }
     }
-    plot(document.getElementById("c-sim"), xs, [{ys: lam, color: "#475569", width: 1.2}, {ticks: ipsi, color: "#2563eb"}, {ticks: contra, color: "#dc2626"}], {yLabel: "λ(t | history) (Hz)"});
-    document.getElementById("l-sim").innerHTML = `<div class="legend">One simulated trial ${m}: fish gain ${gf.toFixed(2)}${gain && gain.trial ? `, trial gain ${h.toFixed(2)}` : ""}${gain && gain.side ? `, side shift u = ${side.toFixed(2)}` : ""}; ${ipsi.length + contra.length} events${sided ? ` (${ipsi.length} ipsi blue, ${contra.length} contra red)` : ""}.${renewal ? " History: the simulated events only (in the data, every bout resets the recovery)." : ""}</div>`;
   }
+  return {counts, nb, M, stimI, stimC};
+}
+
+function heatmap(canvas, values, M, nb, T) {  // trials (rows, trial 0 at the bottom) x time bins
+  const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const L = 44, R = 50, Tp = 10, B = 28, pw = W - L - R, ph = H - Tp - B, vmax = Math.max(...values) || 1;
+  const color = x => {  // viridis, 5 stops
+    const stops = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]], s = Math.min(1, x) * 4, i = Math.min(3, Math.floor(s)), f = s - i;
+    return `rgb(${stops[i].map((c, k) => Math.round(c + f * (stops[i + 1][k] - c))).join(",")})`;
+  };
+  for (let m = 0; m < M; m++) for (let b = 0; b < nb; b++) {
+    ctx.fillStyle = color(values[m * nb + b] / vmax);
+    ctx.fillRect(L + b * pw / nb, Tp + (M - 1 - m) * ph / M, pw / nb + 0.5, ph / M + 0.5);
+  }
+  ctx.font = "10px sans-serif"; ctx.fillStyle = "#64748b"; ctx.textAlign = "center";
+  for (const t of ticks(0, T, 5)) ctx.fillText(+t.toPrecision(4), L + t / T * pw, Tp + ph + 13);
+  ctx.textAlign = "right";
+  for (let m = 0; m < M; m += Math.max(1, Math.round(M / 5))) ctx.fillText(m, L - 5, Tp + (M - 0.5 - m) * ph / M + 3);
+  ctx.fillStyle = "#334155"; ctx.textAlign = "center"; ctx.fillText("t (s)", L + pw / 2, H - 3);
+  ctx.save(); ctx.translate(11, Tp + ph / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("trial", 0, 0); ctx.restore();
+  for (let i = 0; i < 40; i++) { ctx.fillStyle = color(1 - i / 40); ctx.fillRect(W - R + 10, Tp + i * ph / 40, 10, ph / 40 + 0.5); }
+  ctx.fillStyle = "#64748b"; ctx.textAlign = "left";
+  ctx.fillText(vmax.toPrecision(2), W - R + 23, Tp + 8); ctx.fillText("0 Hz", W - R + 23, Tp + ph);
+}
+
+function surface(args) {
+  if (!document.getElementById("c-surf")) return;  // the rung changed meanwhile
+  const {counts, nb, M, stimI, stimC} = simulate(args), bin = args.T / nb, perBin = FISH * bin;
+  const total = counts.ipsi.map((c, i) => (c + counts.contra[i]) / perBin);
+  heatmap(document.getElementById("c-surf"), total, M, nb, args.T);
+  const centers = Array.from({length: nb}, (_, b) => (b + 0.5) * bin), psth = side => centers.map((_, b) => {
+    let s = 0; for (let m = 0; m < M; m++) s += side[m * nb + b]; return s / (perBin * M);
+  });
+  const stimMean = f => centers.map(t => { let s = 0; for (let m = 0; m < M; m++) s += f(t, m); return s / M; });
+  const series = [{ys: psth(counts.ipsi), color: "#2563eb"}, {ys: stimMean(stimI), color: "#2563eb", width: 1.2, dash: [5, 4]}];
+  const items = [["#2563eb", args.sided ? "ipsi, simulated" : "simulated"], ["#2563eb", "stimulus-driven rate (gain 1, no history)", true]];
+  if (stimC) { series.push({ys: psth(counts.contra), color: "#dc2626"}, {ys: stimMean(stimC), color: "#dc2626", width: 1.2, dash: [5, 4]}); items.push(["#dc2626", "contra, simulated"]); }
+  plot(document.getElementById("c-psth"), centers, series, {yLabel: "rate (Hz)"});
+  const trials = Array.from({length: M}, (_, m) => m), perTrial = trials.map(m => { let s = 0; for (let b = 0; b < nb; b++) s += total[m * nb + b]; return s / nb; });
+  plot(document.getElementById("c-trial"), trials, [{ys: perTrial, color: "#334155"}], {xLabel: "trial", yLabel: "mean rate (Hz)"});
+  document.getElementById("l-surf").innerHTML = `<div class="legend">${FISH} simulated fish × ${M} trials, ${+bin.toPrecision(3)} s bins${args.g ? ", each fish with its own gain" : ""}${args.gain && args.gain.trial ? " and trial gains" : ""}${args.gain && args.gain.side ? " and side preference" : ""}.${args.renewal ? " History: the simulated events only (in the data every bout resets the recovery)." : ""}</div>`;
+  document.getElementById("l-psth").innerHTML = legend(items);
 }
 
 function clauses(latex) {  // one per line, a \left ... \right group kept whole
@@ -319,6 +382,7 @@ function clauses(latex) {  // one per line, a \left ... \right group kept whole
 }
 
 function showModel(index) {
+  clearTimeout(state.timer);
   model = experiment.models[index];
   document.querySelectorAll(".rung").forEach((b, i) => b.classList.toggle("active", i === index));
   for (const p of model.params) if (!(p.name in state.values)) state.values[p.name] = p.value;
@@ -333,7 +397,9 @@ function showModel(index) {
       <div class="controls">
         <div id="sliders"></div>
         <div class="param-row"><label>trial m <span class="val" id="mval">${state.m}</span></label><input type="range" id="mslider" min="0" max="25" step="1" value="${state.m}"></div>
-        <button class="small" id="reset">Reset to this rung's values</button>${survival ? "" : `<button class="small" id="resim">New example trial</button>`}
+        ${survival ? "" : `<div class="param-row"><label>trials simulated <span class="val" id="nval">${state.trials}</span></label><input type="range" id="nslider" min="1" max="26" step="1" value="${state.trials}"></div>
+        <div class="param-row"><label>time bin (s) <select id="bin">${[0.05, 0.1, 0.25, 0.5, 1].map(b => `<option${b === state.bin ? " selected" : ""}>${b}</option>`).join("")}</select></label></div>`}
+        <button class="small" id="reset">Reset to this rung's values</button>${survival ? "" : `<button class="small" id="resim">Simulate again</button>`}
       </div>
       <div class="plots">
         ${block("rate", survival ? "Hazard" : renewal ? "Stimulus-driven rate (before recovery and bursts)" : "Rate")}
@@ -341,7 +407,8 @@ function showModel(index) {
         ${gain ? block("gain", "Gain distributions (mean 1)") : ""}
         ${base.kind.startsWith("sided") ? block("side", base.kind === "sided_survival" ? "Share of escapes to the preferred side" : "Share of events that are ipsi") : ""}
         ${renewal ? block("hist", "Recovery and burst") : ""}
-        ${survival ? "" : block("sim", "Example trial")}
+        ${survival ? "" : `<div style="grid-column:1 / -1">${block("surf", "Simulated histogram surface (all events)")}</div>
+          ${block("psth", "Mean over trials (PSTH)")}${block("trial", "Mean rate per trial")}`}
       </div>
     </div>`;
   for (const clause of clauses(model.latex)) {
@@ -361,6 +428,10 @@ function showModel(index) {
   }
   document.getElementById("mslider").addEventListener("input", e => { state.m = +e.target.value; document.getElementById("mval").textContent = state.m; render(); });
   document.getElementById("reset").addEventListener("click", () => { for (const p of model.params) state.values[p.name] = p.value; showModel(index); });
+  const nslider = document.getElementById("nslider");
+  const binSelect = document.getElementById("bin");
+  if (binSelect) binSelect.addEventListener("change", e => { state.bin = +e.target.value; render(); });
+  if (nslider) nslider.addEventListener("input", e => { state.trials = +e.target.value; document.getElementById("nval").textContent = state.trials; render(); });
   const resim = document.getElementById("resim"); if (resim) resim.addEventListener("click", () => { state.seed++; render(); });
   render();
 }
