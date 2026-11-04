@@ -327,12 +327,11 @@ class Frailty(_GainWrapper):
         self.trial_gain = trial_gain
         trial = "+Trial" if trial_gain else ""
         self.name = f"{gains.prefix}GammaMixedEffects{trial}[{base_process.name}]{gains.suffix}"
-        self.latex_formula = rf"${base_process.latex_formula.strip('$')} \times g_f,\ {gains.latex}$"
+        self.latex_formula = rf"${gain_formula(base_process, trial_gain)},\ {gains.latex}" + (r",\ h_{fm}\sim\Gamma(a,a)$" if trial_gain else "$")
         if trial_gain:
             self.param_names = self.param_names + ["r_trial"]
             self.initial_guesses = self.initial_guesses + [a_init]
             self.bounds = self.bounds + [(1e-2, 1e3)]
-            self.latex_formula = self.latex_formula[:-1] + r",\ \times h_{fm}\sim\Gamma(a,a)$"
             nodes, weights = np.polynomial.hermite_e.hermegauss(15)
             self._gain_nodes, self._gain_log_weights = nodes, np.log(weights / weights.sum())
             self._gain_mode = np.zeros(0)  # posterior log fish gains of the last call: where Newton starts
@@ -598,6 +597,14 @@ def log_nested_drive_marginal(
     return log_integral + r * np.log(r) - gammaln(r), mode
 
 
+def gain_formula(base: PointProcess, trial_gain: bool) -> str:
+    """The base's formula (LaTeX, no $) with the gains where they act: its driven rate only, or all of it."""
+    gain = r"g_f h_{fm}" if trial_gain else "g_f"
+    if base.gain_scales_drive_only:
+        return base.latex_with_gain(gain).strip("$")
+    return rf"{base.latex_formula.strip('$')} \times {gain}"
+
+
 def log_sigmoid(x: np.ndarray) -> np.ndarray:
     """log(sigmoid(x)), stable, and twice as fast as -np.logaddexp(0, -x)."""
     return -np.log1p(np.exp(-np.abs(x))) - np.maximum(-x, 0)
@@ -630,9 +637,9 @@ class SideFrailty(Frailty):
         self._mode = np.zeros(0)  # posterior side shifts of the last fit's fish: where the next Newton starts
         self.name = f"GammaSideMixedEffects{'+Trial' if trial_gain else ''}[{base_process.name}]"
         self.latex_formula = (
-            rf"${base_process.latex_formula.strip('$')} \times g_f,\ g_f\sim\Gamma(r,r),\ "
+            rf"${gain_formula(base_process, trial_gain)},\ g_f\sim\Gamma(r,r),\ "
             r"\mathrm{logit}\,P_{ipsi} + u_f,\ u_f\sim N(0,s^2)"
-            + (r",\ \times h_{fm}\sim\Gamma(a,a)$" if trial_gain else "$")
+            + (r",\ h_{fm}\sim\Gamma(a,a)$" if trial_gain else "$")
         )
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:

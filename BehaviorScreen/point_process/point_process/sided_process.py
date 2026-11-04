@@ -256,12 +256,18 @@ class SidedRenewalProcess(PointProcess):
         )
         self.ground = RenewalProcess(both, renewal_kernel, excitation, integration_dt=integration_dt)
         self.param_names, self.initial_guesses, self.bounds = self.ground.param_names, self.ground.initial_guesses, self.ground.bounds
-        history = [renewal_kernel] + ([excitation] if excitation is not None else [])
         self.name = f"SidedRenewal[{ipsi.name} | {contra.name}, history: {renewal_kernel.name}" + (
             f", events: {excitation.name}]" if excitation is not None else "]"
         )
-        total = r"\lambda = \rho(\Delta t)\,(\lambda_{ipsi} + \lambda_{contra}" + (r" + E(\Delta t))" if excitation is not None else ")")
-        self.latex_formula = "$" + r";\ ".join([self.sides.latex_formula.strip("$"), total] + [k.latex_formula.strip("$") for k in history]) + "$"
+        self.latex_formula = self.latex_with_gain("")
+
+    def latex_with_gain(self, gain: str) -> str:
+        """The formula with a gain (LaTeX) on the stimulus-driven rate."""
+        drive = rf"{gain}(\lambda_{{ipsi}} + \lambda_{{contra}})" if gain else r"\lambda_{ipsi} + \lambda_{contra}"
+        excitation = self.ground.excitation
+        total = rf"\lambda = \rho(\Delta t)\,({drive}" + (r" + E(\Delta t))" if excitation is not None else ")")
+        history = [self.ground.renewal_kernel] + ([excitation] if excitation is not None else [])
+        return "$" + r";\ ".join([self.sides.latex_formula.strip("$"), total] + [k.latex_formula.strip("$") for k in history]) + "$"
 
     def set_params(self, params: np.ndarray) -> None:
         super().set_params(params)

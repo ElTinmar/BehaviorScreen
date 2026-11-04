@@ -320,12 +320,19 @@ class RenewalProcess(PointProcess):
         self.name = f"Renewal rate: {kernel.name}, history: {renewal_kernel.name}" + (
             f", events: {excitation.name}" if excitation is not None else ""
         )
-        formula = lambda k: k.latex_formula.strip("$").split("=", 1)[-1]
-        drive = formula(kernel) + (f" + {formula(excitation)}" if excitation is not None else "")
-        self.latex_formula = rf"$\lambda = {formula(renewal_kernel)} \times \left({drive}\right)$"
+        self.latex_formula = self.latex_with_gain("")
         self.initial_guesses = sum((list(p.initial_guesses) for p in parts), [])
         self.bounds = sum((list(p.bounds) for p in parts), [])
         self.param_names = sum((list(p.param_names) for p in parts), [])
+
+    def latex_with_gain(self, gain: str) -> str:
+        """The formula with a gain (LaTeX) on the stimulus-driven rate."""
+        rhs = lambda k: k.latex_formula.strip("$").split("=", 1)[-1].strip()
+        excitation = r" + E(\Delta t)" if self.excitation is not None else ""
+        parts = [rf"\lambda = \rho(\Delta t)\,({gain}\lambda_{{stim}}{excitation})", rf"\lambda_{{stim}} = {rhs(self.kernel)}",
+                 rf"\rho(\Delta t) = {rhs(self.renewal_kernel)}"]
+        parts += [rf"E(\Delta t) = {rhs(self.excitation)}"] if self.excitation is not None else []
+        return "$" + r";\ ".join(parts) + "$"
 
     @property
     def gain_scales_drive_only(self) -> bool:
