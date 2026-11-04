@@ -104,8 +104,11 @@ def refractory_renewal(kernel: RateKernel) -> RenewalProcess:
     return RenewalProcess(kernel, RenewalKernelFactory.exponential_recovery(), stimulus_burst())
 
 
-def stimulus_burst(shape_k: float = 2.0) -> RenewalKernel:
-    """Bursts as a multiple of the stimulus-driven rate: they follow the stimulus but not the fish and trial gains."""
+def stimulus_burst(shape_k: float = 1.0) -> RenewalKernel:
+    """
+    Bursts as a multiple of the stimulus-driven rate: they follow the stimulus but not the fish and
+    trial gains. k = 1 (an alpha function) from the profile of k on prey_capture controls.
+    """
     return RenewalKernelFactory.burst_excitation(shape_k, rate_init=2.0, relative=True)
 
 
@@ -121,7 +124,7 @@ def sided(ipsi: RateKernel, contra: RateKernel) -> SidedPoissonProcess:
     return SidedPoissonProcess(ipsi, contra)
 
 
-def sided_renewal(ipsi: RateKernel, contra: RateKernel, shape_k: float = 2.0) -> SidedRenewalProcess:
+def sided_renewal(ipsi: RateKernel, contra: RateKernel, shape_k: float = 1.0) -> SidedRenewalProcess:
     return SidedRenewalProcess(ipsi, contra, RenewalKernelFactory.exponential_recovery(), stimulus_burst(shape_k))
 
 
@@ -138,7 +141,7 @@ def sided_models(
     Both sides of a stimulus in one model: without a fish effect, with a fish gain, with a gain and a
     side preference, and with a trial gain as well; for bouts (renewal), the last two also as renewal
     processes with bursts that follow the stimulus, the gains scaling the stimulus-driven rate only.
-    burst_shapes: the last again with other burst shapes k (a profile of k, warm-started from k = 2).
+    burst_shapes: the last again with other burst shapes k (a profile of k, warm-started from k = 1).
     """
     models = [sided(ipsi(), contra()), gamma(sided(ipsi(), contra())), side_gamma(sided(ipsi(), contra()))]
     models.append(side_gamma(sided(ipsi(), contra()), trial_gain=True))
@@ -390,7 +393,7 @@ def get_model_config() -> Dict[str, dict]:
         # Both sides of a directional stimulus: strength (ipsi amplitudes) and directionality D
         "prey_capture": experiment(
             dataset("JT", [IPSI, CONTRA], 24.0, stim=Stim.PREY_CAPTURE),
-            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat, renewal=True, burst_shapes=(1.0, 1.5, 3.0, 4.0, 6.0)),
+            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat, renewal=True),
         ),
         "phototaxis": experiment(
             dataset("RT", [IPSI, CONTRA], 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER),
