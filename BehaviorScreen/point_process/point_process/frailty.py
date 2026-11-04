@@ -569,7 +569,7 @@ def log_nested_drive_marginal(
     stream (fish * trials + trial, non-decreasing), S: driven exposure, fish x trial.
     The product is prod(d + b) sum_k P_k (g h)^k, P the Poisson-binomial distribution
     of the driven events (probabilities d / (d + b)), so h is exact:
-    a^a prod(d + b) (a + g S)^-a sum_k P_k (a)_k x^k, x = g / (a + g S) (Horner).
+    a^a prod(d + b) (a + g S)^-a sum_k P_k (a)_k x^k, x = g / (a + g S) (Horner; in log space where it under- or overflows).
     v = log g by Gauss-Hermite centred and scaled as log_nested_gamma_marginal's
     with every event counted by its driven share. Also returns the modes.
     """
@@ -579,19 +579,23 @@ def log_nested_drive_marginal(
     k = np.arange(pmf.shape[1])
     with np.errstate(divide="ignore"):
         log_coef = np.log(pmf) + gammaln(a + k) - gammaln(a)  # P_k (a)_k
-    peak = log_coef.max(axis=1)
-    coef = np.exp(log_coef - peak[:, None])
     g_events = np.exp(mode)[stream // n_trials] * drive_rates
     share = np.bincount(stream, weights=g_events / np.maximum(g_events + burst_rates, 1e-300), minlength=S.size).reshape(S.shape)
     mode, sd = _log_gain_mode(share, S, mask, r, a, mode)
     v = mode[:, None] + sd[:, None] * nodes  # fish x nodes
-    c = a + np.exp(v).repeat(n_trials, axis=0) * S.ravel()[:, None]  # streams x nodes
-    x = np.exp(v).repeat(n_trials, axis=0) / c
-    poly = np.zeros_like(x)
+    log_c = np.log(a + np.exp(v).repeat(n_trials, axis=0) * S.ravel()[:, None])  # streams x nodes
+    log_x = v.repeat(n_trials, axis=0) - log_c
+    peak = log_coef.max(axis=1, keepdims=True)
+    coef, x, poly = np.exp(log_coef - peak), np.exp(log_x), 0.0
     for j in k[::-1]:  # Horner: sum_k coef_k x^k
         poly = poly * x + coef[:, j : j + 1]
+    with np.errstate(divide="ignore"):
+        log_poly = peak + np.log(poly)
+    bad = np.nonzero(~np.isfinite(log_poly))  # every term under- or overflowed: the same sum in log space
+    if len(bad[0]):
+        log_poly[bad] = logsumexp(log_coef[bad[0]] + k * log_x[bad][:, None], axis=1)
     log_total = np.bincount(stream, weights=np.log(total), minlength=S.size)
-    log_z = (a * np.log(a) + log_total + peak)[:, None] - a * np.log(c) + np.log(poly)
+    log_z = (a * np.log(a) + log_total)[:, None] - a * log_c + log_poly
     log_integrand = r * v - r * np.exp(v) + (mask.ravel()[:, None] * log_z).reshape(n_fish, n_trials, -1).sum(axis=1)
     log_integral = logsumexp(log_weights + log_integrand + nodes**2 / 2, axis=1) + np.log(sd) + 0.5 * np.log(2 * np.pi)
     return log_integral + r * np.log(r) - gammaln(r), mode
