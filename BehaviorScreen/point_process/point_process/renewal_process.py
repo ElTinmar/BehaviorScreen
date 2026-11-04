@@ -16,8 +16,11 @@ from .poisson_process import RateKernel
 class RenewalKernel(LagKernel):
     """
     Multiplicative modulation rho(lag) >= 0 by the time since the stream's
-    last event: suppressive (refractory), facilitating or bump-shaped.
+    last event: suppressive (refractory), facilitating or bump-shaped. As a
+    RenewalProcess excitation: an added rate, relative to the stimulus-driven one if relative.
     """
+
+    relative: bool = False
 
 
 class RenewalKernelFactory:
@@ -230,13 +233,16 @@ class RenewalKernelFactory:
 
 
     @staticmethod
-    def burst_excitation(shape_k: float = 2.0, rate_init: float = 0.5, peak_lag_init: float = 0.4) -> RenewalKernel:
+    def burst_excitation(
+        shape_k: float = 2.0, rate_init: float = 0.5, peak_lag_init: float = 0.4, relative: bool = False
+    ) -> RenewalKernel:
         """
-        Extra rate (Hz) after an event, added to the stimulus-driven rate:
+        Extra rate after an event, added to the stimulus-driven rate:
 
             E(lag) = A_burst * pulse(lag; t_peak, k),  pulse(t_peak) = 1
 
-        Absolute, not relative to the driven rate: a fish's gain scales what the
+        In Hz, or relative: a multiple of the stimulus-driven rate at that time
+        (the bursts follow the stimulus). Either way a fish's gain scales what the
         stimulus drives, not its bursts, so no fish can run away into endless bursts.
         """
         def _func(lag, params):
@@ -244,7 +250,8 @@ class RenewalKernelFactory:
             return A_burst * peak_normalized_pulse(lag, burst_peak_lag, shape_k)
 
         return RenewalKernel(
-            name=f"Burst(k={shape_k:g})",
+            name=f"{'Stimulus' if relative else ''}Burst(k={shape_k:g})",
+            relative=relative,
             func=_func,
             param_names=["A_burst", "burst_peak_lag"],
             initial_guesses=[rate_init, peak_lag_init],
@@ -296,6 +303,7 @@ class RenewalProcess(PointProcess):
     stream's last bout of any category or side (dataset.history):
 
         lambda(t | history) = renewal_kernel(t - t_last bout) * (kernel(t, m) + excitation(t - t_last event))
+    (excitation times kernel(t, m) if the excitation is relative)
 
     The recovery describes refractoriness after any bout; the excitation
     (an absolute rate, e.g. RenewalKernelFactory.burst_excitation), bursts of the
@@ -328,8 +336,12 @@ class RenewalProcess(PointProcess):
     def latex_with_gain(self, gain: str) -> str:
         """The formula with a gain (LaTeX) on the stimulus-driven rate."""
         rhs = lambda k: k.latex_formula.strip("$").split("=", 1)[-1].strip()
-        excitation = r" + E(\Delta t)" if self.excitation is not None else ""
-        parts = [rf"\lambda = \rho(\Delta t)\,({gain}\lambda_{{stim}}{excitation})", rf"\lambda_{{stim}} = {rhs(self.kernel)}",
+        if self._relative:
+            total = rf"\lambda = \rho(\Delta t)\,\lambda_{{stim}}\,({gain or 1} + E(\Delta t))"
+        else:
+            excitation = r" + E(\Delta t)" if self.excitation is not None else ""
+            total = rf"\lambda = \rho(\Delta t)\,({gain}\lambda_{{stim}}{excitation})"
+        parts = [total, rf"\lambda_{{stim}} = {rhs(self.kernel)}",
                  rf"\rho(\Delta t) = {rhs(self.renewal_kernel)}"]
         parts += [rf"E(\Delta t) = {rhs(self.excitation)}"] if self.excitation is not None else []
         return "$" + r";\ ".join(parts) + "$"
@@ -338,6 +350,11 @@ class RenewalProcess(PointProcess):
     def gain_scales_drive_only(self) -> bool:
         """A fish gain scales the stimulus-driven rate, not the bursts: not a gain on the whole intensity."""
         return self.excitation is not None
+
+    @property
+    def _relative(self) -> bool:
+        """Bursts as a multiple of the stimulus-driven rate."""
+        return self.excitation is not None and self.excitation.relative
 
     def _split(self, params: List[float]) -> Tuple[List[float], List[float], List[float]]:
         """(rate kernel, renewal kernel, excitation) parameters."""
@@ -364,7 +381,7 @@ class RenewalProcess(PointProcess):
         grid[-1] = min(grid[-1], t1)
         rho = np.ones_like(grid) if t_bout is None else self.renewal_kernel.evaluate(grid - t_bout, params_renewal)
         drive = rho * self.kernel.evaluate(grid, np.full_like(grid, trial), params_base)
-        burst = rho * (self._excitation(grid - t_event, params_excitation) if t_event is not None else 0.0 * grid)
+        burst = (drive if self._relative else rho) * (self._excitation(grid - t_event, params_excitation) if t_event is not None else 0.0 * grid)
         return trapezoid(drive, grid), trapezoid(burst, grid)
 
     def _segment_integral(self, t0: float, t1: float, trial: float, params: List[float], t_bout: Optional[float], t_event: Optional[float]) -> float:
@@ -518,11 +535,11 @@ class RenewalProcess(PointProcess):
             drive = weight * interpolate(table, grid["table_index"][a:b], grid["table_fraction"][a:b])
             drive_exposure += np.bincount(stream, weights=drive, minlength=n_streams)
             if self.excitation is not None:
-                burst = weight * interpolate(excitation, grid["excitation_index"][a:b], grid["excitation_fraction"][a:b])
+                burst = (drive if self._relative else weight) * interpolate(excitation, grid["excitation_index"][a:b], grid["excitation_fraction"][a:b])
                 burst_exposure += np.bincount(stream, weights=burst, minlength=n_streams)
         rho_events = self._modulation(grid["event_lags"], params_renewal)
         drive_rates = rho_events * self.kernel.evaluate(grid["event_times"], grid["event_trials"], params_base)
-        burst_rates = rho_events * self._excitation(grid["event_event_lags"], params_excitation)
+        burst_rates = (drive_rates if self._relative else rho_events) * self._excitation(grid["event_event_lags"], params_excitation)
         shape = (dataset.num_fish, dataset.num_trials)
         return drive_rates, burst_rates, grid["event_stream"], drive_exposure.reshape(shape), burst_exposure.reshape(shape)
 
@@ -586,7 +603,8 @@ class RenewalProcess(PointProcess):
             return np.where(k >= 0, t - points[np.maximum(k, 0)] if len(points) else np.nan, np.nan)
 
         rho = self._modulation(since_last(history_events).ravel(), params_renewal).reshape(t.shape)
-        rate = rho * (self.kernel.evaluate(t, trial, params_base) + self._excitation(since_last(selected_events), params_excitation))
+        stim = self.kernel.evaluate(t, trial, params_base)
+        rate = rho * (stim + (stim if self._relative else 1.0) * self._excitation(since_last(selected_events), params_excitation))
         return np.maximum(rate, 1e-9)
 
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
@@ -642,7 +660,8 @@ class RenewalProcess(PointProcess):
         _, params_renewal, params_excitation = self._split(self.params_)
         rho = self._modulation(np.where(previous >= 0, t_ev - bouts[np.maximum(previous, 0)], np.nan), params_renewal)
         drive_rates = rho * self.kernel.evaluate(t_ev, np.full(t_ev.shape, trial, dtype=float), self._split(self.params_)[0])
-        return drive_cum, burst_cum, drive_rates, rho * self._excitation(np.diff(t_ev, prepend=np.nan), params_excitation)
+        burst_rates = (drive_rates if self._relative else rho) * self._excitation(np.diff(t_ev, prepend=np.nan), params_excitation)
+        return drive_cum, burst_cum, drive_rates, burst_rates
 
     @property
     def uses_history(self) -> bool:
@@ -662,15 +681,18 @@ class RenewalProcess(PointProcess):
         lags = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
         upper = (
             max(1.0, float(np.max(self.renewal_kernel.evaluate(lags, params_renewal))))
-            * (gain * self._intensity_upper_bound(dataset, t_idx) + float(np.max(self._excitation(lags, params_excitation))) * self._THINNING_SAFETY_MARGIN)
+            * (gain * self._intensity_upper_bound(dataset, t_idx)
+               + float(np.max(self._excitation(lags, params_excitation)))
+               * (self._intensity_upper_bound(dataset, t_idx) if self._relative else self._THINNING_SAFETY_MARGIN))
         )
 
         def intensity(t: float, events: List[float]) -> float:
             k = np.searchsorted(others, t)
             last_bout = max(events[-1] if events else -np.inf, others[k - 1] if k else -np.inf)
-            rate = gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), params_base)[0]
+            stim = self.kernel.evaluate(np.array([t]), np.array([t_idx]), params_base)[0]
+            rate = gain * stim
             if events:
-                rate += self._excitation(np.array([t - events[-1]]), params_excitation)[0]
+                rate += (stim if self._relative else 1.0) * self._excitation(np.array([t - events[-1]]), params_excitation)[0]
             if last_bout > -np.inf:
                 rate *= self.renewal_kernel.evaluate(np.array([t - last_bout]), params_renewal)[0]
             return rate

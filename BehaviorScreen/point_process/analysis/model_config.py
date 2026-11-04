@@ -26,6 +26,7 @@ from BehaviorScreen.point_process.point_process.poisson_process import (
 )
 from BehaviorScreen.point_process.point_process.sided_process import SidedPoissonProcess, SidedRenewalProcess, SidedSurvivalProcess, sided_base
 from BehaviorScreen.point_process.point_process.renewal_process import (
+    RenewalKernel,
     RenewalKernelFactory,
     RenewalProcess,
 )
@@ -98,9 +99,14 @@ def renewal(kernel: RateKernel) -> RenewalProcess:
 def refractory_renewal(kernel: RateKernel) -> RenewalProcess:
     """
     A smooth recovery from the last bout of any kind (refractoriness) times the
-    stimulus-driven rate plus a burst rate after the last selected bout.
+    stimulus-driven rate and a burst after the last selected bout, a multiple of it.
     """
-    return RenewalProcess(kernel, RenewalKernelFactory.exponential_recovery(), RenewalKernelFactory.burst_excitation())
+    return RenewalProcess(kernel, RenewalKernelFactory.exponential_recovery(), stimulus_burst())
+
+
+def stimulus_burst() -> RenewalKernel:
+    """Bursts as a multiple of the stimulus-driven rate: they follow the stimulus but not the fish and trial gains."""
+    return RenewalKernelFactory.burst_excitation(rate_init=2.0, relative=True)
 
 
 def hawkes(kernel: RateKernel) -> HawkesProcess:
@@ -117,7 +123,7 @@ def sided(ipsi: RateKernel, contra: RateKernel) -> SidedPoissonProcess:
 
 def sided_renewal(ipsi: RateKernel, contra: RateKernel) -> SidedRenewalProcess:
     return SidedRenewalProcess(
-        ipsi, contra, RenewalKernelFactory.exponential_recovery(), RenewalKernelFactory.burst_excitation()
+        ipsi, contra, RenewalKernelFactory.exponential_recovery(), stimulus_burst()
     )
 
 
@@ -132,7 +138,7 @@ def sided_models(
     """
     Both sides of a stimulus in one model: without a fish effect, with a fish gain, with a gain and a
     side preference, and with a trial gain as well; for bouts (renewal), the last two also as renewal
-    processes with bursts, the gains scaling the stimulus-driven rate.
+    processes with bursts that follow the stimulus, the gains scaling the stimulus-driven rate only.
     """
     models = [sided(ipsi(), contra()), gamma(sided(ipsi(), contra())), side_gamma(sided(ipsi(), contra()))]
     models.append(side_gamma(sided(ipsi(), contra()), trial_gain=True))
