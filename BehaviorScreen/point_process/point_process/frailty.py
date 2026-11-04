@@ -640,10 +640,12 @@ class SideFrailty(Frailty):
         self._nodes, self._log_weights = nodes, np.log(weights / weights.sum())
         self._mode = np.zeros(0)  # posterior side shifts of the last fit's fish: where the next Newton starts
         self.name = f"GammaSideMixedEffects{'+Trial' if trial_gain else ''}[{base_process.name}]"
-        side = "preferred" if isinstance(base_process, SidedSurvivalProcess) else "ipsi"
+        side = (r"P_{preferred} = \sigma(\log D + u_f)" if isinstance(base_process, SidedSurvivalProcess)
+                else r"P_{ipsi} = \sigma(\log(\lambda_{ipsi}/\lambda_{contra}) + u_f)")
         self.latex_formula = (
             rf"${gain_formula(base_process, trial_gain)},\ g_f\sim\Gamma(r,r),\ "
-            rf"\mathrm{{logit}}\,P_{{{side}}} + u_f,\ u_f\sim N(0,s^2)"
+            + side
+            + r",\ u_f\sim N(0,s^2)"
             + (r",\ h_{fm}\sim\Gamma(a,a)$" if trial_gain else "$")
         )
 

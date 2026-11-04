@@ -267,11 +267,10 @@ class SidedRenewalProcess(PointProcess):
         drive = rf"{gain}(\lambda_{{ipsi}} + \lambda_{{contra}})" if gain else r"\lambda_{ipsi} + \lambda_{contra}"
         excitation = self.ground.excitation
         if self.ground._relative:
-            total = rf"\lambda = \rho(\Delta t)\,(\lambda_{{ipsi}} + \lambda_{{contra}})\,({gain or 1} + E(\Delta t))"
+            total = rf"\lambda = \rho(\Delta t_b)\,(\lambda_{{ipsi}} + \lambda_{{contra}})\,({gain or 1} + E(\Delta t_e))"
         else:
-            total = rf"\lambda = \rho(\Delta t)\,({drive}" + (r" + E(\Delta t))" if excitation is not None else ")")
-        history = [self.ground.renewal_kernel] + ([excitation] if excitation is not None else [])
-        return "$" + r";\ ".join([self.sides.latex_formula.strip("$"), total] + [k.latex_formula.strip("$") for k in history]) + "$"
+            total = rf"\lambda = \rho(\Delta t_b)\,({drive}" + (r" + E(\Delta t_e))" if excitation is not None else ")")
+        return "$" + r";\ ".join([self.sides.latex_formula.strip("$"), total] + self.ground.history_latex()) + "$"
 
     def set_params(self, params: np.ndarray) -> None:
         super().set_params(params)

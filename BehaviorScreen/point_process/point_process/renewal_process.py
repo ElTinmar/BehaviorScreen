@@ -257,6 +257,7 @@ class RenewalKernelFactory:
             initial_guesses=[rate_init, peak_lag_init],
             bounds=[(0.0, 20.0), (0.02, 5.0)],
             latex_formula=(
+                r"$E(\Delta t)=A_{\mathrm{burst}}\,\frac{\Delta t}{t_p}\,e^{1-\Delta t/t_p}$" if shape_k == 1 else
                 r"$E(\Delta t)=A_{\mathrm{burst}}\left(\frac{\Delta t}{t_p}\right)^k"
                 r"\exp\left[k\left(1-\frac{\Delta t}{t_p}\right)\right],\ k = " + f"{shape_k:g}$"
             ),
@@ -337,14 +338,21 @@ class RenewalProcess(PointProcess):
         """The formula with a gain (LaTeX) on the stimulus-driven rate."""
         rhs = lambda k: k.latex_formula.strip("$").split("=", 1)[-1].strip()
         if self._relative:
-            total = rf"\lambda = \rho(\Delta t)\,\lambda_{{stim}}\,({gain or 1} + E(\Delta t))"
+            total = rf"\lambda = \rho(\Delta t_b)\,\lambda_{{stim}}\,({gain or 1} + E(\Delta t_e))"
         else:
-            excitation = r" + E(\Delta t)" if self.excitation is not None else ""
-            total = rf"\lambda = \rho(\Delta t)\,({gain}\lambda_{{stim}}{excitation})"
-        parts = [total, rf"\lambda_{{stim}} = {rhs(self.kernel)}",
-                 rf"\rho(\Delta t) = {rhs(self.renewal_kernel)}"]
-        parts += [rf"E(\Delta t) = {rhs(self.excitation)}"] if self.excitation is not None else []
+            excitation = r" + E(\Delta t_e)" if self.excitation is not None else ""
+            total = rf"\lambda = \rho(\Delta t_b)\,({gain}\lambda_{{stim}}{excitation})"
+        parts = [total, rf"\lambda_{{stim}} = {rhs(self.kernel)}"] + self.history_latex()
         return "$" + r";\ ".join(parts) + "$"
+
+    def history_latex(self) -> List[str]:
+        """The recovery and the excitation, each on its own clock (LaTeX, no $)."""
+        on = lambda k, clock: k.latex_formula.strip("$").split("=", 1)[-1].strip().replace(r"\Delta t", rf"\Delta t_{clock}")
+        parts = [rf"\rho(\Delta t_b) = {on(self.renewal_kernel, 'b')}"]
+        if self.excitation is not None:
+            parts.append(rf"E(\Delta t_e) = {on(self.excitation, 'e')}")
+        parts.append(r"\Delta t_b, \Delta t_e\text{: time since the last bout, the last selected bout}")
+        return parts
 
     @property
     def gain_scales_drive_only(self) -> bool:
