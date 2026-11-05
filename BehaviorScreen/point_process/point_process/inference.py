@@ -529,7 +529,7 @@ class ModelComparator:
         if duplicated:
             raise ValueError(f"Model names must be unique: {duplicated}")
 
-        if null_model is not None:
+        if null_model is not None and not any(m is null_model for m in models):
             null_fitted, null_error = _fit_one_model(
                 null_model, dataset, method, kwargs
             )
@@ -555,6 +555,9 @@ class ModelComparator:
                     on_fitted(index, m)
         fitted_models: List[PointProcess] = []
         records = []
+        for model, error in results:  # a null among the models: fitted with them
+            if model is null_model:
+                ll_null = model.log_likelihood if error is None else np.nan
 
         for model, error in results:
             if error is None:

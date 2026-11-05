@@ -202,11 +202,14 @@ def experiment(
     """
     The null model describes the same data as the candidates: sided models also
     predict each event's side, so their null is the sided constant-rate model.
+    It is the first rung of the ladder (models), unless a candidate already is it.
     """
     if models[0].is_survival:
         null = SurvivalProcess(SurvivalKernelFactory.constant_hazard())
     else:
         null = sided(flat(), flat()) if sided_base(models[0]) is not None else poisson(flat())
+    null = next((m for m in models if m.name == null.name), null)
+    models = models if any(m is null for m in models) else [null] + models
     return {
         "events": events,
         "dataset": dataset_args,
