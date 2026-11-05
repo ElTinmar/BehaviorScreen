@@ -100,7 +100,7 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
 def plot_sides(dataset: PointProcessDataset, model: PointProcess, model_dir: Path) -> None:
     """Each side's events against that side's fitted rate; side calibration by time, trial and fish."""
     for side, side_name in SIDE_NAMES.items():
-        events, view = replace(dataset.select(laterality=side), laterality=side), SideView(model, side)
+        events, view = replace(dataset.select(laterality=side), laterality=side), SideView(model, side, dataset)
         fig, _ = ModelPlotter.plot_model_fits(dataset=events, models=[view])
         save_fig(fig, model_dir, f"model_fits_overlay_{side_name}")
         fig, _ = ModelPlotter.plot_histogram(dataset=events, model=view)

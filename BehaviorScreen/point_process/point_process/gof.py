@@ -341,24 +341,34 @@ class GOFMixin:
             "n_simultaneous_curves": int(complete.sum()),
         }
 
-    def compute_residuals(self, dataset: PointProcessDataset) -> Dict[str, np.ndarray]:
+    def compute_residuals(self, dataset: PointProcessDataset, side: Optional[int] = None) -> Dict[str, np.ndarray]:
         """
-        Counts per (trial, time bin) against the model, pooled over fish.
+        Counts per (trial, time bin) against the model, pooled over fish, of
+        both sides or of one (recurrent sided models).
         Recurrent models: expected rate x fish x bin width, negative-binomial
-        variance with dispersion r per fish (r x fish for the pooled count).
+        variance mu + v mu^2 / n_fish (r_eff = n_fish / v), v the squared
+        coefficient of variation across streams of their gain (fish and trial
+        gains) times their share of events to the side (fish side preferences).
         Survival models: first events against the drop of the marginal
         survival curve, Poisson variance.
         """
+        from .sided_process import sided_base
+
         self._require_fitted()
         n_fish = dataset.n_fish_per_trial[:, None]
         if self.is_survival:
             dataset = dataset.first_events()
             survival = np.array([self.population_survival_curve(dataset, trial=m)[1] for m in range(dataset.num_trials)])
-            mu_pred = n_fish * -np.diff(survival, axis=1, prepend=1.0)
+            mu_pred, v = n_fish * -np.diff(survival, axis=1, prepend=1.0), 0.0
+        elif side is None:
+            mu_pred, v = self.compute_expected_rate(dataset) * n_fish * dataset.binning_dt, self.stream_gain_variance
         else:
-            mu_pred = self.compute_expected_rate(dataset) * n_fish * dataset.binning_dt
-        r_eff = np.inf if self.is_survival or np.isinf(self.dispersion_r) else self.dispersion_r * n_fish
-        y_obs = dataset.time_trial_histogram_counts
+            sides = sided_base(self)
+            mu_pred = self.compute_expected_rate(dataset, side=side) * n_fish * dataset.binning_dt
+            cv2 = sides.side_share_cv2(dataset, side) if hasattr(sides, "side_share_cv2") else 0.0
+            v = (1 + self.stream_gain_variance) * (1 + cv2) - 1
+        r_eff = np.inf if np.all(v == 0) else n_fish / v
+        y_obs = (dataset if side is None else dataset.select(laterality=side)).time_trial_histogram_counts
 
         with np.errstate(divide="ignore", invalid="ignore"):
             var_pred = mu_pred + mu_pred**2 / r_eff

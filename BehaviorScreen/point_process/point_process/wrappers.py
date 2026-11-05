@@ -27,8 +27,14 @@ class Wrapper(PointProcess):
     def predict(self, *args, **kwargs) -> np.ndarray:
         return self.base_process.predict(*args, **kwargs)
 
-    def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
-        return self.base_process.compute_expected_rate(dataset)
+    def compute_expected_rate(self, dataset: PointProcessDataset, **side) -> np.ndarray:
+        """With bout history, the simulated rate (gains integrated out); else the base process's."""
+        if self.uses_history:
+            return self.simulated_rate(dataset, **side)
+        return self.base_process.compute_expected_rate(dataset, **side)
+
+    def conditional_rate(self, dataset: PointProcessDataset, side: Optional[int] = None) -> Optional[np.ndarray]:
+        return self.base_process.conditional_rate(dataset, side)
 
     def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
         return self.base_process.cumulative_integrated_intensity(t_events, trial)
@@ -66,6 +72,10 @@ class Wrapper(PointProcess):
     @property
     def dispersion_r(self) -> float:
         return self.base_process.dispersion_r
+
+    @property
+    def stream_gain_variance(self) -> float:
+        return self.base_process.stream_gain_variance
 
     @property
     def is_survival(self) -> bool:

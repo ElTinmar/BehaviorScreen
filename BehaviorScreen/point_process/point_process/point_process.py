@@ -74,6 +74,30 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
         raise NotImplementedError
 
+    def conditional_rate(self, dataset: PointProcessDataset, side: Optional[int] = None) -> Optional[np.ndarray]:
+        """Rate given each fish's observed bouts and its own gains; None where not defined (Frailty)."""
+        return None
+
+    def simulated_rate(self, dataset: PointProcessDataset, side: Optional[int] = None, n_fish: int = 3000, seed: int = 0) -> np.ndarray:
+        """
+        Event rate (Hz, trial x time bin) the model produces on dataset's design, the
+        mean of enough simulations of it for about n_fish simulated fish (at least 3),
+        of all events or of one side's (laterality mark).
+        The rate of models whose intensity depends on each fish's own bouts: rates
+        computed from the observed bouts at the mean gain overshoot, a quiet fish being
+        rested most of the time. Cached for the last dataset and parameters.
+        """
+        key = (id(dataset), dataset.num_fish, len(dataset.event_times), tuple(self.params_), n_fish, seed)
+        if getattr(self, "_simulated_rates", (None,))[0] != key:
+            rng = np.random.default_rng(seed)
+            sims = [self.simulate_dataset(dataset, rng) for _ in range(max(3, -(-n_fish // dataset.num_fish)))]
+            sides = np.unique(sims[0].marks["laterality"]) if "laterality" in sims[0].marks else []
+            rates = {s: np.mean([(x if s is None else x.select(laterality=int(s))).time_trial_histogram_hz for x in sims], axis=0)
+                     for s in [None, *sides]}
+            self._simulated_rates = (key, rates)
+        rates = self._simulated_rates[1]
+        return rates[side] if side in rates else np.zeros_like(rates[None])
+
     def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
         raise NotImplementedError
 
@@ -186,6 +210,11 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
     @property
     def dispersion_r(self) -> float:
         return np.inf
+
+    @property
+    def stream_gain_variance(self) -> float:
+        """Variance of a stream's (fish x trial) gain on the rate; 0 without gains."""
+        return 0.0
 
     @property
     def overdispersion_index(self) -> float:

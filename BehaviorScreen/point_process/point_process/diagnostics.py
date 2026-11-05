@@ -148,24 +148,25 @@ class DiagnosticsMixin:
         _style(ax, "Time in trial (s)", "P(no event yet)")
 
     def plot_panel_residual_surface(
-        self, dataset: PointProcessDataset, residuals: Dict[str, np.ndarray], ax: plt.Axes, n_time_bins: int = 48
+        self, dataset: PointProcessDataset, residuals: Dict[str, np.ndarray], ax: plt.Axes, n_time_bins: int = 48, label: str = ""
     ) -> None:
         """
         Pearson residuals of the counts over trial x time in trial, in about
-        n_time_bins bins (variance with the per-fish gain shared across bins).
+        n_time_bins bins (variance with each stream's gains shared across bins).
         """
         width = max(1, residuals["y_obs"].shape[1] // n_time_bins)
         coarse = lambda x: np.add.reduceat(x, np.arange(0, x.shape[1], width), axis=1)
-        observed, expected = coarse(residuals["y_obs"]), coarse(residuals["mu_pred"])
-        r_eff = residuals["r_eff"]
+        mu = residuals["mu_pred"]
+        observed, expected = coarse(residuals["y_obs"]), coarse(mu)
         with np.errstate(divide="ignore", invalid="ignore"):
-            pearson = (observed - expected) / np.sqrt(expected + expected**2 / r_eff)
+            excess = coarse(mu / residuals["r_eff"]) / expected
+            pearson = (observed - expected) / np.sqrt(expected + excess * expected**2)
         vmax = np.nanpercentile(np.abs(pearson), 98) if np.isfinite(pearson).any() else 1.0
         image = ax.imshow(
             pearson, aspect="auto", origin="lower", cmap=DIVERGING, vmin=-vmax, vmax=vmax, interpolation="nearest",
             extent=[0.0, dataset.duration_s, -0.5, dataset.num_trials - 0.5],
         )
-        ax.set_title(f"Count residuals ({width * dataset.binning_dt:g} s bins)")
+        ax.set_title(f"Count residuals{label} ({width * dataset.binning_dt:g} s bins)")
         ax.set_xlabel("Time in trial (s)")
         ax.set_ylabel("Trial (presentation order)")
         ax.figure.colorbar(image, ax=ax, label="Pearson residual")
@@ -271,7 +272,11 @@ class DiagnosticsMixin:
             grids = self.gof_grids(dataset, gof_u_grid)
             observed = self.gof_statistics(dataset, **grids, acf_lags=gof_acf_lags, min_km_at_risk=gof_min_km_at_risk)
             gof = {**grids, "observed": observed, "replicates": [], "summary": pd.DataFrame(), "omnibus_p": np.nan, "ci": gof_ci}
+        from .sided_process import SIDE_NAMES, sided_base
+
+        sides = {} if self.is_survival or sided_base(self) is None else SIDE_NAMES
         residuals = self.compute_residuals(dataset)
+        side_residuals = {name: self.compute_residuals(dataset, side=side) for side, name in sides.items()}
         correlation = self.estimate_parameter_correlation(dataset, eps=eps)
 
         panels: List[Callable[[plt.Axes], None]] = [
@@ -289,7 +294,9 @@ class DiagnosticsMixin:
                 lambda ax: self.plot_panel_interval_acf(gof, ax),
             ]
         panels += [
-            lambda ax: self.plot_panel_residual_surface(dataset, residuals, ax),
+            lambda ax: self.plot_panel_residual_surface(dataset, residuals, ax, label=", both sides" if sides else ""),
+            *[lambda ax, name=name: self.plot_panel_residual_surface(dataset, side_residuals[name], ax, label=f", {name}")
+              for name in side_residuals],
             lambda ax: self.plot_panel_stream_counts(gof, ax),
             lambda ax: self.plot_panel_fish_totals(gof, ax),
             lambda ax: self.plot_panel_parameter_correlation(correlation, ax),
@@ -305,7 +312,10 @@ class DiagnosticsMixin:
         for ax in axes.flat[len(panels):]:
             ax.axis("off")
         fig.suptitle(self.latex_formula, fontsize=13)
-        return fig, {"parametric_gof": gof, "residuals": residuals, "parameter_correlation": correlation}
+        return fig, {"parametric_gof": gof, "residuals": residuals, "side_residuals": side_residuals, "parameter_correlation": correlation}
+
+
+OWN_GAINS = "darkorange"  # model rate with each fish's own (posterior) gains, next to the simulated one
 
 
 class ModelPlotter:
@@ -354,17 +364,19 @@ class ModelPlotter:
         """
         surf_emp = dataset.time_trial_histogram_hz
         surf_model = model.compute_expected_rate(dataset)
+        surf_own = model.conditional_rate(dataset)
 
         tm_emp, trm_emp = ModelPlotter._weighted_marginals(surf_emp, dataset)
         tm_model, trm_model = ModelPlotter._weighted_marginals(surf_model, dataset)
+        tm_own, trm_own = (None, None) if surf_own is None else ModelPlotter._weighted_marginals(surf_own, dataset)
 
         vmax = max(np.nanmax(surf_emp), np.nanmax(surf_model))
         vmax = max(vmax, 1e-9)
         time_ymax = max(
-            np.nanmax(x) for x in [tm_emp, tm_model] if np.any(np.isfinite(x))
+            np.nanmax(x) for x in [tm_emp, tm_model, tm_own] if x is not None and np.any(np.isfinite(x))
         )
         trial_xmax = max(
-            np.nanmax(x) for x in [trm_emp, trm_model] if np.any(np.isfinite(x))
+            np.nanmax(x) for x in [trm_emp, trm_model, trm_own] if x is not None and np.any(np.isfinite(x))
         )
         time_ymax, trial_xmax = max(time_ymax, 1e-9), max(trial_xmax, 1e-9)
 
@@ -401,8 +413,10 @@ class ModelPlotter:
             color="crimson",
             linestyle="--",
             linewidth=1.3,
-            label="Model",
+            label="Model" if surf_own is None else "Model (simulated)",
         )
+        if surf_own is not None:
+            ax_time.plot(dataset.t_centers, tm_own, color=OWN_GAINS, linestyle=":", linewidth=1.5, label="Model, each fish's own gains")
         ax_time.set_ylim(0, time_ymax * 1.05)
         plt.setp(ax_time.get_xticklabels(), visible=False)
         ax_time.tick_params(labelsize=7)
@@ -445,6 +459,8 @@ class ModelPlotter:
         ax_trial.plot(
             trm_model, trial_centers, color="crimson", linestyle="--", linewidth=1.3
         )
+        if surf_own is not None:
+            ax_trial.plot(trm_own, trial_centers, color=OWN_GAINS, linestyle=":", linewidth=1.5)
         ax_trial.set_xlim(0, trial_xmax * 1.05)
         plt.setp(ax_trial.get_yticklabels(), visible=False)
         ax_trial.tick_params(labelsize=7)
@@ -493,6 +509,10 @@ class ModelPlotter:
                 label=label,
                 zorder=3,
             )
+            own = model.conditional_rate(dataset)
+            if own is not None:
+                ax.plot(dataset.t_centers, np.average(own, axis=0, weights=dataset.n_fish_per_trial), linestyle=":", linewidth=1.8,
+                        color=color, label=f"{model.name}: each fish's own gains (dashed: simulated)", zorder=3)
 
         # 3. Plot Formatting
         ax.set_title(
@@ -535,6 +555,7 @@ class ModelPlotter:
         fig, ax = plt.subplots(figsize=figsize)
 
         model_surface = model.compute_expected_rate(dataset)
+        own_surface = model.conditional_rate(dataset)
 
         # 2. Color Mapping Setup
         norm = plt.Normalize(vmin=0, vmax=dataset.num_trials)
@@ -567,6 +588,8 @@ class ModelPlotter:
                 alpha=model_alpha,
                 zorder=3,
             )
+            if own_surface is not None:
+                ax.plot(dataset.t_centers, own_surface[idx, :], color=color, linestyle=":", linewidth=1.4, alpha=model_alpha, zorder=3)
 
         # 4. Legend to clarify Data vs. Model styling
         ax.scatter(
@@ -583,8 +606,10 @@ class ModelPlotter:
             color="gray",
             linestyle="--",
             linewidth=1.8,
-            label="Model Fit (Dashed Line)",
+            label="Model Fit (Dashed Line)" if own_surface is None else "Model, simulated (dashed)",
         )
+        if own_surface is not None:
+            ax.plot([], [], color="gray", linestyle=":", linewidth=1.4, label="Model, each fish's own gains (dotted)")
 
         # Plot Formatting
         ax.set_title(

@@ -302,6 +302,10 @@ class _GainWrapper(Wrapper):
     def dispersion_r(self) -> float:
         return self._gain().dispersion
 
+    @property
+    def stream_gain_variance(self) -> float:
+        return 1.0 / self.dispersion_r
+
 
 class Frailty(_GainWrapper):
     """
@@ -366,9 +370,45 @@ class Frailty(_GainWrapper):
         active = dataset.fish_trial_mask.any(axis=1)
         return -(base_ll + float(np.sum(self._gain(params).log_marginal(N[active], S[active]))))
 
+    def conditional_rate(self, dataset: PointProcessDataset, side: Optional[int] = None) -> Optional[np.ndarray]:
+        """
+        Rate (Hz, trial x time bin) given each fish's observed bouts and its own gains,
+        their posterior means per fish and trial: the time course the model predicts
+        for these fish, of all events or of one side's. None without bout history or
+        when the gain scales the whole rate.
+        """
+        if not (self.uses_history and self.base_process.gain_scales_drive_only):
+            return None
+        self._nll(list(self.params_), dataset)  # posterior modes of this dataset's fish
+        _, d, b, stream, S, _ = self.base_process.drive_likelihood_terms(dataset, self._base_params(self.params_))
+        if self.trial_gain:
+            gains = posterior_stream_gains(d, b, stream, S, dataset.fish_trial_mask, self._gain().shape, self._r_trial(),
+                                           self._gain_nodes, self._gain_log_weights, self._fish_modes(dataset))
+        else:
+            _, fish_gains = self._gain().evidence_by_fish(d, b, stream // dataset.num_trials, S.sum(axis=1), n_nodes=30)
+            gains = np.repeat(fish_gains[:, None], dataset.num_trials, axis=1)
+        renewal = getattr(self.base_process, "ground", self.base_process)
+        rate, n = np.zeros((dataset.num_trials, len(dataset.t_centers))), np.zeros(dataset.num_trials)
+        for f, m, t_ev in dataset.iter_streams():
+            stream_rate = renewal.predict(dataset.t_centers, m, dataset.history_times(f, m), t_ev, gain=gains[f, m])
+            rate[m] += stream_rate if side is None else stream_rate * self._side_share(dataset.t_centers, m, f, side)
+            n[m] += 1
+        return rate / np.maximum(n, 1)[:, None]
+
+    def _side_share(self, t: np.ndarray, trial: int, fish: int, side: int) -> np.ndarray:
+        """Share of a fish's events to one side at t."""
+        p = self.base_process.ipsi_probability(t, trial)
+        return p if side == IPSI else 1 - p
+
     def _fish_modes(self, dataset: PointProcessDataset) -> np.ndarray:
         """Posterior log fish gains of the last call (where Newton starts), zeros for a new dataset size."""
         return self._gain_mode if len(self._gain_mode) == dataset.num_fish else np.zeros(dataset.num_fish)
+
+    @property
+    def stream_gain_variance(self) -> float:
+        """Var(g h) = (1 + 1/r)(1 + 1/a) - 1 with a trial gain."""
+        fish = super().stream_gain_variance
+        return (1 + fish) * (1 + 1 / self._r_trial()) - 1 if self.trial_gain else fish
 
     def _stream_gain(self, gain: float, rng: np.random.Generator) -> float:
         """A stream's gain: the fish's, times its trial's when there is a trial gain."""
@@ -574,6 +614,34 @@ def log_nested_drive_marginal(
     with every event counted by its driven share (at the gain the centre is found for,
     so the result does not depend on the starting modes). Also returns the modes.
     """
+    _, _, _, _, sd, log_integrand, mode = _nested_drive_integrand(drive_rates, burst_rates, stream, S, mask, r, a, nodes, mode)
+    log_integral = logsumexp(log_weights + log_integrand + nodes**2 / 2, axis=1) + np.log(sd) + 0.5 * np.log(2 * np.pi)
+    return log_integral + r * np.log(r) - gammaln(r), mode
+
+
+def posterior_stream_gains(
+    drive_rates: np.ndarray, burst_rates: np.ndarray, stream: np.ndarray, S: np.ndarray, mask: np.ndarray,
+    r: float, a: float, nodes: np.ndarray, log_weights: np.ndarray, mode: np.ndarray,
+) -> np.ndarray:
+    """
+    Posterior mean of g h per stream (fish x trial), the arguments as for
+    log_nested_drive_marginal: E[g h] = sum over the nodes of g of their posterior
+    weight times g E[h | g] = x sum_k P_k (a)_k (a + k) x^k / sum_k P_k (a)_k x^k.
+    """
+    log_coef, k, _, log_x, _, log_integrand, _ = _nested_drive_integrand(drive_rates, burst_rates, stream, S, mask, r, a, nodes, mode)
+    log_post = log_weights + log_integrand + nodes**2 / 2
+    post = np.exp(log_post - logsumexp(log_post, axis=1, keepdims=True)).repeat(S.shape[1], axis=0)  # streams x nodes
+    terms = log_coef[:, None, :] + k * log_x[:, :, None]  # streams x nodes x k
+    log_gh = log_x + logsumexp(terms + np.log(a + k), axis=2) - logsumexp(terms, axis=2)  # g E[h | g] = x sum(... (a + k)) / sum(...)
+    return (post * np.exp(log_gh)).sum(axis=1).reshape(S.shape)
+
+
+def _nested_drive_integrand(
+    drive_rates: np.ndarray, burst_rates: np.ndarray, stream: np.ndarray, S: np.ndarray, mask: np.ndarray,
+    r: float, a: float, nodes: np.ndarray, mode: np.ndarray,
+) -> Tuple[np.ndarray, ...]:
+    """log_nested_drive_marginal's pieces: log P_k (a)_k per stream, k, the log gains v at the nodes
+    (fish x nodes), log x (streams x nodes), the nodes' scale and log integrand per fish, the modes."""
     n_fish, n_trials = S.shape
     total = np.maximum(drive_rates + burst_rates, 1e-300)
     pmf = poisson_binomial(drive_rates / total, stream, S.size)
@@ -601,8 +669,7 @@ def log_nested_drive_marginal(
     log_total = np.bincount(stream, weights=np.log(total), minlength=S.size)
     log_z = (a * np.log(a) + log_total)[:, None] - a * log_c + log_poly
     log_integrand = r * v - r * np.exp(v) + (mask.ravel()[:, None] * log_z).reshape(n_fish, n_trials, -1).sum(axis=1)
-    log_integral = logsumexp(log_weights + log_integrand + nodes**2 / 2, axis=1) + np.log(sd) + 0.5 * np.log(2 * np.pi)
-    return log_integral + r * np.log(r) - gammaln(r), mode
+    return log_coef, k, v, log_x, sd, log_integrand, mode
 
 
 def gain_formula(base: PointProcess, trial_gain: bool) -> str:
@@ -674,13 +741,29 @@ class SideFrailty(Frailty):
         )
         return super()._nll(params, dataset) - float(np.sum(sides))
 
+    def _side_share(self, t: np.ndarray, trial: int, fish: int, side: int) -> np.ndarray:
+        """Share of a fish's events to one side at t, at its posterior side shift (mode)."""
+        p = expit(logit(self.base_process.ipsi_probability(t, trial)) + self._mode[fish])
+        return p if side == IPSI else 1 - p
+
+    def _ipsi_at_nodes(self, t: np.ndarray, trial: np.ndarray) -> np.ndarray:
+        """Probability that an event is ipsi at each quadrature node of the side shift u_f."""
+        return expit(logit(self.base_process.ipsi_probability(t, trial))[..., None] + self.params_[-1] * self._nodes)
+
     def ipsi_probability(self, t: np.ndarray, trial: np.ndarray) -> np.ndarray:
         """Probability that an event is ipsi, averaged over fish side preferences."""
-        shifted = logit(self.base_process.ipsi_probability(t, trial))[..., None] + self.params_[-1] * self._nodes
-        return expit(shifted) @ np.exp(self._log_weights)
+        return self._ipsi_at_nodes(t, trial) @ np.exp(self._log_weights)
+
+    def side_share_cv2(self, dataset: PointProcessDataset, side: int) -> np.ndarray:
+        """Squared coefficient of variation across fish of the share of events to one side (trial x time)."""
+        q = self._ipsi_at_nodes(dataset.t_centers[None, :], np.arange(dataset.num_trials)[:, None])
+        q, w = q if side == IPSI else 1 - q, np.exp(self._log_weights)
+        return (q**2 @ w) / (q @ w) ** 2 - 1
 
     def compute_expected_rate(self, dataset: PointProcessDataset, side: Optional[int] = None) -> np.ndarray:
         """Rate to either side (None) or to one, averaged over fish side preferences."""
+        if self.uses_history:
+            return self.simulated_rate(dataset, side)
         total = self.base_process.compute_expected_rate(dataset)
         if side is None:
             return total

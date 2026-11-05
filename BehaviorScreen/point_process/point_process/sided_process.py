@@ -356,10 +356,14 @@ def sided_base(model: PointProcess) -> Optional[PointProcess]:
 class SideView:
     """One side of a fitted sided model, with what the rate plots read: name, formula, expected rate."""
 
-    def __init__(self, model: PointProcess, side: int) -> None:
-        self.base, self.side = sided_base(model), side
+    def __init__(self, model: PointProcess, side: int, template: Optional[PointProcessDataset] = None) -> None:
+        """template: the dataset of both sides, simulated on for models with bout history (default: the one plotted)."""
+        self.model, self.side, self.template = model, side, template
         self.name = f"{model.name} ({SIDE_NAMES[side]})"
         self.latex_formula = model.latex_formula
 
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
-        return self.base.compute_expected_rate(dataset, side=self.side)
+        return self.model.compute_expected_rate(dataset if self.template is None else self.template, side=self.side)
+
+    def conditional_rate(self, dataset: PointProcessDataset) -> Optional[np.ndarray]:
+        return self.model.conditional_rate(dataset if self.template is None else self.template, side=self.side)

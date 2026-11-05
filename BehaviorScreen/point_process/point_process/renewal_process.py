@@ -599,8 +599,9 @@ class RenewalProcess(PointProcess):
         trial: Union[float, np.ndarray],
         history_events: Optional[np.ndarray] = None,
         selected_events: Optional[np.ndarray] = None,
+        gain: float = 1.0,
     ) -> np.ndarray:
-        """Intensity at t (gain 1) given the stream's bouts (history_events) and its events (selected_events)."""
+        """Intensity at t given the stream's bouts (history_events), its events (selected_events) and its gain on the drive."""
         self._require_fitted()
         params_base, params_renewal, params_excitation = self._split(self.params_)
         t = np.asarray(t, dtype=float)
@@ -612,7 +613,7 @@ class RenewalProcess(PointProcess):
 
         rho = self._modulation(since_last(history_events).ravel(), params_renewal).reshape(t.shape)
         stim = self.kernel.evaluate(t, trial, params_base)
-        rate = rho * (stim + (stim if self._relative else 1.0) * self._excitation(since_last(selected_events), params_excitation))
+        rate = rho * (gain * stim + (stim if self._relative else 1.0) * self._excitation(since_last(selected_events), params_excitation))
         return np.maximum(rate, 1e-9)
 
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
