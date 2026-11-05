@@ -63,7 +63,7 @@ def run_diagnostics_task(exp_name: str, dataset: PointProcessDataset, output_roo
 
 
 def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, output_root: Path, n_jobs: int = -1) -> None:
-    """Fit and compare the candidates, each rung checked and plotted once fitted (models/rungs); bootstrap of the best."""
+    """Fit and compare the candidates, each rung checked and plotted once fitted (models/<index>); bootstrap of the best."""
     print(f"\n=== Fitting {exp_name} ===")
     model_dir = output_root / exp_name / "models"
 
@@ -92,7 +92,7 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
 
 
 def run_plot_task(exp_name: str, config: dict, dataset: PointProcessDataset, output_root: Path, n_jobs: int = -1) -> None:
-    """The checks and plots of every rung of a finished fit run (models/rungs), from its fitted parameters, without refitting it."""
+    """The checks and plots of every rung of a finished fit run (models/<index>), from its fitted parameters, without refitting it."""
     print(f"\n=== Plotting the rungs of {exp_name} ===")
     model_dir = output_root / exp_name / "models"
     for model in config["models"]:
@@ -125,17 +125,17 @@ def plot_rungs(models: list, dataset: PointProcessDataset, model_dir: Path, n_jo
 
 
 def save_rung_index(models: list, model_dir: Path) -> None:
-    """models/rungs/index.csv: the model of each numbered rung folder."""
-    save_csv(pd.DataFrame({"rung": range(len(models)), "model": [m.name for m in models]}), model_dir / "rungs", "index")
+    """models/rung_index.csv: the model of each numbered rung folder."""
+    save_csv(pd.DataFrame({"rung": range(len(models)), "model": [m.name for m in models]}), model_dir, "rung_index")
 
 
 def plot_rung(index: int, model: PointProcess, dataset: PointProcessDataset, model_dir: Path, n_jobs: int = -1) -> None:
     """
-    In models/rungs/<index>: plot_model and the goodness-of-fit dashboard against
+    In models/<index>: plot_model and the goodness-of-fit dashboard against
     simulate-and-refit replicates, with its check table and replicate statistics.
     A failure is reported, not raised: the fits go on.
     """
-    out_dir = model_dir / "rungs" / f"{index:02d}"
+    out_dir = model_dir / f"{index:02d}"
     try:
         plot_model(dataset, model, out_dir)
         fig, diagnosis = model.diagnose(dataset, gof_n_jobs=n_jobs)
