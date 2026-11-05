@@ -7,6 +7,7 @@ from typing import Callable, Dict
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from scipy.optimize import OptimizeResult
 
 from BehaviorScreen.core import Laterality
 from BehaviorScreen.point_process.point_process.dataset import (
@@ -78,13 +79,7 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
 
     fig, _ = ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
     save_fig(fig, model_dir, "model_fits_overlay")
-    fig, _ = ModelPlotter.plot_histogram(dataset=dataset, model=best)
-    save_fig(fig, model_dir, f"histogram_surface_{best.name}")
-    fig, _ = ModelPlotter.plot_trial_traces(dataset=dataset, model=best)
-    save_fig(fig, model_dir, f"trial_traces_{best.name}")
-    sided = next((m for m in fitted_models if sided_base(m) is not None), None)
-    if sided is not None:
-        plot_sides(dataset, sided, model_dir)
+    plot_model(dataset, best, model_dir)
 
     fig, diagnosis = best.diagnose(dataset, gof_n_jobs=n_jobs)
     save_fig(fig, model_dir, f"diagnose_{best.name}")
@@ -95,6 +90,48 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
     save_csv(best.bootstrap(dataset, n_boot=200, n_jobs=n_jobs), model_dir, f"bootstrap_{best.name}")
 
     plt.close("all")
+    plot_rungs(config["models"], dataset, model_dir)
+
+
+def run_plot_task(exp_name: str, config: dict, dataset: PointProcessDataset, output_root: Path) -> None:
+    """The plots of every rung of a finished fit run (models/rungs), from its fitted parameters, without refitting."""
+    print(f"\n=== Plotting the rungs of {exp_name} ===")
+    model_dir = output_root / exp_name / "models"
+    for model in config["models"]:
+        try:
+            params = load_fitted_params(model_dir, model.name)
+        except ValueError:
+            continue
+        model.set_params(params)
+        model.fit_result = OptimizeResult(x=params, fun=model._nll(list(params), dataset), success=True)
+    plot_rungs(config["models"], dataset, model_dir)
+
+
+def plot_model(dataset: PointProcessDataset, model: PointProcess, out_dir: Path) -> None:
+    """Rate surface, trial traces and, for a sided model, each side and the side calibration."""
+    fig, _ = ModelPlotter.plot_histogram(dataset=dataset, model=model)
+    save_fig(fig, out_dir, f"histogram_surface_{model.name}")
+    fig, _ = ModelPlotter.plot_trial_traces(dataset=dataset, model=model)
+    save_fig(fig, out_dir, f"trial_traces_{model.name}")
+    if sided_base(model) is not None:
+        plot_sides(dataset, model, out_dir)
+    plt.close("all")
+
+
+def plot_rungs(models: list, dataset: PointProcessDataset, model_dir: Path) -> None:
+    """
+    For every fitted rung, in ladder order (models/rungs/<index>): plot_model and the
+    goodness-of-fit dashboard against the data alone (no simulate-and-refit replicates).
+    """
+    save_csv(pd.DataFrame({"rung": range(len(models)), "model": [m.name for m in models]}), model_dir / "rungs", "index")
+    for index, model in enumerate(models):
+        if model.params_ is None:
+            continue
+        out_dir = model_dir / "rungs" / f"{index:02d}"
+        plot_model(dataset, model, out_dir)
+        fig, _ = model.diagnose(dataset, run_parametric_gof=False)
+        save_fig(fig, out_dir, f"diagnose_{model.name}")
+        plt.close("all")
 
 
 def plot_sides(dataset: PointProcessDataset, model: PointProcess, model_dir: Path) -> None:

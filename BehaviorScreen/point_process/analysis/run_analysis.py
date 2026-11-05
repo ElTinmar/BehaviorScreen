@@ -9,6 +9,7 @@ from BehaviorScreen.point_process.analysis.tasks import (
     run_consolidation_task,
     run_diagnostics_task,
     run_fit_task,
+    run_plot_task,
 )
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
 
@@ -31,7 +32,10 @@ def make_loaders(args: argparse.Namespace) -> Callable[[str], BehavioralDataLoad
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Point-process analysis of one screen")
     parser.add_argument("--exp", help="Experiment key (e.g. prey_capture_ipsi); needed by fit and diagnostics.")
-    parser.add_argument("--mode", choices=["diagnostics", "fit", "consolidate"], default="fit")
+    parser.add_argument(
+        "--mode", choices=["diagnostics", "fit", "plot", "consolidate"], default="fit",
+        help="plot: every rung's plots from a finished fit run's parameters (in -o), without refitting.",
+    )
     parser.add_argument(
         "-d", "--data-root", type=Path, dest="data_root", required=True,
         help="Directory the file arguments below are relative to.",
@@ -63,6 +67,8 @@ def main() -> None:
     dataset = loader(config["events"]).prepare_dataset(**config["dataset"])
     if args.mode == "diagnostics":
         run_diagnostics_task(args.exp, dataset, args.output_dir)
+    elif args.mode == "plot":
+        run_plot_task(args.exp, config, dataset, args.output_dir)
     else:
         run_fit_task(args.exp, config, dataset, args.output_dir, n_jobs=args.n_jobs)
 
