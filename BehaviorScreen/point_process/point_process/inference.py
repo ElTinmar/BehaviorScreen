@@ -90,6 +90,20 @@ def newton_refit(
     return False
 
 
+def refit_from_fit(model: PointProcess, dataset: PointProcessDataset, step_matrix: Optional[np.ndarray]) -> Tuple[PointProcess, bool]:
+    """
+    A copy of a fitted model refitted to similar data from its parameters: by Newton
+    steps with step_matrix (newton_step_matrix of its Hessian), else by the optimizer.
+    Also returns whether the Newton steps did it.
+    """
+    refit = copy.deepcopy(model)
+    refit.initial_guesses = list(np.asarray(model.params_, dtype=float))
+    newton = step_matrix is not None and newton_refit(refit, dataset, step_matrix)
+    if not newton:
+        fit_coarse_to_fine(refit, dataset)
+    return refit, newton
+
+
 def _replicate(
     seed_seq: np.random.SeedSequence,
     model: PointProcess,
@@ -103,17 +117,13 @@ def _replicate(
     """(statistic, None, refitted by Newton steps) on one simulated or fish-resampled dataset, or (None, error, False)."""
     rng = np.random.default_rng(seed_seq)
     try:
-        model_b = copy.deepcopy(model)
-        dataset_b = model_b.simulate_dataset(template, rng) if parametric else template.resample(rng)
-        newton = False
-        if refit:
+        dataset_b = copy.deepcopy(model).simulate_dataset(template, rng) if parametric else template.resample(rng)
+        model_b, newton = copy.deepcopy(model), False
+        if refit and refit_n_starts > 1:
             model_b.initial_guesses = list(np.asarray(model.params_, dtype=float))
-            if refit_n_starts > 1:
-                model_b.fit_multistart(
-                    dataset_b, n_starts=refit_n_starts, seed=int(rng.integers(0, 2**31 - 1)), n_jobs=1
-                )
-            elif not (newton := step_matrix is not None and newton_refit(model_b, dataset_b, step_matrix)):
-                fit_coarse_to_fine(model_b, dataset_b)
+            model_b.fit_multistart(dataset_b, n_starts=refit_n_starts, seed=int(rng.integers(0, 2**31 - 1)), n_jobs=1)
+        elif refit:
+            model_b, newton = refit_from_fit(model, dataset_b, step_matrix)
         return statistic(model_b, dataset_b), None, newton
     except Exception as exc:
         return None, repr(exc), False

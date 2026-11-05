@@ -23,6 +23,7 @@ from matplotlib.colors import LinearSegmentedColormap
 
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.inference import newton_step_matrix, refit_from_fit
 from BehaviorScreen.point_process.point_process.parallel import parallel_map, report_failures
 from BehaviorScreen.point_process.point_process.io import save_fig
 from BehaviorScreen.point_process.point_process.frailty_analysis import (
@@ -873,11 +874,12 @@ def plot_fish_gain_correlation_reference_vs_test(contrast: str, arms: Arms, min_
     )
 
 def _bootstrap_one_delta_iteration(
-    seed_seq, ds_ref: PointProcessDataset, ds_test: PointProcessDataset,
-    behavior: str, process_factory: Callable[[], PointProcess], transform_lookup: dict,
+    seed_seq, ds_ref: PointProcessDataset, ds_test: PointProcessDataset, behavior: str,
+    fits: Tuple[PointProcess, PointProcess], steps: Tuple[Optional[np.ndarray], Optional[np.ndarray]], transform_lookup: dict,
 ) -> Optional[Dict[str, float]]:
     """
-    One bootstrap iteration: resample both arms, refit both, return the
+    One bootstrap iteration: resample both arms, refit both from their fits
+    (Newton steps with their Hessians, else the optimizer), return the
     delta for every free parameter. Returns None on any fit failure (kept
     silent here -- failure counting happens at the aggregation level).
     Top-level function (not a closure) so it pickles cleanly for
@@ -887,8 +889,8 @@ def _bootstrap_one_delta_iteration(
     ds_ref_b = ds_ref.resample(rng)
     ds_test_b = ds_test.resample(rng)
     try:
-        m_ref_b = process_factory(); m_ref_b.fit(ds_ref_b)
-        m_test_b = process_factory(); m_test_b.fit(ds_test_b)
+        m_ref_b, _ = refit_from_fit(fits[0], ds_ref_b, steps[0])
+        m_test_b, _ = refit_from_fit(fits[1], ds_test_b, steps[1])
     except Exception:
         return None
 
@@ -902,6 +904,14 @@ def _bootstrap_one_delta_iteration(
             np.log2(max(v_d, 1e-9) / max(v_v, 1e-9)) if transform == "log2_ratio" else v_d - v_v
         )
     return out
+
+def _newton_steps(model: PointProcess, dataset: PointProcessDataset) -> Optional[np.ndarray]:
+    """newton_step_matrix of an arm fit's Hessian; None (refits by the optimizer) if it cannot be estimated."""
+    try:
+        return newton_step_matrix(model.estimate_hessian(dataset))
+    except Exception:
+        return None
+
 
 def bootstrap_parameter_deltas(
     tier1_df: pd.DataFrame,
@@ -955,7 +965,8 @@ def bootstrap_parameter_deltas(
                 ds_ref=ds_ref,
                 ds_test=ds_test,
                 behavior=behavior,
-                process_factory=arms.process_factories[behavior],
+                fits=(m_ref0, m_test0),
+                steps=(_newton_steps(m_ref0, ds_ref), _newton_steps(m_test0, ds_test)),
                 transform_lookup=transform_lookup,
             ),
             seeds,
