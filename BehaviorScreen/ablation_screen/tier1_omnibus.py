@@ -70,11 +70,25 @@ def tier1_permutation_test(
     ds_ref: PointProcessDataset, ds_test: PointProcessDataset,
     observed_deviance: Optional[float] = None,
     n_perm: int = 500, seed: int = 0, n_jobs: int = -1,
+    pooled_log_likelihood: Optional[float] = None,
 ) -> Dict:
-    if observed_deviance is None:
-        observed_deviance, *_ = fit_tier1(process_factory, ds_ref, ds_test)
-
+    """
+    Fish shuffled between the arms (sizes kept), each arm refitted: the null
+    distribution of the deviance. The pooled fit is the same for every labelling
+    (the same fish), so it is fitted once, or taken from the caller.
+    """
     pooled = PointProcessDataset.concat(ds_ref, ds_test)
+    if pooled_log_likelihood is None:
+        m_pooled = process_factory(); m_pooled.fit(pooled)
+        pooled_log_likelihood = m_pooled.log_likelihood
+
+    def deviance(ref: PointProcessDataset, test: PointProcessDataset) -> float:
+        m_ref = process_factory(); m_ref.fit(ref)
+        m_test = process_factory(); m_test.fit(test)
+        return max(0.0, 2.0 * (m_ref.log_likelihood + m_test.log_likelihood - pooled_log_likelihood))
+
+    if observed_deviance is None:
+        observed_deviance = deviance(ds_ref, ds_test)
     n_ref = ds_ref.num_fish
     n_distinct = math.comb(pooled.num_fish, n_ref)
     seeds = np.random.SeedSequence(seed).spawn(n_perm)
@@ -82,9 +96,7 @@ def tier1_permutation_test(
     def _one(s: np.random.SeedSequence) -> float | str:
         perm = np.random.default_rng(s).permutation(pooled.num_fish)
         try:
-            d, *_ = fit_tier1(process_factory,
-                               pooled.fish(perm[:n_ref]), pooled.fish(perm[n_ref:]))
-            return d
+            return deviance(pooled.fish(perm[:n_ref]), pooled.fish(perm[n_ref:]))
         except Exception as exc:
             return repr(exc)
 
@@ -215,7 +227,8 @@ def _tier1_one(
                 "p_value": np.nan}
 
     perm = tier1_permutation_test(arms.process_factories[behavior], ds_ref, ds_test,
-                                   observed_deviance=observed_deviance, n_perm=n_perm)
+                                   observed_deviance=observed_deviance, n_perm=n_perm,
+                                   pooled_log_likelihood=m_pooled.log_likelihood)
     eff = tier1_effect_size(m_ref, ds_ref, m_test, ds_test)
 
     return {
