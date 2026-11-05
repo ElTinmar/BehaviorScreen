@@ -1,5 +1,5 @@
 """
-Writes the model ladders of model_config into kernel_demo.html (between its
+Writes the model ladders of model_config (the experiments of the Tier 1 map) into kernel_demo.html (between its
 DATA markers), in Tier 1 map order: every candidate's formula, parameters
 (fitted values where a fit run is given, else the initial guesses), bounds and
 structure, the Tier 1 model and its per-arm parameters (tier1_config), plus
@@ -11,10 +11,12 @@ import argparse
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+from megabouts.utils import bouts_category_name, bouts_category_name_short
 
+from BehaviorScreen.core import Laterality, Stim
 from BehaviorScreen.ablation_screen.tier1_config import AMPLITUDE_PARAMETERS, MAP_COLUMNS, PINNED_AMPLITUDES, TIER1_MODELS
 from BehaviorScreen.point_process.analysis.model_config import get_model_config
 from BehaviorScreen.point_process.point_process.frailty import Frailty, SideFrailty, ZeroInflatedFamily
@@ -27,6 +29,66 @@ from BehaviorScreen.point_process.point_process.survival_process import Survival
 
 PAGE = Path(__file__).resolve().parents[1] / "point_process" / "kernel_demo.html"
 DATA = re.compile(r"(/\*BEGIN DATA\*/).*?(/\*END DATA\*/)", re.S)
+
+BOUT_NAMES = dict(zip(bouts_category_name_short, (n.replace("_", " ") for n in bouts_category_name)))
+PER_TRIAL = "log / trial"
+# Parameter: (unit, meaning); contra_<name> is <name> for the contra side.
+PARAMETERS = {
+    "A": ("Hz", "onset transient: extra rate at stimulus onset, decaying with τ"),
+    "tau": ("s", "decay time of the onset transient"),
+    "B": ("Hz", "sustained rate (sided models: the ipsi side; contra is B/D)"),
+    "A_peak": ("events", "size of the response peak: extra events per trial"),
+    "mu": ("s", "time of the response peak (centre of its Gaussian part)"),
+    "sigma": ("s", "width of the response peak"),
+    "tau_decay": ("s", "tail of the response peak: how long it lingers"),
+    "f_dip": ("fraction", "onset dip: fraction of B suppressed at onset"),
+    "z0_dip": ("logit", "onset dip depth, 0.95·σ(z): fraction of B suppressed at onset"),
+    "z_dip": ("logit", "onset dip depth, 0.995·σ(z): fraction of B suppressed at onset"),
+    "tau_dip": ("s", "recovery time from the onset dip"),
+    "z0_ripple": ("logit", "depth of the prey-locked ripple, 0.95·σ(z): 0 flat, 0.95 full modulation"),
+    "phi1": ("rad", "phase of the ripple at the prey frequency (0.643 Hz)"),
+    "phi2": ("rad", "phase of the ripple's second harmonic"),
+    "alpha_peak": (PER_TRIAL, "change per trial of the transient (× e^α per trial; < 0: habituation)"),
+    "alpha_baseline": (PER_TRIAL, "change per trial of the sustained rate (× e^α per trial)"),
+    "alpha_shared": (PER_TRIAL, "change per trial of transient and sustained rate together (× e^α per trial)"),
+    "alpha_B": (PER_TRIAL, "change per trial of the sustained rate (× e^α per trial)"),
+    "alpha_ripple": (PER_TRIAL, "change per trial of the ripple depth logit"),
+    "alpha_dip": (PER_TRIAL, "change per trial of the dip depth logit"),
+    "alpha": (PER_TRIAL, "change per trial of the escape bump (× e^α per trial; < 0: habituation)"),
+    "D": ("ratio", "direction: ipsi / contra rate ratio; 1 no preference, P_ipsi = D/(1+D) at baseline"),
+    "tau_refractory": ("s", "recovery after any bout: rate × (1 − e^(−Δt/τ_r))"),
+    "A_burst": ("× drive", "burst after a selected bout: extra rate at its peak, as a multiple of the stimulus-driven rate"),
+    "burst_peak_lag": ("s", "time from a selected bout to the burst's peak"),
+    "r_dispersion": ("shape", "fish gains Γ(r, r): CV 1/√r across fish; larger: fish more alike"),
+    "r_trial": ("shape", "trial gains Γ(a, a): CV 1/√a across a fish's trials; larger: trials more alike"),
+    "s_side": ("log-odds", "SD across fish of the side preference u_f"),
+    "z_pi_nonresponder": ("logit", "fraction of non-responding fish, σ(z)"),
+    "z_c_nonresponder": ("logit", "non-responders' residual gain, 0.3·σ(z)"),
+}
+SURVIVAL = {
+    "B": ("Hz", "baseline escape hazard outside the bump"),
+    "H": ("Hz", "escape bump: peak hazard"),
+    "mu": ("s", "time of the escape bump's peak"),
+    "sigma": ("s", "width of the escape bump"),
+    "D": ("ratio", "direction: escapes to the preferred / other side; P_preferred = D/(1+D)"),
+}
+EXGAUSS_SURVIVAL = {
+    "H": ("–", "escape bump: hazard under the whole bump, −log P(no escape from the bump)"),
+    "mu": ("s", "centre of the escape bump's Gaussian part (its peak comes slightly later)"),
+    "tau": ("s", "tail of the escape bump"),
+}
+
+
+def describe(name: str, kernel_kind: str, exgauss: bool) -> Tuple[str, str]:
+    """A parameter's unit and meaning."""
+    if name.startswith("contra_"):
+        unit, info = describe(name[len("contra_"):], kernel_kind, exgauss)
+        return unit, f"{info} (contra side)"
+    survival = kernel_kind.endswith("survival")
+    for table, applies in ((EXGAUSS_SURVIVAL, survival and exgauss), (SURVIVAL, survival), (PARAMETERS, True)):
+        if applies and name in table:
+            return table[name]
+    raise KeyError(f"export_kernel_demo: no description for parameter {name}")
 
 
 def constants(kernel: LagKernel) -> Dict[str, Any]:
@@ -86,6 +148,21 @@ def history(renewal: RenewalProcess, values: Dict[str, float]) -> dict:
     return out
 
 
+def selection(config: dict) -> Tuple[str, str]:
+    """The events an experiment's models describe: in full, and the categories alone."""
+    d, kind = config["dataset"], config["events"]
+    categories = [d["category"]] if isinstance(d.get("category"), str) else d.get("category") or []
+    short = " or ".join(categories) or kind[:-1]
+    what = (", ".join(f"{BOUT_NAMES[c]} ({c})" if c in BOUT_NAMES else c for c in categories) + f" {kind}") if categories else f"all {kind}"
+    laterality = d.get("laterality")
+    side = ("ipsi and contra events, relative to the stimulus side" if isinstance(laterality, list)
+            else "only events without a direction" if laterality == Laterality.NONDIRECTIONAL else "any direction")
+    epoch = d.get("epoch_name") or Stim(d["stim"]).name.lower().replace("_", " ")
+    epoch = " or ".join(epoch) if isinstance(epoch, list) else epoch
+    filters = "".join(f", trials with {k} = {v}" for k, v in d.get("trial_filters", {}).items())
+    return f"{what}; {side}; epoch: {epoch}{filters}; {d['t_start']:g} to {d['t_end']:g} s of each trial", short
+
+
 def slider_range(value: float, lo: Optional[float], hi: Optional[float]) -> List[float]:
     """Bounds where they are narrow; around the value where they are wide or absent."""
     if lo is not None and hi is not None and lo > 0 and hi / lo > 100:
@@ -98,17 +175,20 @@ def model_entry(model: PointProcess, fitted: Optional[List[float]], t_end: float
     values = dict(zip(model.param_names, fitted if fitted is not None else model.initial_guesses))
     if len(values) != len(model.param_names):
         raise ValueError(f"{model.name}: parameter names are not unique")
-    return {
-        "name": model.name, "latex": model.latex_formula.strip("$"), "fitted": fitted is not None,
-        "params": [{"name": n, "value": values[n], "range": slider_range(values[n], lo, hi)} for n, (lo, hi) in zip(model.param_names, model.bounds)],
-        "structure": structure(model, values, t_end),
-    }
+    shape = structure(model, values, t_end)
+    base = shape["base"] if shape["kind"] == "gain" else shape
+    exgauss = "exGauss" in model.latex_formula
+    params = []
+    for n, (lo, hi) in zip(model.param_names, model.bounds):
+        unit, info = describe(n, base["kind"], exgauss)
+        params.append({"name": n, "value": values[n], "range": slider_range(values[n], lo, hi), "unit": unit, "info": info})
+    return {"name": model.name, "latex": model.latex_formula.strip("$"), "fitted": fitted is not None, "params": params, "structure": shape}
 
 
 def export(output_dir: Optional[Path]) -> List[dict]:
     configs = get_model_config()
     experiments = []
-    for name in [n for n in MAP_COLUMNS if n in configs] + [n for n in configs if n not in MAP_COLUMNS]:
+    for name in [n for n in MAP_COLUMNS if n in configs]:
         config = configs[name]
         fits_path = output_dir / name / "models" / "fitted_models.json" if output_dir else None
         fits = json.loads(fits_path.read_text()) if fits_path and fits_path.exists() else {}
@@ -118,8 +198,10 @@ def export(output_dir: Optional[Path]) -> List[dict]:
         if tier1 is not None and tier1.name not in {m.name for m in models}:
             models.append(tier1)
         free = [] if tier1 is None else [p for p in tier1.param_names if p in AMPLITUDE_PARAMETERS and p not in PINNED_AMPLITUDES.get(name, ())]
+        events, selected = selection(config)
         experiments.append({
-            "name": name, "label": MAP_COLUMNS.get(name, name), "t_end": t_end, "tier1": tier1 and tier1.name, "free": free,
+            "name": name, "label": MAP_COLUMNS[name], "t_end": t_end, "tier1": tier1 and tier1.name, "free": free,
+            "events": events, "selected": selected,
             "models": [model_entry(m, fits.get(m.name), t_end) for m in models],
         })
     return experiments
