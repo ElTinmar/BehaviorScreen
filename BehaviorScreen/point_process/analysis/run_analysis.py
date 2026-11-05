@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exp", help="Experiment key (e.g. prey_capture_ipsi); needed by fit and diagnostics.")
     parser.add_argument(
         "--mode", choices=["diagnostics", "fit", "plot", "consolidate"], default="fit",
-        help="plot: every rung's plots from a finished fit run's parameters (in -o), without refitting.",
+        help="plot: every rung's checks and plots from a finished fit run's parameters (in -o), without refitting it.",
     )
     parser.add_argument(
         "-d", "--data-root", type=Path, dest="data_root", required=True,
@@ -68,7 +68,7 @@ def main() -> None:
     if args.mode == "diagnostics":
         run_diagnostics_task(args.exp, dataset, args.output_dir)
     elif args.mode == "plot":
-        run_plot_task(args.exp, config, dataset, args.output_dir)
+        run_plot_task(args.exp, config, dataset, args.output_dir, n_jobs=args.n_jobs)
     else:
         run_fit_task(args.exp, config, dataset, args.output_dir, n_jobs=args.n_jobs)
 
