@@ -149,11 +149,9 @@ def plot_rung(index: int, model: PointProcess, dataset: PointProcessDataset, mod
 
 
 def plot_sides(dataset: PointProcessDataset, model: PointProcess, model_dir: Path) -> None:
-    """Each side's events against that side's fitted rate; side calibration by time, trial and fish."""
+    """Each side's rate surface against that side's fitted rate; side calibration by time, trial and fish."""
     for side, side_name in SIDE_NAMES.items():
         events, view = replace(dataset.select(laterality=side), laterality=side), SideView(model, side, dataset)
-        fig, _ = ModelPlotter.plot_model_fits(dataset=events, models=[view])
-        save_fig(fig, model_dir, f"model_fits_overlay_{side_name}")
         fig, _ = ModelPlotter.plot_histogram(dataset=events, model=view)
         save_fig(fig, model_dir, f"histogram_surface_{side_name}_{model.name}")
     save_fig(plot_side_diagnostics(dataset, model), model_dir, f"side_diagnostics_{model.name}")

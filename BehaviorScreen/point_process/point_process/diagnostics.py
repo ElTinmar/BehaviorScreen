@@ -499,7 +499,7 @@ class ModelPlotter:
                 pred_surface, axis=0, weights=dataset.n_fish_per_trial
             )
             color = default_colors[idx % len(default_colors)]
-            label = f"{model.name}:  {model.latex_formula}"
+            label = model.name
             ax.plot(
                 dataset.t_centers,
                 mean_pred,
@@ -512,7 +512,7 @@ class ModelPlotter:
             own = model.conditional_rate(dataset)
             if own is not None:
                 ax.plot(dataset.t_centers, np.average(own, axis=0, weights=dataset.n_fish_per_trial), linestyle=":", linewidth=1.8,
-                        color=color, label=f"{model.name}: each fish's own gains (dashed: simulated)", zorder=3)
+                        color=color, label=f"{model.name}, each fish's own gains (dashed: simulated)", zorder=3)
 
         # 3. Plot Formatting
         ax.set_title(
