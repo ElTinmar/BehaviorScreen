@@ -432,7 +432,6 @@ class InferenceMixin:
         def obj(step: np.ndarray) -> float:
             return self._nll(params + step, dataset)
 
-        obj(np.zeros(k))  # warms the per-fish posterior modes the NLL starts its Newton steps from (else f0 is off by ~1e-6)
         f0 = obj(np.zeros(k))
         hessian = np.full((k, k), np.nan)
         unit = np.eye(k) * h

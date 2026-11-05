@@ -571,7 +571,8 @@ def log_nested_drive_marginal(
     of the driven events (probabilities d / (d + b)), so h is exact:
     a^a prod(d + b) (a + g S)^-a sum_k P_k (a)_k x^k, x = g / (a + g S) (Horner; in log space where it under- or overflows).
     v = log g by Gauss-Hermite centred and scaled as log_nested_gamma_marginal's
-    with every event counted by its driven share. Also returns the modes.
+    with every event counted by its driven share (at the gain the centre is found for,
+    so the result does not depend on the starting modes). Also returns the modes.
     """
     n_fish, n_trials = S.shape
     total = np.maximum(drive_rates + burst_rates, 1e-300)
@@ -579,9 +580,12 @@ def log_nested_drive_marginal(
     k = np.arange(pmf.shape[1])
     with np.errstate(divide="ignore"):
         log_coef = np.log(pmf) + gammaln(a + k) - gammaln(a)  # P_k (a)_k
-    g_events = np.exp(mode)[stream // n_trials] * drive_rates
-    share = np.bincount(stream, weights=g_events / np.maximum(g_events + burst_rates, 1e-300), minlength=S.size).reshape(S.shape)
-    mode, sd = _log_gain_mode(share, S, mask, r, a, mode)
+    for _ in range(100):  # the driven shares depend on the gains: iterate both to their fixed point
+        g_events = np.exp(mode)[stream // n_trials] * drive_rates
+        share = np.bincount(stream, weights=g_events / np.maximum(g_events + burst_rates, 1e-300), minlength=S.size).reshape(S.shape)
+        previous, (mode, sd) = mode, _log_gain_mode(share, S, mask, r, a, mode)
+        if np.max(np.abs(mode - previous), initial=0.0) < 1e-10:
+            break
     v = mode[:, None] + sd[:, None] * nodes  # fish x nodes
     log_c = np.log(a + np.exp(v).repeat(n_trials, axis=0) * S.ravel()[:, None])  # streams x nodes
     log_x = v.repeat(n_trials, axis=0) - log_c
