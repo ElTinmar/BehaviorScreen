@@ -8,7 +8,7 @@ import re
 
 import numpy as np
 import pandas as pd
-from scipy.optimize import minimize
+from scipy.optimize import OptimizeResult, minimize
 from scipy.stats import chi2
 
 from .parallel import parallel_map, report_failures
@@ -16,6 +16,9 @@ from .dataset import PointProcessDataset
 
 if TYPE_CHECKING:
     from .point_process import PointProcess
+
+
+SCREEN_DT = 0.04  # coarse integration step (s) where models with bout history first fit; the final fit is on their own
 
 
 def set_integration_dt(model: "PointProcess", dt: float) -> None:
@@ -26,6 +29,67 @@ def set_integration_dt(model: "PointProcess", dt: float) -> None:
             set_integration_dt(part, dt)
 
 
+def fit_coarse_to_fine(model: PointProcess, dataset: PointProcessDataset) -> None:
+    """fit, first on the SCREEN_DT grid for models with bout history, then polished on their own grid."""
+    fine_dt = model.integration_dt
+    if model.uses_history and SCREEN_DT > fine_dt:
+        try:
+            set_integration_dt(model, SCREEN_DT)
+            model.fit(dataset)
+        finally:
+            set_integration_dt(model, fine_dt)
+        model.initial_guesses = list(model.params_)
+    model.fit(dataset)
+
+
+def newton_step_matrix(hessian: np.ndarray) -> Optional[np.ndarray]:
+    """
+    Inverse Hessian for Newton steps, its eigenvalues floored at 1e-8 of the
+    largest (barely determined directions take bounded steps); None if a
+    parameter sits at a bound (no curvature there).
+    """
+    if not np.all(np.isfinite(hessian)):
+        return None
+    w, v = np.linalg.eigh((hessian + hessian.T) / 2)
+    return (v / np.maximum(w, 1e-8 * w.max())) @ v.T
+
+
+def newton_refit(
+    model: PointProcess, dataset: PointProcessDataset, step_matrix: np.ndarray, max_steps: int = 10, tol: float = 0.01, eps: float = 1e-5,
+) -> bool:
+    """
+    Refit from model.initial_guesses (an optimum of similar data) by Newton steps
+    with a fixed inverse Hessian and central-difference gradients, halving a step
+    until the NLL decreases; done once a step gains less than tol. False (model
+    untouched) when a step cannot decrease the NLL, leaves the bounds or does not
+    converge: refit it with the optimizer.
+    """
+    lower = np.array([-np.inf if lo is None else lo for lo, _ in model.bounds])
+    upper = np.array([np.inf if hi is None else hi for _, hi in model.bounds])
+    nll = lambda x: model._nll(list(x), dataset)
+    x = np.array(model.initial_guesses, dtype=float)
+    f = nll(x)
+    for _ in range(max_steps):
+        h = eps * (1.0 + np.abs(x))
+        if np.any(x - h < lower) or np.any(x + h > upper):
+            return False
+        g = np.array([(nll(x + dx) - nll(x - dx)) / (2 * hi) for dx, hi in zip(np.diag(h), h)])
+        step, t = -step_matrix @ g, 1.0
+        while True:
+            x_new = x + t * step
+            if np.all((x_new >= lower) & (x_new <= upper)) and (f_new := nll(x_new)) < f:
+                break
+            t /= 2
+            if t < 1 / 16:
+                return False
+        gain, x, f = f - f_new, x_new, f_new
+        if gain < tol:
+            model.set_params(x)
+            model.fit_result = OptimizeResult(x=x, fun=f, success=True, message="Newton steps with a fixed Hessian")
+            return True
+    return False
+
+
 def _replicate(
     seed_seq: np.random.SeedSequence,
     model: PointProcess,
@@ -34,23 +98,25 @@ def _replicate(
     parametric: bool,
     refit: bool,
     refit_n_starts: int,
-) -> Tuple[Any, Optional[str]]:
-    """(statistic, None) on one simulated or fish-resampled dataset, or (None, error)."""
+    step_matrix: Optional[np.ndarray] = None,
+) -> Tuple[Any, Optional[str], bool]:
+    """(statistic, None, refitted by Newton steps) on one simulated or fish-resampled dataset, or (None, error, False)."""
     rng = np.random.default_rng(seed_seq)
     try:
         model_b = copy.deepcopy(model)
         dataset_b = model_b.simulate_dataset(template, rng) if parametric else template.resample(rng)
+        newton = False
         if refit:
             model_b.initial_guesses = list(np.asarray(model.params_, dtype=float))
-            if refit_n_starts <= 1:
-                model_b.fit(dataset_b)
-            else:
+            if refit_n_starts > 1:
                 model_b.fit_multistart(
                     dataset_b, n_starts=refit_n_starts, seed=int(rng.integers(0, 2**31 - 1)), n_jobs=1
                 )
-        return statistic(model_b, dataset_b), None
+            elif not (newton := step_matrix is not None and newton_refit(model_b, dataset_b, step_matrix)):
+                fit_coarse_to_fine(model_b, dataset_b)
+        return statistic(model_b, dataset_b), None, newton
     except Exception as exc:
-        return None, repr(exc)
+        return None, repr(exc), False
 
 
 def refit_replicates(
@@ -69,10 +135,13 @@ def refit_replicates(
     """
     statistic(model, dataset) on n_boot datasets simulated from the fitted
     model (parametric) or resampled by fish, each refitted from the fitted
-    parameters (refit). Returns the successful values and the errors.
+    parameters (refit): by Newton steps with the Hessian of the fit (one estimate
+    for all), else, where those fail, by the optimizer. Returns the successful
+    values and the errors.
     """
     model._require_fitted()
     seeds = np.random.SeedSequence(seed).spawn(n_boot)
+    step_matrix = newton_step_matrix(model.estimate_hessian(template)) if refit and refit_n_starts <= 1 else None
     job = partial(
         _replicate,
         model=model,
@@ -81,11 +150,13 @@ def refit_replicates(
         parametric=parametric,
         refit=refit,
         refit_n_starts=refit_n_starts,
+        step_matrix=step_matrix,
     )
     results = parallel_map(job, seeds, n_jobs=n_jobs, desc=desc, progress=progress, batch_size=1, pre_dispatch="n_jobs")
-    values = [value for value, error in results if error is None]
-    errors = [error for _, error in results if error is not None]
-    print(f"{desc}: {len(values)}/{n_boot} successful.")
+    values = [value for value, error, _ in results if error is None]
+    errors = [error for _, error, _ in results if error is not None]
+    newton = sum(n for *_, n in results)
+    print(f"{desc}: {len(values)}/{n_boot} successful" + (f", {newton} refitted by Newton steps, the others by the optimizer." if step_matrix is not None else "."))
     report_failures(f"{model.name} {desc}", errors, n_boot)
     return values, errors
 
@@ -214,7 +285,7 @@ class InferenceMixin:
         n_jobs: int = -1,
         log_scale_params: Optional[set] = None,
         tol_same_optimum: float = 0.1,
-        screen_dt: Optional[float] = 0.04,
+        screen_dt: Optional[float] = SCREEN_DT,
         n_refine: int = 3,
         **kwargs,
     ) -> pd.DataFrame:
@@ -361,7 +432,8 @@ class InferenceMixin:
         def obj(step: np.ndarray) -> float:
             return self._nll(params + step, dataset)
 
-        f0 = self.fit_result.fun
+        obj(np.zeros(k))  # warms the per-fish posterior modes the NLL starts its Newton steps from (else f0 is off by ~1e-6)
+        f0 = obj(np.zeros(k))
         hessian = np.full((k, k), np.nan)
         unit = np.eye(k) * h
 
