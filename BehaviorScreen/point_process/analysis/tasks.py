@@ -63,12 +63,18 @@ def run_diagnostics_task(exp_name: str, dataset: PointProcessDataset, output_roo
 
 
 def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, output_root: Path, n_jobs: int = -1) -> None:
-    """Fit and compare the candidates; goodness-of-fit dashboard and bootstrap of the best."""
+    """Fit and compare the candidates, each rung plotted once fitted (models/rungs); goodness-of-fit dashboard and bootstrap of the best."""
     print(f"\n=== Fitting {exp_name} ===")
     model_dir = output_root / exp_name / "models"
 
+    save_rung_index(config["models"], model_dir)
+
+    def on_fitted(index: int, model: PointProcess) -> None:
+        save_fitted_models(config, model_dir)
+        plot_rung(index, model, dataset, model_dir)
+
     summary_table, fitted_models = ModelComparator.compare(
-        models=config["models"], dataset=dataset, null_model=config["null_model"], n_starts=20, n_jobs=n_jobs
+        models=config["models"], dataset=dataset, null_model=config["null_model"], on_fitted=on_fitted, n_starts=20, n_jobs=n_jobs
     )
     summary_table.insert(0, "Condition", exp_name)
     save_csv(summary_table, model_dir, "model_comparison_table")
@@ -79,7 +85,6 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
 
     fig, _ = ModelPlotter.plot_model_fits(dataset=dataset, models=fitted_models)
     save_fig(fig, model_dir, "model_fits_overlay")
-    plot_model(dataset, best, model_dir)
 
     fig, diagnosis = best.diagnose(dataset, gof_n_jobs=n_jobs)
     save_fig(fig, model_dir, f"diagnose_{best.name}")
@@ -90,7 +95,6 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
     save_csv(best.bootstrap(dataset, n_boot=200, n_jobs=n_jobs), model_dir, f"bootstrap_{best.name}")
 
     plt.close("all")
-    plot_rungs(config["models"], dataset, model_dir)
 
 
 def run_plot_task(exp_name: str, config: dict, dataset: PointProcessDataset, output_root: Path) -> None:
@@ -119,19 +123,32 @@ def plot_model(dataset: PointProcessDataset, model: PointProcess, out_dir: Path)
 
 
 def plot_rungs(models: list, dataset: PointProcessDataset, model_dir: Path) -> None:
-    """
-    For every fitted rung, in ladder order (models/rungs/<index>): plot_model and the
-    goodness-of-fit dashboard against the data alone (no simulate-and-refit replicates).
-    """
-    save_csv(pd.DataFrame({"rung": range(len(models)), "model": [m.name for m in models]}), model_dir / "rungs", "index")
+    """plot_rung for every fitted rung, in ladder order."""
+    save_rung_index(models, model_dir)
     for index, model in enumerate(models):
-        if model.params_ is None:
-            continue
-        out_dir = model_dir / "rungs" / f"{index:02d}"
+        if model.params_ is not None:
+            plot_rung(index, model, dataset, model_dir)
+
+
+def save_rung_index(models: list, model_dir: Path) -> None:
+    """models/rungs/index.csv: the model of each numbered rung folder."""
+    save_csv(pd.DataFrame({"rung": range(len(models)), "model": [m.name for m in models]}), model_dir / "rungs", "index")
+
+
+def plot_rung(index: int, model: PointProcess, dataset: PointProcessDataset, model_dir: Path) -> None:
+    """
+    In models/rungs/<index>: plot_model and the goodness-of-fit dashboard against the
+    data alone (no simulate-and-refit replicates). A failed plot is reported, not raised:
+    the fits go on.
+    """
+    out_dir = model_dir / "rungs" / f"{index:02d}"
+    try:
         plot_model(dataset, model, out_dir)
         fig, _ = model.diagnose(dataset, run_parametric_gof=False)
         save_fig(fig, out_dir, f"diagnose_{model.name}")
-        plt.close("all")
+    except Exception as exc:
+        print(f"[{model.name}] rung plots failed: {exc!r}")
+    plt.close("all")
 
 
 def plot_sides(dataset: PointProcessDataset, model: PointProcess, model_dir: Path) -> None:

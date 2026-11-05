@@ -520,8 +520,10 @@ class ModelComparator:
         dataset: PointProcessDataset,
         method: str = "L-BFGS-B",
         null_model: Optional[PointProcess] = None,
+        on_fitted: Optional[Callable[[int, PointProcess], None]] = None,
         **kwargs,
     ) -> Tuple[pd.DataFrame, List[PointProcess]]:
+        """on_fitted(index, model): called after each successful fit, before the next model's."""
         names = [m.name for m in models]
         duplicated = sorted({n for n in names if names.count(n) > 1})
         if duplicated:
@@ -541,7 +543,7 @@ class ModelComparator:
 
         results = []
         fitted_values: Dict[str, float] = {}  # parameters already fitted, by name: where the next models start
-        for m in models:
+        for index, m in enumerate(models):
             m.initial_guesses = [
                 float(np.clip(fitted_values.get(n, g), lo if lo is not None else -np.inf, hi if hi is not None else np.inf))
                 for n, g, (lo, hi) in zip(m.param_names, m.initial_guesses, m.bounds)
@@ -549,6 +551,8 @@ class ModelComparator:
             results.append(_fit_one_model(m, dataset, method, kwargs))
             if results[-1][1] is None:
                 fitted_values.update(m.param_dict_)
+                if on_fitted is not None:
+                    on_fitted(index, m)
         fitted_models: List[PointProcess] = []
         records = []
 
