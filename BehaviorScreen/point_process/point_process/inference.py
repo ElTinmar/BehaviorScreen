@@ -18,6 +18,14 @@ if TYPE_CHECKING:
     from .point_process import PointProcess
 
 
+def set_integration_dt(model: "PointProcess", dt: float) -> None:
+    """Integration step of a model and of every process under it."""
+    model.integration_dt = dt
+    for part in vars(model).values():
+        if hasattr(part, "integration_dt") and hasattr(part, "_nll"):
+            set_integration_dt(part, dt)
+
+
 def _replicate(
     seed_seq: np.random.SeedSequence,
     model: PointProcess,
@@ -206,6 +214,8 @@ class InferenceMixin:
         n_jobs: int = -1,
         log_scale_params: Optional[set] = None,
         tol_same_optimum: float = 0.1,
+        screen_dt: Optional[float] = 0.04,
+        n_refine: int = 3,
         **kwargs,
     ) -> pd.DataFrame:
         """
@@ -214,6 +224,11 @@ class InferenceMixin:
         postcondition as .fit()), and return a per-start table so
         multimodality is visible rather than hidden by AIC silently
         picking whichever local optimum was reached.
+
+        Models with bout history (a renewal grid, the costly part) first fit every
+        start on a coarser grid (screen_dt), then refit the n_refine best from where
+        they stopped on their own grid: the final fit is the same, at a fraction of the
+        cost. The per-start NLLs (and the multimodality report) are then the screening's.
         """
         rng = np.random.default_rng(seed)
         inits = self._generate_multistart_inits(
@@ -229,7 +244,14 @@ class InferenceMixin:
                 return res
             return f"not converged: {res.message}"
 
-        results = parallel_map(_run_one, inits, n_jobs=n_jobs, desc="Fit multistart")
+        fine_dt = self.integration_dt
+        screen = self.uses_history and screen_dt is not None and screen_dt > fine_dt
+        try:
+            if screen:
+                set_integration_dt(self, screen_dt)
+            results = parallel_map(_run_one, inits, n_jobs=n_jobs, desc=f"Fit multistart{f' (dt {screen_dt:g} s)' if screen else ''}")
+        finally:
+            set_integration_dt(self, fine_dt)
         report_failures(
             f"{self.name} multistart", [r for r in results if isinstance(r, str)], n_starts
         )
@@ -242,6 +264,13 @@ class InferenceMixin:
             )
 
         best = min(valid, key=lambda r: r.fun)
+        refined = []
+        if screen:
+            ranked = sorted(valid, key=lambda r: r.fun)[:n_refine]
+            refined = [r for r in parallel_map(_run_one, [r.x for r in ranked], n_jobs=n_jobs, desc=f"Refine (dt {fine_dt:g} s)")
+                       if not isinstance(r, str)]
+            if not refined:
+                raise RuntimeError(f"{self.name}: no refit on the {fine_dt:g} s grid converged.")
         n_converged = len(valid)
         n_at_global = sum(1 for r in valid if r.fun <= best.fun + tol_same_optimum)
 
@@ -250,7 +279,10 @@ class InferenceMixin:
             f"[{self.name}] multistart: {n_converged}/{n_starts} converged, {n_at_global} at the best NLL={best.fun:.3f}"
             + (f", {len(worse)} stopped {min(worse):.1f} or more above it" if worse else "")
             + (". WARNING: only one start reached the best; a better optimum may exist." if n_at_global == 1 else ".")
+            + (f" Screened on a {screen_dt:g} s grid; the best {len(refined)} refitted on {fine_dt:g} s: NLL={min(r.fun for r in refined):.3f}." if screen else "")
         )
+        if screen:
+            best = min(refined, key=lambda r: r.fun)
 
         self.fit_result = best
         self.set_params(best.x)
