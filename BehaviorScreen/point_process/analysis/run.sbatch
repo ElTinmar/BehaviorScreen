@@ -3,10 +3,10 @@
 #SBATCH -e /u/mapri/logs/job.err.%j
 #SBATCH -D /u/mapri/Code/BehaviorScreen
 #SBATCH --array=1-14
-#SBATCH --cpus-per-task=24
+#SBATCH --cpus-per-task=18
 #SBATCH --constraint="gpu"
 #SBATCH --gres=gpu:a100:1
-#SBATCH --mem=96G
+#SBATCH --mem=64G
 #SBATCH --time=24:00:00
 
 mkdir -p logs
