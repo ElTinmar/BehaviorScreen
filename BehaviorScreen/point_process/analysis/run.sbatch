@@ -5,6 +5,7 @@
 #SBATCH --array=1-14
 #SBATCH --cpus-per-task=24
 #SBATCH --constraint="gpu"
+#SBATCH --gres=gpu:a100:1
 #SBATCH --mem=96G
 #SBATCH --time=24:00:00
 
