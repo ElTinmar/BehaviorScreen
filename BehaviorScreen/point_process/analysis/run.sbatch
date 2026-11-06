@@ -4,7 +4,7 @@
 #SBATCH -D /u/mapri/Code/BehaviorScreen
 #SBATCH --array=1-15
 #SBATCH --cpus-per-task=48
-#SBATCH --mem=32G
+#SBATCH --mem=64G
 #SBATCH --time=24:00:00
 
 mkdir -p logs
