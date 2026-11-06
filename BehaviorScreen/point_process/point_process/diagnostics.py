@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import string
+from pathlib import Path
 import warnings
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
@@ -255,6 +256,7 @@ class DiagnosticsMixin:
         gof_refit_n_starts: int = 1,
         gof_n_jobs: int = -1,
         gof_u_grid: Optional[np.ndarray] = None,
+        gof_store: Optional[Path] = None,
     ) -> Tuple[plt.Figure, Dict[str, Any]]:
         """
         Goodness-of-fit dashboard: every panel compares the data with
@@ -266,7 +268,7 @@ class DiagnosticsMixin:
             gof = self.parametric_gof_bootstrap(
                 dataset, n_boot=gof_n_boot, seed=gof_seed, ci=gof_ci, acf_lags=gof_acf_lags,
                 min_km_at_risk=gof_min_km_at_risk, min_envelope_fraction=gof_min_envelope_fraction,
-                refit_n_starts=gof_refit_n_starts, n_jobs=gof_n_jobs, u_grid=gof_u_grid,
+                refit_n_starts=gof_refit_n_starts, n_jobs=gof_n_jobs, u_grid=gof_u_grid, store=gof_store,
             )
         else:
             grids = self.gof_grids(dataset, gof_u_grid)

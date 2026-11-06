@@ -8,6 +8,7 @@ from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, get
 from BehaviorScreen.point_process.analysis.tasks import (
     run_consolidation_task,
     run_diagnostics_task,
+    Replicates,
     run_fit_task,
     run_plot_task,
 )
@@ -48,6 +49,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--qc", nargs="*", default=["qc_control.csv"], help="Fish-level exclusion tables from quality control.")
     parser.add_argument("-o", "--output-dir", type=Path, default=Path("./figures"), help="Output figures and CSVs.")
+    parser.add_argument(
+        "--refit", nargs="+", default=["missing"],
+        help="fit mode: 'missing' (default) fits the rungs without a saved fit or whose saved NLL no longer reproduces; "
+             "'all' every rung; rung numbers (e.g. 5 6) those and the missing ones.",
+    )
+    parser.add_argument("--gof-replicates", type=int, default=300, help="Simulate-and-refit replicates of each rung's goodness of fit.")
+    parser.add_argument("--bootstrap-replicates", type=int, default=200, help="Fish-bootstrap replicates of the best model.")
+    parser.add_argument("--new-replicates", action="store_true", help="Discard the saved replicates instead of reusing them.")
     parser.add_argument("--n-jobs", type=int, default=-1, help="Worker processes for fits and bootstraps (-1: all cores).")
     return parser.parse_args()
 
@@ -64,13 +73,15 @@ def main() -> None:
         raise ValueError(f"--exp must be one of {list(model_config)} in {args.mode} mode, got {args.exp!r}")
 
     config = model_config[args.exp]
+    replicates = Replicates(args.gof_replicates, args.bootstrap_replicates, args.new_replicates)
     dataset = loader(config["events"]).prepare_dataset(**config["dataset"])
     if args.mode == "diagnostics":
         run_diagnostics_task(args.exp, dataset, args.output_dir)
     elif args.mode == "plot":
-        run_plot_task(args.exp, config, dataset, args.output_dir, n_jobs=args.n_jobs)
+        run_plot_task(args.exp, config, dataset, args.output_dir, n_jobs=args.n_jobs, replicates=replicates)
     else:
-        run_fit_task(args.exp, config, dataset, args.output_dir, n_jobs=args.n_jobs)
+        refit = args.refit[0] if args.refit in (["missing"], ["all"]) else [int(r) for r in args.refit]
+        run_fit_task(args.exp, config, dataset, args.output_dir, n_jobs=args.n_jobs, refit=refit, replicates=replicates)
 
 
 if __name__ == "__main__":

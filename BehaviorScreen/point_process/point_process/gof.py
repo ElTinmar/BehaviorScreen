@@ -4,7 +4,8 @@ ending each trial), the statistics checked against simulate-and-refit
 replicates, and binned residuals.
 """
 from functools import partial
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -145,6 +146,11 @@ def check_summary(
     return summary, float(omnibus)
 
 
+def replicate_statistics(statistic: Callable, model: Any, dataset: PointProcessDataset) -> Dict[str, Any]:
+    """A replicate's gof_statistics without the per-interval Kaplan-Meier table (only the data's is plotted)."""
+    return {k: v for k, v in statistic(model, dataset).items() if not k.startswith("km_")}
+
+
 class GOFMixin:
     _survival_estimate = staticmethod(kaplan_meier)
 
@@ -271,6 +277,7 @@ class GOFMixin:
         refit_n_starts: int = 1,
         n_jobs: int = -1,
         u_grid: Optional[np.ndarray] = None,
+        store: Optional[Path] = None,
     ) -> Dict[str, Any]:
         """
         gof_statistics of the data against simulate-and-refit replicates:
@@ -278,15 +285,15 @@ class GOFMixin:
         envelope of the calibration curve. Pointwise bands are kept where at
         least min_envelope_fraction of replicates reach; the simultaneous
         envelope spans the range from u = 0 supported by the data and by
-        that many replicates.
+        that many replicates. store: see refit_replicates.
         """
         self._require_fitted()
         grids = self.gof_grids(dataset, u_grid)
         statistic = partial(GOFMixin.gof_statistics, **grids, acf_lags=acf_lags, min_km_at_risk=min_km_at_risk)
         observed = statistic(self, dataset)
         replicates, errors = refit_replicates(
-            self, dataset, statistic, n_boot, seed, refit_n_starts=refit_n_starts, n_jobs=n_jobs,
-            desc="Parametric GOF bootstrap",
+            self, dataset, partial(replicate_statistics, statistic), n_boot, seed, refit_n_starts=refit_n_starts, n_jobs=n_jobs,
+            desc="Parametric GOF bootstrap", store=store,
         )
         if not replicates:
             raise RuntimeError(f"All parametric GOF bootstrap replicates failed. Example errors: {errors[:5]}")

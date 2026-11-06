@@ -4,6 +4,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple, Union
 from functools import partial
 import copy
+import json
+import pickle
+import time
+from pathlib import Path
+from collections import Counter
 import re
 
 import numpy as np
@@ -56,52 +61,59 @@ def newton_step_matrix(hessian: np.ndarray) -> Optional[np.ndarray]:
 
 def newton_refit(
     model: PointProcess, dataset: PointProcessDataset, step_matrix: np.ndarray, max_steps: int = 10, tol: float = 0.01, eps: float = 1e-5,
-) -> bool:
+) -> Optional[str]:
     """
     Refit from model.initial_guesses (an optimum of similar data) by Newton steps
-    with a fixed inverse Hessian and central-difference gradients, halving a step
-    until the NLL decreases; done once a step gains less than tol. False (model
-    untouched) when a step cannot decrease the NLL, leaves the bounds or does not
-    converge: refit it with the optimizer.
+    with a fixed inverse Hessian and central-difference gradients, each step halved
+    until the NLL decreases and kept inside the bounds; done once a step gains, or
+    would gain (half the Newton decrement), less than tol. Returns None when done,
+    else why not (the model's initial_guesses are then the best point reached,
+    where the optimizer should continue).
     """
     lower = np.array([-np.inf if lo is None else lo for lo, _ in model.bounds])
     upper = np.array([np.inf if hi is None else hi for _, hi in model.bounds])
     nll = lambda x: model._nll(list(x), dataset)
     x = np.array(model.initial_guesses, dtype=float)
     f = nll(x)
+
+    def stop(reason: str) -> str:
+        model.initial_guesses = list(x)
+        return reason
+
+    def done() -> None:
+        model.set_params(x)
+        model.fit_result = OptimizeResult(x=x, fun=f, success=True, message="Newton steps with a fixed Hessian")
+
     for _ in range(max_steps):
         h = eps * (1.0 + np.abs(x))
         if np.any(x - h < lower) or np.any(x + h > upper):
-            return False
+            return stop("reached a bound")
         g = np.array([(nll(x + dx) - nll(x - dx)) / (2 * hi) for dx, hi in zip(np.diag(h), h)])
         step, t = -step_matrix @ g, 1.0
-        while True:
-            x_new = x + t * step
-            if np.all((x_new >= lower) & (x_new <= upper)) and (f_new := nll(x_new)) < f:
-                break
+        if -g @ step / 2 < tol:  # already within tol of the optimum
+            return done()
+        while (f_new := nll(x_new := np.clip(x + t * step, lower, upper))) >= f:
             t /= 2
             if t < 1 / 16:
-                return False
+                return stop("no decrease along the step")
         gain, x, f = f - f_new, x_new, f_new
         if gain < tol:
-            model.set_params(x)
-            model.fit_result = OptimizeResult(x=x, fun=f, success=True, message="Newton steps with a fixed Hessian")
-            return True
-    return False
+            return done()
+    return stop("not converged in 10 steps")
 
 
-def refit_from_fit(model: PointProcess, dataset: PointProcessDataset, step_matrix: Optional[np.ndarray]) -> Tuple[PointProcess, bool]:
+def refit_from_fit(model: PointProcess, dataset: PointProcessDataset, step_matrix: Optional[np.ndarray]) -> Tuple[PointProcess, str]:
     """
     A copy of a fitted model refitted to similar data from its parameters: by Newton
-    steps with step_matrix (newton_step_matrix of its Hessian), else by the optimizer.
-    Also returns whether the Newton steps did it.
+    steps with step_matrix (newton_step_matrix of its Hessian), else by the optimizer,
+    from where the steps stopped. Also returns how: "newton", or why the optimizer was needed.
     """
     refit = copy.deepcopy(model)
     refit.initial_guesses = list(np.asarray(model.params_, dtype=float))
-    newton = step_matrix is not None and newton_refit(refit, dataset, step_matrix)
-    if not newton:
+    reason = "no Hessian" if step_matrix is None else newton_refit(refit, dataset, step_matrix)
+    if reason is not None:
         fit_coarse_to_fine(refit, dataset)
-    return refit, newton
+    return refit, reason or "newton"
 
 
 def _replicate(
@@ -113,20 +125,46 @@ def _replicate(
     refit: bool,
     refit_n_starts: int,
     step_matrix: Optional[np.ndarray] = None,
-) -> Tuple[Any, Optional[str], bool]:
-    """(statistic, None, refitted by Newton steps) on one simulated or fish-resampled dataset, or (None, error, False)."""
+) -> Tuple[Any, Optional[str], str]:
+    """(statistic, None, how it was refitted) on one simulated or fish-resampled dataset, or (None, error, "")."""
     rng = np.random.default_rng(seed_seq)
     try:
         dataset_b = copy.deepcopy(model).simulate_dataset(template, rng) if parametric else template.resample(rng)
-        model_b, newton = copy.deepcopy(model), False
+        model_b, how = copy.deepcopy(model), "not refitted"
         if refit and refit_n_starts > 1:
             model_b.initial_guesses = list(np.asarray(model.params_, dtype=float))
             model_b.fit_multistart(dataset_b, n_starts=refit_n_starts, seed=int(rng.integers(0, 2**31 - 1)), n_jobs=1)
+            how = "multistart"
         elif refit:
-            model_b, newton = refit_from_fit(model, dataset_b, step_matrix)
-        return statistic(model_b, dataset_b), None, newton
+            model_b, how = refit_from_fit(model, dataset_b, step_matrix)
+        return statistic(model_b, dataset_b), None, how
     except Exception as exc:
-        return None, repr(exc), False
+        return None, repr(exc), ""
+
+
+def _stored_replicate(job: Tuple[int, np.random.SeedSequence], store: Optional[Path], **kwargs) -> Tuple[Any, Optional[str], str]:
+    """_replicate, its successful result written to store/<index>.pkl as soon as it is done."""
+    index, seed_seq = job
+    result = _replicate(seed_seq, **kwargs)
+    if store is not None and result[1] is None:
+        with open(store / f"{index:05d}.pkl", "wb") as f:
+            pickle.dump(result, f)
+    return result
+
+
+def load_replicates(store: Path, key: dict) -> Dict[int, Tuple[Any, Optional[str], str]]:
+    """The replicates saved in store for this key (index: result); others there are deleted."""
+    store.mkdir(parents=True, exist_ok=True)
+    key_path = store / "key.json"
+    if key_path.exists() and json.loads(key_path.read_text()) != key:
+        for path in store.glob("*.pkl"):
+            path.unlink()
+    key_path.write_text(json.dumps(key))
+    done = {}
+    for path in store.glob("*.pkl"):
+        with open(path, "rb") as f:
+            done[int(path.stem)] = pickle.load(f)
+    return done
 
 
 def refit_replicates(
@@ -141,6 +179,7 @@ def refit_replicates(
     n_jobs: int = -1,
     desc: str = "Bootstrap",
     progress: bool = True,
+    store: Optional[Path] = None,
 ) -> Tuple[List[Any], List[str]]:
     """
     statistic(model, dataset) on n_boot datasets simulated from the fitted
@@ -148,12 +187,22 @@ def refit_replicates(
     parameters (refit): by Newton steps with the Hessian of the fit (one estimate
     for all), else, where those fail, by the optimizer. Returns the successful
     values and the errors.
+
+    store: a folder where each successful replicate is saved as it is done, and
+    reused by later calls with the same model parameters, data size, seed and kind:
+    an interrupted call resumes, a call with a larger n_boot only adds replicates
+    (replicate i always has the same random seed), a smaller one uses the first.
     """
     model._require_fitted()
     seeds = np.random.SeedSequence(seed).spawn(n_boot)
-    step_matrix = newton_step_matrix(model.estimate_hessian(template)) if refit and refit_n_starts <= 1 else None
+    key = {"desc": desc, "seed": seed, "parametric": parametric, "refit": refit, "refit_n_starts": refit_n_starts,
+           "params": [float(p) for p in model.params_], "n_fish": template.num_fish, "n_events": len(template.event_times)}
+    done = {} if store is None else {i: r for i, r in load_replicates(store, key).items() if i < n_boot}
+    todo = [i for i in range(n_boot) if i not in done]
+    step_matrix = newton_step_matrix(model.estimate_hessian(template)) if todo and refit and refit_n_starts <= 1 else None
     job = partial(
-        _replicate,
+        _stored_replicate,
+        store=store,
         model=model,
         template=template,
         statistic=statistic,
@@ -162,11 +211,15 @@ def refit_replicates(
         refit_n_starts=refit_n_starts,
         step_matrix=step_matrix,
     )
-    results = parallel_map(job, seeds, n_jobs=n_jobs, desc=desc, progress=progress, batch_size=1, pre_dispatch="n_jobs")
+    if done:
+        print(f"{desc}: {len(done)} replicates reused from {store}, {len(todo)} to compute.")
+    computed = dict(zip(todo, parallel_map(job, [(i, seeds[i]) for i in todo], n_jobs=n_jobs, desc=desc, progress=progress, batch_size=1, pre_dispatch="n_jobs"))) if todo else {}
+    results = [done[i] if i in done else computed[i] for i in range(n_boot)]
     values = [value for value, error, _ in results if error is None]
     errors = [error for _, error, _ in results if error is not None]
-    newton = sum(n for *_, n in results)
-    print(f"{desc}: {len(values)}/{n_boot} successful" + (f", {newton} refitted by Newton steps, the others by the optimizer." if step_matrix is not None else "."))
+    hows = Counter(how for _, error, how in results if error is None)
+    others = ", ".join(f"{n} {how}" for how, n in hows.most_common() if how != "newton")
+    print(f"{desc}: {len(values)}/{n_boot} successful" + (f", {hows['newton']} refitted by Newton steps" + (f"; by the optimizer: {others}" if others else "") + "." if refit and refit_n_starts <= 1 and hows else "."))
     report_failures(f"{model.name} {desc}", errors, n_boot)
     return values, errors
 
@@ -294,7 +347,7 @@ class InferenceMixin:
         seed: int = 0,
         n_jobs: int = -1,
         log_scale_params: Optional[set] = None,
-        tol_same_optimum: float = 0.1,
+        tol_same_optimum: float = 0.5,
         screen_dt: Optional[float] = SCREEN_DT,
         n_refine: int = 3,
         **kwargs,
@@ -358,7 +411,7 @@ class InferenceMixin:
         worse = [r.fun - best.fun for r in valid if r.fun > best.fun + tol_same_optimum]
         print(
             f"[{self.name}] multistart: {n_converged}/{n_starts} converged, {n_at_global} at the best NLL={best.fun:.3f}"
-            + (f", {len(worse)} stopped {min(worse):.1f} or more above it" if worse else "")
+            + (f", {len(worse)} stopped {min(worse):.1f} to {max(worse):.1f} above it" if worse else "")
             + (". WARNING: only one start reached the best; a better optimum may exist." if n_at_global == 1 else ".")
             + (f" Screened on a {screen_dt:g} s grid; the best {len(refined)} refitted on {fine_dt:g} s: NLL={min(r.fun for r in refined):.3f}." if screen else "")
         )
@@ -367,14 +420,19 @@ class InferenceMixin:
 
         self.fit_result = best
         self.set_params(best.x)
-
-        return pd.DataFrame(
+        self.multistart_ = {
+            "starts": n_starts, "converged": n_converged, "at_best": n_at_global,
+            "nearest_gap": min(worse) if worse else np.nan, "farthest_gap": max(worse) if worse else np.nan,
+            "screen_dt": screen_dt if screen else np.nan,
+        }
+        self.multistart_table_ = pd.DataFrame(
             {
                 "start_idx": range(len(results)),
                 "converged": [r is not None for r in results],
                 "nll": [r.fun if r is not None else np.nan for r in results],
             }
         )
+        return self.multistart_table_
 
     def bootstrap(
         self,
@@ -383,10 +441,11 @@ class InferenceMixin:
         seed: int = 42,
         ci: float = 95.0,
         n_jobs: int = -1,
+        store: Optional[Path] = None,
     ) -> pd.DataFrame:
-
+        """Fish bootstrap of the parameters; store: see refit_replicates."""
         valid_boot_params, _ = refit_replicates(
-            self, dataset, fitted_params, n_boot, seed, parametric=False, n_jobs=n_jobs, desc="Bootstrap"
+            self, dataset, fitted_params, n_boot, seed, parametric=False, n_jobs=n_jobs, desc="Bootstrap", store=store
         )
         if not valid_boot_params:
             raise RuntimeError("All bootstrap optimization attempts failed.")
@@ -521,9 +580,14 @@ class ModelComparator:
         method: str = "L-BFGS-B",
         null_model: Optional[PointProcess] = None,
         on_fitted: Optional[Callable[[int, PointProcess], None]] = None,
+        is_cached: Optional[Callable[[int, PointProcess], bool]] = None,
         **kwargs,
     ) -> Tuple[pd.DataFrame, List[PointProcess]]:
-        """on_fitted(index, model): called after each successful fit, before the next model's."""
+        """
+        on_fitted(index, model): called after each successful fit, before the next model's.
+        is_cached(index, model): True when it has set the model's parameters and fit_result
+        (a saved fit still valid): the model is not refitted. fit_seconds_ is set on fitted models.
+        """
         names = [m.name for m in models]
         duplicated = sorted({n for n in names if names.count(n) > 1})
         if duplicated:
@@ -548,7 +612,12 @@ class ModelComparator:
                 float(np.clip(fitted_values.get(n, g), lo if lo is not None else -np.inf, hi if hi is not None else np.inf))
                 for n, g, (lo, hi) in zip(m.param_names, m.initial_guesses, m.bounds)
             ]
-            results.append(_fit_one_model(m, dataset, method, kwargs))
+            if is_cached is not None and is_cached(index, m):
+                results.append((m, None))
+            else:
+                started = time.perf_counter()
+                results.append(_fit_one_model(m, dataset, method, kwargs))
+                m.fit_seconds_ = time.perf_counter() - started
             if results[-1][1] is None:
                 fitted_values.update(m.param_dict_)
                 if on_fitted is not None:
