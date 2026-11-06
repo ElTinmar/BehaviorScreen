@@ -1,5 +1,7 @@
 """The three run modes: dataset diagnostics, model fitting, consolidation across experiments."""
+import hashlib
 import json
+import re
 from dataclasses import replace
 from pathlib import Path
 from typing import Callable, Dict
@@ -63,7 +65,7 @@ def run_diagnostics_task(exp_name: str, dataset: PointProcessDataset, output_roo
 
 
 def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, output_root: Path, n_jobs: int = -1) -> None:
-    """Fit and compare the candidates, each rung checked and plotted once fitted (models/<index>); bootstrap of the best."""
+    """Fit and compare the candidates, each rung checked and plotted once fitted (models/<rung_folder>); bootstrap of the best."""
     print(f"\n=== Fitting {exp_name} ===")
     model_dir = output_root / exp_name / "models"
 
@@ -92,7 +94,7 @@ def run_fit_task(exp_name: str, config: dict, dataset: PointProcessDataset, outp
 
 
 def run_plot_task(exp_name: str, config: dict, dataset: PointProcessDataset, output_root: Path, n_jobs: int = -1) -> None:
-    """The checks and plots of every rung of a finished fit run (models/<index>), from its fitted parameters, without refitting it."""
+    """The checks and plots of every rung of a finished fit run (models/<rung_folder>), from its fitted parameters, without refitting it."""
     print(f"\n=== Plotting the rungs of {exp_name} ===")
     model_dir = output_root / exp_name / "models"
     for model in config["models"]:
@@ -108,9 +110,9 @@ def run_plot_task(exp_name: str, config: dict, dataset: PointProcessDataset, out
 def plot_model(dataset: PointProcessDataset, model: PointProcess, out_dir: Path) -> None:
     """Rate surface, trial traces and, for a sided model, each side and the side calibration."""
     fig, _ = ModelPlotter.plot_histogram(dataset=dataset, model=model)
-    save_fig(fig, out_dir, f"histogram_surface_{model.name}")
+    save_fig(fig, out_dir, "histogram_surface")
     fig, _ = ModelPlotter.plot_trial_traces(dataset=dataset, model=model)
-    save_fig(fig, out_dir, f"trial_traces_{model.name}")
+    save_fig(fig, out_dir, "trial_traces")
     if sided_base(model) is not None:
         plot_sides(dataset, model, out_dir)
     plt.close("all")
@@ -124,25 +126,48 @@ def plot_rungs(models: list, dataset: PointProcessDataset, model_dir: Path, n_jo
             plot_rung(index, model, dataset, model_dir, n_jobs)
 
 
+# Name pieces -> folder tokens, in folder order; each token at most once.
+FOLDER_TOKENS = [
+    (r"^ZeroInflated", "zi"), (r"GammaSideMixedEffects", "side_gain"), (r"GammaMixedEffects", "gain"),
+    (r"BaselineOnly", "baseline_gain"), (r"\+Trial", "trial"), (r"SidedSurvival", "sided_survival"),
+    (r"(?<!Sided)Survival ", "survival"), (r"Renewal", "renewal"), (r"Hawkes", "hawkes"),
+]
+
+
+def rung_folder(index: int, model: PointProcess) -> str:
+    """
+    Short folder name of a rung: its place in the ladder, what the model is made of
+    (gains, history, stimulus or flat rate, burst shape) and 4 hex digits of its
+    full name, so that a model always lands in its own folder, also after the ladder changes.
+    """
+    name = model.name
+    tokens = [token for pattern, token in FOLDER_TOKENS if re.search(pattern, name)]
+    kernels = re.sub(r",? ?history:.*|\]|^(Poisson|Survival|SidedSurvival|Renewal rate:) ", "", name.split("[")[-1])
+    tokens.append("flat" if set(re.split(r" ?\| ?", kernels)) <= {"Homogeneous λ", "SurvivalConstantHazard"} else "stim")
+    tokens += [f"k{k}" for k in re.findall(r"Burst\(k=([\d.]+)\)", name)]
+    return f"{index:02d}_{'_'.join(tokens)}_{hashlib.md5(name.encode()).hexdigest()[:4]}"
+
+
 def save_rung_index(models: list, model_dir: Path) -> None:
-    """models/rung_index.csv: the model of each numbered rung folder."""
-    save_csv(pd.DataFrame({"rung": range(len(models)), "model": [m.name for m in models]}), model_dir, "rung_index")
+    """models/rung_index.csv: the folder and full name of every rung."""
+    save_csv(pd.DataFrame({"rung": range(len(models)), "folder": [rung_folder(i, m) for i, m in enumerate(models)],
+                           "model": [m.name for m in models]}), model_dir, "rung_index")
 
 
 def plot_rung(index: int, model: PointProcess, dataset: PointProcessDataset, model_dir: Path, n_jobs: int = -1) -> None:
     """
-    In models/<index>: plot_model and the goodness-of-fit dashboard against
+    In models/<rung_folder>: plot_model and the goodness-of-fit dashboard against
     simulate-and-refit replicates, with its check table and replicate statistics.
     A failure is reported, not raised: the fits go on.
     """
-    out_dir = model_dir / f"{index:02d}"
+    out_dir = model_dir / rung_folder(index, model)
     try:
         plot_model(dataset, model, out_dir)
         fig, diagnosis = model.diagnose(dataset, gof_n_jobs=n_jobs)
-        save_fig(fig, out_dir, f"diagnose_{model.name}")
+        save_fig(fig, out_dir, "diagnose")
         gof = diagnosis["parametric_gof"]
-        save_csv(gof["summary"], out_dir, f"parametric_gof_summary_{model.name}")
-        save_csv(gof["bootstrap_statistics"], out_dir, f"parametric_gof_replicates_{model.name}")
+        save_csv(gof["summary"], out_dir, "parametric_gof_summary")
+        save_csv(gof["bootstrap_statistics"], out_dir, "parametric_gof_replicates")
     except Exception as exc:
         print(f"[{model.name}] rung plots failed: {exc!r}")
     plt.close("all")
@@ -153,8 +178,8 @@ def plot_sides(dataset: PointProcessDataset, model: PointProcess, model_dir: Pat
     for side, side_name in SIDE_NAMES.items():
         events, view = replace(dataset.select(laterality=side), laterality=side), SideView(model, side, dataset)
         fig, _ = ModelPlotter.plot_histogram(dataset=events, model=view)
-        save_fig(fig, model_dir, f"histogram_surface_{side_name}_{model.name}")
-    save_fig(plot_side_diagnostics(dataset, model), model_dir, f"side_diagnostics_{model.name}")
+        save_fig(fig, model_dir, f"histogram_surface_{side_name}")
+    save_fig(plot_side_diagnostics(dataset, model), model_dir, "side_diagnostics")
 
 
 def save_best_model(config: dict, model: PointProcess, model_dir: Path) -> None:
