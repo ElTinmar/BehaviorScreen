@@ -187,13 +187,15 @@ def rate_models(kernel: Callable[[], RateKernel]) -> List[PointProcess]:
     ]
 
 
-def survival_models(*kernels: Callable[[], object]) -> List[PointProcess]:
-    survival = lambda kernel: SurvivalProcess(kernel())
-    return (
-        [SurvivalProcess(SurvivalKernelFactory.constant_hazard())]
+def survival_models(*kernels: Callable[[], object], sided: bool = False) -> List[PointProcess]:
+    """Sided ladders also predict each escape's side, ending with the fish side preference."""
+    survival = lambda kernel: sided_survival(kernel()) if sided else SurvivalProcess(kernel())
+    models = (
+        [survival(SurvivalKernelFactory.constant_hazard)]
         + [survival(k) for k in kernels]
         + [gamma(survival(k)) for k in kernels]
     )
+    return models + [side_gamma(survival(kernels[-1]))] if sided else models
 
 
 def experiment(
@@ -204,10 +206,12 @@ def experiment(
     predict each event's side, so their null is the sided constant-rate model.
     It is the first rung of the ladder (models), unless a candidate already is it.
     """
+    is_sided = sided_base(models[0]) is not None
     if models[0].is_survival:
-        null = SurvivalProcess(SurvivalKernelFactory.constant_hazard())
+        hazard = SurvivalKernelFactory.constant_hazard()
+        null = sided_survival(hazard) if is_sided else SurvivalProcess(hazard)
     else:
-        null = sided(flat(), flat()) if sided_base(models[0]) is not None else poisson(flat())
+        null = sided(flat(), flat()) if is_sided else poisson(flat())
     null = next((m for m in models if m.name == null.name), null)
     models = models if any(m is null for m in models) else [null] + models
     return {
@@ -414,8 +418,7 @@ def get_model_config() -> Dict[str, dict]:
         ),
         "looming": experiment(
             dataset(LOOMING_ESCAPE, [IPSI, CONTRA], 9.0, stim=Stim.LOOMING),
-            survival_models(looming_bump, looming_habituating)
-            + [sided_survival(looming_habituating()), gamma(sided_survival(looming_habituating())), side_gamma(sided_survival(looming_habituating()))],
+            survival_models(looming_bump, looming_habituating, sided=True),
         ),
         "looming_divergent_saccade": experiment(
             dataset("Divergent", NONDIRECTIONAL, 9.0, stim=Stim.LOOMING),
