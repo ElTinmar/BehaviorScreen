@@ -1,16 +1,14 @@
 #!/bin/bash
-# follow_logs.sh [output dir]: a tmux pane per experiment, following its run.log
+# follow_logs.sh [output dir]: a tmux window per experiment, following its run.log
 OUT=${1:-./figures}
-EXPS=$(cat BehaviorScreen/point_process/analysis/experiments.txt)
 KEEP='#####|multistart:|reused|refitting|fitting|successful|failed|WARNING|Error|Traceback|worker stopped'
 
-tmux new-session -d -s logs -x "$(tput cols)" -y "$(tput lines)"
-tmux set -t logs pane-border-status top
+tmux kill-session -t logs 2>/dev/null
 first=1
-for exp in $EXPS; do
-  cmd="tail -F -n 30 $OUT/$exp/run.log 2>/dev/null | grep --line-buffered -E '$KEEP'"
-  if [ $first = 1 ]; then tmux send-keys -t logs "$cmd" C-m; first=0
-  else tmux split-window -t logs "$cmd"; tmux select-layout -t logs tiled; fi
-  tmux select-pane -t logs -T "$exp"
+for exp in $(cat BehaviorScreen/point_process/analysis/experiments.txt); do
+  cmd="tail -F -n 50 $OUT/$exp/run.log 2>/dev/null | grep --line-buffered -E '$KEEP'"
+  if [ $first = 1 ]; then tmux new-session -d -s logs -n "$exp" "$cmd"; first=0
+  else tmux new-window -t logs -n "$exp" "$cmd"; fi
 done
-tmux attach -t logs
+tmux select-window -t logs:0
+if [ -n "$TMUX" ]; then tmux switch-client -t logs; else tmux attach -t logs; fi
