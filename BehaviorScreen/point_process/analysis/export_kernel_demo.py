@@ -19,6 +19,7 @@ from megabouts.utils import bouts_category_name, bouts_category_name_short
 from BehaviorScreen.core import Laterality, Stim
 from BehaviorScreen.ablation_screen.tier1_config import AMPLITUDE_PARAMETERS, MAP_COLUMNS, PINNED_AMPLITUDES, TIER1_MODELS
 from BehaviorScreen.point_process.analysis.model_config import get_model_config
+from BehaviorScreen.point_process.analysis.tasks import load_fit_records
 from BehaviorScreen.point_process.point_process.frailty import Frailty, SideFrailty, ZeroInflatedFamily
 from BehaviorScreen.point_process.point_process.lag_kernel import LagKernel
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
@@ -190,8 +191,7 @@ def export(output_dir: Optional[Path]) -> List[dict]:
     experiments = []
     for name in [n for n in MAP_COLUMNS if n in configs]:
         config = configs[name]
-        fits_path = output_dir / name / "models" / "fitted_models.json" if output_dir else None
-        fits = json.loads(fits_path.read_text()) if fits_path and fits_path.exists() else {}
+        fits = {n: r["params"] for n, r in load_fit_records(output_dir / name / "models").items()} if output_dir else {}
         t_end = float(config["dataset"]["t_end"])
         models = [config["null_model"]] + [m for m in config["models"] if m.name != config["null_model"].name]
         tier1 = TIER1_MODELS[name]() if name in TIER1_MODELS else None
@@ -209,7 +209,7 @@ def export(output_dir: Optional[Path]) -> List[dict]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("-o", "--output-dir", type=Path, help="Output folder of fit runs (<exp>/models/fitted_models.json).")
+    parser.add_argument("-o", "--output-dir", type=Path, help="Output folder of fit runs (<exp>/models/fit_records.json).")
     args = parser.parse_args()
     data = json.dumps(export(args.output_dir), separators=(",", ":"))
     page = PAGE.read_text(encoding="utf-8")

@@ -65,8 +65,10 @@ class Replicates:
         return folder
 
 
-def saved_replicates(folder: Path) -> int:
-    return len(list(folder.glob("*.pkl")))
+def gof_replicates_done(rung_dir: Path) -> int:
+    """Successful GOF replicates behind a rung's dashboard (rows of its replicate table)."""
+    table = rung_dir / "parametric_gof_replicates.csv"
+    return len(pd.read_csv(table)) if table.exists() else 0
 
 
 def run_diagnostics_task(exp_name: str, dataset: PointProcessDataset, output_root: Path) -> None:
@@ -95,8 +97,8 @@ def run_fit_task(
     rungs without a saved fit, or whose saved NLL the current code and data no
     longer reproduce; "all" every rung; a list, those rung numbers (and the missing).
     A reused rung is checked and plotted again only if its folder is incomplete or
-    it has fewer saved replicates than asked for (replicates are saved as they are
-    done: an interrupted check resumes, a larger number only adds replicates).
+    its dashboard has fewer replicates than asked for (replicates are saved as they
+    are done: an interrupted check resumes, a larger number only adds replicates).
     """
     print(f"\n=== Fitting {exp_name} ===")
     model_dir = output_root / exp_name / "models"
@@ -118,12 +120,10 @@ def run_fit_task(
     def on_fitted(index: int, model: PointProcess) -> None:
         if model.name not in reused:
             records[model.name] = fit_record(model)
-        elif "nll" not in records[model.name]:  # from an older run: checked from now on
-            records[model.name]["nll"] = float(model.fit_result.fun)
-        save_fit_records(records, models, model_dir)
+            save_fit_records(records, model_dir)
         out_dir = model_dir / rung_folder(index, model)
         complete = all((out_dir / f).exists() for f in ("diagnose.png", "parametric_gof_summary.csv"))
-        if model.name not in reused or not complete or replicates.new or saved_replicates(out_dir / "gof_replicates") < replicates.gof:
+        if model.name not in reused or not complete or replicates.new or gof_replicates_done(out_dir) < replicates.gof:
             plot_rung(index, model, dataset, model_dir, n_jobs, replicates)
             if hasattr(model, "multistart_table_") and model.name not in reused:
                 save_csv(model.multistart_table_, out_dir, "multistart")
@@ -149,19 +149,18 @@ def reuse_saved_fit(model: PointProcess, record: Optional[dict], dataset: PointP
     Sets the model to its saved fit if the current code and data reproduce the saved
     NLL; returns what was decided ("reused ..." or why it is refitted).
     """
-    if record is None or record.get("params") is None:
+    if record is None:
         return "no saved fit: fitting"
     params = np.asarray(record["params"], dtype=float)
     if len(params) != len(model.param_names):
         return f"saved fit has {len(params)} parameters, the model {len(model.param_names)}: refitting"
     nll = model._nll(list(params), dataset)
-    saved = record.get("nll")
-    if saved is not None and not np.isclose(nll, saved, rtol=rtol, atol=1e-6):
-        return f"saved NLL {saved:.3f} is now {nll:.3f} (code, data or model changed): refitting"
+    if not np.isclose(nll, record["nll"], rtol=rtol, atol=1e-6):
+        return f"saved NLL {record['nll']:.3f} is now {nll:.3f} (code, data or model changed): refitting"
     model.set_params(params)
     model.fit_result = OptimizeResult(x=params, fun=nll, success=True, message="saved fit")
-    model.multistart_, model.fit_seconds_ = record.get("multistart"), record.get("fit_seconds")
-    return f"reused the saved fit (NLL {nll:.3f}" + (", checked)" if saved is not None else ", no saved NLL to check)")
+    model.multistart_, model.fit_seconds_ = record["multistart"], record["fit_seconds"]
+    return f"reused the saved fit (NLL {nll:.3f}, checked)"
 
 
 def fit_record(model: PointProcess) -> dict:
@@ -185,20 +184,15 @@ def code_version() -> Optional[str]:
 
 
 def load_fit_records(model_dir: Path) -> Dict[str, dict]:
-    """fit_records.json of an earlier run; for older runs, the parameters in fitted_models.json (no NLL)."""
-    if (model_dir / "fit_records.json").exists():
-        return json.loads((model_dir / "fit_records.json").read_text())
-    if (model_dir / "fitted_models.json").exists():
-        return {name: {"params": params} for name, params in json.loads((model_dir / "fitted_models.json").read_text()).items()}
-    return {}
+    """fit_records.json of earlier runs (model name: fit_record), empty without one."""
+    path = model_dir / "fit_records.json"
+    return json.loads(path.read_text()) if path.exists() else {}
 
 
-def save_fit_records(records: Dict[str, dict], models: list, model_dir: Path) -> None:
-    """fit_records.json and fitted_models.json (parameters only), keeping the fits of models no longer in the ladder."""
+def save_fit_records(records: Dict[str, dict], model_dir: Path) -> None:
+    """fit_records.json, with the fits of models no longer in the ladder."""
     model_dir.mkdir(parents=True, exist_ok=True)
     (model_dir / "fit_records.json").write_text(json.dumps(records, indent=2))
-    params = {name: r.get("params") for name, r in records.items()}
-    (model_dir / "fitted_models.json").write_text(json.dumps(params, indent=2))
 
 
 def save_comparison_table(exp_name: str, models: list, records: Dict[str, dict], model_dir: Path) -> None:
@@ -337,11 +331,10 @@ def load_best_model(config: dict, model_dir: Path) -> PointProcess:
 
 def load_fitted_params(model_dir: Path, name: str) -> np.ndarray:
     """Fitted parameters of the candidate called `name` in a `fit` run."""
-    with open(model_dir / "fitted_models.json") as f:
-        params = json.load(f).get(name)
-    if params is None:
+    record = load_fit_records(model_dir).get(name)
+    if record is None:
         raise ValueError(f"{model_dir}: no fitted parameters for {name!r}; add it to the experiment's models and rerun the fit")
-    return np.asarray(params, dtype=float)
+    return np.asarray(record["params"], dtype=float)
 
 
 def summarize_dispersion_across_conditions(datasets: Dict[str, PointProcessDataset]) -> pd.DataFrame:
