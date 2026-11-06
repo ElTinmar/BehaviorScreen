@@ -2,9 +2,9 @@
 #SBATCH -o /u/mapri/logs/job.out.%j
 #SBATCH -e /u/mapri/logs/job.err.%j
 #SBATCH -D /u/mapri/Code/BehaviorScreen
-#SBATCH --array=1-15
-#SBATCH --cpus-per-task=48
-#SBATCH --mem=64G
+#SBATCH --array=1-14
+#SBATCH --cpus-per-task=24
+#SBATCH --mem=128G
 #SBATCH --time=24:00:00
 
 mkdir -p logs
@@ -24,10 +24,14 @@ echo "Starting task $SLURM_ARRAY_TASK_ID: $EXP_NAME"
 DATA_DIR="/ptmp/mapri"
 OUT_DIR="./figures"
 
+# One fit worker per allocated CPU; each holds the data and its renewal grid (2 GB or more for phototaxis).
+export MPLBACKEND=Agg OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+
 # Run Model Fitting & Bootstrapping exclusively on this node
 srun conda run --no-capture-output -n BehaviorScreen \
     python -m BehaviorScreen.point_process.analysis.run_analysis \
     --exp "$EXP_NAME" \
     --mode fit \
     --data-root "$DATA_DIR" \
-    --output-dir "$OUT_DIR"
+    --output-dir "$OUT_DIR" \
+    --n-jobs "$SLURM_CPUS_PER_TASK"
