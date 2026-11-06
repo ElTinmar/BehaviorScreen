@@ -14,6 +14,7 @@ from matplotlib.ticker import MaxNLocator
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from .dataset import PointProcessDataset
+from .inference import correlation_from_covariance
 
 if TYPE_CHECKING:
     from .point_process import PointProcess
@@ -279,7 +280,8 @@ class DiagnosticsMixin:
         sides = {} if self.is_survival or sided_base(self) is None else SIDE_NAMES
         residuals = self.compute_residuals(dataset)
         side_residuals = {name: self.compute_residuals(dataset, side=side) for side, name in sides.items()}
-        correlation = self.estimate_parameter_correlation(dataset, eps=eps)
+        covariance = self.estimate_parameter_covariance(dataset, eps=eps)
+        correlation = correlation_from_covariance(covariance)
 
         panels: List[Callable[[plt.Axes], None]] = [
             lambda ax: self.plot_panel_calibration(gof, ax),
@@ -314,7 +316,8 @@ class DiagnosticsMixin:
         for ax in axes.flat[len(panels):]:
             ax.axis("off")
         fig.suptitle(self.latex_formula, fontsize=13)
-        return fig, {"parametric_gof": gof, "residuals": residuals, "side_residuals": side_residuals, "parameter_correlation": correlation}
+        return fig, {"parametric_gof": gof, "residuals": residuals, "side_residuals": side_residuals,
+                     "parameter_covariance": covariance, "parameter_correlation": correlation}
 
 
 OWN_GAINS = "darkorange"  # model rate with each fish's own (posterior) gains, next to the simulated one

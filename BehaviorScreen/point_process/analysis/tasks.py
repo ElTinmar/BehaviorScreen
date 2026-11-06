@@ -299,6 +299,10 @@ def plot_rung(
         gof = diagnosis["parametric_gof"]
         save_csv(gof["summary"], out_dir, "parametric_gof_summary")
         save_csv(gof["bootstrap_statistics"], out_dir, "parametric_gof_replicates")
+        cov = diagnosis["parameter_covariance"]
+        save_csv(pd.DataFrame({"parameter": model.param_names, "value": model.params_, "se_hessian": np.sqrt(np.diag(cov))}), out_dir, "parameters")
+        save_csv(pd.DataFrame(diagnosis["parameter_correlation"], index=model.param_names, columns=model.param_names).reset_index(names="parameter"),
+                 out_dir, "parameter_correlation")
     except Exception as exc:
         print(f"[{model.name}] rung plots failed: {exc!r}")
     plt.close("all")

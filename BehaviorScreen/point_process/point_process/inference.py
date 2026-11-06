@@ -26,6 +26,12 @@ if TYPE_CHECKING:
 SCREEN_DT = 0.04  # coarse integration step (s) where models with bout history first fit; the final fit is on their own
 
 
+def correlation_from_covariance(cov: np.ndarray) -> np.ndarray:
+    std = np.sqrt(np.maximum(0, np.diag(cov)))
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.clip(cov / np.outer(std, std), -1.0, 1.0)
+
+
 def set_integration_dt(model: "PointProcess", dt: float) -> None:
     """Integration step of a model and of every process under it."""
     model.integration_dt = dt
@@ -430,6 +436,7 @@ class InferenceMixin:
                 "start_idx": range(len(results)),
                 "converged": [r is not None for r in results],
                 "nll": [r.fun if r is not None else np.nan for r in results],
+                **{name: [r.x[i] if r is not None else np.nan for r in results] for i, name in enumerate(self.param_names)},
             }
         )
         return self.multistart_table_
@@ -519,28 +526,22 @@ class InferenceMixin:
 
         return hessian
 
-    def estimate_parameter_correlation(
-        self,
-        dataset: PointProcessDataset,
-        eps: float = 1e-5,
-    ) -> np.ndarray:
-        """Correlation from the inverse Hessian; NaN for parameters at a bound."""
+    def estimate_parameter_covariance(self, dataset: PointProcessDataset, eps: float = 1e-5) -> np.ndarray:
+        """Inverse Hessian; NaN rows and columns for parameters at a bound."""
         hessian = self.estimate_hessian(dataset, eps=eps)
         interior = np.isfinite(np.diag(hessian))
         sub_hessian = hessian[np.ix_(interior, interior)]
-
         try:
-            cov = np.linalg.inv(sub_hessian)
+            sub_cov = np.linalg.inv(sub_hessian)
         except np.linalg.LinAlgError:
-            cov = np.linalg.pinv(sub_hessian)
+            sub_cov = np.linalg.pinv(sub_hessian)
+        cov = np.full_like(hessian, np.nan)
+        cov[np.ix_(interior, interior)] = sub_cov
+        return cov
 
-        std_devs = np.sqrt(np.maximum(0, np.diag(cov)))
-        with np.errstate(divide="ignore", invalid="ignore"):
-            sub_corr = np.clip(cov / np.outer(std_devs, std_devs), -1.0, 1.0)
-
-        corr = np.full_like(hessian, np.nan)
-        corr[np.ix_(interior, interior)] = sub_corr
-        return corr
+    def estimate_parameter_correlation(self, dataset: PointProcessDataset, eps: float = 1e-5) -> np.ndarray:
+        """Correlation from the inverse Hessian; NaN for parameters at a bound."""
+        return correlation_from_covariance(self.estimate_parameter_covariance(dataset, eps=eps))
 
 
 class ModelComparator:

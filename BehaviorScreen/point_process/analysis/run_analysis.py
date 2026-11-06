@@ -1,18 +1,39 @@
 """Command line: one experiment's diagnostics or fit, or consolidation across experiments."""
 import argparse
+import sys
+from datetime import datetime
 from functools import cache
 from pathlib import Path
-from typing import Callable
+from typing import Callable, TextIO
 
 from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, get_model_config
 from BehaviorScreen.point_process.analysis.tasks import (
+    Replicates,
+    code_version,
     run_consolidation_task,
     run_diagnostics_task,
-    Replicates,
     run_fit_task,
     run_plot_task,
 )
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
+
+
+class Tee:
+    """A stream that also appends what it writes to a log file."""
+
+    def __init__(self, stream: TextIO, log: Path) -> None:
+        self.stream, self.log = stream, open(log, "a", encoding="utf-8")
+
+    def write(self, text: str) -> int:
+        self.log.write(text)
+        return self.stream.write(text)
+
+    def flush(self) -> None:
+        self.log.flush()
+        self.stream.flush()
+
+    def __getattr__(self, name: str):
+        return getattr(self.stream, name)
 
 
 def make_loaders(args: argparse.Namespace) -> Callable[[str], BehavioralDataLoader]:
@@ -72,6 +93,10 @@ def main() -> None:
     if args.exp not in model_config:
         raise ValueError(f"--exp must be one of {list(model_config)} in {args.mode} mode, got {args.exp!r}")
 
+    log = args.output_dir / args.exp / "run.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    sys.stdout, sys.stderr = Tee(sys.stdout, log), Tee(sys.stderr, log)
+    print(f"\n##### {datetime.now():%Y-%m-%d %H:%M} --mode {args.mode} --exp {args.exp} (code {code_version()}) #####")
     config = model_config[args.exp]
     replicates = Replicates(args.gof_replicates, args.bootstrap_replicates, args.new_replicates)
     dataset = loader(config["events"]).prepare_dataset(**config["dataset"])
