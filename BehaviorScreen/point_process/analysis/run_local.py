@@ -4,11 +4,11 @@ import subprocess
 EXPERIMENTS = [
     # Directional stimuli: both sides in one sided model (Tier 1 columns)
     "prey_capture", 
-    #"phototaxis", #TODO remove that
-    #"omr_lateral", #TODO remove that
+    "phototaxis", 
+    "omr_lateral",
     "okr",
     "okr_conjugate_saccades",
-    "looming",  # gained the sided candidates
+    "looming",  
     # Non-directional
     "prey_capture_convergent_saccade",
     "prey_capture_divergent_saccade",
