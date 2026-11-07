@@ -39,6 +39,16 @@ def gamma_gain_evidence_by_fish(
     return shape * jnp.log(rate) - gammaln(shape) - (shape + k) * jnp.log(d) + peak[:, 0] + jnp.log(jnp.exp(log_terms - peak).sum(axis=1))
 
 
+def zero_inflated_gain_evidence_by_fish(
+    base_rates: jnp.ndarray, history_rates: jnp.ndarray, fish: jnp.ndarray, exposure: jnp.ndarray,
+    pi: jnp.ndarray, c: jnp.ndarray, shape: jnp.ndarray, rate: jnp.ndarray, n_nodes: int = 30,
+) -> jnp.ndarray:
+    """ZeroInflatedGain.evidence_by_fish: log Z per fish, gain c with probability pi, else Gamma(shape, rate)."""
+    nonresponder = -c * exposure + segment_sum(jnp.log(jnp.maximum(c * base_rates + history_rates, 1e-300)), fish, exposure.shape[0])
+    responder = gamma_gain_evidence_by_fish(base_rates, history_rates, fish, exposure, shape, rate, n_nodes)
+    return jnp.logaddexp(jnp.log(jnp.maximum(pi, 1e-300)) + nonresponder, jnp.log(jnp.maximum(1.0 - pi, 1e-300)) + responder)
+
+
 def log_sigmoid(x: jnp.ndarray) -> jnp.ndarray:
     return -jnp.log1p(jnp.exp(-jnp.abs(x))) - jnp.maximum(-x, 0)
 

@@ -351,20 +351,24 @@ class Frailty(_GainWrapper):
         if not base.supports_jax():
             return False
         if base.gain_scales_drive_only:
-            return type(self.gains) is GammaFamily and hasattr(base, "jax_drive_likelihood_terms")
+            return (type(self.gains) is GammaFamily or not self.trial_gain) and hasattr(base, "jax_drive_likelihood_terms")
         return hasattr(base, "jax_stream_terms")
 
-    def _jax_log_marginal(self, params: jnp.ndarray, N: jnp.ndarray, S: jnp.ndarray) -> jnp.ndarray:
-        """The gain family's log marginal per fish of N events and S expected events (gain 1)."""
-        tail = params[self._n_base :]
-        if isinstance(self.gains, GammaFamily):
-            r = jnp.maximum(tail[0], 1e-8)
-            return gains_jax.log_gamma_marginal(N, S, r, r)
-        family = self.gains
+    def _jax_zero_inflated(self, params: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """ZeroInflatedFamily in JAX: pi, c, and the responders' shape and rate."""
+        tail, family = params[self._n_base :], self.gains
         pi, r = sigmoid_bounded(tail[0], 1.0), jnp.maximum(tail[1], 1e-8)
         c = sigmoid_bounded(tail[2], family.c_upper) if family.fit_c else family.c_init
         mu = (1.0 - pi * c) / jnp.maximum(1.0 - pi, 1e-12)
-        return gains_jax.log_zero_inflated_marginal(N, S, pi, c, not family.fit_c and family.c_init <= 0.0, r, r / mu)
+        return pi, c, r, r / mu
+
+    def _jax_log_marginal(self, params: jnp.ndarray, N: jnp.ndarray, S: jnp.ndarray) -> jnp.ndarray:
+        """The gain family's log marginal per fish of N events and S expected events (gain 1)."""
+        if isinstance(self.gains, GammaFamily):
+            r = jnp.maximum(params[self._n_base], 1e-8)
+            return gains_jax.log_gamma_marginal(N, S, r, r)
+        pi, c, shape, rate = self._jax_zero_inflated(params)
+        return gains_jax.log_zero_inflated_marginal(N, S, pi, c, not self.gains.fit_c and self.gains.c_init <= 0.0, shape, rate)
 
     def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
         arrays = {"base": self.base_process._arrays(dataset), "active": jnp.asarray(dataset.fish_trial_mask.any(axis=1))}
@@ -399,8 +403,12 @@ class Frailty(_GainWrapper):
                 drive_rates, burst_rates, stream, a["position"], a["max_events"], drive_exposure, a["mask"],
                 r, params[self._n_base + 1], jnp.asarray(self._gain_nodes), jnp.asarray(self._gain_log_weights),
             )
-        else:
+        elif isinstance(self.gains, GammaFamily):
             log_z = gains_jax.gamma_gain_evidence_by_fish(drive_rates, burst_rates, stream // a["num_trials"], drive_exposure.sum(axis=1), r, r)
+        else:
+            log_z = gains_jax.zero_inflated_gain_evidence_by_fish(
+                drive_rates, burst_rates, stream // a["num_trials"], drive_exposure.sum(axis=1), *self._jax_zero_inflated(params)
+            )
         return -(constant + jnp.sum(jnp.where(a["active"], log_z - burst_exposure.sum(axis=1), 0.0)))
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
@@ -747,8 +755,8 @@ def log_sigmoid(x: np.ndarray) -> np.ndarray:
 class SideFrailty(Frailty):
     """
     Frailty of a sided process with a second fish effect: its own side
-    preference. Fish f has a gain g_f ~ Gamma(r, r) on its rate of events to
-    either side and a shift u_f ~ N(0, s^2) (s: 's_side') of the log odds that
+    preference. Fish f has a gain g_f (Gamma(r, r), or another gain family) on its
+    rate of events to either side and a shift u_f ~ N(0, s^2) (s: 's_side') of the log odds that
     an event goes to the preferred side:
 
         P(ipsi | event at t, m, fish f) = sigmoid(log(lambda_ipsi / lambda_contra) + u_f)
@@ -760,20 +768,23 @@ class SideFrailty(Frailty):
     """
 
     def __init__(
-        self, base_process: PointProcess, r_init: float = 5.0, s_init: float = 0.5, n_nodes: int = 15, trial_gain: bool = False
+        self, base_process: PointProcess, r_init: float = 5.0, s_init: float = 0.5, n_nodes: int = 15, trial_gain: bool = False,
+        gains: Optional[GainFamily] = None,
     ) -> None:
-        super().__init__(base_process, GammaFamily(r_init), trial_gain=trial_gain)
+        """gains: the fish gain's family (default Gamma(r, r), r_init)."""
+        gains = gains or GammaFamily(r_init)
+        super().__init__(base_process, gains, trial_gain=trial_gain)
         self.param_names = self.param_names + ["s_side"]
         self.initial_guesses = self.initial_guesses + [s_init]
         self.bounds = self.bounds + [(1e-3, 5.0)]
         nodes, weights = np.polynomial.hermite_e.hermegauss(n_nodes)
         self._nodes, self._log_weights = nodes, np.log(weights / weights.sum())
         self._mode = np.zeros(0)  # posterior side shifts of the last fit's fish: where the next Newton starts
-        self.name = f"GammaSideMixedEffects{'+Trial' if trial_gain else ''}[{base_process.name}]"
+        self.name = f"{gains.prefix}GammaSideMixedEffects{'+Trial' if trial_gain else ''}[{base_process.name}]{gains.suffix}"
         side = (r"P_{preferred} = \sigma(\log D + u_f)" if isinstance(base_process, SidedSurvivalProcess)
                 else r"P_{ipsi} = \sigma(\log(\lambda_{ipsi}/\lambda_{contra}) + u_f)")
         self.latex_formula = (
-            rf"${gain_formula(base_process, trial_gain)},\ g_f\sim\Gamma(r,r),\ "
+            rf"${gain_formula(base_process, trial_gain)},\ {gains.latex},\ "
             + side
             + r",\ u_f\sim N(0,s^2)"
             + (r",\ h_{fm}\sim\Gamma(a,a)$" if trial_gain else "$")
@@ -813,18 +824,19 @@ class SideFrailty(Frailty):
         p = expit(logit(self.base_process.ipsi_probability(t, trial)) + self._mode[fish])
         return p if side == IPSI else 1 - p
 
-    def _ipsi_at_nodes(self, t: np.ndarray, trial: np.ndarray) -> np.ndarray:
-        """Probability that an event is ipsi at each quadrature node of the side shift u_f."""
-        return expit(logit(self.base_process.ipsi_probability(t, trial))[..., None] + self.params_[-1] * self._nodes)
+    def ipsi_at_nodes(self, t: np.ndarray, trial: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        """Probability that an event is ipsi at each quadrature node of the side shift u_f (last axis), and the nodes' weights."""
+        return expit(logit(self.base_process.ipsi_probability(t, trial))[..., None] + self.params_[-1] * self._nodes), np.exp(self._log_weights)
 
     def ipsi_probability(self, t: np.ndarray, trial: np.ndarray) -> np.ndarray:
         """Probability that an event is ipsi, averaged over fish side preferences."""
-        return self._ipsi_at_nodes(t, trial) @ np.exp(self._log_weights)
+        q, w = self.ipsi_at_nodes(t, trial)
+        return q @ w
 
     def side_share_cv2(self, dataset: PointProcessDataset, side: int) -> np.ndarray:
         """Squared coefficient of variation across fish of the share of events to one side (trial x time)."""
-        q = self._ipsi_at_nodes(dataset.t_centers[None, :], np.arange(dataset.num_trials)[:, None])
-        q, w = q if side == IPSI else 1 - q, np.exp(self._log_weights)
+        q, w = self.ipsi_at_nodes(dataset.t_centers[None, :], np.arange(dataset.num_trials)[:, None])
+        q = q if side == IPSI else 1 - q
         return (q**2 @ w) / (q @ w) ** 2 - 1
 
     def compute_expected_rate(self, dataset: PointProcessDataset, side: Optional[int] = None) -> np.ndarray:

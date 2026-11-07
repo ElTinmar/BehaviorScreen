@@ -10,6 +10,7 @@ from BehaviorScreen.point_process.point_process.frailty import (
     BaselineOnlyFrailtyHawkesProcess,
     GammaMixedEffectsProcess,
     SideFrailty,
+    ZeroInflatedFamily,
     ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
     ZeroInflatedGammaMixedEffectsProcess,
 )
@@ -88,6 +89,16 @@ zero_inflated = ZeroInflatedGammaMixedEffectsProcess
 side_gamma = SideFrailty  # sided processes: fish gain and fish side preference
 
 
+def two_class(process: PointProcess) -> PointProcess:
+    """
+    A fish gain on the driven rate that is either low (c < 0.3, with probability pi) or
+    Gamma around the rest: more low-activity fish and fewer extremes than one Gamma.
+    """
+    if sided_base(process) is not None:
+        return side_gamma(process, gains=ZeroInflatedFamily(fit_c=True, c_init=0.1))
+    return zero_inflated(process, fit_c=True, c_init=0.1)
+
+
 def poisson(kernel: RateKernel) -> PoissonProcess:
     return PoissonProcess(kernel)
 
@@ -98,10 +109,11 @@ def renewal(kernel: RateKernel) -> RenewalProcess:
 
 def refractory_renewal(kernel: RateKernel) -> RenewalProcess:
     """
-    A smooth recovery from the last bout of any kind (refractoriness) times the
-    stimulus-driven rate and a burst after the last selected bout, a multiple of it.
+    A recovery from the last bout of any kind (refractoriness, sharp enough for the
+    near-rhythmic intervals between bouts) times the stimulus-driven rate and a burst
+    after the last selected bout, a multiple of it.
     """
-    return RenewalProcess(kernel, RenewalKernelFactory.exponential_recovery(), stimulus_burst())
+    return RenewalProcess(kernel, RenewalKernelFactory.weibull_recovery(), stimulus_burst())
 
 
 def stimulus_burst(shape_k: float = 1.0) -> RenewalKernel:
@@ -125,7 +137,7 @@ def sided(ipsi: RateKernel, contra: RateKernel) -> SidedPoissonProcess:
 
 
 def sided_renewal(ipsi: RateKernel, contra: RateKernel, shape_k: float = 1.0) -> SidedRenewalProcess:
-    return SidedRenewalProcess(ipsi, contra, RenewalKernelFactory.exponential_recovery(), stimulus_burst(shape_k))
+    return SidedRenewalProcess(ipsi, contra, RenewalKernelFactory.weibull_recovery(), stimulus_burst(shape_k))
 
 
 def sided_survival(kernel: RateKernel) -> SidedSurvivalProcess:
@@ -140,14 +152,16 @@ def sided_models(
     """
     Both sides of a stimulus in one model: without a fish effect, with a fish gain, with a gain and a
     side preference, and with a trial gain as well; for bouts (renewal), the last two also as renewal
-    processes with bursts that follow the stimulus, the gains scaling the stimulus-driven rate only.
-    burst_shapes: the last again with other burst shapes k (a profile of k, warm-started from k = 1).
+    processes with bursts that follow the stimulus, the gains scaling the stimulus-driven rate only,
+    and last the renewal one with a two-class fish gain (two_class). burst_shapes: the renewal one
+    with a trial gain again with other burst shapes k (a profile of k, warm-started from k = 1).
     """
     models = [sided(ipsi(), contra()), gamma(sided(ipsi(), contra())), side_gamma(sided(ipsi(), contra()))]
     models.append(side_gamma(sided(ipsi(), contra()), trial_gain=True))
     if renewal:
         models += [side_gamma(sided_renewal(ipsi(), contra())), side_gamma(sided_renewal(ipsi(), contra()), trial_gain=True)]
         models += [side_gamma(sided_renewal(ipsi(), contra(), k), trial_gain=True) for k in burst_shapes]
+        models.append(two_class(sided_renewal(ipsi(), contra())))
     return models
 
 
@@ -171,6 +185,7 @@ def flat_models() -> List[PointProcess]:
         gamma(poisson(flat()), trial_gain=True),
         gamma(refractory_renewal(flat())),
         gamma(refractory_renewal(flat()), trial_gain=True),
+        two_class(refractory_renewal(flat())),
     ]
 
 
@@ -184,6 +199,7 @@ def rate_models(kernel: Callable[[], RateKernel]) -> List[PointProcess]:
         gamma(poisson(kernel()), trial_gain=True),
         gamma(refractory_renewal(kernel())),
         gamma(refractory_renewal(kernel()), trial_gain=True),
+        two_class(refractory_renewal(kernel())),
     ]
 
 
@@ -276,6 +292,7 @@ def get_model_config() -> Dict[str, dict]:
                 gamma(poisson(prey("Peak_Baseline_Ripple")), trial_gain=True),
                 gamma(refractory_renewal(prey("Peak_Baseline_Ripple"))),
                 gamma(refractory_renewal(prey("Peak_Baseline_Ripple")), trial_gain=True),
+                two_class(refractory_renewal(prey("Peak_Baseline_Ripple"))),
             ],
         ),
         "prey_capture_contra": experiment(
@@ -290,6 +307,7 @@ def get_model_config() -> Dict[str, dict]:
                 gamma(poisson(flat()), trial_gain=True),
                 gamma(refractory_renewal(flat())),
                 gamma(refractory_renewal(flat()), trial_gain=True),
+                two_class(refractory_renewal(flat())),
             ],
         ),
         "prey_capture_convergent_saccade": experiment(
@@ -369,6 +387,7 @@ def get_model_config() -> Dict[str, dict]:
                 gamma(poisson(RateKernelFactory.phototaxis_dip_exgaussian_peak()), trial_gain=True),
                 gamma(refractory_renewal(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
                 gamma(refractory_renewal(RateKernelFactory.phototaxis_dip_exgaussian_peak()), trial_gain=True),
+                two_class(refractory_renewal(RateKernelFactory.phototaxis_dip_exgaussian_peak())),
             ],
         ),
         "phototaxis_contra": experiment(

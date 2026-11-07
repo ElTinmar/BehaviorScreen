@@ -4,7 +4,8 @@ gives the probability it is ipsi, lambda_ipsi / (lambda_ipsi + lambda_contra)
 (the fish gain cancels; for escapes, the constant share set by D; with
 fish side preferences, its average over them). The
 observed ipsi fraction is compared with it by time, by trial and by fish;
-the fish panel tests whether one D fits every fish.
+the fish panel tests whether the fish differ in side bias more than the
+model allows (one D, or D with the fitted spread of side preferences).
 """
 from typing import Dict, Tuple
 
@@ -37,6 +38,17 @@ def _binned(groups: np.ndarray, n_groups: int, ev: Dict[str, np.ndarray]) -> Tup
     return count(), count(ev["is_ipsi"]), count(p), count(p * (1 - p))
 
 
+def fish_count_variance(ev: Dict[str, np.ndarray], base: PointProcess, n_fish: int) -> np.ndarray:
+    """
+    Variance of each fish's ipsi count under the model: binomial at each fish side
+    preference, plus the spread of the expected count across preferences.
+    """
+    q, w = base.ipsi_at_nodes(ev["time"], ev["trial"]) if hasattr(base, "ipsi_at_nodes") else (ev["p_ipsi"][:, None], np.ones(1))
+    per_fish = lambda x: np.stack([np.bincount(ev["fish"], column, minlength=n_fish) for column in x.T], axis=1)
+    expected = per_fish(q)
+    return per_fish(q * (1 - q)) @ w + expected**2 @ w - (expected @ w) ** 2
+
+
 def _plot_calibration(ax: plt.Axes, x: np.ndarray, ev: Dict[str, np.ndarray], groups: np.ndarray, xlabel: str) -> None:
     n, observed, expected, var = _binned(groups, len(x), ev)
     shown = n > 0
@@ -60,7 +72,8 @@ def plot_side_diagnostics(dataset: PointProcessDataset, model: PointProcess, n_t
     _plot_calibration(ax_m, np.arange(dataset.num_trials), ev, ev["trial"], "Trial")
     ax_m.set_title("Side calibration by trial")
 
-    n, observed, expected, var = _binned(ev["fish"], dataset.num_fish, ev)
+    n, observed, expected, _ = _binned(ev["fish"], dataset.num_fish, ev)
+    var = fish_count_variance(ev, sided_base(model), dataset.num_fish)
     shown = var > 0
     z = (observed[shown] - expected[shown]) / np.sqrt(var[shown])
     chi2 = float(np.sum(z**2))

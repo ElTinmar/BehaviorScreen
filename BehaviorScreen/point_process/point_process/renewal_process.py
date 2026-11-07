@@ -28,20 +28,24 @@ class RenewalKernel(LagKernel):
 class RenewalKernelFactory:
 
     @staticmethod
-    def exponential_recovery() -> RenewalKernel:
-        """rho(0)=0, approaches 1 with time constant tau_r. Smooth refractory recovery."""
+    def weibull_recovery() -> RenewalKernel:
+        """
+        rho(lag) = 1 - exp(-(lag / tau_r)^k): rho(0) = 0, recovering to 1 more sharply the
+        larger k (exponential at k = 1), so intervals between bouts are more regular.
+        """
 
         def _func(lag, params):
-            (tau_r,) = params
-            return 1.0 - xp.exp(-lag / tau_r)
+            tau_r, k = params
+            positive = lag > 0
+            return xp.where(positive, 1.0 - xp.exp(-xp.power(xp.where(positive, lag, 1.0) / tau_r, k)), 0.0)
 
         return RenewalKernel(
-            name="ExponentialRecovery",
+            name="WeibullRecovery",
             func=_func,
-            param_names=["tau_refractory"],
-            initial_guesses=[0.15],
-            bounds=[(0.001, 30.0)],
-            latex_formula=r"$\rho(\Delta t) = 1 - e^{-\Delta t/\tau_r}$",
+            param_names=["tau_refractory", "k_refractory"],
+            initial_guesses=[0.3, 2.0],
+            bounds=[(0.001, 30.0), (0.5, 8.0)],
+            latex_formula=r"$\rho(\Delta t) = 1 - e^{-(\Delta t/\tau_r)^k}$",
         )
 
     @staticmethod
@@ -429,7 +433,9 @@ class RenewalProcess(PointProcess):
         """
         Trapezoid grid of one stream, split at its bouts: times, weights, time
         since the last bout and since the last event (events are bouts; NaN before the first).
+        Bouts before 0 (before the window) only start the first segment's clock.
         """
+        before, bouts = bouts[bouts < 0], bouts[bouts >= 0]
         bounds = np.concatenate([[0.0], bouts, [duration_s]])
         grids = [self._segment_grid(float(a), float(b)) for a, b in zip(bounds[:-1], bounds[1:])]
         if not any(len(g) for g in grids):
@@ -437,7 +443,7 @@ class RenewalProcess(PointProcess):
             return empty, empty, empty, empty
         last_event = np.searchsorted(events, bounds[:-1], side="right") - 1  # last event at or before each segment start
         event_refs = np.where(last_event >= 0, events[np.maximum(last_event, 0)] if len(events) else np.nan, np.nan)
-        bout_refs = np.concatenate([[np.nan], bouts])
+        bout_refs = np.concatenate([[before[-1] if len(before) else np.nan], bouts])
         times = np.concatenate(grids)
         weights = np.concatenate([self._trapezoid_weights(g) for g in grids])
         bout_ages = np.concatenate([g - r for g, r in zip(grids, bout_refs)])
@@ -565,8 +571,13 @@ class RenewalProcess(PointProcess):
         grid = self._dataset_grid(dataset)  # not cached: the JAX arrays are its only copy kept
         n_points, columns = len(grid["weights"]), self._table_columns(dataset)
         n_lattice = int(np.ceil(dataset.duration_s / self.integration_dt)) + 1  # every age a trial allows
+        step = grid["lattice_step"]
+        beyond = np.flatnonzero((step >= n_lattice) & (step != grid["n_lattice"]))  # clocks started before the window: off the lattice
+        off_points = np.concatenate([grid["off_lattice"], beyond])
+        order = np.argsort(off_points)
+        grid["off_lattice"], grid["off_ages"] = off_points[order], np.concatenate([grid["off_ages"], step[beyond] * self.integration_dt])[order]
         points, events, off = padded(n_points + 1), padded(len(grid["event_times"])), padded(len(grid["off_lattice"]))
-        lattice_step = np.where(grid["lattice_step"] == grid["n_lattice"], n_lattice, grid["lattice_step"])  # no previous bout: the 1 past the lattice
+        lattice_step = np.where(grid["lattice_step"] >= n_lattice, n_lattice, grid["lattice_step"])  # no previous bout: the 1 past the lattice
         fills = {
             "weights": (points, 0.0), "stream": (points, 0), "lattice_step": (points, n_lattice), "table_index": (points, 0),
             "table_fraction": (points, 0.0), "excitation_index": (points, columns), "excitation_fraction": (points, 0.0),
@@ -697,12 +708,13 @@ class RenewalProcess(PointProcess):
         self._require_fitted()
         t_events = np.sort(np.asarray(t_events, dtype=float))
         events = t_events[:-1]
-        bouts = events if history is None else np.asarray(history, dtype=float)
-        edges = np.union1d(bouts, t_events)
+        bouts = events if history is None else np.sort(np.asarray(history, dtype=float))
+        first_bout = bouts[bouts < 0][-1] if np.any(bouts < 0) else None  # before the window: the first segment's clock
+        edges = np.union1d(bouts[bouts >= 0], t_events)
         starts = np.concatenate([[0.0], edges[:-1]])
         last_event = np.searchsorted(events, starts, side="right") - 1
         segments = np.array([
-            self._segment_integrals(a, b, trial, self.params_, a if i else None, events[k] if k >= 0 else None)
+            self._segment_integrals(a, b, trial, self.params_, a if i else first_bout, events[k] if k >= 0 else None)
             for i, (a, b, k) in enumerate(zip(starts, edges, last_event))
         ]).reshape(-1, 2)
         positions = np.searchsorted(edges, t_events)

@@ -543,6 +543,7 @@ class BehavioralDataLoader:
 
         events = self.events.merge(streams, on=["file", "epoch_name", "trial_num"])
         events = events[(events["trial_time"] >= t_start) & (events["trial_time"] < t_end)]
+        before = self._last_bouts_before(streams, t_start)
 
         print(
             f"[{label}] fish_trial_mask occupancy: {fish_trial_mask.mean():.1%} "
@@ -566,8 +567,35 @@ class BehavioralDataLoader:
                 "laterality": events["laterality"].to_numpy(),
             },
         )
+        history = replace(dataset, **{
+            "event_times": np.concatenate([dataset.event_times, (before["time"] - t_start).to_numpy(float)]),
+            "event_trials_idx": np.concatenate([dataset.event_trials_idx, before["trial"].to_numpy(int)]),
+            "event_fish_idx": np.concatenate([dataset.event_fish_idx, before["file"].map(fish_map).to_numpy(int)]),
+            "marks": {key: np.concatenate([values, before[column].to_numpy()])
+                      for (key, values), column in zip(dataset.marks.items(), (self.category_column, "laterality"))},
+        })
         criteria = {"category": codes, "laterality": lateralities}
-        return replace(dataset.select(**{key: values for key, values in criteria.items() if values is not None}), history=dataset)
+        return replace(dataset.select(**{key: values for key, values in criteria.items() if values is not None}), history=history)
+
+    def _last_bouts_before(self, streams: pd.DataFrame, t_start: float) -> pd.DataFrame:
+        """
+        Per stream (file, epoch_name, trial_num, trial), the fish's last bout of any
+        epoch, category or side before the window (trial time t_start): its trial
+        time ("time", negative relative to the window), trial and marks. Needs the
+        events' absolute event_timestamp (ns); streams without an event give no start.
+        """
+        columns = ["file", "trial", "time", self.category_column, "laterality"]
+        if "event_timestamp" not in self.events.columns:
+            return pd.DataFrame(columns=columns)
+        keys = ["file", "epoch_name", "trial_num"]
+        bouts = self.events.assign(absolute=self.events["event_timestamp"] * 1e-9)
+        starts = (bouts["absolute"] - bouts["trial_time"]).groupby([bouts[k] for k in keys]).median().rename("start").reset_index()
+        windows = streams.merge(starts, on=keys).assign(window=lambda d: d["start"] + t_start).sort_values("window")
+        last = pd.merge_asof(
+            windows, bouts[["file", "absolute", self.category_column, "laterality"]].sort_values("absolute"),
+            left_on="window", right_on="absolute", by="file", direction="backward", allow_exact_matches=False,
+        ).dropna(subset=["absolute"])
+        return last.assign(time=last["absolute"] - last["start"])[columns].astype({self.category_column: int, "laterality": int})
 
 
 def _coarse_trial_rates(

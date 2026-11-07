@@ -155,12 +155,12 @@ class TestRateKernelIntegralConsistency:
 
 class TestRenewalKernelIntegralConsistency:
 
-    def test_exponential_recovery(self):
-        rk = RenewalKernelFactory.exponential_recovery()
-        tau_r, T = 0.15, 2.0
-        numeric = rk.integrate(T, [tau_r])
+    def test_weibull_recovery(self):
+        rk = RenewalKernelFactory.weibull_recovery()
+        params, T = [0.15, 2.5], 2.0
+        numeric = rk.integrate(T, params)
         quad_result, _ = scipy_integrate.quad(
-            lambda lag: rk.evaluate(np.array([lag]), [tau_r])[0], 0, T
+            lambda lag: rk.evaluate(np.array([lag]), params)[0], 0, T
         )
         assert numeric == pytest.approx(quad_result, rel=1e-3)
 
