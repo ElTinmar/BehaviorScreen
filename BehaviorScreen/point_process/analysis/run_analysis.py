@@ -21,8 +21,8 @@ from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoa
 class Tee:
     """A stream that also appends what it writes to a log file."""
 
-    def __init__(self, stream: TextIO, log: Path) -> None:
-        self.stream, self.log = stream, open(log, "a", encoding="utf-8")
+    def __init__(self, stream: TextIO, log: TextIO) -> None:
+        self.stream, self.log = stream, log
 
     def write(self, text: str) -> int:
         self.log.write(text)
@@ -95,7 +95,8 @@ def main() -> None:
 
     log = args.output_dir / args.exp / "run.log"
     log.parent.mkdir(parents=True, exist_ok=True)
-    sys.stdout, sys.stderr = Tee(sys.stdout, log), Tee(sys.stderr, log)
+    log_file = open(log, "a", encoding="utf-8")
+    sys.stdout, sys.stderr = Tee(sys.stdout, log_file), Tee(sys.stderr, log_file)
     print(f"\n##### {datetime.now():%Y-%m-%d %H:%M} --mode {args.mode} --exp {args.exp} (code {code_version()}) #####")
     config = model_config[args.exp]
     replicates = Replicates(args.gof_replicates, args.bootstrap_replicates, args.new_replicates)
