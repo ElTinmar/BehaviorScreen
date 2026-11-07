@@ -33,12 +33,14 @@ Stochastic layers use fixed seeds as regression tests, not as formal
 hypothesis tests.
 """
 
+from dataclasses import replace
 from typing import Dict, List, Optional
 
 import numpy as np
 import pytest
 
 from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process.sided_process import CONTRA, IPSI
 
 # =============================================================================
 # Dataset construction helpers
@@ -62,6 +64,33 @@ def make_scaffold_dataset(
         duration_s=duration_s,
         binning_dt=binning_dt,
     )
+
+
+def reference_dataset(num_fish: int = 40, num_trials: int = 10, duration_s: float = 24.0) -> PointProcessDataset:
+    """Bouts with a refractory gap; about two thirds of them are events, each with a side."""
+    rng = np.random.default_rng(0)
+    bouts, events = [], []
+    for f in range(num_fish):
+        for m in range(num_trials):
+            t = np.cumsum(0.075 + rng.exponential(1.0 / rng.gamma(4.0, 0.25), 60))
+            t = t[t < duration_s]
+            bouts.append((f, m, t))
+            events.append((f, m, t[rng.random(len(t)) < 0.65]))
+
+    def dataset(streams: List, marks: bool) -> PointProcessDataset:
+        times = np.concatenate([t for _, _, t in streams])
+        side = {"laterality": np.where(rng.random(len(times)) < 0.4, IPSI, CONTRA)} if marks else {}
+        return PointProcessDataset(
+            event_times=times,
+            event_trials_idx=np.concatenate([np.full(len(t), m) for _, m, t in streams]),
+            event_fish_idx=np.concatenate([np.full(len(t), f) for f, _, t in streams]),
+            fish_trial_mask=np.ones((num_fish, num_trials), bool),
+            fish_ids=np.array([f"fish_{i}" for i in range(num_fish)]),
+            duration_s=duration_s,
+            marks=side,
+        )
+
+    return replace(dataset(events, marks=True), history=dataset(bouts, marks=False))
 
 
 def simulate_dataset_from_model(
@@ -197,3 +226,8 @@ def rng_factory():
         return np.random.default_rng(seed)
 
     return _make
+
+
+@pytest.fixture(scope="session")
+def reference_data() -> PointProcessDataset:
+    return reference_dataset()

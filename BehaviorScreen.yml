@@ -18,6 +18,7 @@ dependencies:
 - qtpy
 - pyside6
 - pip:
+  - jax  # CPU; the likelihoods' exact gradients
   - pyyaml
   - megabouts
   - tensorboard

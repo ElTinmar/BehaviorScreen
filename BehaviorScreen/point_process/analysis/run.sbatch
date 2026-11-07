@@ -28,6 +28,7 @@ OUT_DIR="./figures"
 
 # One fit worker per allocated CPU; each holds the data and its renewal grid (2 GB or more for phototaxis).
 export MPLBACKEND=Agg OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
+export XLA_FLAGS="--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1"
 
 # Run Model Fitting & Bootstrapping exclusively on this node
 srun conda run --no-capture-output -n BehaviorScreen \

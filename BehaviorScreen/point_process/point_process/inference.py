@@ -73,7 +73,7 @@ def newton_refit(
     """
     lower = np.array([-np.inf if lo is None else lo for lo, _ in model.bounds])
     upper = np.array([np.inf if hi is None else hi for _, hi in model.bounds])
-    nll = lambda x: model._nll(list(x), dataset)
+    nll = lambda x: model.nll(x, dataset)
     x = np.array(model.initial_guesses, dtype=float)
     f = nll(x)
     free = np.diag(step_matrix) > 0
@@ -96,7 +96,10 @@ def newton_refit(
         if np.any((x - h < lower)[free]) or np.any((x + h > upper)[free]):
             return stop("reached a bound")
         g = np.zeros(len(x))
-        g[free] = [(nll(x + dx) - nll(x - dx)) / (2 * hi) for dx, hi in zip(np.diag(h)[free], h[free])]
+        if model.supports_jax():
+            g[free] = model.nll_and_grad(x, dataset)[1][free]
+        else:
+            g[free] = [(nll(x + dx) - nll(x - dx)) / (2 * hi) for dx, hi in zip(np.diag(h)[free], h[free])]
         step, t = -step_matrix @ g, 1.0
         if -g @ step / 2 < tol:  # already within tol of the optimum
             return done()
@@ -260,9 +263,12 @@ class InferenceMixin:
         can stop well short of the optimum in a curved valley once its Hessian estimate,
         built from far-away steps, goes stale; a fresh start from there continues.
         """
-        res = minimize(self._nll, x0=x0, args=(dataset,), method=method, bounds=self.bounds, **kwargs)
+        fun, jac = (self.nll_and_grad, True) if self.supports_jax() else (self._nll, None)
+        if jac and method == "L-BFGS-B":  # exact gradients: stop on them, not once steps gain little relative to the NLL
+            kwargs["options"] = {"ftol": 1e-13, "gtol": 1e-6, **kwargs.get("options", {})}
+        res = minimize(fun, x0=x0, args=(dataset,), method=method, jac=jac, bounds=self.bounds, **kwargs)
         for _ in range(max_restarts):
-            again = minimize(self._nll, x0=res.x, args=(dataset,), method=method, bounds=self.bounds, **kwargs)
+            again = minimize(fun, x0=res.x, args=(dataset,), method=method, jac=jac, bounds=self.bounds, **kwargs)
             if not (again.success and again.fun < res.fun - 1e-3):
                 break
             res = again
@@ -493,9 +499,9 @@ class InferenceMixin:
         eps: float = 1e-5,
     ) -> np.ndarray:
         """
-        Central-difference Hessian of the NLL. Rows and columns of parameters
-        within one step of a bound are NaN: the NLL may be undefined beyond
-        the bound, and the curvature there is not a standard error anyway.
+        Hessian of the NLL: exact with a JAX likelihood, else by central differences.
+        Rows and columns of parameters within one step of a bound are NaN: the NLL
+        may be undefined beyond the bound, and the curvature there is not a standard error anyway.
         """
         if self.params_ is None or self.fit_result is None:
             raise ValueError("Model must be fitted before estimating the Hessian.")
@@ -506,6 +512,10 @@ class InferenceMixin:
         lower = np.array([-np.inf if lo is None else lo for lo, _ in self.bounds])
         upper = np.array([np.inf if hi is None else hi for _, hi in self.bounds])
         interior = (params - h >= lower) & (params + h <= upper)
+        if self.supports_jax():
+            hessian = self.jax_hessian(params, dataset)
+            hessian[~interior, :] = hessian[:, ~interior] = np.nan
+            return hessian
 
         def obj(step: np.ndarray) -> float:
             return self._nll(params + step, dataset)

@@ -1,0 +1,378 @@
+{
+ "GammaMixedEffects+Trial[Poisson Homogeneous \u03bb]": {
+  "initial": 8305.658969523192,
+  "moved": 8303.137134063927
+ },
+ "GammaMixedEffects+Trial[Poisson Looming recovery \u03bb(t, m)]": {
+  "initial": 8311.591804992859,
+  "moved": 8310.860745384369
+ },
+ "GammaMixedEffects+Trial[Poisson OMR forward \u03bb(t)]": {
+  "initial": 8311.591804992859,
+  "moved": 8304.049294665801
+ },
+ "GammaMixedEffects+Trial[Poisson OMR lateral contra \u03bb(t)]": {
+  "initial": 8311.591804992859,
+  "moved": 8304.308975950247
+ },
+ "GammaMixedEffects+Trial[Poisson Phototaxis Contra \u03bb(t, m)]": {
+  "initial": 8311.591804992859,
+  "moved": 8310.860745384369
+ },
+ "GammaMixedEffects+Trial[Poisson PhototaxisDipExGaussianPeak]": {
+  "initial": 8382.424651377105,
+  "moved": 8347.381302099886
+ },
+ "GammaMixedEffects+Trial[Poisson PreyCapture(Peak_Baseline_Ripple)]": {
+  "initial": 8469.45435444732,
+  "moved": 8434.76553709195
+ },
+ "GammaMixedEffects+Trial[Poisson Spontaneous \u03bb(t, m)]": {
+  "initial": 8317.757221063448,
+  "moved": 8316.630741855875
+ },
+ "GammaMixedEffects+Trial[Renewal rate: Homogeneous \u03bb, history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8612.584820225711,
+  "moved": 8791.433622031462
+ },
+ "GammaMixedEffects+Trial[Renewal rate: Looming recovery \u03bb(t, m), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8423.159452962429,
+  "moved": 8877.893342215251
+ },
+ "GammaMixedEffects+Trial[Renewal rate: OMR forward \u03bb(t), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8423.159452962429,
+  "moved": 8574.503807533994
+ },
+ "GammaMixedEffects+Trial[Renewal rate: OMR lateral contra \u03bb(t), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8423.159452962429,
+  "moved": 8575.666217420086
+ },
+ "GammaMixedEffects+Trial[Renewal rate: Phototaxis Contra \u03bb(t, m), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8423.159452962429,
+  "moved": 8877.893342215251
+ },
+ "GammaMixedEffects+Trial[Renewal rate: PhototaxisDipExGaussianPeak, history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8302.144627758917,
+  "moved": 8587.906011345854
+ },
+ "GammaMixedEffects+Trial[Renewal rate: PreyCapture(Peak_Baseline_Ripple), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8424.499740182375,
+  "moved": 8663.10533132306
+ },
+ "GammaMixedEffects+Trial[Renewal rate: Spontaneous \u03bb(t, m), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8419.611607682193,
+  "moved": 8868.82141172648
+ },
+ "GammaMixedEffects[Poisson Homogeneous \u03bb]": {
+  "initial": 8573.229456348956,
+  "moved": 8570.460338175608
+ },
+ "GammaMixedEffects[Poisson Looming recovery \u03bb(t, m)]": {
+  "initial": 8580.004431571924,
+  "moved": 8613.354823566451
+ },
+ "GammaMixedEffects[Poisson OMR forward \u03bb(t)]": {
+  "initial": 8580.004431571924,
+  "moved": 8571.565029293655
+ },
+ "GammaMixedEffects[Poisson OMR lateral contra \u03bb(t)]": {
+  "initial": 8580.004431571924,
+  "moved": 8571.828035471372
+ },
+ "GammaMixedEffects[Poisson Phototaxis Contra \u03bb(t, m)]": {
+  "initial": 8580.004431571924,
+  "moved": 8613.354823566451
+ },
+ "GammaMixedEffects[Poisson Phototaxis Minimal Dip+Peak \u03bb(t, m)]": {
+  "initial": 8630.478707901839,
+  "moved": 8668.487759098141
+ },
+ "GammaMixedEffects[Poisson PhototaxisDipExGaussianPeak]": {
+  "initial": 8654.26792385657,
+  "moved": 8649.74746711399
+ },
+ "GammaMixedEffects[Poisson PreyCapture(Baseline_Ripple)]": {
+  "initial": 8687.939732955147,
+  "moved": 8597.594962775984
+ },
+ "GammaMixedEffects[Poisson PreyCapture(Peak_Baseline_Ripple)]": {
+  "initial": 8785.846619423035,
+  "moved": 8702.057240840622
+ },
+ "GammaMixedEffects[Poisson Spontaneous \u03bb(t, m)]": {
+  "initial": 8586.09375775571,
+  "moved": 8619.594525182734
+ },
+ "GammaMixedEffects[Renewal rate: Homogeneous \u03bb, history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8671.58706235732,
+  "moved": 8841.151820743955
+ },
+ "GammaMixedEffects[Renewal rate: Looming recovery \u03bb(t, m), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8522.05809659444,
+  "moved": 8947.82118855178
+ },
+ "GammaMixedEffects[Renewal rate: OMR forward \u03bb(t), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8522.05809659444,
+  "moved": 8661.641792300605
+ },
+ "GammaMixedEffects[Renewal rate: OMR lateral contra \u03bb(t), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8522.05809659444,
+  "moved": 8662.997392301902
+ },
+ "GammaMixedEffects[Renewal rate: Phototaxis Contra \u03bb(t, m), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8522.05809659444,
+  "moved": 8947.82118855178
+ },
+ "GammaMixedEffects[Renewal rate: PhototaxisDipExGaussianPeak, history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8446.382420160138,
+  "moved": 8698.03766219327
+ },
+ "GammaMixedEffects[Renewal rate: PreyCapture(Peak_Baseline_Ripple), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8579.220903966445,
+  "moved": 8734.15930965985
+ },
+ "GammaMixedEffects[Renewal rate: Spontaneous \u03bb(t, m), history: ExponentialRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8516.359267809288,
+  "moved": 8936.36440869441
+ },
+ "GammaMixedEffects[SidedSurvival SurvivalGaussianBump(Baseline)]": {
+  "initial": 1642.4944851418168,
+  "moved": 1272.2536068449235
+ },
+ "GammaMixedEffects[SidedSurvival SurvivalGaussianBump(Baseline_Habituating)]": {
+  "initial": 1642.4944851418168,
+  "moved": 1278.610066055142
+ },
+ "GammaMixedEffects[Sided[Homogeneous \u03bb | Homogeneous \u03bb]]": {
+  "initial": 13215.250321658867,
+  "moved": 13296.922277571193
+ },
+ "GammaMixedEffects[Sided[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m)]]": {
+  "initial": 13202.47184815593,
+  "moved": 13341.297367253468
+ },
+ "GammaMixedEffects[Sided[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m)]]": {
+  "initial": 13277.854514976361,
+  "moved": 13396.21557572727
+ },
+ "GammaMixedEffects[Sided[PreyCapture(Peak_Baseline_Ripple) | Homogeneous \u03bb]]": {
+  "initial": 13072.447786269742,
+  "moved": 13461.645884612239
+ },
+ "GammaMixedEffects[Survival SurvivalExGaussianBump(Baseline_Habituating)]": {
+  "initial": 1254.5010769896035,
+  "moved": 1011.9795920854993
+ },
+ "GammaMixedEffects[Survival SurvivalGaussianBump(Baseline)]": {
+  "initial": 1349.920250160764,
+  "moved": 1026.9102681008367
+ },
+ "GammaMixedEffects[Survival SurvivalGaussianBump(Baseline_Habituating)]": {
+  "initial": 1349.920250160764,
+  "moved": 1056.2110985052898
+ },
+ "GammaSideMixedEffects+Trial[SidedRenewal[Homogeneous \u03bb | Homogeneous \u03bb, history: ExponentialRecovery, events: StimulusBurst(k=1)]]": {
+  "initial": 13110.155599160847,
+  "moved": 13393.997888412066
+ },
+ "GammaSideMixedEffects+Trial[SidedRenewal[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m), history: ExponentialRecovery, events: StimulusBurst(k=1)]]": {
+  "initial": 12701.122453310358,
+  "moved": 13533.238026231003
+ },
+ "GammaSideMixedEffects+Trial[SidedRenewal[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m), history: ExponentialRecovery, events: StimulusBurst(k=1)]]": {
+  "initial": 12380.010892639339,
+  "moved": 12960.626779111506
+ },
+ "GammaSideMixedEffects+Trial[SidedRenewal[PreyCapture(Peak_Baseline_Ripple) | Homogeneous \u03bb, history: ExponentialRecovery, events: StimulusBurst(k=1)]]": {
+  "initial": 12583.44867127357,
+  "moved": 13035.703561793687
+ },
+ "GammaSideMixedEffects+Trial[Sided[Homogeneous \u03bb | Homogeneous \u03bb]]": {
+  "initial": 12156.245053895229,
+  "moved": 12154.563328368267
+ },
+ "GammaSideMixedEffects+Trial[Sided[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m)]]": {
+  "initial": 12144.477766200573,
+  "moved": 12162.775014578263
+ },
+ "GammaSideMixedEffects+Trial[Sided[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m)]]": {
+  "initial": 12188.917108334086,
+  "moved": 12183.645714517941
+ },
+ "GammaSideMixedEffects+Trial[Sided[PreyCapture(Peak_Baseline_Ripple) | Homogeneous \u03bb]]": {
+  "initial": 12231.602177577675,
+  "moved": 12254.579102353371
+ },
+ "GammaSideMixedEffects[SidedRenewal[Homogeneous \u03bb | Homogeneous \u03bb, history: ExponentialRecovery, events: StimulusBurst(k=1)]]": {
+  "initial": 13110.277058594798,
+  "moved": 13389.17834111675
+ },
+ "GammaSideMixedEffects[SidedRenewal[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m), history: ExponentialRecovery, events: StimulusBurst(k=1)]]": {
+  "initial": 12733.370806259065,
+  "moved": 13545.679154092555
+ },
+ "GammaSideMixedEffects[SidedRenewal[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m), history: ExponentialRecovery, events: StimulusBurst(k=1)]]": {
+  "initial": 12455.258015717853,
+  "moved": 13004.938363074934
+ },
+ "GammaSideMixedEffects[SidedRenewal[PreyCapture(Peak_Baseline_Ripple) | Homogeneous \u03bb, history: ExponentialRecovery, events: StimulusBurst(k=1)]]": {
+  "initial": 12639.838564567704,
+  "moved": 13049.23690847745
+ },
+ "GammaSideMixedEffects[SidedSurvival SurvivalGaussianBump(Baseline_Habituating)]": {
+  "initial": 1642.16601312636,
+  "moved": 1278.1579685914003
+ },
+ "GammaSideMixedEffects[Sided[Homogeneous \u03bb | Homogeneous \u03bb]]": {
+  "initial": 12425.06752534596,
+  "moved": 12423.547186387976
+ },
+ "GammaSideMixedEffects[Sided[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m)]]": {
+  "initial": 12412.289051843023,
+  "moved": 12467.92227607025
+ },
+ "GammaSideMixedEffects[Sided[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m)]]": {
+  "initial": 12456.633194692491,
+  "moved": 12487.332191801808
+ },
+ "GammaSideMixedEffects[Sided[PreyCapture(Peak_Baseline_Ripple) | Homogeneous \u03bb]]": {
+  "initial": 12519.625881622753,
+  "moved": 12522.697978788927
+ },
+ "Poisson Homogeneous \u03bb": {
+  "initial": 8666.374973163376,
+  "moved": 8614.73479021485
+ },
+ "Poisson OMR forward \u03bb(t)": {
+  "initial": 8962.475758488436,
+  "moved": 8782.785129924421
+ },
+ "Poisson OMR lateral contra \u03bb(t)": {
+  "initial": 8962.475758488436,
+  "moved": 8784.136895544028
+ },
+ "Poisson Phototaxis Contra \u03bb(t, m)": {
+  "initial": 8962.475758488436,
+  "moved": 8652.646754648975
+ },
+ "Poisson Phototaxis Minimal Dip+Peak \u03bb(t, m)": {
+  "initial": 8952.796874912245,
+  "moved": 8705.15639822639
+ },
+ "Poisson PhototaxisDipExGaussianPeak": {
+  "initial": 9575.480796992939,
+  "moved": 8844.905099964093
+ },
+ "Poisson PreyCapture(Baseline)": {
+  "initial": 9428.03768541984,
+  "moved": 8819.083184220335
+ },
+ "Poisson PreyCapture(Peak)": {
+  "initial": 8955.24509286591,
+  "moved": 8819.083184220335
+ },
+ "Poisson PreyCapture(Peak_Baseline)": {
+  "initial": 9431.808082284308,
+  "moved": 8819.083184220335
+ },
+ "Poisson PreyCapture(Peak_Baseline_Ripple)": {
+  "initial": 9431.808082284308,
+  "moved": 8826.315555067024
+ },
+ "Poisson PreyCapture(Peak_Baseline_Ripple_Shared)": {
+  "initial": 9428.25291058595,
+  "moved": 8819.083184220335
+ },
+ "Poisson PreyCapture(Peak_Baseline_Shared)": {
+  "initial": 9431.808082284308,
+  "moved": 8819.083184220335
+ },
+ "Poisson PreyCapture(Peak_Baseline_Shared_Ripple)": {
+  "initial": 9431.808082284308,
+  "moved": 8826.315555067024
+ },
+ "Poisson PreyCapture(TimeOnly)": {
+  "initial": 8962.088627628631,
+  "moved": 8819.083184220335
+ },
+ "Poisson Spontaneous \u03bb(t, m)": {
+  "initial": 8951.069702394034,
+  "moved": 8657.021563516671
+ },
+ "SidedSurvival SurvivalConstantHazard": {
+  "initial": 1034.6890160770117,
+  "moved": 1022.9812144122868
+ },
+ "SidedSurvival SurvivalGaussianBump(Baseline)": {
+  "initial": 1820.4416027491552,
+  "moved": 1379.9415924168545
+ },
+ "SidedSurvival SurvivalGaussianBump(Baseline_Habituating)": {
+  "initial": 1820.4416027491552,
+  "moved": 1382.1661502827044
+ },
+ "Sided[Homogeneous \u03bb | Homogeneous \u03bb]": {
+  "initial": 13443.176655303427,
+  "moved": 13673.1236595776
+ },
+ "Sided[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m)]": {
+  "initial": 13239.274774032929,
+  "moved": 13765.690320896862
+ },
+ "Sided[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m)]": {
+  "initial": 13461.927864533165,
+  "moved": 13476.835973925252
+ },
+ "Sided[PreyCapture(Peak_Baseline_Ripple) | Homogeneous \u03bb]": {
+  "initial": 13118.746278373586,
+  "moved": 13591.857796847231
+ },
+ "Survival SurvivalConstantHazard": {
+  "initial": 772.8075618687703,
+  "moved": 760.3933222553612
+ },
+ "Survival SurvivalExGaussianBump(Baseline_Habituating)": {
+  "initial": 1266.7725161836952,
+  "moved": 1002.1722886647174
+ },
+ "Survival SurvivalGaussianBump(Baseline)": {
+  "initial": 1431.1029342575225,
+  "moved": 1046.080814473563
+ },
+ "Survival SurvivalGaussianBump(Baseline_Habituating)": {
+  "initial": 1431.1029342575225,
+  "moved": 1060.8494746229132
+ },
+ "ZeroInflatedGammaMixedEffects[Poisson Homogeneous \u03bb]": {
+  "initial": 8589.076068522641,
+  "moved": 8594.266006724312
+ },
+ "ZeroInflatedGammaMixedEffects[Poisson Looming recovery \u03bb(t, m)]": {
+  "initial": 8578.279701533931,
+  "moved": 8638.585470209347
+ },
+ "ZeroInflatedGammaMixedEffects[Poisson OMR forward \u03bb(t)]": {
+  "initial": 8578.279701533931,
+  "moved": 8579.645570270452
+ },
+ "ZeroInflatedGammaMixedEffects[Poisson OMR lateral contra \u03bb(t)]": {
+  "initial": 8578.279701533931,
+  "moved": 8579.837493622184
+ },
+ "ZeroInflatedGammaMixedEffects[Poisson Phototaxis Contra \u03bb(t, m)]": {
+  "initial": 8578.279701533931,
+  "moved": 8638.585470209347
+ },
+ "ZeroInflatedGammaMixedEffects[Poisson PreyCapture(Peak_Baseline_Ripple)]": {
+  "initial": 8771.894882530994,
+  "moved": 8716.45759056228
+ },
+ "ZeroInflatedGammaMixedEffects[Poisson PreyCapture(Peak_Baseline_Ripple)] (fit c)": {
+  "initial": 8771.895911789665,
+  "moved": 8716.455996990015
+ },
+ "ZeroInflatedGammaMixedEffects[Poisson Spontaneous \u03bb(t, m)]": {
+  "initial": 8585.240265974966,
+  "moved": 8645.680263785469
+ }
+}

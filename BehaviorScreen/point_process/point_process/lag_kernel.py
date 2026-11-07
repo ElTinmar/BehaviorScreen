@@ -5,6 +5,8 @@ from typing import Callable, List, Optional, Tuple, Union
 import numpy as np
 from scipy.integrate import trapezoid
 
+from .backend import is_jax
+
 
 @dataclass(frozen=True)
 class LagKernel:
@@ -17,7 +19,7 @@ class LagKernel:
     latex_formula: str = ""
 
     def evaluate(self, lag: np.ndarray, params: List[float]) -> np.ndarray:
-        if np.any(lag < 0):
+        if not is_jax(lag) and np.any(lag < 0):
             raise ValueError(f"{self.name}: lags must be non-negative.")
         return self.func(lag, params)
 

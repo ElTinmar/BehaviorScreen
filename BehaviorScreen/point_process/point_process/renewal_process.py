@@ -3,8 +3,10 @@ from dataclasses import dataclass
 from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
 import numpy as np
+
 from scipy.integrate import trapezoid
 
+from .backend import Arrays, jnp, pad, padded, segment_sum, xp
 from .dataset import PointProcessDataset
 from .point_process import PointProcess, thin
 from .kernel_shapes import peak_normalized_pulse
@@ -31,7 +33,7 @@ class RenewalKernelFactory:
 
         def _func(lag, params):
             (tau_r,) = params
-            return 1.0 - np.exp(-lag / tau_r)
+            return 1.0 - xp.exp(-lag / tau_r)
 
         return RenewalKernel(
             name="ExponentialRecovery",
@@ -51,7 +53,7 @@ class RenewalKernelFactory:
 
         def _func(lag, params):
             A_exc, tau_exc = params
-            return 1.0 + A_exc * np.exp(-lag / tau_exc)
+            return 1.0 + A_exc * xp.exp(-lag / tau_exc)
 
         return RenewalKernel(
             name="ExponentialExcitation",
@@ -86,7 +88,7 @@ class RenewalKernelFactory:
         """
 
         def _func(lag, params):
-            return np.zeros_like(lag)
+            return xp.zeros_like(lag)
 
         return RenewalKernel(
             name="HardAbsorption",
@@ -95,7 +97,7 @@ class RenewalKernelFactory:
             initial_guesses=[],
             bounds=[],
             integral_func=lambda duration, params: 0.0
-            * np.asarray(duration, dtype=float),
+            * xp.asarray(duration, dtype=float),
             latex_formula=r"$\rho(\Delta t) = 0,\ \Delta t > 0$",
         )
 
@@ -137,7 +139,7 @@ class RenewalKernelFactory:
         def _func(lag, params):
             tau_refractory, A_excitation, pulse_peak_lag = params
 
-            recovery = 1.0 - np.exp(-lag / tau_refractory)
+            recovery = 1.0 - xp.exp(-lag / tau_refractory)
 
             pulse = peak_normalized_pulse(lag, pulse_peak_lag, shape_k)
 
@@ -284,7 +286,7 @@ class RenewalKernelFactory:
         excitation = RenewalKernelFactory.delayed_excitation(shape_k, excitation_init, pulse_peak_lag_init)
         return RenewalKernel(
             name=f"DeadTime({dead_time_s:g}s)+{excitation.name}",
-            func=lambda lag, params: np.where(lag < dead_time_s, floor, excitation.func(lag, params)),
+            func=lambda lag, params: xp.where(lag < dead_time_s, floor, excitation.func(lag, params)),
             param_names=excitation.param_names,
             initial_guesses=excitation.initial_guesses,
             bounds=excitation.bounds,
@@ -550,6 +552,68 @@ class RenewalProcess(PointProcess):
         burst_rates = (drive_rates if self._relative else rho_events) * self._excitation(grid["event_event_lags"], params_excitation)
         shape = (dataset.num_fish, dataset.num_trials)
         return drive_rates, burst_rates, grid["event_stream"], drive_exposure.reshape(shape), burst_exposure.reshape(shape)
+
+    def supports_jax(self) -> bool:
+        return True
+
+    def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
+        """
+        The grid, padded (padded): grid points of weight 0, and events of a phantom stream
+        (num_fish * num_trials) that sums per stream drop. Off-lattice ages point at a padded grid
+        point; the lattice covers every age a trial allows.
+        """
+        grid = dataset.cached(
+            ("renewal_grid", self.integration_dt, self.excitation is not None), lambda: self._dataset_grid(dataset)
+        )
+        n_points, columns = len(grid["weights"]), self._table_columns(dataset)
+        n_lattice = int(np.ceil(dataset.duration_s / self.integration_dt)) + 1  # every age a trial allows
+        points, events, off = padded(n_points + 1), padded(len(grid["event_times"])), padded(len(grid["off_lattice"]))
+        lattice_step = np.where(grid["lattice_step"] == grid["n_lattice"], n_lattice, grid["lattice_step"])  # no previous bout: the 1 past the lattice
+        fills = {
+            "weights": (points, 0.0), "stream": (points, 0), "lattice_step": (points, n_lattice), "table_index": (points, 0),
+            "table_fraction": (points, 0.0), "excitation_index": (points, columns), "excitation_fraction": (points, 0.0),
+            "off_lattice": (off, n_points), "off_ages": (off, 1.0), "event_times": (events, 0.0), "event_lags": (events, np.nan),
+            "event_event_lags": (events, np.nan), "event_trials": (events, 0.0), "event_stream": (events, dataset.num_fish * dataset.num_trials),
+        }
+        arrays = {key: jnp.asarray(pad(lattice_step if key == "lattice_step" else grid[key], *fills[key])) for key in grid if key in fills}
+        return Arrays(arrays, dict(n_lattice=n_lattice, columns=columns, num_fish=dataset.num_fish, num_trials=dataset.num_trials))
+
+    def jax_drive_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, ...]:
+        """_drive_terms in JAX: driven and burst rate at every event, its stream, and their exposures per stream (fish x trial)."""
+        params_base, params_renewal, params_excitation = self._split(params)
+        interpolate = lambda values, index, fraction: values[index] + fraction * (values[index + 1] - values[index])
+        known = lambda lags: jnp.where(jnp.isnan(lags), 1.0, lags)  # a finite stand-in where there is no previous bout or event
+        lattice = jnp.append(self.renewal_kernel.evaluate(jnp.arange(a["n_lattice"]) * self.integration_dt, params_renewal), 1.0)
+        rho = lattice[a["lattice_step"]].at[a["off_lattice"]].set(self.renewal_kernel.evaluate(a["off_ages"], params_renewal))
+        t = jnp.arange(a["columns"]) * self._table_dt
+        table = self.kernel.evaluate(t[None, :], jnp.arange(a["num_trials"])[:, None], params_base).ravel()
+        weight = a["weights"] * rho
+        drive = weight * interpolate(table, a["table_index"], a["table_fraction"])
+        n_streams = a["num_fish"] * a["num_trials"]
+        drive_exposure = segment_sum(drive, a["stream"], n_streams)
+        lags = a["event_lags"]
+        rho_events = jnp.where(jnp.isnan(lags), 1.0, self.renewal_kernel.evaluate(known(lags), params_renewal))
+        drive_rates = rho_events * self.kernel.evaluate(a["event_times"], a["event_trials"], params_base)
+        if self.excitation is None:
+            burst_rates, burst_exposure = jnp.zeros_like(drive_rates), jnp.zeros(n_streams)
+        else:
+            excitation = jnp.append(self.excitation.evaluate(t, params_excitation), jnp.zeros(2))
+            burst = (drive if self._relative else weight) * interpolate(excitation, a["excitation_index"], a["excitation_fraction"])
+            burst_exposure = segment_sum(burst, a["stream"], n_streams)
+            event_lags = a["event_event_lags"]
+            at_events = jnp.where(jnp.isnan(event_lags), 0.0, self.excitation.evaluate(known(event_lags), params_excitation))
+            burst_rates = (drive_rates if self._relative else rho_events) * at_events
+        shape = (a["num_fish"], a["num_trials"])
+        return drive_rates, burst_rates, a["event_stream"], drive_exposure.reshape(shape), burst_exposure.reshape(shape)
+
+    def jax_drive_likelihood_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, ...]:
+        """drive_likelihood_terms in JAX."""
+        return (0.0, *self.jax_drive_terms(params, a))
+
+    def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        drive_rates, burst_rates, stream, drive_exposure, burst_exposure = self.jax_drive_terms(params, a)
+        log_rates = jnp.log(jnp.maximum(drive_rates + burst_rates, 1e-300))
+        return drive_exposure.sum() + burst_exposure.sum() - jnp.sum(jnp.where(stream < drive_exposure.size, log_rates, 0.0))
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         drive_rates, burst_rates, _, drive_exposure, burst_exposure = self._drive_terms(dataset, params)
