@@ -1,5 +1,6 @@
 import os
 import subprocess
+import sys
 
 EXPERIMENTS = [
     # Directional stimuli: both sides in one sided model (Tier 1 columns)
@@ -42,6 +43,7 @@ ENV = os.environ | {
     "OMP_NUM_THREADS": "1",
     "OPENBLAS_NUM_THREADS": "1",
     "MKL_NUM_THREADS": "1",
+    "XLA_FLAGS": "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=1",
 }
 MODES = ["diagnostics", "fit"]
 #MODES = ["diagnostics"]
@@ -66,5 +68,5 @@ def run_experiment(exp_name: str) -> int:
 
 
 if __name__ == "__main__":
-    failed = [exp for exp in EXPERIMENTS if run_experiment(exp) != 0]
+    failed = [exp for exp in sys.argv[1:] or EXPERIMENTS if run_experiment(exp) != 0]
     print(f"Failed: {failed}" if failed else "All experiments finished.")
