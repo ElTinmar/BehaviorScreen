@@ -16,6 +16,7 @@ import pandas as pd
 from scipy.linalg import eigh_tridiagonal
 from scipy.sparse import csr_matrix
 from scipy.special import expit, gammaln, logit, logsumexp
+from scipy.stats import gamma as gamma_distribution
 
 from . import gains_jax
 from .backend import Arrays, jnp, padded
@@ -86,6 +87,26 @@ def gamma_gain_evidence_by_fish(
     return log_z, np.sum(terms * g, axis=1) / total_terms
 
 
+def sequential_drive_taus(
+    gain: Union["GammaGain", "ZeroInflatedGain"], fish: np.ndarray, drive_exposure: np.ndarray, burst_exposure: np.ndarray,
+    drive_rates: np.ndarray, burst_rates: np.ndarray, censored: np.ndarray,
+) -> np.ndarray:
+    """
+    Time rescaling with a gain g on the driven rate, each fish's intervals in order
+    (rates: of the event ending each, which a censored one has not): tau = burst exposure
+    - log E[exp(-g drive exposure)] over g's posterior given the fish's earlier intervals.
+    """
+    taus = np.empty(len(fish))
+    bounds = np.flatnonzero(np.concatenate([[True], fish[1:] != fish[:-1], [True]]))
+    for a, b in zip(bounds[:-1], bounds[1:]):
+        S, ended = drive_exposure[a:b], ~censored[a:b]
+        g, log_w = gain.log_nodes(float(ended.sum()), float(S.sum()))
+        logs = np.where(ended[:, None], np.log(np.maximum(g * drive_rates[a:b, None] + burst_rates[a:b, None], 1e-300)), 0.0)
+        log_terms = log_w + np.cumsum(logs, axis=0) - logs - (np.cumsum(S) - S)[:, None] * g
+        taus[a:b] = burst_exposure[a:b] + logsumexp(log_terms, axis=1) - logsumexp(log_terms - S[:, None] * g, axis=1)
+    return np.maximum(taus, 0.0)
+
+
 def gamma_gain_evidence(
     base_rates: np.ndarray, history_rates: np.ndarray, exposure: float, shape: float, rate: float, n_nodes: int = 30
 ) -> Tuple[float, float]:
@@ -125,6 +146,23 @@ class GammaGain:
 
     def survival(self, Lambda: np.ndarray) -> np.ndarray:
         return np.power(self.rate / (self.rate + Lambda), self.shape)
+
+    def log_nodes(self, n_events: float, exposure: float) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        Gains g and log weights w with sum w f(g) = integral of p(g) f(g) dg for the smooth
+        f of time rescaling: the trapezoid rule in log g (spectrally accurate) over the prior
+        and the posterior after n_events on exposure, at most 0.7 of its width apart, and
+        the prior mass below them at g = 0.
+        """
+        r, b = self.shape, self.rate
+        ends = lambda shape, rate: np.log(gamma_distribution.ppf([1e-10, 1 - 1e-10], shape, scale=1 / rate))
+        (lo_prior, hi_prior), (lo_post, hi_post) = ends(r, b), ends(r + n_events, b + exposure)
+        lo = max(min(lo_prior, lo_post), np.log((r + n_events) / (b + exposure)) - 20.0)
+        step = 0.7 / np.sqrt(r + n_events)
+        v = np.arange(lo, max(hi_prior, hi_post) + step, step)
+        log_w = r * np.log(b) - gammaln(r) + r * v - b * np.exp(v) + np.log(step)
+        log_w[[0, -1]] += np.log(0.5)
+        return np.append(np.exp(v), 0.0), np.append(log_w, gamma_distribution.logcdf(np.exp(lo), r, scale=1 / b))
 
     def draw(self, rng: np.random.Generator, size: Tuple[int, int]) -> np.ndarray:
         return rng.gamma(shape=self.shape, scale=1.0 / self.rate, size=size)
@@ -195,6 +233,11 @@ class ZeroInflatedGain:
 
     def survival(self, Lambda: np.ndarray) -> np.ndarray:
         return self.pi * np.exp(-self.c * Lambda) + (1.0 - self.pi) * self.responder.survival(Lambda)
+
+    def log_nodes(self, n_events: float, exposure: float) -> Tuple[np.ndarray, np.ndarray]:
+        """GammaGain.log_nodes of the responders, and the non-responders' gain c."""
+        g, log_w = self.responder.log_nodes(n_events, exposure)
+        return np.append(g, self.c), np.append(np.log(max(1.0 - self.pi, 1e-300)) + log_w, np.log(max(self.pi, 1e-300)))
 
     def draw(self, rng: np.random.Generator, size: Tuple[int, int]) -> np.ndarray:
         nonresponder = rng.random(size) < self.pi
@@ -518,30 +561,14 @@ class Frailty(_GainWrapper):
 
     def _drive_stream_tau_values(self, dataset: PointProcessDataset) -> StreamTaus:
         """
-        Time rescaling with a gain on the driven rate only: the marginal no-event
-        probability over each interval, tau = d burst + log Z(S) - log Z(S + d drive),
-        the gain posterior carried over the fish's trials (as BaselineFrailty).
+        Time rescaling with a gain on the driven rate only (sequential_drive_taus), the
+        gain posterior carried over the fish's trials (as BaselineFrailty).
         """
-        gain, base = self._gain(), self.base_process
-        result: StreamTaus = {}
-        for f_idx, streams in groupby(dataset.iter_streams(), key=lambda stream: stream[0]):
-            drive_rates, burst_rates, S_drive = np.empty(0), np.empty(0), 0.0
-            for _, t_idx, t_ev in streams:
-                drive_cum, burst_cum, event_drive, event_burst = base.drive_stream_profile(
-                    t_ev, t_idx, dataset.duration_s, history=dataset.history_times(f_idx, t_idx)
-                )
-                d_drive, d_burst = np.diff(drive_cum, prepend=0.0), np.diff(burst_cum, prepend=0.0)
-                pairs = []
-                for k in range(len(d_drive)):
-                    log_z = gain.evidence(drive_rates, burst_rates, S_drive, 30)[0]
-                    tau = d_burst[k] + log_z - gain.evidence(drive_rates, burst_rates, S_drive + d_drive[k], 30)[0]
-                    censored = k == len(t_ev)
-                    pairs.append((float(max(tau, 0.0)), censored))
-                    S_drive += d_drive[k]
-                    if not censored:
-                        drive_rates, burst_rates = np.append(drive_rates, event_drive[k]), np.append(burst_rates, event_burst[k])
-                result[(f_idx, t_idx)] = pairs
-        return result
+        drive, burst, stream, censored, drive_rates, burst_rates = self.base_process.interval_drive_terms(dataset)
+        taus = sequential_drive_taus(self._gain(), stream // dataset.num_trials, drive, burst, drive_rates, burst_rates, censored)
+        ends = np.flatnonzero(censored)[:-1] + 1
+        return {divmod(int(s[0]), dataset.num_trials): list(zip(t.tolist(), c.tolist()))
+                for s, t, c in zip(np.split(stream, ends), np.split(taus, ends), np.split(censored, ends))}
 
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         """Whole-session posterior per fish (for reporting, not for time rescaling)."""

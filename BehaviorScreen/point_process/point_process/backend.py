@@ -15,10 +15,17 @@ import numpy as np  # noqa: E402
 import scipy.special as sp  # noqa: E402
 
 
+_NUMPY = (np.ndarray, np.generic, float, int)
+
+
 def is_jax(*args: Any) -> bool:
-    return any(isinstance(a, jax.Array) for a in args) or any(
-        isinstance(a, (list, tuple)) and any(isinstance(b, jax.Array) for b in a) for a in args
-    )
+    """Whether any argument, or element of a list or tuple argument, is a JAX array (NumPy ones checked first: they are fast to tell)."""
+    for a in args:
+        if isinstance(a, _NUMPY):
+            continue
+        if isinstance(a, jax.Array) or (isinstance(a, (list, tuple)) and is_jax(*a)):
+            return True
+    return False
 
 
 class _Namespace:

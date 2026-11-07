@@ -429,10 +429,11 @@ class RenewalProcess(PointProcess):
 
     def _stream_grid(
         self, bouts: np.ndarray, events: np.ndarray, duration_s: float
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         """
         Trapezoid grid of one stream, split at its bouts: times, weights, time
-        since the last bout and since the last event (events are bouts; NaN before the first).
+        since the last bout and since the last event (events are bouts; NaN before the
+        first), and the interval between events it is in (0 before the first event).
         Bouts before 0 (before the window) only start the first segment's clock.
         """
         before, bouts = bouts[bouts < 0], bouts[bouts >= 0]
@@ -440,7 +441,7 @@ class RenewalProcess(PointProcess):
         grids = [self._segment_grid(float(a), float(b)) for a, b in zip(bounds[:-1], bounds[1:])]
         if not any(len(g) for g in grids):
             empty = np.empty(0)
-            return empty, empty, empty, empty
+            return empty, empty, empty, empty, np.empty(0, dtype=int)
         last_event = np.searchsorted(events, bounds[:-1], side="right") - 1  # last event at or before each segment start
         event_refs = np.where(last_event >= 0, events[np.maximum(last_event, 0)] if len(events) else np.nan, np.nan)
         bout_refs = np.concatenate([[before[-1] if len(before) else np.nan], bouts])
@@ -448,7 +449,7 @@ class RenewalProcess(PointProcess):
         weights = np.concatenate([self._trapezoid_weights(g) for g in grids])
         bout_ages = np.concatenate([g - r for g, r in zip(grids, bout_refs)])
         event_ages = np.concatenate([g - r for g, r in zip(grids, event_refs)])
-        return times, weights, bout_ages, event_ages
+        return times, weights, bout_ages, event_ages, np.repeat(last_event + 1, [len(g) for g in grids])
 
     def _table_positions(self, values: np.ndarray, columns: int) -> Tuple[np.ndarray, np.ndarray]:
         """Table point at or before each value (on the _table_dt step) and the fraction past it."""
@@ -465,10 +466,10 @@ class RenewalProcess(PointProcess):
         (trial x time) and the excitation (time since the last event) are interpolated
         on the grid from tables _TABLE_STEPS times finer than it.
         """
-        columns, parts, n_points = self._table_columns(dataset), defaultdict(list), 0
+        columns, parts, n_points, n_intervals = self._table_columns(dataset), defaultdict(list), 0, 0
         for f_idx, t_idx, t_ev in dataset.iter_streams():
             bouts = dataset.history_times(f_idx, t_idx)
-            times, weights, ages, event_ages = self._stream_grid(bouts, t_ev, dataset.duration_s)
+            times, weights, ages, event_ages, interval = self._stream_grid(bouts, t_ev, dataset.duration_s)
             steps = np.rint(ages / self.integration_dt)
             on_lattice = np.abs(ages - steps * self.integration_dt) < 1e-9
             off = np.flatnonzero(~on_lattice & ~np.isnan(ages))
@@ -477,6 +478,8 @@ class RenewalProcess(PointProcess):
             stream = {
                 "weights": weights.astype(np.float32),
                 "stream": np.full(len(times), f_idx * dataset.num_trials + t_idx, dtype=np.int32),
+                "interval": (n_intervals + interval).astype(np.int32),
+                "interval_stream": np.full(len(t_ev) + 1, f_idx * dataset.num_trials + t_idx),
                 "lattice_step": np.where(on_lattice, steps, -1).astype(np.int32),
                 "off_lattice": off + n_points,
                 "off_ages": ages[off],
@@ -495,7 +498,7 @@ class RenewalProcess(PointProcess):
                 stream["excitation_fraction"] = np.where(none, 0.0, fraction).astype(np.float32)
             for key, value in stream.items():
                 parts[key].append(value)
-            n_points += len(times)
+            n_points, n_intervals = n_points + len(times), n_intervals + len(t_ev) + 1
         grid = {key: np.concatenate(values) for key, values in parts.items()}
         grid["n_lattice"] = int(grid["lattice_step"].max(initial=-1)) + 1
         grid["lattice_step"][grid["lattice_step"] < 0] = grid["n_lattice"]
@@ -520,18 +523,12 @@ class RenewalProcess(PointProcess):
         rho[prior] = self.renewal_kernel.evaluate(ages[prior], params_renewal)
         return rho
 
-    def _drive_terms(
-        self, dataset: PointProcessDataset, params: List[float]
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _exposures(self, dataset: PointProcessDataset, grid: Dict[str, np.ndarray], params: List[float], key: str, n: int) -> Tuple[np.ndarray, np.ndarray]:
         """
-        At every event (by stream, in order) the driven and the burst rate, its
-        stream (fish * num_trials + trial), and per stream (fish x trial) the integrals of both. The grid is processed
-        in chunks that stay in the CPU cache.
+        Integrals of the driven and the burst intensity per value 0..n-1 of grid[key]
+        (stream or interval). The grid is processed in chunks that stay in the CPU cache.
         """
         params_base, params_renewal, params_excitation = self._split(params)
-        grid = dataset.cached(
-            ("renewal_grid", self.integration_dt, self.excitation is not None), lambda: self._dataset_grid(dataset)
-        )
         lattice = self.renewal_kernel.evaluate(np.arange(grid["n_lattice"]) * self.integration_dt, params_renewal)
         lattice = np.append(lattice, 1.0)
         off, off_rho = grid["off_lattice"], self.renewal_kernel.evaluate(grid["off_ages"], params_renewal)
@@ -539,25 +536,57 @@ class RenewalProcess(PointProcess):
         if self.excitation is not None:
             lags = np.arange(self._table_columns(dataset)) * self._table_dt
             excitation = np.append(self.excitation.evaluate(lags, params_excitation), [0.0, 0.0])
-        n_streams = dataset.num_fish * dataset.num_trials
-        drive_exposure, burst_exposure = np.zeros(n_streams), np.zeros(n_streams)
+        drive_exposure, burst_exposure = np.zeros(n), np.zeros(n)
         interpolate = lambda values, index, fraction: values[index] + fraction * (values[index + 1] - values[index])
         for a in range(0, len(grid["weights"]), self._CHUNK):
             b = a + self._CHUNK
             rho = lattice[grid["lattice_step"][a:b]]
             lo, hi = np.searchsorted(off, [a, b])
             rho[off[lo:hi] - a] = off_rho[lo:hi]
-            weight, stream = grid["weights"][a:b] * rho, grid["stream"][a:b]
+            weight, group = grid["weights"][a:b] * rho, grid[key][a:b]
             drive = weight * interpolate(table, grid["table_index"][a:b], grid["table_fraction"][a:b])
-            drive_exposure += np.bincount(stream, weights=drive, minlength=n_streams)
+            drive_exposure += np.bincount(group, weights=drive, minlength=n)
             if self.excitation is not None:
                 burst = (drive if self._relative else weight) * interpolate(excitation, grid["excitation_index"][a:b], grid["excitation_fraction"][a:b])
-                burst_exposure += np.bincount(stream, weights=burst, minlength=n_streams)
+                burst_exposure += np.bincount(group, weights=burst, minlength=n)
+        return drive_exposure, burst_exposure
+
+    def _event_rates(self, grid: Dict[str, np.ndarray], params: List[float]) -> Tuple[np.ndarray, np.ndarray]:
+        """The driven and the burst rate at every event (by stream, in order)."""
+        params_base, params_renewal, params_excitation = self._split(params)
         rho_events = self._modulation(grid["event_lags"], params_renewal)
         drive_rates = rho_events * self.kernel.evaluate(grid["event_times"], grid["event_trials"], params_base)
         burst_rates = (drive_rates if self._relative else rho_events) * self._excitation(grid["event_event_lags"], params_excitation)
+        return drive_rates, burst_rates
+
+    def _drive_terms(
+        self, dataset: PointProcessDataset, params: List[float]
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        """
+        At every event (by stream, in order) the driven and the burst rate, its
+        stream (fish * num_trials + trial), and per stream (fish x trial) the integrals of both.
+        """
+        grid = dataset.cached(
+            ("renewal_grid", self.integration_dt, self.excitation is not None), lambda: self._dataset_grid(dataset)
+        )
         shape = (dataset.num_fish, dataset.num_trials)
-        return drive_rates, burst_rates, grid["event_stream"], drive_exposure.reshape(shape), burst_exposure.reshape(shape)
+        drive_exposure, burst_exposure = self._exposures(dataset, grid, params, "stream", shape[0] * shape[1])
+        return (*self._event_rates(grid, params), grid["event_stream"], drive_exposure.reshape(shape), burst_exposure.reshape(shape))
+
+    def interval_drive_terms(self, dataset: PointProcessDataset) -> Tuple[np.ndarray, ...]:
+        """
+        At the fitted parameters, every interval between a stream's events (streams in
+        order, each one's last interval censored at the trial end): driven and burst
+        exposure, stream, whether censored, and the driven and burst rate of the event ending it (0 if censored).
+        """
+        self._require_fitted()
+        grid = self._dataset_grid(dataset)
+        stream = grid["interval_stream"]
+        drive, burst = self._exposures(dataset, grid, self.params_, "interval", len(stream))
+        censored = np.append(stream[1:] != stream[:-1], True)
+        drive_rates, burst_rates = np.zeros(len(stream)), np.zeros(len(stream))
+        drive_rates[~censored], burst_rates[~censored] = self._event_rates(grid, self.params_)
+        return drive, burst, stream, censored, drive_rates, burst_rates
 
     def supports_jax(self) -> bool:
         return True
@@ -662,7 +691,7 @@ class RenewalProcess(PointProcess):
         t_events = np.sort(np.asarray(t_events, dtype=float))
         event_rates = self.kernel.evaluate(t_events, np.full(len(t_events), trial, dtype=float), params_base)
         event_rates = event_rates * self._modulation(np.diff(t_events, prepend=np.nan), params_renewal)
-        times, weights, ages, _ = self._stream_grid(t_events, t_events, duration_s)
+        times, weights, ages, _, _ = self._stream_grid(t_events, t_events, duration_s)
         integrand = weights * self.kernel.evaluate(times, np.full(len(times), trial, dtype=float), params_base)
         return float(np.sum(np.log(np.maximum(event_rates, 1e-300)))), float(np.dot(integrand, self._modulation(ages, params_renewal)))
 
@@ -731,20 +760,6 @@ class RenewalProcess(PointProcess):
         probes = np.append(np.sort(np.asarray(t_ev, dtype=float)), float(duration_s))
         cumulative = self.cumulative_integrated_intensity(probes, trial, history=history)
         return probes, cumulative, True, float(cumulative[-1])
-
-    def drive_stream_profile(
-        self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-        """For a gain on the driven rate only: driven and burst compensators at the events and trial end, and both rates at the events."""
-        t_ev = np.sort(np.asarray(t_ev, dtype=float))
-        drive_cum, burst_cum = self.compensator_parts(np.append(t_ev, float(duration_s)), trial, history)
-        bouts = t_ev if history is None else np.asarray(history, dtype=float)
-        previous = np.searchsorted(bouts, t_ev) - 1
-        _, params_renewal, params_excitation = self._split(self.params_)
-        rho = self._modulation(np.where(previous >= 0, t_ev - bouts[np.maximum(previous, 0)], np.nan), params_renewal)
-        drive_rates = rho * self.kernel.evaluate(t_ev, np.full(t_ev.shape, trial, dtype=float), self._split(self.params_)[0])
-        burst_rates = (drive_rates if self._relative else rho) * self._excitation(np.diff(t_ev, prepend=np.nan), params_excitation)
-        return drive_cum, burst_cum, drive_rates, burst_rates
 
     @property
     def uses_history(self) -> bool:

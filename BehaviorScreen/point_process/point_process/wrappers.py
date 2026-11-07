@@ -1,5 +1,5 @@
 """Processes defined on top of another process's parameters."""
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -93,8 +93,8 @@ class Wrapper(PointProcess):
     def drive_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
         return self.base_process.drive_likelihood_terms(dataset, self._base_params(params))
 
-    def drive_stream_profile(self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None):
-        return self.base_process.drive_stream_profile(t_ev, trial, duration_s, history=history)
+    def interval_drive_terms(self, dataset: PointProcessDataset) -> Tuple[np.ndarray, ...]:
+        return self.base_process.interval_drive_terms(dataset)
 
 
 class PartiallyFixedProcess(Wrapper):

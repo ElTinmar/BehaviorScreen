@@ -379,8 +379,8 @@ class SidedRenewalProcess(PointProcess):
         constant, *terms = self.ground.drive_likelihood_terms(dataset, params)
         return (constant + self._side_log_likelihood(dataset, params), *terms)
 
-    def drive_stream_profile(self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None):
-        return self.ground.drive_stream_profile(t_ev, trial, duration_s, history=history)
+    def interval_drive_terms(self, dataset: PointProcessDataset) -> Tuple[np.ndarray, ...]:
+        return self.ground.interval_drive_terms(dataset)
 
     def ipsi_probability(self, t: np.ndarray, trial: np.ndarray) -> np.ndarray:
         return self.sides.ipsi_probability(t, trial)
