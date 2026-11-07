@@ -10,6 +10,7 @@ dependencies:
 - seaborn
 - scikit-learn
 - umap-learn
+- pynndescent == 0.5.13  # the version paper_reference.joblib was saved with
 - statsmodels
 - requests
 - h5py
@@ -18,7 +19,7 @@ dependencies:
 - qtpy
 - pyside6
 - pip:
-  - jax  # CPU; the likelihoods' exact gradients
+  - jax == 0.7.1  # CPU; the likelihoods' exact gradients
   - pyyaml
   - megabouts
   - tensorboard
