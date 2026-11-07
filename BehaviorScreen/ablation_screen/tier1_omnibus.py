@@ -11,6 +11,7 @@ dimensionality and with no risk of the optimizer fragility seen in the
 originally-attempted joint fits.
 """
 import math
+import pickle
 from functools import partial
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 from pathlib import Path
@@ -23,9 +24,9 @@ from matplotlib.colors import LinearSegmentedColormap
 
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
-from BehaviorScreen.point_process.point_process.inference import newton_step_matrix, refit_from_fit
+from BehaviorScreen.point_process.point_process.inference import load_replicates, newton_step_matrix, refit_from_fit
 from BehaviorScreen.point_process.point_process.parallel import parallel_map, report_failures
-from BehaviorScreen.point_process.point_process.io import save_fig
+from BehaviorScreen.point_process.point_process.io import save_fig, slugify
 from BehaviorScreen.point_process.point_process.frailty_analysis import (
     collect_fish_gains,
     plot_fish_gain_correlation_dual,
@@ -252,13 +253,21 @@ def _tier1_one(
 
 def run_tier1_screen(
     arms: Arms, behaviors, null_process_factories,
-    n_perm=500, show_progress=True,
+    n_perm=500, show_progress=True, store: Optional[Path] = None,
 ) -> pd.DataFrame:
-    """One row per (contrast, behavior); the contrast name is in column 'line'."""
+    """
+    One row per (contrast, behavior); the contrast name is in column 'line'.
+    store: each row saved there as soon as it is done (store/<behavior>/), and
+    reused while the behavior's model, pinned values and n_perm are the same.
+    """
     jobs = [(name, behavior) for name in arms.contrasts for behavior in behaviors]
-    cell_iter = tqdm(jobs, desc="Tier 1 cells", position=0, unit="cell") if show_progress else jobs
-
-    records = []
+    done = {}
+    for behavior in behaviors if store is not None else []:
+        architecture = arms.process_factories[behavior]
+        key = {"model": architecture.template.name, "fixed": architecture.fixed, "n_perm": n_perm}
+        done.update({(r["line"], behavior): r for r in load_replicates(store / behavior, key).values()})
+    todo = [job for job in jobs if job not in done]
+    cell_iter = tqdm(todo, desc="Tier 1 cells", position=0, unit="cell") if show_progress else todo
     for name, behavior in cell_iter:
         try:
             record = _tier1_one(name, behavior, arms, null_process_factories[behavior], n_perm=n_perm)
@@ -267,10 +276,13 @@ def run_tier1_screen(
                       "status": f"unexpected_error: {type(e).__name__}: {e}", "p_value": np.nan}
         c = arms.contrasts[name]
         n_fish = [0 if ds is None else ds.num_fish for ds in arms.datasets(name, behavior)]
-        records.append({"family": c.family, "reference": "/".join(c.reference), "test": "/".join(c.test),
-                        **record, "n_fish_ref": n_fish[0], "n_fish_test": n_fish[1]})
+        done[name, behavior] = {"family": c.family, "reference": "/".join(c.reference), "test": "/".join(c.test),
+                                **record, "n_fish_ref": n_fish[0], "n_fish_test": n_fish[1]}
+        if store is not None:
+            with open(store / behavior / f"{slugify(name)}.pkl", "wb") as f:
+                pickle.dump(done[name, behavior], f)
 
-    return pd.DataFrame(records)
+    return pd.DataFrame([done[job] for job in jobs])
 
 
 def compute_parameter_deltas(param_df: pd.DataFrame) -> pd.DataFrame:

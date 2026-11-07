@@ -4,6 +4,7 @@ it (arm_bootstrap): data, Tier 1 models (each experiment's control fit with
 every parameter pinned except tier1_config.AMPLITUDE_PARAMETERS), contrasts
 and the arms they compare. Importing it loads the event tables.
 """
+import os
 from pathlib import Path
 
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
@@ -12,11 +13,12 @@ from BehaviorScreen.ablation_screen.dataset_utils import Arms, mutant_contrast, 
 from BehaviorScreen.ablation_screen.line_names import warn_unnamed
 from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS, PINNED_AMPLITUDES, TIER1_MODELS, tier1_behaviors
 
-OUTPUT_DIR = Path("./tier1_results")
-OUTPUT_DIR.mkdir(exist_ok=True)
+# Paths: run_screen's arguments set them (or the environment does)
+OUTPUT_DIR = Path(os.environ.get("SCREEN_OUTPUT_DIR", "./tier1_results"))
+OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
-ROOT = Path('/media/martin/DATA_18TB/Screen')
-FITS_ROOT = Path("./figures")  # run_analysis --mode fit output on the control screen
+ROOT = Path(os.environ.get("SCREEN_DATA_ROOT", "/media/martin/DATA_18TB/Screen"))
+FITS_ROOT = Path(os.environ.get("SCREEN_FITS_ROOT", "./figures"))  # run_analysis --mode fit output on the control screen
 # Tables merged across screen folders with merge_csv (adds line/condition columns)
 EVENTS_CSV = {"bouts": "bouts_all.csv", "saccades": "saccades_augmented_all.csv"}
 loaders = {

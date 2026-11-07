@@ -6,7 +6,15 @@ which are fitted per arm. Each model must be one of its experiment's control
 candidates (matched by name). Contrasts: drug against vehicle within each NTR
 line, and each straight mutant against its wild-type background. The
 configuration lives in screen_setup.
+
+--behavior runs one behavior (its cells, FDR, Tier 2, bootstraps and checks) into
+<output>/<behavior>/, each cell saved as it is done; --combine merges those into the
+screen's tables and maps. Without either, every behavior and then the combination.
 """
+import argparse
+import os
+from pathlib import Path
+
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import numpy as np
@@ -35,131 +43,41 @@ from BehaviorScreen.ablation_screen.dataset_utils import Arms
 # Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.ablation_screen.count_readouts
 from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS
 from BehaviorScreen.ablation_screen.tier2_interaction import plot_tier2_map, run_tier2_screen
-from BehaviorScreen.ablation_screen.screen_setup import (
-    BEHAVIOR_PROCESS_FACTORY, BEHAVIORS, MAP_ORDER, NULL_PROCESS_FACTORY, OUTPUT_DIR, arms,
-)
+
+TABLES = ("tier1_results", "tier1_parameters", "tier2_results", "bootstrap_parameter_deltas")
 
 
-# ===========================================================================
-# Step 1: single-cell smoke test BEFORE the full batch
-# ===========================================================================
+def read_table(path: Path) -> pd.DataFrame:
+    """A saved table; empty if it had no columns (a behavior without hits has no bootstrap rows)."""
+    try:
+        return pd.read_csv(path)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
 
-def find_first_valid_cell(arms: Arms, behaviors):
+
+def smoke_test(arms: Arms, behavior: str) -> None:
+    """One Tier 1 fit of the behavior's first cell with >= 3 fish per arm, before its batch."""
     for name in arms.contrasts:
-        for behavior in behaviors:
-            ds_ref, ds_test = arms.datasets(name, behavior)
-            if ds_ref is not None and ds_test is not None and ds_ref.num_fish >= 3 and ds_test.num_fish >= 3:
-                return name, behavior, ds_ref, ds_test
-    return None, None, None, None
+        ds_ref, ds_test = arms.datasets(name, behavior)
+        if ds_ref is not None and ds_test is not None and ds_ref.num_fish >= 3 and ds_test.num_fish >= 3:
+            deviance, m_ref, m_test, _ = fit_tier1(arms.process_factories[behavior], ds_ref, ds_test)
+            print(f"Smoke test {name}/{behavior} (n_ref={ds_ref.num_fish}, n_test={ds_test.num_fish}): deviance={deviance:.3f}, "
+                  f"LL_ref={m_ref.log_likelihood:.2f}, LL_test={m_test.log_likelihood:.2f}, free_params={m_ref.param_names}")
+            return
+    raise RuntimeError(f"No contrast has both arms with >=3 fish for {behavior}: check its dataset filters against the event tables.")
 
 
-print("\nSmoke test: scanning for first valid (line, behavior) cell...")
-smoke_line, smoke_behavior, ds_ref, ds_test = find_first_valid_cell(arms, BEHAVIORS)
-if smoke_line is None:
-    raise RuntimeError(
-        "No (contrast, behavior) cell has both arms with >=3 fish. "
-        "Check DATASET_CONFIGS filters against the event tables before proceeding."
-    )
-print(f"Using {smoke_line}/{smoke_behavior} for smoke test "
-      f"(n_ref={ds_ref.num_fish}, n_test={ds_test.num_fish})")
-deviance, m_ref, m_test, m_pooled = fit_tier1(BEHAVIOR_PROCESS_FACTORY[smoke_behavior], ds_ref, ds_test)
-print(f"Smoke test OK: deviance={deviance:.3f}, LL_ref={m_ref.log_likelihood:.2f}, "
-      f"LL_test={m_test.log_likelihood:.2f}, free_params={m_ref.param_names}")
-
-
-# ===========================================================================
-# Step 2: full batch
-# ===========================================================================
-print("\nRunning Tier 1 across all lines x behaviors...")
-tier1_df = run_tier1_screen(
-    arms, behaviors=BEHAVIORS, null_process_factories=NULL_PROCESS_FACTORY, n_perm=1000,
-)
-tier1_df = add_testability(add_fdr_per_behavior(tier1_df, alpha=0.05))
-print(tier1_df["status"].value_counts())
-
-# Count readouts (direction, escape, evoked gain): model-free, tested alongside Tier 1 (own FDR family per readout).
-# Off for now: the map shows only the model amplitudes. To restore, swap the commented lines back in here and below.
-# count_df, count_params = run_count_screen(arm_counts(loaders, CONTRASTS), CONTRASTS)
-# count_df = add_testability(add_fdr_per_behavior(count_df, alpha=0.05))
-# screen_df = pd.concat([tier1_df, count_df], ignore_index=True)
-screen_df = tier1_df
-
-bad_fits = build_bad_fit_triage(tier1_df)
-
-param_df = extract_fitted_parameters(tier1_df, arms)
-param_df = compute_parameter_deltas(param_df)
-# screen_params = compute_parameter_deltas(pd.concat([param_df, count_params], ignore_index=True))
-screen_params = param_df
-screen_df.to_csv(OUTPUT_DIR / "tier1_results.csv", index=False)
-
-rows = map_rows(screen_df, arms.contrasts.values())
-fig, _ = plot_tier1_map(screen_params, screen_df, MAP_ORDER, rows, column_labels=MAP_COLUMNS)  # + list(COUNT_READOUTS)
-save_fig(fig, OUTPUT_DIR, "tier1_map")
-screen_params.to_csv(OUTPUT_DIR / "tier1_parameters.csv", index=False)
-
-# Tier 2: is a hit's drug effect different from the drug's effect on WT?
-tier2_df = add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, reference="WT", n_boot=200))
-tier2_df.to_csv(OUTPUT_DIR / "tier2_results.csv", index=False)
-if (tier2_df["status"] == "ok").any():
-    fig, _ = plot_tier2_map(param_df, tier2_df, MAP_ORDER)
-    save_fig(fig, OUTPUT_DIR, "tier2_map")
-
-generate_arm_surface_grids(tier1_df, arms, output_dir=OUTPUT_DIR / "arm_surface_grids")
-
-fig, axes = plot_volcano(tier1_df[tier1_df["family"] == "ntr"])
-save_fig(fig, OUTPUT_DIR, "tier1_volcano_by_behavior")
-
-for line in arms.contrasts:
-    fig = plot_fish_gain_correlation_reference_vs_test(line, arms)
-    if fig is None:
-        continue
-    save_fig(fig, OUTPUT_DIR / "fish_gain_correlations", line)
-    plt.close(fig)
-
-boot_delta_df = bootstrap_parameter_deltas(
-    tier1_df, param_df, arms, n_boot=1000,
-)
-boot_delta_df.to_csv(OUTPUT_DIR / "bootstrap_parameter_deltas.csv", index=False)
-
-for behavior in boot_delta_df["behavior"].unique():
-    fig = plot_parameter_forest(boot_delta_df, behavior)
-    if fig is None:
-        continue
-    save_fig(fig, OUTPUT_DIR / "parameter_forest_plots", behavior)
-    plt.close(fig)
-
-# ===========================================================================
-# Step 3: calibration checkpoint -- p-value histograms per behavior
-# ===========================================================================
-print("\nGenerating p-value histograms per behavior...")
-ok_df = tier1_df[(tier1_df["status"] == "ok") & (tier1_df["family"] == "ntr")]
-for behavior in BEHAVIORS:
-    sub = ok_df[ok_df["behavior"] == behavior]["p_value"]
-    if len(sub) < 5:
-        continue
-    fig, ax = plt.subplots(figsize=(6, 4))
-    plot_pvalue_histogram(sub, ax=ax, title=f"Tier 1 p-values: {behavior}")
-    fig.savefig(OUTPUT_DIR / f"pvalue_hist_{behavior}.png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
-
-# ===========================================================================
-# Step 4: negative control -- WT split-half permutation
-# ===========================================================================
-print("\nRunning WT split-half negative control...")
-for behavior in BEHAVIORS:
+def negative_control(arms: Arms, behavior: str, out: Path) -> None:
+    """WT split in random halves: p-values of a contrast without an effect."""
     ds_wt = arms.dataset("WT", "danieau", behavior)
     if ds_wt is None or ds_wt.num_fish < 10:
-        continue
+        return
     null_ps = []
-    for seed in tqdm(range(20)):
-        rng = np.random.default_rng(seed)
-        perm = rng.permutation(ds_wt.num_fish)
+    for seed in tqdm(range(20), desc=f"Negative control {behavior}"):
+        perm = np.random.default_rng(seed).permutation(ds_wt.num_fish)
         half = ds_wt.num_fish // 2
-        ds_a = ds_wt.fish(perm[:half])
-        ds_b = ds_wt.fish(perm[half:])
         try:
-            result = tier1_permutation_test(BEHAVIOR_PROCESS_FACTORY[behavior], ds_a, ds_b, n_perm=200)
+            result = tier1_permutation_test(arms.process_factories[behavior], ds_wt.fish(perm[:half]), ds_wt.fish(perm[half:]), n_perm=200)
             if not result["permutation_unreliable"]:
                 null_ps.append(result["p_value"])
         except Exception:
@@ -167,8 +85,92 @@ for behavior in BEHAVIORS:
     if null_ps:
         fig, ax = plt.subplots(figsize=(6, 4))
         plot_pvalue_histogram(np.array(null_ps), ax=ax, title=f"Negative control (WT split-half): {behavior}")
-        fig.savefig(OUTPUT_DIR / f"negctrl_pvalue_hist_{behavior}.png", dpi=150, bbox_inches="tight")
+        save_fig(fig, out, f"negctrl_pvalue_hist_{behavior}")
         plt.close(fig)
 
-print("\nDone. Inspect tier1_results.csv, pvalue_hist_*.png, and negctrl_pvalue_hist_*.png "
-      "before proceeding to Tier 2.")
+
+def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output_dir: Path, n_perm: int) -> None:
+    """Everything done per behavior, into output_dir / behavior."""
+    out = output_dir / behavior
+    smoke_test(arms, behavior)
+    tier1_df = run_tier1_screen(arms, behaviors=[behavior], null_process_factories=null_process_factories, n_perm=n_perm, store=output_dir / "cells")
+    tier1_df = add_testability(add_fdr_per_behavior(tier1_df, alpha=0.05))
+    print(tier1_df["status"].value_counts())
+    param_df = compute_parameter_deltas(extract_fitted_parameters(tier1_df, arms))
+
+    # Tier 2: is a hit's drug effect different from the drug's effect on WT?
+    tier2_df = add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, reference="WT", n_boot=200))
+    generate_arm_surface_grids(tier1_df, arms, output_dir=output_dir / "arm_surface_grids")
+    boot_delta_df = bootstrap_parameter_deltas(tier1_df, param_df, arms, n_boot=1000)
+    out.mkdir(parents=True, exist_ok=True)
+    for name, df in zip(TABLES, (tier1_df, param_df, tier2_df, boot_delta_df)):
+        df.to_csv(out / f"{name}.csv", index=False)
+
+    fig = plot_parameter_forest(boot_delta_df, behavior) if len(boot_delta_df) else None
+    if fig is not None:
+        save_fig(fig, output_dir / "parameter_forest_plots", behavior)
+        plt.close(fig)
+
+    # Calibration checkpoint: the p-values of the behavior's NTR contrasts
+    ok = tier1_df[(tier1_df["status"] == "ok") & (tier1_df["family"] == "ntr")]["p_value"]
+    if len(ok) >= 5:
+        fig, ax = plt.subplots(figsize=(6, 4))
+        plot_pvalue_histogram(ok, ax=ax, title=f"Tier 1 p-values: {behavior}")
+        save_fig(fig, out, f"pvalue_hist_{behavior}")
+        plt.close(fig)
+    negative_control(arms, behavior, out)
+
+
+def combine(behaviors: list, arms: Arms, map_order: list, output_dir: Path) -> None:
+    """The behaviors' tables merged (output_dir/<table>.csv), and the maps and plots across behaviors."""
+    missing = [b for b in behaviors if not (output_dir / b / f"{TABLES[0]}.csv").exists()]
+    if missing:
+        print(f"Not run yet (left out): {missing}")
+    behaviors, map_order = [b for b in behaviors if b not in missing], [b for b in map_order if b not in missing]
+    tables = {name: pd.concat([read_table(output_dir / b / f"{name}.csv") for b in behaviors], ignore_index=True) for name in TABLES}
+    for name, df in tables.items():
+        df.to_csv(output_dir / f"{name}.csv", index=False)
+    tier1_df, param_df, tier2_df = tables["tier1_results"], tables["tier1_parameters"], tables["tier2_results"]
+    build_bad_fit_triage(tier1_df).to_csv(output_dir / "bad_fit_triage.csv", index=False)
+
+    rows = map_rows(tier1_df, arms.contrasts.values())
+    fig, _ = plot_tier1_map(param_df, tier1_df, map_order, rows, column_labels=MAP_COLUMNS)
+    save_fig(fig, output_dir, "tier1_map")
+    if (tier2_df["status"] == "ok").any():
+        fig, _ = plot_tier2_map(param_df, tier2_df, map_order)
+        save_fig(fig, output_dir, "tier2_map")
+    fig, _ = plot_volcano(tier1_df[tier1_df["family"] == "ntr"])
+    save_fig(fig, output_dir, "tier1_volcano_by_behavior")
+    for line in arms.contrasts:
+        fig = plot_fish_gain_correlation_reference_vs_test(line, arms)
+        if fig is not None:
+            save_fig(fig, output_dir / "fish_gain_correlations", line)
+            plt.close(fig)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--behavior", help="Run this behavior only.")
+    parser.add_argument("--combine", action="store_true", help="Merge the behaviors already run into the screen's tables and maps.")
+    parser.add_argument("--data-root", type=Path, help="Folder of the merged event, trial and QC tables (default: screen_setup's).")
+    parser.add_argument("--fits-root", type=Path, help="run_analysis --mode fit output of the control screen (default: ./figures).")
+    parser.add_argument("--output-dir", type=Path, help="Results (default: ./tier1_results).")
+    parser.add_argument("--n-perm", type=int, default=1000, help="Permutations per Tier 1 cell.")
+    args = parser.parse_args()
+    for name, value in (("SCREEN_DATA_ROOT", args.data_root), ("SCREEN_FITS_ROOT", args.fits_root), ("SCREEN_OUTPUT_DIR", args.output_dir)):
+        if value is not None:
+            os.environ[name] = str(value)
+    from BehaviorScreen.ablation_screen.screen_setup import BEHAVIORS, MAP_ORDER, NULL_PROCESS_FACTORY, OUTPUT_DIR, arms  # loads the tables
+
+    if args.behavior is not None and args.behavior not in BEHAVIORS:
+        raise SystemExit(f"--behavior must be one of {BEHAVIORS}")
+    if not args.combine:
+        for behavior in [args.behavior] if args.behavior else BEHAVIORS:
+            run_behavior(behavior, arms, NULL_PROCESS_FACTORY, OUTPUT_DIR, args.n_perm)
+    if args.combine or args.behavior is None:
+        combine(BEHAVIORS, arms, MAP_ORDER, OUTPUT_DIR)
+    print(f"\nDone. Inspect {OUTPUT_DIR}: tier1_results.csv, the p-value histograms and the negative controls.")
+
+
+if __name__ == "__main__":
+    main()

@@ -163,8 +163,8 @@ def _stored_replicate(job: Tuple[int, np.random.SeedSequence], store: Optional[P
     return result
 
 
-def load_replicates(store: Path, key: dict) -> Dict[int, Tuple[Any, Optional[str], str]]:
-    """The replicates saved in store for this key (index: result); others there are deleted."""
+def load_replicates(store: Path, key: dict) -> Dict[str, Any]:
+    """What is saved in store for this key (file stem: content); anything saved for another key is deleted."""
     store.mkdir(parents=True, exist_ok=True)
     key_path = store / "key.json"
     if key_path.exists() and json.loads(key_path.read_text()) != key:
@@ -174,7 +174,7 @@ def load_replicates(store: Path, key: dict) -> Dict[int, Tuple[Any, Optional[str
     done = {}
     for path in store.glob("*.pkl"):
         with open(path, "rb") as f:
-            done[int(path.stem)] = pickle.load(f)
+            done[path.stem] = pickle.load(f)
     return done
 
 
@@ -208,7 +208,7 @@ def refit_replicates(
     seeds = np.random.SeedSequence(seed).spawn(n_boot)
     key = {"desc": desc, "seed": seed, "parametric": parametric, "refit": refit, "refit_n_starts": refit_n_starts,
            "params": [float(p) for p in model.params_], "n_fish": template.num_fish, "n_events": len(template.event_times)}
-    done = {} if store is None else {i: r for i, r in load_replicates(store, key).items() if i < n_boot}
+    done = {} if store is None else {int(i): r for i, r in load_replicates(store, key).items() if int(i) < n_boot}
     todo = [i for i in range(n_boot) if i not in done]
     step_matrix = newton_step_matrix(model.estimate_hessian(template)) if todo and refit and refit_n_starts <= 1 else None
     job = partial(
