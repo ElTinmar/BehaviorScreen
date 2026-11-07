@@ -40,61 +40,63 @@ def set_integration_dt(model: "PointProcess", dt: float) -> None:
             set_integration_dt(part, dt)
 
 
-def fit_coarse_to_fine(model: PointProcess, dataset: PointProcessDataset) -> None:
-    """fit, first on the SCREEN_DT grid for models with bout history, then polished on their own grid."""
-    fine_dt = model.integration_dt
-    if model.uses_history and SCREEN_DT > fine_dt:
-        try:
-            set_integration_dt(model, SCREEN_DT)
-            model.fit(dataset)
-        finally:
-            set_integration_dt(model, fine_dt)
-        model.initial_guesses = list(model.params_)
-    model.fit(dataset)
-
-
 def newton_step_matrix(hessian: np.ndarray) -> Optional[np.ndarray]:
     """
     Inverse Hessian for Newton steps, its eigenvalues floored at 1e-8 of the
-    largest (barely determined directions take bounded steps); None if a
-    parameter sits at a bound (no curvature there).
+    largest (barely determined directions take bounded steps). Parameters at a
+    bound (NaN rows of estimate_hessian) get zero rows and columns: Newton steps
+    hold them there. None if the rest is not finite.
     """
-    if not np.all(np.isfinite(hessian)):
+    free = np.isfinite(np.diag(hessian))
+    block = hessian[np.ix_(free, free)]
+    if not free.any() or not np.all(np.isfinite(block)):
         return None
-    w, v = np.linalg.eigh((hessian + hessian.T) / 2)
-    return (v / np.maximum(w, 1e-8 * w.max())) @ v.T
+    w, v = np.linalg.eigh((block + block.T) / 2)
+    if w.max() <= 0:
+        return None
+    steps = np.zeros_like(hessian)
+    steps[np.ix_(free, free)] = (v / np.maximum(w, 1e-8 * w.max())) @ v.T
+    return steps
 
 
 def newton_refit(
-    model: PointProcess, dataset: PointProcessDataset, step_matrix: np.ndarray, max_steps: int = 10, tol: float = 0.01, eps: float = 1e-5,
+    model: PointProcess, dataset: PointProcessDataset, step_matrix: np.ndarray, max_steps: int = 20, tol: float = 0.01, eps: float = 1e-5,
 ) -> Optional[str]:
     """
     Refit from model.initial_guesses (an optimum of similar data) by Newton steps
     with a fixed inverse Hessian and central-difference gradients, each step halved
     until the NLL decreases and kept inside the bounds; done once a step gains, or
-    would gain (half the Newton decrement), less than tol. Returns None when done,
-    else why not (the model's initial_guesses are then the best point reached,
-    where the optimizer should continue).
+    would gain (half the Newton decrement), less than tol. Parameters with a zero
+    row in step_matrix stay at their bound, provided the NLL rises when they move
+    inside it. Returns None when done, else why not (the model's initial_guesses
+    are then the best point reached, where the optimizer should continue).
     """
     lower = np.array([-np.inf if lo is None else lo for lo, _ in model.bounds])
     upper = np.array([np.inf if hi is None else hi for _, hi in model.bounds])
     nll = lambda x: model._nll(list(x), dataset)
     x = np.array(model.initial_guesses, dtype=float)
     f = nll(x)
+    free = np.diag(step_matrix) > 0
 
     def stop(reason: str) -> str:
         model.initial_guesses = list(x)
         return reason
 
-    def done() -> None:
+    def done() -> Optional[str]:
+        h = eps * (1.0 + np.abs(x))
+        inward = np.where(x - lower < upper - x, h, -h)  # held parameters move off their nearer bound
+        if any(nll(x + np.eye(len(x))[i] * inward[i]) < f for i in np.flatnonzero(~free)):
+            return stop("a parameter leaves its bound")
         model.set_params(x)
         model.fit_result = OptimizeResult(x=x, fun=f, success=True, message="Newton steps with a fixed Hessian")
+        return None
 
     for _ in range(max_steps):
         h = eps * (1.0 + np.abs(x))
-        if np.any(x - h < lower) or np.any(x + h > upper):
+        if np.any((x - h < lower)[free]) or np.any((x + h > upper)[free]):
             return stop("reached a bound")
-        g = np.array([(nll(x + dx) - nll(x - dx)) / (2 * hi) for dx, hi in zip(np.diag(h), h)])
+        g = np.zeros(len(x))
+        g[free] = [(nll(x + dx) - nll(x - dx)) / (2 * hi) for dx, hi in zip(np.diag(h)[free], h[free])]
         step, t = -step_matrix @ g, 1.0
         if -g @ step / 2 < tol:  # already within tol of the optimum
             return done()
@@ -105,7 +107,7 @@ def newton_refit(
         gain, x, f = f - f_new, x_new, f_new
         if gain < tol:
             return done()
-    return stop("not converged in 10 steps")
+    return stop(f"not converged in {max_steps} steps")
 
 
 def refit_from_fit(model: PointProcess, dataset: PointProcessDataset, step_matrix: Optional[np.ndarray]) -> Tuple[PointProcess, str]:
@@ -118,7 +120,7 @@ def refit_from_fit(model: PointProcess, dataset: PointProcessDataset, step_matri
     refit.initial_guesses = list(np.asarray(model.params_, dtype=float))
     reason = "no Hessian" if step_matrix is None else newton_refit(refit, dataset, step_matrix)
     if reason is not None:
-        fit_coarse_to_fine(refit, dataset)
+        refit.fit(dataset)  # from where the steps stopped, near the optimum: no coarse screening
     return refit, reason or "newton"
 
 

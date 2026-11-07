@@ -139,9 +139,9 @@ class SidedPoissonProcess(PointProcess):
         """One stream of a fish with gain `gain`: event times and their 'laterality' marks; side_shift is added to the log odds of ipsi."""
         self._require_fitted()
         grid = np.arange(0.0, dataset.duration_s + self.integration_dt, self.integration_dt)
-        rate = lambda t, events: gain * float(self.predict(np.array([t]), np.array([t_idx]))[0])
+        rate = lambda t, events: gain * self.predict(t, np.full(len(t), t_idx))
         upper = gain * float(np.max(self.predict(grid, np.full_like(grid, t_idx)))) * self._THINNING_SAFETY_MARGIN
-        times = thin(rate, lambda t, events: upper, dataset.duration_s, rng)
+        times = thin(rate, lambda t, events: upper, dataset.duration_s, rng, memoryless=True)
         p_ipsi = expit(logit(self.ipsi_probability(times, np.full_like(times, t_idx))) + side_shift)
         return times, {"laterality": np.where(rng.random(len(times)) < p_ipsi, IPSI, CONTRA)}
 

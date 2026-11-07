@@ -13,29 +13,43 @@ StreamTaus = Dict[Tuple[int, int], List[Tuple[float, bool]]]
 
 
 def thin(
-    intensity: Callable[[float, List[float]], float],
+    intensity: Callable[[np.ndarray, List[float]], np.ndarray],
     upper_bound: Callable[[float, List[float]], float],
     duration_s: float,
     rng: np.random.Generator,
     first_only: bool = False,
+    memoryless: bool = False,
+    batch: int = 64,
 ) -> np.ndarray:
     """
     Ogata thinning: event times on [0, duration_s) of a process whose
-    conditional intensity(t, events so far) stays below upper_bound(t, events)
-    until the next event.
+    conditional intensity(times, events so far) stays below upper_bound(t, events)
+    from t until the next event. Candidates are drawn and tested in batches:
+    the intensity at each depends only on the events before it, so the first
+    accepted one is the next event and the later ones are discarded. memoryless:
+    the intensity ignores the events, so all candidates are tested at once.
     """
+    if memoryless:
+        upper = max(upper_bound(0.0, []), 1e-12)
+        candidates = np.sort(rng.uniform(0.0, duration_s, rng.poisson(upper * duration_s)))
+        events = candidates[rng.uniform(size=len(candidates)) * upper <= intensity(candidates, [])]
+        return events[:1] if first_only else events
     events: List[float] = []
     t = 0.0
-    while t < duration_s:
-        upper = upper_bound(t, events)
-        t_candidate = t + rng.exponential(1.0 / max(upper, 1e-12))
-        if t_candidate >= duration_s:
-            break
-        if rng.uniform() <= intensity(t_candidate, events) / upper:
-            events.append(t_candidate)
+    while True:
+        upper = max(upper_bound(t, events), 1e-12)
+        candidates = t + np.cumsum(rng.exponential(1.0 / upper, batch))
+        candidates = candidates[candidates < duration_s]
+        accepted = np.flatnonzero(rng.uniform(size=len(candidates)) * upper <= intensity(candidates, events)) if len(candidates) else []
+        if len(accepted):
+            t = float(candidates[accepted[0]])
+            events.append(t)
             if first_only:
                 break
-        t = t_candidate
+        elif len(candidates) < batch:
+            break
+        else:
+            t = float(candidates[-1])
     return np.array(events)
 
 

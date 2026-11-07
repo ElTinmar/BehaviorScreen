@@ -301,7 +301,7 @@ class HawkesProcess(PointProcess):
 
     def _thinning_functions(
         self, dataset: PointProcessDataset, t_idx: int, base_gain: float, history_gain: float
-    ) -> Tuple[Callable[[float, List[float]], float], Callable[[float, List[float]], float]]:
+    ) -> Tuple[Callable[[np.ndarray, List[float]], np.ndarray], Callable[[float, List[float]], float]]:
         """
         Intensity and upper bound for thinning. The bound uses the history
         kernel's decay envelope (running supremum), so it holds for any
@@ -315,10 +315,12 @@ class HawkesProcess(PointProcess):
         def envelope_at(lag: float) -> float:
             return 0.0 if lag >= decay_horizon else envelope[max(min(int(lag / dt), len(envelope) - 1), 0)]
 
-        def intensity(t: float, events: List[float]) -> float:
-            base = base_gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), base_params)[0]
-            history = float(np.sum(self.history_kernel.evaluate(t - np.asarray(events), hist_params))) if events else 0.0
-            return base + history_gain * history
+        def intensity(t: np.ndarray, events: List[float]) -> np.ndarray:
+            base = base_gain * self.kernel.evaluate(t, np.full(len(t), t_idx), base_params)
+            if not events:
+                return base
+            lags = (t[:, None] - np.asarray(events)[None, :]).ravel()
+            return base + history_gain * self.history_kernel.evaluate(lags, hist_params).reshape(len(t), -1).sum(axis=1)
 
         def upper_bound(t: float, events: List[float]) -> float:
             return base_upper + history_gain * sum(envelope_at(t - e) for e in events)

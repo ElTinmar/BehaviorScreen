@@ -674,8 +674,9 @@ class PoissonProcess(PointProcess):
         """One stream of a fish with frailty gain `gain`, by thinning."""
         upper = gain * self._intensity_upper_bound(dataset, t_idx)
         return thin(
-            lambda t, events: gain * self.kernel.evaluate(np.array([t]), np.array([t_idx]), self.params_)[0],
+            lambda t, events: gain * self.kernel.evaluate(t, np.full(len(t), t_idx), self.params_),
             lambda t, events: upper,
             dataset.duration_s,
             rng,
+            memoryless=True,
         )

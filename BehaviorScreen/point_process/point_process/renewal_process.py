@@ -695,15 +695,17 @@ class RenewalProcess(PointProcess):
                * (self._intensity_upper_bound(dataset, t_idx) if self._relative else self._THINNING_SAFETY_MARGIN))
         )
 
-        def intensity(t: float, events: List[float]) -> float:
+        def intensity(t: np.ndarray, events: List[float]) -> np.ndarray:
             k = np.searchsorted(others, t)
-            last_bout = max(events[-1] if events else -np.inf, others[k - 1] if k else -np.inf)
-            stim = self.kernel.evaluate(np.array([t]), np.array([t_idx]), params_base)[0]
+            last_other = np.where(k > 0, others[np.maximum(k - 1, 0)] if len(others) else -np.inf, -np.inf)
+            last_bout = np.maximum(events[-1] if events else -np.inf, last_other)
+            stim = self.kernel.evaluate(t, np.full(len(t), t_idx), params_base)
             rate = gain * stim
             if events:
-                rate += (stim if self._relative else 1.0) * self._excitation(np.array([t - events[-1]]), params_excitation)[0]
-            if last_bout > -np.inf:
-                rate *= self.renewal_kernel.evaluate(np.array([t - last_bout]), params_renewal)[0]
+                rate = rate + (stim if self._relative else 1.0) * self._excitation(t - events[-1], params_excitation)
+            prior = np.isfinite(last_bout)
+            if prior.any():
+                rate[prior] = rate[prior] * self.renewal_kernel.evaluate(t[prior] - last_bout[prior], params_renewal)
             return rate
 
         return thin(intensity, lambda t, events: upper, dataset.duration_s, rng)
