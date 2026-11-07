@@ -379,6 +379,10 @@
   "initial": 9172.759495054848,
   "moved": 9576.226784394008
  },
+ "ZeroInflatedGammaMixedEffects[Renewal rate: Looming recovery \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)] (fit c)": {
+  "initial": 9085.068182476927,
+  "moved": 9665.75323252944
+ },
  "ZeroInflatedGammaMixedEffects[Renewal rate: OMR forward \u03bb(t), history: WeibullRecovery, events: StimulusBurst(k=1)] (fit c)": {
   "initial": 9085.068182476927,
   "moved": 9462.235368686499

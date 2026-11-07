@@ -476,6 +476,7 @@ def get_model_config() -> Dict[str, dict]:
                 gamma(poisson(RateKernelFactory.after_looming()), trial_gain=True),
                 gamma(refractory_renewal(RateKernelFactory.after_looming())),
                 gamma(refractory_renewal(RateKernelFactory.after_looming()), trial_gain=True),
+                two_class(refractory_renewal(RateKernelFactory.after_looming())),
             ],
         ),
         "okr_conjugate_contra_saccades": experiment(
