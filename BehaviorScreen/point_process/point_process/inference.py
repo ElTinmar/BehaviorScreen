@@ -257,21 +257,30 @@ class InferenceMixin:
         r"(tau|sigma|beta|r_dispersion|r_trial|excitation|^D$)", re.IGNORECASE
     )
 
-    def _minimize(self, x0: Union[List[float], np.ndarray], dataset: PointProcessDataset, method: str, max_restarts: int = 5, **kwargs) -> Any:
+    def _minimize(
+        self, x0: Union[List[float], np.ndarray], dataset: PointProcessDataset, method: str, max_restarts: int = 5, precise: bool = True, **kwargs,
+    ) -> Any:
         """
         minimize, restarted from its own result while that improves the NLL: L-BFGS-B
         can stop well short of the optimum in a curved valley once its Hessian estimate,
         built from far-away steps, goes stale; a fresh start from there continues.
+        precise (exact gradients): then continued with tolerances on the gradient, not on
+        how little a step gains; from a converged point its line search can end ABNORMAL
+        (no decrease left in the NLL's last digits), which keeps its point if not worse.
         """
         fun, jac = (self.nll_and_grad, True) if self.supports_jax() else (self._nll, None)
-        if jac and method == "L-BFGS-B":  # exact gradients: stop on them, not once steps gain little relative to the NLL
-            kwargs["options"] = {"ftol": 1e-13, "gtol": 1e-6, **kwargs.get("options", {})}
-        res = minimize(fun, x0=x0, args=(dataset,), method=method, jac=jac, bounds=self.bounds, **kwargs)
+        run = lambda x: minimize(fun, x0=x, args=(dataset,), method=method, jac=jac, bounds=self.bounds, **kwargs)
+        res = run(x0)
         for _ in range(max_restarts):
-            again = minimize(fun, x0=res.x, args=(dataset,), method=method, jac=jac, bounds=self.bounds, **kwargs)
+            again = run(res.x)
             if not (again.success and again.fun < res.fun - 1e-3):
                 break
             res = again
+        if precise and jac and method == "L-BFGS-B" and res.success:
+            options = {"ftol": 1e-13, "gtol": 1e-6, **kwargs.get("options", {})}
+            tight = minimize(fun, x0=res.x, args=(dataset,), method=method, jac=jac, bounds=self.bounds, **{**kwargs, "options": options})
+            if np.isfinite(tight.fun) and tight.fun <= res.fun:
+                res = OptimizeResult({**tight, "success": True, "nfev": res.nfev + tight.nfev})
         return res
 
     def fit(self, dataset: PointProcessDataset, method: str = "L-BFGS-B", **kwargs):
@@ -376,16 +385,17 @@ class InferenceMixin:
         Models with bout history (a renewal grid, the costly part) first fit every
         start on a coarser grid (screen_dt), then refit the n_refine best from where
         they stopped on their own grid: the final fit is the same, at a fraction of the
-        cost. The per-start NLLs (and the multimodality report) are then the screening's.
+        cost. Screening stops at scipy's default tolerance, which ranks the starts; the refits
+        are precise. The per-start NLLs (and the multimodality report) are then the screening's.
         """
         rng = np.random.default_rng(seed)
         inits = self._generate_multistart_inits(
             rng, n_starts, log_scale_params=log_scale_params
         )
 
-        def _run_one(x0: np.ndarray) -> Any:
+        def _run_one(x0: np.ndarray, precise: bool = True) -> Any:
             try:
-                res = self._minimize(x0, dataset, method, **kwargs)
+                res = self._minimize(x0, dataset, method, precise=precise, **kwargs)
             except Exception as exc:
                 return repr(exc)
             if res.success and np.isfinite(res.fun) and np.all(np.isfinite(res.x)):
@@ -397,7 +407,8 @@ class InferenceMixin:
         try:
             if screen:
                 set_integration_dt(self, screen_dt)
-            results = parallel_map(_run_one, inits, n_jobs=n_jobs, desc=f"Fit multistart{f' (dt {screen_dt:g} s)' if screen else ''}")
+            run = partial(_run_one, precise=not screen)  # screening only ranks the starts: the refits are precise
+            results = parallel_map(run, inits, n_jobs=n_jobs, desc=f"Fit multistart{f' (dt {screen_dt:g} s)' if screen else ''}")
         finally:
             set_integration_dt(self, fine_dt)
         report_failures(

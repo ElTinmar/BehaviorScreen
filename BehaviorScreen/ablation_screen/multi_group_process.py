@@ -26,6 +26,7 @@ from typing import Callable, Dict, List, Optional, Sequence
 import numpy as np
 import joblib
 
+from BehaviorScreen.point_process.point_process.backend import Arrays, jnp
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.dataset import PointProcessDataset
 from .param_links import BoundedLink, LogLink
@@ -94,6 +95,25 @@ class MultiGroupProcess(PointProcess):
         for group in self.groups:
             natural = self._group_natural_params(params, group)
             total += self.base_process._nll(natural, group.dataset)
+        return total
+
+    def supports_jax(self) -> bool:
+        return self.base_process.supports_jax()
+
+    def _jax_key(self) -> tuple:
+        return (type(self).__name__, tuple(self.covariate_names), tuple(self.links)) + self.base_process._jax_key()
+
+    def _arrays(self, dataset: Optional[PointProcessDataset] = None) -> Arrays:
+        """Every group's arrays and the design (group x covariate); each group carries its own dataset."""
+        design = jnp.asarray(np.array([self._design_vector(g) for g in self.groups]).reshape(len(self.groups), -1), dtype=float)
+        return Arrays({"groups": tuple(self.base_process._arrays(g.dataset) for g in self.groups), "design": design}, {})
+
+    def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        betas = params[self.k :].reshape(len(self.covariate_names), self.k)
+        total = 0.0
+        for x, arrays in zip(a["design"], a["groups"]):
+            linear = params[: self.k] + x @ betas
+            total = total + self.base_process.jax_nll(jnp.stack([link.to_natural(linear[i]) for i, link in enumerate(self.links)]), arrays)
         return total
 
     def fit(self, method: str = "L-BFGS-B", options: Optional[dict] = None, **kwargs):

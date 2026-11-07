@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from typing import Optional
 import numpy as np
 
+from BehaviorScreen.point_process.point_process.backend import xp
+
 
 def _softplus(x: np.ndarray) -> np.ndarray:
     return np.logaddexp(0.0, x)
@@ -39,13 +41,13 @@ class BoundedLink:
     clip: float = 50.0
 
     def to_natural(self, x: float) -> float:
-        x = float(np.clip(x, -self.clip, self.clip))
+        x = xp.clip(x, -self.clip, self.clip)
         if self.lo is not None and self.hi is not None:
-            return self.lo + (self.hi - self.lo) / (1.0 + np.exp(-x))
+            return self.lo + (self.hi - self.lo) / (1.0 + xp.exp(-x))
         elif self.lo is not None:
-            return self.lo + float(_softplus(np.array(x)))
+            return self.lo + xp.logaddexp(0.0, x)
         elif self.hi is not None:
-            return self.hi - float(_softplus(np.array(-x)))
+            return self.hi - xp.logaddexp(0.0, -x)
         else:
             return x
 
@@ -76,7 +78,7 @@ class LogLink:
     clip: float = 50.0
 
     def to_natural(self, x: float) -> float:
-        return float(np.exp(np.clip(x, -self.clip, self.clip)))
+        return xp.exp(xp.clip(x, -self.clip, self.clip))
 
     def to_linear(self, y: float) -> float:
         return float(np.log(y))
