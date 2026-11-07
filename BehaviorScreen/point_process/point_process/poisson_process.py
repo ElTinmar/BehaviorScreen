@@ -176,6 +176,7 @@ class PreyCapture:
         ripple = modulated.get("ripple")
         z = rf"z_{{0,\text{{ripple}}}}" + (rf"+\alpha_{{\text{{{ripple[6:]}}}}} m" if ripple else "")
         depth = rf"\frac{{{cls._RIPPLE_UPPER}}}{{1+e^{{-({z})}}}}"
+        peak = rf"A e^{{-t/\tau}}{factor('peak')} + " if transient else ""
         wave = r"\frac{1}{2}\left[\sin(\omega t + \phi_1) + \sin(2\omega t + \phi_2)\right]"
         return RateKernel(
             name=f"PreyCapture({variant})",
@@ -184,7 +185,7 @@ class PreyCapture:
             initial_guesses=[cls._GUESSES[i] for i in kept] + [0.0 if p == "alpha_ripple" else cls._ALPHA_GUESS for p in alphas],
             bounds=[cls._BOUNDS[i] for i in kept] + [cls._ALPHA_RIPPLE_BOUNDS if p == "alpha_ripple" else cls._ALPHA_BOUNDS for p in alphas],
             latex_formula=(
-                rf"$\lambda(t,m) = \left({rf'A e^{{-t/\tau}}' + factor('peak') + ' + ' if transient else ''}B{factor('baseline')}\right)"
+                rf"$\lambda(t,m) = \left({peak}B{factor('baseline')}\right)"
                 rf"\left(1 + {depth} {wave}\right),\ \omega = 2\pi \times {stim_freq:.3g}\,\mathrm{{Hz}}$"
             ),
         )
