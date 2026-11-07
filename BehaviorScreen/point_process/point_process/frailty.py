@@ -18,7 +18,7 @@ from scipy.sparse import csr_matrix
 from scipy.special import expit, gammaln, logit, logsumexp
 
 from . import gains_jax
-from .backend import Arrays, jnp, pad, padded
+from .backend import Arrays, jnp, padded
 from .dataset import PointProcessDataset
 from .kernel_shapes import logit_bounded, sigmoid_bounded
 from .point_process import PointProcess, StreamTaus, thin
@@ -372,10 +372,12 @@ class Frailty(_GainWrapper):
         if self.trial_gain and not self.base_process.gain_scales_drive_only:
             arrays["mask"] = jnp.asarray(dataset.fish_trial_mask, dtype=float)
         elif self.trial_gain:  # each event's index in its stream, for the Poisson-binomial distribution
-            stream = np.asarray(self.base_process.drive_likelihood_terms(dataset, self.base_process.initial_guesses)[3])
-            position = np.arange(len(stream)) - np.searchsorted(stream, stream)
-            arrays.update(position=jnp.asarray(pad(position, padded(len(stream)), 0)), mask=jnp.asarray(dataset.fish_trial_mask, dtype=float))
-            static["max_events"] = padded(int(np.bincount(stream, minlength=1).max()), minimum=4, steps_per_doubling=1)
+            base = self.base_process
+            stream = np.asarray(base.jax_drive_likelihood_terms(jnp.asarray(base.initial_guesses, dtype=float), arrays["base"])[3])
+            position = np.arange(len(stream)) - np.searchsorted(stream, stream)  # padded already: phantom events are dropped
+            arrays.update(position=jnp.asarray(position), mask=jnp.asarray(dataset.fish_trial_mask, dtype=float))
+            real = stream[stream < dataset.num_fish * dataset.num_trials]
+            static["max_events"] = padded(int(np.bincount(real, minlength=1).max()), minimum=4, steps_per_doubling=1)
         return Arrays(arrays, static)
 
     def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:

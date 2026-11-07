@@ -37,7 +37,7 @@ EVENTS = "bouts_control.csv"
 VALID_TRIALS = "valid_trials_control.csv"
 QC = "qc_control.csv"
 OUT_DIR = "./figures"
-PROCESSES = 12  # parallel fits per experiment
+PROCESSES = 10  # parallel fits per experiment
 ENV = os.environ | {
     "MPLBACKEND": "Agg",
     "OMP_NUM_THREADS": "1",

@@ -90,8 +90,14 @@ def pad(values: np.ndarray, size: int, fill: Any) -> np.ndarray:
 _COMPILED: Dict[Hashable, Tuple[Callable, Callable, Callable]] = {}
 
 
+def _hessian(nll: Callable) -> Callable:
+    """Hessian of nll(params, arrays) one column at a time: the memory of one gradient, not of k at once (jax.hessian)."""
+    grad = jax.grad(nll)
+    return lambda params, arrays: jax.lax.map(lambda v: jax.jvp(lambda p: grad(p, arrays), (params,), (v,))[1], jnp.eye(params.size))
+
+
 def compiled(key: Hashable, nll: Callable) -> Tuple[Callable, Callable, Callable]:
     """Jitted value, value and gradient, and Hessian of nll(params, arrays), one set per key (a model's structure)."""
     if key not in _COMPILED:
-        _COMPILED[key] = (jax.jit(nll), jax.jit(jax.value_and_grad(nll)), jax.jit(jax.hessian(nll)))
+        _COMPILED[key] = (jax.jit(nll), jax.jit(jax.value_and_grad(nll)), jax.jit(_hessian(nll)))
     return _COMPILED[key]

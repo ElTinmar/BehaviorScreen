@@ -562,9 +562,7 @@ class RenewalProcess(PointProcess):
         (num_fish * num_trials) that sums per stream drop. Off-lattice ages point at a padded grid
         point; the lattice covers every age a trial allows.
         """
-        grid = dataset.cached(
-            ("renewal_grid", self.integration_dt, self.excitation is not None), lambda: self._dataset_grid(dataset)
-        )
+        grid = self._dataset_grid(dataset)  # not cached: the JAX arrays are its only copy kept
         n_points, columns = len(grid["weights"]), self._table_columns(dataset)
         n_lattice = int(np.ceil(dataset.duration_s / self.integration_dt)) + 1  # every age a trial allows
         points, events, off = padded(n_points + 1), padded(len(grid["event_times"])), padded(len(grid["off_lattice"]))
