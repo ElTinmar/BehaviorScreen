@@ -341,6 +341,7 @@ def get_model_config() -> Dict[str, dict]:
             ]
             + [
                 gamma(poisson(flat())),
+                gamma(poisson(prey("Baseline_Ripple"))),
                 gamma(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple")), fit_c=True),

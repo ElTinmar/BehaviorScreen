@@ -124,7 +124,9 @@ class PreyCapture:
         "Peak_Baseline_Shared": {"peak": "alpha_shared", "baseline": "alpha_shared"},
         "Peak_Baseline_Shared_Ripple": {"peak": "alpha_shared", "baseline": "alpha_shared", "ripple": "alpha_ripple"},
         "Peak_Baseline_Ripple_Shared": {"peak": "alpha_shared", "baseline": "alpha_shared", "ripple": "alpha_shared"},
+        "Baseline_Ripple": {"baseline": "alpha_baseline", "ripple": "alpha_ripple"},
     }
+    _WITHOUT_TRANSIENT = {"Baseline_Ripple"}
 
     @classmethod
     def _rate(
@@ -153,10 +155,12 @@ class PreyCapture:
     def variant(cls, variant: str, stim_freq: float) -> RateKernel:
         modulated = cls._VARIANTS[variant]
         alphas = list(dict.fromkeys(modulated.values()))
-        names = cls._PARAM_NAMES + alphas
+        transient = variant not in cls._WITHOUT_TRANSIENT
+        kept = [i for i, n in enumerate(cls._PARAM_NAMES) if transient or n not in ("A", "tau")]
+        names = [cls._PARAM_NAMES[i] for i in kept] + alphas
 
         def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
-            values = dict(zip(names, params))
+            values = {"A": 0.0, "tau": 1.0, **dict(zip(names, params))}
             return cls._rate(
                 t,
                 trial,
@@ -177,10 +181,10 @@ class PreyCapture:
             name=f"PreyCapture({variant})",
             func=_func,
             param_names=names,
-            initial_guesses=cls._GUESSES + [0.0 if p == "alpha_ripple" else cls._ALPHA_GUESS for p in alphas],
-            bounds=cls._BOUNDS + [cls._ALPHA_RIPPLE_BOUNDS if p == "alpha_ripple" else cls._ALPHA_BOUNDS for p in alphas],
+            initial_guesses=[cls._GUESSES[i] for i in kept] + [0.0 if p == "alpha_ripple" else cls._ALPHA_GUESS for p in alphas],
+            bounds=[cls._BOUNDS[i] for i in kept] + [cls._ALPHA_RIPPLE_BOUNDS if p == "alpha_ripple" else cls._ALPHA_BOUNDS for p in alphas],
             latex_formula=(
-                rf"$\lambda(t,m) = \left(A e^{{-t/\tau}}{factor('peak')} + B{factor('baseline')}\right)"
+                rf"$\lambda(t,m) = \left({rf'A e^{{-t/\tau}}' + factor('peak') + ' + ' if transient else ''}B{factor('baseline')}\right)"
                 rf"\left(1 + {depth} {wave}\right),\ \omega = 2\pi \times {stim_freq:.3g}\,\mathrm{{Hz}}$"
             ),
         )
@@ -194,6 +198,7 @@ class PreyCapture:
     peak_baseline_shared_ripple = classmethod(
         lambda cls, stim_freq: cls.variant("Peak_Baseline_Shared_Ripple", stim_freq)
     )
+    baseline_ripple = classmethod(lambda cls, stim_freq: cls.variant("Baseline_Ripple", stim_freq))
     peak_baseline_ripple_shared = classmethod(
         lambda cls, stim_freq: cls.variant("Peak_Baseline_Ripple_Shared", stim_freq)
     )

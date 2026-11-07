@@ -30,7 +30,7 @@ TIER1_MODELS = {
     "spont_bright": lambda: gamma(poisson(RateKernelFactory.spont())),
     "after_looming": lambda: gamma(poisson(RateKernelFactory.after_looming())),
     "prey_capture_convergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
-    "prey_capture_divergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
+    "prey_capture_divergent_saccade": lambda: gamma(poisson(prey("Baseline_Ripple"))),
     "okr_conjugate_saccades": lambda: side_gamma(sided(flat(), flat())),
     "looming_divergent_saccade": lambda: gamma(SurvivalProcess(looming())),
 }
