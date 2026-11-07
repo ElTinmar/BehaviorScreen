@@ -36,9 +36,10 @@ from scipy.special import expit, logit
 
 from BehaviorScreen.core import Laterality
 
+from .backend import Arrays, jnp, pad, padded
 from .dataset import PointProcessDataset
 from .point_process import PointProcess, thin
-from .poisson_process import RateKernel
+from .poisson_process import RateKernel, event_arrays, integral_arrays, trial_integrals
 from .renewal_process import RenewalKernel, RenewalProcess
 from .survival_process import SurvivalProcess
 
@@ -103,6 +104,35 @@ class SidedPoissonProcess(PointProcess):
     ) -> Tuple[float, np.ndarray, np.ndarray]:
         log_rates, n, S = self.stream_likelihood_terms(dataset, params)
         return log_rates, n.sum(axis=1), S.sum(axis=1)
+
+    def jax_side_arrays(self, dataset: PointProcessDataset) -> Arrays:
+        """event_arrays and every event's side (padding: contra)."""
+        arrays = event_arrays(dataset)
+        return Arrays({**arrays, "ipsi": jnp.asarray(pad(self._is_ipsi(dataset), len(arrays["t"]), False))}, {"num_fish": dataset.num_fish})
+
+    def supports_jax(self) -> bool:
+        return True
+
+    def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
+        sides = self.jax_side_arrays(dataset)
+        return Arrays({**sides.arrays, **integral_arrays(dataset, self.integration_dt)}, {"num_fish": dataset.num_fish, "num_trials": dataset.num_trials})
+
+    def jax_stream_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Sum of log rates of each event's side, and events and expected events per stream (fish x trial)."""
+        (k_i, p_i), (k_c, p_c) = self._sides(params)
+        log_rates = jnp.where(a["ipsi"], jnp.log(k_i.evaluate(a["t"], a["trial"], p_i)), jnp.log(k_c.evaluate(a["t"], a["trial"], p_c)))
+        per_trial = trial_integrals(k_i, p_i, a) + trial_integrals(k_c, p_c, a)
+        return jnp.sum(jnp.where(a["valid"], log_rates, 0.0)), a["n"], a["mask"] * per_trial[None, :]
+
+    def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        log_rates, _, expected = self.jax_stream_terms(params, a)
+        return expected.sum() - log_rates
+
+    def jax_side_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """side_terms in JAX: every event's fish, log odds of ipsi, and whether it is ipsi."""
+        (k_i, p_i), (k_c, p_c) = self._sides(params)
+        log_odds = jnp.log(k_i.evaluate(a["t"], a["trial"], p_i)) - jnp.log(k_c.evaluate(a["t"], a["trial"], p_c))
+        return a["fish"], log_odds, a["ipsi"]
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         log_rates, _, S = self.mixed_effects_likelihood_terms(dataset, params)
@@ -193,6 +223,29 @@ class SidedSurvivalProcess(SurvivalProcess):
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         return super()._nll(params, dataset) - self._side_log_likelihood(dataset, params)
+
+    def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
+        first = dataset.first_events()
+        n_preferred, n_other = self._first_event_sides(dataset)
+        sides = {"side_fish": jnp.asarray(first.event_fish_idx), "preferred": jnp.asarray(np.asarray(first.marks["laterality"]) == self.preferred),
+                 "n_preferred": float(n_preferred), "n_other": float(n_other)}
+        survival = super().jax_arrays(dataset)
+        return Arrays({**survival.arrays, **sides}, survival.static)
+
+    def _jax_side_log_likelihood(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        d = params[-1]
+        return a["n_preferred"] * jnp.log(d / (1.0 + d)) - a["n_other"] * jnp.log1p(d)
+
+    def jax_side_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        return a["side_fish"], jnp.full(a["preferred"].shape, jnp.log(params[-1])), a["preferred"]
+
+    def jax_stream_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        log_hazards, n, H = super().jax_stream_terms(params, a)
+        return log_hazards + self._jax_side_log_likelihood(params, a), n, H
+
+    def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        log_rates, _, H = self.jax_stream_terms(params, a)
+        return H.sum() - log_rates
 
     def mixed_effects_likelihood_terms(
         self, dataset: PointProcessDataset, params: List[float]
@@ -286,6 +339,25 @@ class SidedRenewalProcess(PointProcess):
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         return self.ground._nll(params, dataset) - self._side_log_likelihood(dataset, params)
+
+    def supports_jax(self) -> bool:
+        return True
+
+    def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
+        return Arrays({"ground": self.ground._arrays(dataset), "sides": self.sides.jax_side_arrays(dataset)}, {})
+
+    def jax_side_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        return self.sides.jax_side_terms(params[: self._n_sides], a["sides"])
+
+    def _jax_side_log_likelihood(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        fish, log_odds, is_ipsi = self.jax_side_terms(params, a)
+        return -jnp.sum(jnp.where(fish < a["sides"]["num_fish"], jnp.logaddexp(0.0, jnp.where(is_ipsi, -log_odds, log_odds)), 0.0))
+
+    def jax_drive_likelihood_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, ...]:
+        return (self._jax_side_log_likelihood(params, a), *self.ground.jax_drive_terms(params, a["ground"]))
+
+    def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        return self.ground.jax_nll(params, a["ground"]) - self._jax_side_log_likelihood(params, a)
 
     def mixed_effects_likelihood_terms(
         self, dataset: PointProcessDataset, params: List[float]

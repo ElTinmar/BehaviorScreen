@@ -154,7 +154,7 @@ def reuse_saved_fit(model: PointProcess, record: Optional[dict], dataset: PointP
     params = np.asarray(record["params"], dtype=float)
     if len(params) != len(model.param_names):
         return f"saved fit has {len(params)} parameters, the model {len(model.param_names)}: refitting"
-    nll = model._nll(list(params), dataset)
+    nll = model.nll(params, dataset)
     if not np.isclose(nll, record["nll"], rtol=rtol, atol=1e-6):
         return f"saved NLL {record['nll']:.3f} is now {nll:.3f} (code, data or model changed): refitting"
     model.set_params(params)
@@ -231,7 +231,7 @@ def run_plot_task(
         except ValueError:
             continue
         model.set_params(params)
-        model.fit_result = OptimizeResult(x=params, fun=model._nll(list(params), dataset), success=True)
+        model.fit_result = OptimizeResult(x=params, fun=model.nll(params, dataset), success=True)
     plot_rungs(config["models"], dataset, model_dir, n_jobs, replicates)
 
 

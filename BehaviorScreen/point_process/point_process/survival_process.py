@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple, Union
 
 import numpy as np
 
+from .backend import Arrays, jnp, pad, padded, xp
 from .dataset import PointProcessDataset
 from .point_process import PointProcess, thin
 from .poisson_process import RateKernel
@@ -20,7 +21,7 @@ class SurvivalKernelFactory:
 
         def _func(t, trial, params):
             (B,) = params
-            return B * np.ones_like(t + 0.0 * trial)
+            return B * xp.ones_like(t + 0.0 * trial)
 
         return RateKernel(
             name="SurvivalConstantHazard",
@@ -42,7 +43,7 @@ class SurvivalKernelFactory:
 
         def _func(t, trial, params):
             H, mu, sigma, B = params
-            return H * np.exp(-0.5 * ((t - mu) / sigma) ** 2) + B
+            return H * xp.exp(-0.5 * ((t - mu) / sigma) ** 2) + B
 
         return RateKernel(
             name="SurvivalGaussianBump(Baseline)",
@@ -78,8 +79,8 @@ class SurvivalKernelFactory:
 
         def _func(t, trial, params):
             H, mu, sigma, B, alpha = params
-            height = H * np.exp(alpha * trial)
-            return height * np.exp(-0.5 * ((t - mu) / sigma) ** 2) + B
+            height = H * xp.exp(alpha * trial)
+            return height * xp.exp(-0.5 * ((t - mu) / sigma) ** 2) + B
 
         return RateKernel(
             name="SurvivalGaussianBump(Baseline_Habituating)",
@@ -115,9 +116,9 @@ class SurvivalKernelFactory:
 
         def _func(t, trial, params):
             H, mu, sigma0, B, alpha, beta_sigma = params
-            height = H * np.exp(alpha * trial)
+            height = H * xp.exp(alpha * trial)
             width = sigma0 * bounded_trial_scale(trial, beta_sigma)
-            return height * np.exp(-0.5 * ((t - mu) / width) ** 2) + B
+            return height * xp.exp(-0.5 * ((t - mu) / width) ** 2) + B
 
         return RateKernel(
             name="SurvivalGaussianBump(Baseline_Habituating_VariableWidth)",
@@ -167,8 +168,8 @@ class SurvivalKernelFactory:
 
         def _func(t, trial, params):
             H, tau, B, alpha = params
-            height = H * np.exp(alpha * trial)
-            pulse = (t / tau) * np.exp(-t / tau)
+            height = H * xp.exp(alpha * trial)
+            pulse = (t / tau) * xp.exp(-t / tau)
             return height * pulse + B
 
         return RateKernel(
@@ -209,7 +210,7 @@ class SurvivalKernelFactory:
 
         def _func(t, trial, params):
             H, mu, sigma, tau, B, alpha = params
-            height = H * np.exp(alpha * trial)
+            height = H * xp.exp(alpha * trial)
             peak_shape = exgaussian_shape(t, mu, sigma, tau)
             return B + height * peak_shape
 
@@ -355,6 +356,56 @@ class SurvivalProcess(PointProcess):
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         _, trial, t_obs, censored, H = self._first_passage(dataset, params)
         return float(np.sum(H)) - self._log_hazard_at_events(trial, t_obs, censored, params)
+
+    def supports_jax(self) -> bool:
+        return True
+
+    def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
+        """
+        Per active stream its fish, trial, first-passage time and whether it is censored;
+        and RateKernel.cumulative_integrate's grid of each trial (to its latest observation),
+        concatenated and padded (padded) with grid starts, with each observation's grid point.
+        """
+        fish, trial, t_obs, censored = (np.array(c) for c in zip(*(
+            (f, m, *self._first_event_or_censor(t_ev, dataset.duration_s)) for f, m, t_ev in dataset.iter_streams()
+        )))
+        grids, starts, point = [], [], np.zeros(len(t_obs), dtype=int)
+        offset = 0
+        for m in np.unique(trial):
+            in_trial = trial == m
+            t_max = t_obs[in_trial].max()
+            grid = np.append(np.arange(0, t_max, self.integration_dt), t_max)
+            k = np.clip(np.searchsorted(grid, t_obs[in_trial], side="right") - 1, 0, len(grid) - 1)
+            point[in_trial] = offset + k
+            grids.append(np.stack([grid, np.full(len(grid), m)]))
+            starts.append(np.r_[True, np.zeros(len(grid) - 1, bool)])
+            offset += len(grid)
+        grid = np.concatenate(grids, axis=1)
+        size = padded(grid.shape[1])
+        start = pad(np.concatenate(starts), size, True)
+        return Arrays({
+            "fish": jnp.asarray(fish), "trial": jnp.asarray(trial), "t_obs": jnp.asarray(t_obs), "censored": jnp.asarray(censored),
+            "grid_t": jnp.asarray(pad(grid[0], size, 0.0)), "grid_trial": jnp.asarray(pad(grid[1], size, 0.0)), "grid_start": jnp.asarray(start),
+            "start_index": jnp.asarray(np.maximum.accumulate(np.where(start, np.arange(size), 0))), "point": jnp.asarray(point),
+        }, {"num_fish": dataset.num_fish, "num_trials": dataset.num_trials})
+
+    def jax_stream_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Sum of log hazards at the first events, and events and cumulative hazard per stream (fish x trial)."""
+        t, m = a["grid_t"], a["grid_trial"]
+        rate = self.kernel.evaluate(t, m, params)
+        steps = jnp.where(a["grid_start"], 0.0, (rate + jnp.roll(rate, 1)) / 2 * (t - jnp.roll(t, 1)))
+        cumulative = jnp.cumsum(steps)
+        cumulative = cumulative - cumulative[a["start_index"]]
+        k, t_obs, trial = a["point"], a["t_obs"], a["trial"].astype(float)
+        h = self.kernel.evaluate(t_obs, trial, params)
+        H = cumulative[k] + (t_obs - t[k]) * (rate[k] + h) / 2
+        log_hazards = jnp.sum(jnp.where(a["censored"], 0.0, jnp.log(jnp.maximum(h, 1e-12))))
+        per_stream = lambda values: jnp.zeros((a["num_fish"], a["num_trials"])).at[a["fish"], a["trial"]].add(values)
+        return log_hazards, per_stream(jnp.where(a["censored"], 0.0, 1.0)), per_stream(H)
+
+    def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        log_hazards, _, H = self.jax_stream_terms(params, a)
+        return H.sum() - log_hazards
 
     def mixed_effects_likelihood_terms(
         self, dataset: PointProcessDataset, params: List[float]

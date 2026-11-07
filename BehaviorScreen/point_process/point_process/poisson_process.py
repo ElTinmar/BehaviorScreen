@@ -2,8 +2,10 @@ from dataclasses import dataclass
 from typing import Callable, Dict, List, Tuple, Optional, Union
 
 import numpy as np
+
 from scipy.integrate import trapezoid, cumulative_trapezoid
 
+from .backend import Arrays, jnp, pad, padded, trapezoid_weights, xp
 from .dataset import PointProcessDataset
 from .point_process import PointProcess, thin
 from .kernel_shapes import (
@@ -29,9 +31,7 @@ class RateKernel:
     def evaluate(
         self, t: np.ndarray, trial: np.ndarray, params: List[float]
     ) -> np.ndarray:
-        rate = self.func(t, trial, params)
-        target_shape = np.broadcast(t, trial).shape
-        return np.broadcast_to(rate, target_shape)
+        return xp.broadcast_to(self.func(t, trial, params), np.broadcast_shapes(np.shape(t), np.shape(trial)))
 
     def integrate(
         self,
@@ -144,10 +144,10 @@ class PreyCapture:
         alpha_baseline: float = 0.0,
         alpha_ripple: float = 0.0,
     ) -> np.ndarray:
-        phase = 2.0 * np.pi * stim_freq * t
-        transient = A * np.exp(-t / tau) * np.exp(alpha_peak * trial)
-        baseline = B * np.exp(alpha_baseline * trial)
-        wave = 0.5 * (np.sin(phase + phi1) + np.sin(2.0 * phase + phi2))
+        phase = 2.0 * xp.pi * stim_freq * t
+        transient = A * xp.exp(-t / tau) * xp.exp(alpha_peak * trial)
+        baseline = B * xp.exp(alpha_baseline * trial)
+        wave = 0.5 * (xp.sin(phase + phi1) + xp.sin(2.0 * phase + phi2))
         depth = sigmoid_bounded(z0_ripple + alpha_ripple * trial, cls._RIPPLE_UPPER)
         return (transient + baseline) * (1.0 + depth * wave)
 
@@ -211,7 +211,7 @@ class RateKernelFactory:
     def homogeneous_poisson() -> RateKernel:
         def _func(t, trial, params):
             B = params[0]
-            return B * np.ones_like(t + 0.0 * trial)
+            return B * xp.ones_like(t + 0.0 * trial)
 
         return RateKernel(
             name="Homogeneous λ",
@@ -252,11 +252,11 @@ class RateKernelFactory:
         def _func(t, trial, params):
             B, f_dip, tau, A_peak, alpha_B, alpha_peak = params
 
-            mod_B = B * np.exp(alpha_B * trial)
-            mod_peak = A_peak * np.exp(alpha_peak * trial)
+            mod_B = B * xp.exp(alpha_B * trial)
+            mod_peak = A_peak * xp.exp(alpha_peak * trial)
 
-            dip_component = mod_B * (1.0 - f_dip * np.exp(-t / tau))
-            peak_component = mod_peak * np.e * (t / tau) * np.exp(-t / tau)
+            dip_component = mod_B * (1.0 - f_dip * xp.exp(-t / tau))
+            peak_component = mod_peak * xp.e * (t / tau) * xp.exp(-t / tau)
 
             return dip_component + peak_component
 
@@ -297,7 +297,7 @@ class RateKernelFactory:
         def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             B, z0_dip, tau_dip, alpha_B, alpha_dip = params
             depth = sigmoid_bounded(z0_dip + alpha_dip * trial, f_dip_upper)
-            return B * np.exp(alpha_B * trial) * (1.0 - depth * np.exp(-t / tau_dip))
+            return B * xp.exp(alpha_B * trial) * (1.0 - depth * xp.exp(-t / tau_dip))
 
         return RateKernel(
             name=name,
@@ -332,7 +332,7 @@ class RateKernelFactory:
 
         def _func(t, trial, params):
             B, alpha_B = params
-            return B * np.exp(alpha_B * trial)
+            return B * xp.exp(alpha_B * trial)
 
         return RateKernel(
             name="Spontaneous λ(t, m)",
@@ -371,7 +371,7 @@ class RateKernelFactory:
         def _func(t, trial, params):
             B, z_dip, tau_dip = params
             f_dip = sigmoid_bounded(z_dip, f_dip_upper)
-            return B * (1.0 - f_dip * np.exp(-t / tau_dip))
+            return B * (1.0 - f_dip * xp.exp(-t / tau_dip))
 
         z_dip_init = float(logit_bounded(0.5, f_dip_upper))
 
@@ -393,7 +393,7 @@ class RateKernelFactory:
 
         def _func(t, trial, params):
             B, f_dip, tau_dip = params
-            return B * (1.0 - f_dip * np.exp(-t / tau_dip))
+            return B * (1.0 - f_dip * xp.exp(-t / tau_dip))
 
         return RateKernel(
             name="OMR lateral contra λ(t)",
@@ -432,9 +432,9 @@ class RateKernelFactory:
             )
 
             baseline = (
-                B * np.exp(alpha_B * trial) * (1.0 - f_dip * np.exp(-t / tau_dip))
+                B * xp.exp(alpha_B * trial) * (1.0 - f_dip * xp.exp(-t / tau_dip))
             )
-            height = A_peak * np.exp(alpha_peak * trial)
+            height = A_peak * xp.exp(alpha_peak * trial)
             peak_shape = exgaussian_shape(t, mu, sigma, tau_decay)
 
             return baseline + height * peak_shape
@@ -522,8 +522,8 @@ class RateKernelFactory:
                 tau_decay,
             ) = params
 
-            baseline = B * np.exp(alpha_B * trial)
-            transient_scale = A_peak * np.exp(alpha_peak * trial)
+            baseline = B * xp.exp(alpha_B * trial)
+            transient_scale = A_peak * xp.exp(alpha_peak * trial)
             transient_shape = exgaussian_shape(
                 t,
                 mu,
@@ -572,6 +572,26 @@ class RateKernelFactory:
         )
 
 
+def event_arrays(dataset: PointProcessDataset) -> Dict[str, jnp.ndarray]:
+    """Every event's time, trial, fish and whether it is real, padded (padded) with events of a phantom fish (num_fish)."""
+    n = padded(len(dataset.event_times))
+    fish = pad(dataset.event_fish_idx.astype(int), n, dataset.num_fish)
+    return {"t": jnp.asarray(pad(dataset.event_times.astype(float), n, 0.0)), "trial": jnp.asarray(pad(dataset.event_trials_idx.astype(float), n, 0.0)),
+            "fish": jnp.asarray(fish), "valid": jnp.asarray(fish < dataset.num_fish)}
+
+
+def integral_arrays(dataset: PointProcessDataset, integration_dt: float) -> Dict[str, jnp.ndarray]:
+    """RateKernel.integrate's trapezoid grid over a trial, the events and recorded streams (fish x trial)."""
+    grid = np.append(np.arange(0, dataset.duration_s, integration_dt), dataset.duration_s)
+    return {"grid": jnp.asarray(grid), "grid_weights": jnp.asarray(trapezoid_weights(grid)),
+            "n": jnp.asarray(dataset.event_counts_per_stream()), "mask": jnp.asarray(dataset.fish_trial_mask, dtype=float)}
+
+
+def trial_integrals(kernel: RateKernel, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+    """Integral of the kernel over each trial (RateKernel.integrate in JAX)."""
+    return kernel.evaluate(a["grid"][None, :], jnp.arange(a["num_trials"])[:, None], params) @ a["grid_weights"]
+
+
 class PoissonProcess(PointProcess):
 
     def __init__(self, kernel: RateKernel, integration_dt: float = 0.02):
@@ -604,6 +624,21 @@ class PoissonProcess(PointProcess):
         # Scale expected events by trial-specific observing fish count
         total_expected_events = np.sum(trial_integrals * dataset.n_fish_per_trial)
         return -(sum_log_rates - total_expected_events)
+
+    def supports_jax(self) -> bool:
+        return True
+
+    def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
+        return Arrays({**event_arrays(dataset), **integral_arrays(dataset, self.integration_dt)}, {"num_trials": dataset.num_trials})
+
+    def jax_stream_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+        """Sum of log rates at the events, and events and expected events per stream (fish x trial)."""
+        log_rates = jnp.sum(jnp.where(a["valid"], jnp.log(self.kernel.evaluate(a["t"], a["trial"], params)), 0.0))
+        return log_rates, a["n"], a["mask"] * trial_integrals(self.kernel, params, a)[None, :]
+
+    def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        log_rates, _, expected = self.jax_stream_terms(params, a)
+        return expected.sum() - log_rates
 
     def predict(self, t: np.ndarray, trial: Union[float, np.ndarray]) -> np.ndarray:
         self._require_fitted()

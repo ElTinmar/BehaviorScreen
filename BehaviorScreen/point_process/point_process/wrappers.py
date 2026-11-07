@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 
+from .backend import Arrays, jnp
 from .dataset import PointProcessDataset
 from .point_process import PointProcess
 
@@ -126,3 +127,16 @@ class PartiallyFixedProcess(Wrapper):
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         return self.base_process._nll(self._base_params(params), dataset)
+
+    def supports_jax(self) -> bool:
+        return self.base_process.supports_jax()
+
+    def _jax_key(self) -> tuple:
+        return (type(self).__name__, tuple(self._free_idx)) + self.base_process._jax_key()
+
+    def _arrays(self, dataset: PointProcessDataset) -> Arrays:
+        """The base process's arrays and the pinned values (an argument: one compiled likelihood for any values)."""
+        return Arrays({"base": self.base_process._arrays(dataset), "full": jnp.asarray(self._base_params([0.0] * len(self._free_idx)), dtype=float)}, {})
+
+    def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        return self.base_process.jax_nll(a["full"].at[jnp.asarray(self._free_idx)].set(params), a["base"])

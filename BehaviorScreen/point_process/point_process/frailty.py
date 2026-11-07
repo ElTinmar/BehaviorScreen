@@ -17,6 +17,8 @@ from scipy.linalg import eigh_tridiagonal
 from scipy.sparse import csr_matrix
 from scipy.special import expit, gammaln, logit, logsumexp
 
+from . import gains_jax
+from .backend import Arrays, jnp, pad, padded
 from .dataset import PointProcessDataset
 from .kernel_shapes import logit_bounded, sigmoid_bounded
 from .point_process import PointProcess, StreamTaus, thin
@@ -343,6 +345,61 @@ class Frailty(_GainWrapper):
     def _r_trial(self, params: Optional[List[float]] = None) -> float:
         params = self.params_ if params is None else params
         return float(params[self._n_base + len(self.gains.param_names)])
+
+    def supports_jax(self) -> bool:
+        base = self.base_process
+        if not base.supports_jax():
+            return False
+        if base.gain_scales_drive_only:
+            return type(self.gains) is GammaFamily and hasattr(base, "jax_drive_likelihood_terms")
+        return hasattr(base, "jax_stream_terms")
+
+    def _jax_log_marginal(self, params: jnp.ndarray, N: jnp.ndarray, S: jnp.ndarray) -> jnp.ndarray:
+        """The gain family's log marginal per fish of N events and S expected events (gain 1)."""
+        tail = params[self._n_base :]
+        if isinstance(self.gains, GammaFamily):
+            r = jnp.maximum(tail[0], 1e-8)
+            return gains_jax.log_gamma_marginal(N, S, r, r)
+        family = self.gains
+        pi, r = sigmoid_bounded(tail[0], 1.0), jnp.maximum(tail[1], 1e-8)
+        c = sigmoid_bounded(tail[2], family.c_upper) if family.fit_c else family.c_init
+        mu = (1.0 - pi * c) / jnp.maximum(1.0 - pi, 1e-12)
+        return gains_jax.log_zero_inflated_marginal(N, S, pi, c, not family.fit_c and family.c_init <= 0.0, r, r / mu)
+
+    def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
+        arrays = {"base": self.base_process._arrays(dataset), "active": jnp.asarray(dataset.fish_trial_mask.any(axis=1))}
+        static = dict(num_trials=dataset.num_trials, num_fish=dataset.num_fish)
+        if self.trial_gain and not self.base_process.gain_scales_drive_only:
+            arrays["mask"] = jnp.asarray(dataset.fish_trial_mask, dtype=float)
+        elif self.trial_gain:  # each event's index in its stream, for the Poisson-binomial distribution
+            stream = np.asarray(self.base_process.drive_likelihood_terms(dataset, self.base_process.initial_guesses)[3])
+            position = np.arange(len(stream)) - np.searchsorted(stream, stream)
+            arrays.update(position=jnp.asarray(pad(position, padded(len(stream)), 0)), mask=jnp.asarray(dataset.fish_trial_mask, dtype=float))
+            static["max_events"] = padded(int(np.bincount(stream, minlength=1).max()), minimum=4, steps_per_doubling=1)
+        return Arrays(arrays, static)
+
+    def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        if not self.base_process.gain_scales_drive_only:
+            log_rates, n, S = self.base_process.jax_stream_terms(params[: self._n_base], a["base"])
+            if self.trial_gain:
+                r = jnp.maximum(params[self._n_base], 1e-8)
+                nested = gains_jax.log_nested_gamma_marginal(
+                    n, S, a["mask"], r, params[self._n_base + 1], jnp.asarray(self._gain_nodes), jnp.asarray(self._gain_log_weights)
+                )
+                return -(log_rates + jnp.sum(nested))
+            return -(log_rates + jnp.sum(jnp.where(a["active"], self._jax_log_marginal(params, n.sum(axis=1), S.sum(axis=1)), 0.0)))
+        constant, drive_rates, burst_rates, stream, drive_exposure, burst_exposure = self.base_process.jax_drive_likelihood_terms(
+            params[: self._n_base], a["base"]
+        )
+        r = jnp.maximum(params[self._n_base], 1e-8)
+        if self.trial_gain:
+            log_z = gains_jax.log_nested_drive_marginal(
+                drive_rates, burst_rates, stream, a["position"], a["max_events"], drive_exposure, a["mask"],
+                r, params[self._n_base + 1], jnp.asarray(self._gain_nodes), jnp.asarray(self._gain_log_weights),
+            )
+        else:
+            log_z = gains_jax.gamma_gain_evidence_by_fish(drive_rates, burst_rates, stream // a["num_trials"], drive_exposure.sum(axis=1), r, r)
+        return -(constant + jnp.sum(jnp.where(a["active"], log_z - burst_exposure.sum(axis=1), 0.0)))
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         if self.base_process.gain_scales_drive_only:
@@ -722,7 +779,7 @@ class SideFrailty(Frailty):
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         fish, log_odds, preferred = self.base_process.side_terms(dataset, self._base_params(params))
-        to_fish = dataset.cached("side_events_to_fish", lambda: csr_matrix(
+        to_fish = dataset.cached(("side_events_to_fish", len(fish)), lambda: csr_matrix(
             (np.ones(len(fish)), (fish, np.arange(len(fish)))), shape=(dataset.num_fish, len(fish))
         ))
         sign = np.where(preferred, 1.0, -1.0)
@@ -740,6 +797,14 @@ class SideFrailty(Frailty):
             lambda u: log_f(u) - log_f0, derivatives, params[-1], self._nodes, self._log_weights, self._mode
         )
         return super()._nll(params, dataset) - float(np.sum(sides))
+
+    def supports_jax(self) -> bool:
+        return super().supports_jax() and hasattr(self.base_process, "jax_side_terms")
+
+    def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        fish, log_odds, preferred = self.base_process.jax_side_terms(params[: self._n_base], a["base"])
+        sides = gains_jax.side_mixture(fish, log_odds, preferred, params[-1], a["num_fish"], jnp.asarray(self._nodes), jnp.asarray(self._log_weights))
+        return super().jax_nll(params, a) - jnp.sum(sides)
 
     def _side_share(self, t: np.ndarray, trial: int, fish: int, side: int) -> np.ndarray:
         """Share of a fish's events to one side at t, at its posterior side shift (mode)."""

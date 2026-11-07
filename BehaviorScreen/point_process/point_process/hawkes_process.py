@@ -3,6 +3,7 @@ from typing import Callable, ClassVar, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
+from .backend import xp
 from .dataset import PointProcessDataset
 from .point_process import PointProcess, thin
 from .lag_kernel import LagKernel
@@ -54,11 +55,11 @@ class HistoryKernelFactory:
 
         def _func(lag, params):
             alpha, beta = params
-            return alpha * np.exp(-beta * lag)
+            return alpha * xp.exp(-beta * lag)
 
         def _integral(duration, params):
             alpha, beta = params
-            return alpha / beta * (1.0 - np.exp(-beta * duration))
+            return alpha / beta * (1.0 - xp.exp(-beta * duration))
 
         def _event_history(t_events, params):
             """Fast O(N) recursive implementation"""
@@ -66,13 +67,13 @@ class HistoryKernelFactory:
 
             n_events = len(t_events)
             if n_events == 0:
-                return np.array([], dtype=float)
+                return xp.array([], dtype=float)
 
-            history = np.zeros(n_events, dtype=float)
+            history = xp.zeros(n_events, dtype=float)
             R = 0.0
             for i in range(1, n_events):
                 dt = t_events[i] - t_events[i - 1]
-                R = np.exp(-beta * dt) * (1.0 + R)
+                R = xp.exp(-beta * dt) * (1.0 + R)
                 history[i] = alpha * R
 
             return history

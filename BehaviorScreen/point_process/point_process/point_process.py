@@ -4,6 +4,7 @@ from typing import Callable, ClassVar, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from .backend import Arrays, compiled, jnp
 from .dataset import PointProcessDataset
 from .diagnostics import DiagnosticsMixin
 from .gof import GOFMixin
@@ -75,6 +76,37 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         raise NotImplementedError
+
+    def supports_jax(self) -> bool:
+        """Whether jax_arrays and jax_nll (a JAX likelihood, so exact gradients) are defined."""
+        return False
+
+    def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
+        raise NotImplementedError
+
+    def jax_nll(self, params: jnp.ndarray, arrays: Arrays) -> jnp.ndarray:
+        raise NotImplementedError
+
+    def _jax_key(self) -> Tuple:
+        """What jax_nll depends on besides its arguments: one compiled likelihood per key."""
+        return type(self).__name__, self.name, self.integration_dt
+
+    def _arrays(self, dataset: PointProcessDataset) -> Arrays:
+        return dataset.cached(("jax",) + self._jax_key(), lambda: self.jax_arrays(dataset))
+
+    def nll(self, params: List[float], dataset: PointProcessDataset) -> float:
+        """The NLL: by the JAX likelihood where there is one."""
+        return self.jax_value(params, dataset) if self.supports_jax() else self._nll(list(params), dataset)
+
+    def jax_value(self, params: List[float], dataset: PointProcessDataset) -> float:
+        return float(compiled(self._jax_key(), self.jax_nll)[0](jnp.asarray(params, dtype=float), self._arrays(dataset)))
+
+    def nll_and_grad(self, params: List[float], dataset: PointProcessDataset) -> Tuple[float, np.ndarray]:
+        value, grad = compiled(self._jax_key(), self.jax_nll)[1](jnp.asarray(params, dtype=float), self._arrays(dataset))
+        return float(value), np.asarray(grad)
+
+    def jax_hessian(self, params: List[float], dataset: PointProcessDataset) -> np.ndarray:
+        return np.array(compiled(self._jax_key(), self.jax_nll)[2](jnp.asarray(params, dtype=float), self._arrays(dataset)))
 
     def set_params(self, params: np.ndarray) -> None:
         self.params_ = np.asarray(params, dtype=float)
