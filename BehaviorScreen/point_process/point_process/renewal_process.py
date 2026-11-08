@@ -2,6 +2,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import ClassVar, Dict, List, Optional, Tuple, Union
 
+import jax
 import numpy as np
 
 from scipy.integrate import trapezoid
@@ -320,6 +321,7 @@ class RenewalProcess(PointProcess):
     """
 
     _CHUNK: ClassVar[int] = 8192 #65536
+    _JAX_CHUNK: ClassVar[int] = 65536
     _TABLE_STEPS: ClassVar[int] = 4  # kernel table points per integration step
 
     def __init__(
@@ -605,7 +607,8 @@ class RenewalProcess(PointProcess):
         off_points = np.concatenate([grid["off_lattice"], beyond])
         order = np.argsort(off_points)
         grid["off_lattice"], grid["off_ages"] = off_points[order], np.concatenate([grid["off_ages"], step[beyond] * self.integration_dt])[order]
-        points, events, off = padded(n_points + 1), padded(len(grid["event_times"])), padded(len(grid["off_lattice"]))
+        points = -(-padded(n_points + 1) // self._JAX_CHUNK) * self._JAX_CHUNK  # whole chunks for jax_drive_terms' scan
+        events, off = padded(len(grid["event_times"])), padded(len(grid["off_lattice"]))
         lattice_step = np.where(grid["lattice_step"] >= n_lattice, n_lattice, grid["lattice_step"])  # no previous bout: the 1 past the lattice
         fills = {
             "weights": (points, 0.0), "stream": (points, 0), "lattice_step": (points, n_lattice), "table_index": (points, 0),
@@ -625,19 +628,26 @@ class RenewalProcess(PointProcess):
         rho = lattice[a["lattice_step"]].at[a["off_lattice"]].set(self.renewal_kernel.evaluate(a["off_ages"], params_renewal))
         t = jnp.arange(a["columns"]) * self._table_dt
         table = self.kernel.evaluate(t[None, :], jnp.arange(a["num_trials"])[:, None], params_base).ravel()
-        weight = a["weights"] * rho
-        drive = weight * interpolate(table, a["table_index"], a["table_fraction"])
         n_streams = a["num_fish"] * a["num_trials"]
-        drive_exposure = segment_sum(drive, a["stream"], n_streams)
+        excitation = None if self.excitation is None else jnp.append(self.excitation.evaluate(t, params_excitation), jnp.zeros(2))
+
+        def exposures(totals: Tuple[jnp.ndarray, jnp.ndarray], chunk: Dict[str, jnp.ndarray]) -> Tuple[Tuple[jnp.ndarray, jnp.ndarray], None]:
+            drive = chunk["weight"] * interpolate(table, chunk["table_index"], chunk["table_fraction"])
+            if excitation is None:
+                return (totals[0] + segment_sum(drive, chunk["stream"], n_streams), totals[1]), None
+            burst = (drive if self._relative else chunk["weight"]) * interpolate(excitation, chunk["excitation_index"], chunk["excitation_fraction"])
+            return (totals[0] + segment_sum(drive, chunk["stream"], n_streams), totals[1] + segment_sum(burst, chunk["stream"], n_streams)), None
+
+        keys = ["stream", "table_index", "table_fraction"] + ([] if excitation is None else ["excitation_index", "excitation_fraction"])
+        chunks = {k: x.reshape(-1, self._JAX_CHUNK) for k, x in [("weight", a["weights"] * rho)] + [(k, a[k]) for k in keys]}
+        # checkpointed: the gradient recomputes a chunk's intermediates instead of keeping those of the whole grid
+        (drive_exposure, burst_exposure), _ = jax.lax.scan(jax.checkpoint(exposures), (jnp.zeros(n_streams), jnp.zeros(n_streams)), chunks)
         lags = a["event_lags"]
         rho_events = jnp.where(jnp.isnan(lags), 1.0, self.renewal_kernel.evaluate(known(lags), params_renewal))
         drive_rates = rho_events * self.kernel.evaluate(a["event_times"], a["event_trials"], params_base)
         if self.excitation is None:
-            burst_rates, burst_exposure = jnp.zeros_like(drive_rates), jnp.zeros(n_streams)
+            burst_rates = jnp.zeros_like(drive_rates)
         else:
-            excitation = jnp.append(self.excitation.evaluate(t, params_excitation), jnp.zeros(2))
-            burst = (drive if self._relative else weight) * interpolate(excitation, a["excitation_index"], a["excitation_fraction"])
-            burst_exposure = segment_sum(burst, a["stream"], n_streams)
             event_lags = a["event_event_lags"]
             at_events = jnp.where(jnp.isnan(event_lags), 0.0, self.excitation.evaluate(known(event_lags), params_excitation))
             burst_rates = (drive_rates if self._relative else rho_events) * at_events
