@@ -104,36 +104,36 @@
   "moved": 8619.594525182734
  },
  "GammaMixedEffects[Renewal rate: Homogeneous \u03bb, history: WeibullRecovery, events: StimulusBurst(k=1)]": {
-  "initial": 9144.276325239489,
-  "moved": 9538.199082935294
+  "initial": 9144.27632519005,
+  "moved": 9538.199081833121
  },
  "GammaMixedEffects[Renewal rate: Looming recovery \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]": {
-  "initial": 9074.289730875991,
-  "moved": 9626.488983503994
+  "initial": 9074.289730871533,
+  "moved": 9626.48898214769
  },
  "GammaMixedEffects[Renewal rate: OMR forward \u03bb(t), history: WeibullRecovery, events: StimulusBurst(k=1)]": {
-  "initial": 9074.289730875991,
-  "moved": 9439.99673659636
+  "initial": 9074.289730871533,
+  "moved": 9439.996736476318
  },
  "GammaMixedEffects[Renewal rate: OMR lateral contra \u03bb(t), history: WeibullRecovery, events: StimulusBurst(k=1)]": {
-  "initial": 9074.289730875991,
-  "moved": 9441.29055814397
+  "initial": 9074.289730871533,
+  "moved": 9441.29055802516
  },
  "GammaMixedEffects[Renewal rate: Phototaxis Contra \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]": {
-  "initial": 9074.289730875991,
-  "moved": 9626.488983503994
+  "initial": 9074.289730871533,
+  "moved": 9626.48898214769
  },
  "GammaMixedEffects[Renewal rate: PhototaxisDipExGaussianPeak, history: WeibullRecovery, events: StimulusBurst(k=1)]": {
-  "initial": 9072.68118829595,
-  "moved": 9473.458833820489
+  "initial": 9072.68118829566,
+  "moved": 9473.458833680892
  },
  "GammaMixedEffects[Renewal rate: PreyCapture(Peak_Baseline_Ripple), history: WeibullRecovery, events: StimulusBurst(k=1)]": {
-  "initial": 9191.855728832212,
-  "moved": 9505.652637791758
+  "initial": 9191.855728831124,
+  "moved": 9505.652637492884
  },
  "GammaMixedEffects[Renewal rate: Spontaneous \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]": {
-  "initial": 9069.643969276192,
-  "moved": 9615.066791356647
+  "initial": 9069.64396927116,
+  "moved": 9615.066789771856
  },
  "GammaMixedEffects[SidedSurvival SurvivalGaussianBump(Baseline)]": {
   "initial": 1642.4944851418168,
@@ -204,20 +204,20 @@
   "moved": 12254.579102353371
  },
  "GammaSideMixedEffects[SidedRenewal[Homogeneous \u03bb | Homogeneous \u03bb, history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
-  "initial": 13368.994212386257,
-  "moved": 13856.662767208692
+  "initial": 13368.994209234075,
+  "moved": 13856.662708670136
  },
  "GammaSideMixedEffects[SidedRenewal[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
-  "initial": 13122.518407669055,
-  "moved": 13986.690043314626
+  "initial": 13122.518407388601,
+  "moved": 13986.689973713252
  },
  "GammaSideMixedEffects[SidedRenewal[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
-  "initial": 12963.232915133347,
-  "moved": 13603.944913238527
+  "initial": 12963.232915114642,
+  "moved": 13603.94490614781
  },
  "GammaSideMixedEffects[SidedRenewal[PreyCapture(Peak_Baseline_Ripple) | Homogeneous \u03bb, history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
-  "initial": 13088.032477339464,
-  "moved": 13636.071209257594
+  "initial": 13088.0324772173,
+  "moved": 13636.071196044113
  },
  "GammaSideMixedEffects[SidedSurvival SurvivalGaussianBump(Baseline_Habituating)]": {
   "initial": 1642.16601312636,
@@ -376,51 +376,51 @@
   "moved": 8645.680263785469
  },
  "ZeroInflatedGammaMixedEffects[Renewal rate: Homogeneous \u03bb, history: WeibullRecovery, events: StimulusBurst(k=1)] (fit c)": {
-  "initial": 9172.759495054848,
-  "moved": 9576.226784394008
+  "initial": 9172.75949501244,
+  "moved": 9576.226783456612
  },
  "ZeroInflatedGammaMixedEffects[Renewal rate: Looming recovery \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)] (fit c)": {
-  "initial": 9085.068182476927,
-  "moved": 9665.75323252944
+  "initial": 9085.068182473264,
+  "moved": 9665.753231372373
  },
  "ZeroInflatedGammaMixedEffects[Renewal rate: OMR forward \u03bb(t), history: WeibullRecovery, events: StimulusBurst(k=1)] (fit c)": {
-  "initial": 9085.068182476927,
-  "moved": 9462.235368686499
+  "initial": 9085.068182473264,
+  "moved": 9462.235368588086
  },
  "ZeroInflatedGammaMixedEffects[Renewal rate: OMR lateral contra \u03bb(t), history: WeibullRecovery, events: StimulusBurst(k=1)] (fit c)": {
-  "initial": 9085.068182476927,
-  "moved": 9463.448205639417
+  "initial": 9085.068182473264,
+  "moved": 9463.448205542038
  },
  "ZeroInflatedGammaMixedEffects[Renewal rate: Phototaxis Contra \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)] (fit c)": {
-  "initial": 9085.068182476927,
-  "moved": 9665.75323252944
+  "initial": 9085.068182473264,
+  "moved": 9665.753231372373
  },
  "ZeroInflatedGammaMixedEffects[Renewal rate: PhototaxisDipExGaussianPeak, history: WeibullRecovery, events: StimulusBurst(k=1)] (fit c)": {
-  "initial": 9058.325250674843,
-  "moved": 9496.768166457707
+  "initial": 9058.325250674621,
+  "moved": 9496.768166343034
  },
  "ZeroInflatedGammaMixedEffects[Renewal rate: PreyCapture(Peak_Baseline_Ripple), history: WeibullRecovery, events: StimulusBurst(k=1)] (fit c)": {
-  "initial": 9190.465667944824,
-  "moved": 9534.730328094833
+  "initial": 9190.465667943956,
+  "moved": 9534.730327845802
  },
  "ZeroInflatedGammaMixedEffects[Renewal rate: Spontaneous \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)] (fit c)": {
-  "initial": 9081.399587514024,
-  "moved": 9655.249759654776
+  "initial": 9081.39958750988,
+  "moved": 9655.249758300186
  },
  "ZeroInflatedGammaSideMixedEffects[SidedRenewal[Homogeneous \u03bb | Homogeneous \u03bb, history: WeibullRecovery, events: StimulusBurst(k=1)]] (fit c)": {
-  "initial": 13418.689590157173,
-  "moved": 13914.689093621048
+  "initial": 13418.689587326578,
+  "moved": 13914.689041050426
  },
  "ZeroInflatedGammaSideMixedEffects[SidedRenewal[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]] (fit c)": {
-  "initial": 13161.21791618893,
-  "moved": 14045.466084286469
+  "initial": 13161.217915943453,
+  "moved": 14045.466021532615
  },
  "ZeroInflatedGammaSideMixedEffects[SidedRenewal[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]] (fit c)": {
-  "initial": 12985.040869524615,
-  "moved": 13652.382448965614
+  "initial": 12985.040869508812,
+  "moved": 13652.382442786387
  },
  "ZeroInflatedGammaSideMixedEffects[SidedRenewal[PreyCapture(Peak_Baseline_Ripple) | Homogeneous \u03bb, history: WeibullRecovery, events: StimulusBurst(k=1)]] (fit c)": {
-  "initial": 13122.075572786343,
-  "moved": 13687.52166777723
+  "initial": 13122.075572680445,
+  "moved": 13687.52165617815
  }
 }

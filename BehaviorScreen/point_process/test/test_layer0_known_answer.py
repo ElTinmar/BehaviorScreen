@@ -342,3 +342,33 @@ class TestRenewalKnownAnswer:
 
         assert log_intensity == pytest.approx(0.0)
         assert total_integral == pytest.approx(B * duration_s)
+
+class TestGainOnDrivenRateKnownAnswer:
+    @pytest.mark.parametrize("n_events, burst_share, tol", [(0, 0.0, 1e-6), (5, 0.5, 2e-3), (800, 0.0, 1e-6), (800, 0.75, 1e-6)])
+    def test_evidence_matches_adaptive_quadrature(self, n_events: int, burst_share: float, tol: float) -> None:
+        """
+        log Z of a gain on the driven rate, in NumPy and JAX: exact for many events whatever
+        share of them are bursts; within 1e-3 for a few events mostly bursts and dispersed gains.
+        """
+        import jax.numpy as jnp
+        from scipy.integrate import quad
+        from scipy.special import gammaln
+        from BehaviorScreen.point_process.point_process import gains_jax
+        from BehaviorScreen.point_process.point_process.frailty import gamma_gain_evidence_by_fish
+
+        rng = np.random.default_rng(n_events)
+        d = rng.uniform(0.5, 1.5, n_events)
+        b = d * burst_share / (1 - burst_share) * rng.uniform(0.5, 1.5, n_events)
+        b[:1] = 0.0  # a trial's first event: no earlier one to burst from
+        shape, exposure = 0.7, n_events * (1 - burst_share) + 3.0
+        log_f = lambda v: shape * v - shape * np.exp(v) + np.sum(np.log(np.exp(v) * d + b)) - np.exp(v) * exposure
+        v = np.linspace(-15, 5, 4001)
+        peak_v = v[np.argmax([log_f(x) for x in v])]
+        peak = log_f(peak_v)
+        expected = shape * np.log(shape) - gammaln(shape) + peak + np.log(
+            quad(lambda x: np.exp(log_f(x) - peak), -40, 8, points=[peak_v], limit=500, epsrel=1e-12)[0]
+        )
+        fish, S = np.zeros(n_events, dtype=int), np.array([exposure])
+        assert gamma_gain_evidence_by_fish(d, b, fish, S, shape, shape)[0][0] == pytest.approx(expected, abs=tol)
+        jax_value = gains_jax.gamma_gain_evidence_by_fish(*(jnp.asarray(x) for x in (d, b, fish, S)), jnp.asarray(shape), jnp.asarray(shape))
+        assert float(jax_value[0]) == pytest.approx(expected, abs=tol)

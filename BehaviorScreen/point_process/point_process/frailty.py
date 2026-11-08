@@ -48,6 +48,28 @@ def gauss_laguerre(n: int, alpha: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
     return nodes, 2 * np.log(np.abs(vectors[:, 0, :])) + gammaln(alpha + 1)
 
 
+def _log_gain_posterior_mode(
+    base_rates: np.ndarray, history_rates: np.ndarray, fish: np.ndarray, exposure: np.ndarray, shape: float, rate: float, tol: float = 1e-10
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Per fish, the mode v of the integrand of gamma_gain_evidence_by_fish in v = log g
+    and minus its second derivative there (Newton steps, capped at 1, from the mode without history rates).
+    """
+    n_fish, total_rate = len(exposure), exposure + rate
+    per_fish = lambda w: np.bincount(fish, weights=w, minlength=n_fish)
+    v = np.log((shape + np.bincount(fish, minlength=n_fish)) / total_rate)
+    for _ in range(100):
+        driven = np.exp(v)[fish] * base_rates
+        q = np.divide(driven, driven + history_rates, out=np.ones_like(driven), where=driven + history_rates > 0)
+        grad = shape + per_fish(q) - total_rate * np.exp(v)
+        hess = np.minimum(per_fish(q * (1 - q)) - total_rate * np.exp(v), -shape)
+        step = np.clip(grad / hess, -1.0, 1.0)
+        v = v - step
+        if np.max(np.abs(step), initial=0.0) < tol:
+            break
+    return v, shape + per_fish(q**2)
+
+
 def gamma_gain_evidence_by_fish(
     base_rates: np.ndarray,
     history_rates: np.ndarray,
@@ -62,28 +84,26 @@ def gamma_gain_evidence_by_fish(
     Z = integral of p(g) exp(-g exposure) prod over its events (g b + h) dg.
     fish: the fish of every event, non-decreasing.
 
-    Generalized Gauss-Laguerre with exponent shape - 1 + k, where k is the
-    effective number of baseline-driven events: the remaining factor
-    prod(g b + h) / g^k is flat near the posterior mode, so the rule stays
-    accurate for fish with hundreds of events (exact when h = 0).
+    Generalized Gauss-Laguerre for the Gamma with the same mode and curvature in
+    log g as the integrand, so that the rest of it is flat there: accurate for fish
+    with hundreds of events whatever share of them the history rates explain (exact when h = 0);
+    within about 1e-3 for a few events mostly explained by h, whose integrand keeps a tail at g = 0.
     """
-    n_fish = len(exposure)
-    d = exposure + rate
-    driven = base_rates * (shape + np.bincount(fish, minlength=n_fish)[fish]) / d[fish]
-    total = driven + history_rates
-    k = np.bincount(fish, weights=np.divide(driven, total, out=np.zeros_like(total), where=total > 0), minlength=n_fish)
-    x, log_w = gauss_laguerre(n_nodes, shape - 1 + k)
-    g = x / d[:, None]
-    log_terms = log_w - k[:, None] * np.log(g)
-    for a in range(0, len(fish), _EVENT_CHUNK):
-        chunk_fish = fish[a : a + _EVENT_CHUNK]
-        logs = np.log(np.maximum(g[chunk_fish] * base_rates[a : a + _EVENT_CHUNK, None] + history_rates[a : a + _EVENT_CHUNK, None], 1e-300))
+    n_fish, total_rate = len(exposure), exposure + rate
+    mode, a = _log_gain_posterior_mode(base_rates, history_rates, fish, exposure, shape, rate)
+    beta = a * np.exp(-mode)
+    x, log_w = gauss_laguerre(n_nodes, a - 1)
+    g = x / beta[:, None]
+    log_terms = log_w + x + (1 - a)[:, None] * np.log(x) + (shape - 1) * np.log(g) - total_rate[:, None] * g
+    for start in range(0, len(fish), _EVENT_CHUNK):
+        chunk_fish = fish[start : start + _EVENT_CHUNK]
+        logs = np.log(np.maximum(g[chunk_fish] * base_rates[start : start + _EVENT_CHUNK, None] + history_rates[start : start + _EVENT_CHUNK, None], 1e-300))
         starts = np.flatnonzero(np.concatenate([[True], chunk_fish[1:] != chunk_fish[:-1]]))
         log_terms[chunk_fish[starts]] += np.add.reduceat(logs, starts, axis=0)
     peak = log_terms.max(axis=1, keepdims=True)
     terms = np.exp(log_terms - peak)
     total_terms = terms.sum(axis=1)
-    log_z = shape * np.log(rate) - gammaln(shape) - (shape + k) * np.log(d) + peak[:, 0] + np.log(total_terms)
+    log_z = shape * np.log(rate) - gammaln(shape) - np.log(beta) + peak[:, 0] + np.log(total_terms)
     return log_z, np.sum(terms * g, axis=1) / total_terms
 
 

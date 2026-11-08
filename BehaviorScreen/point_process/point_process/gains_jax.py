@@ -21,22 +21,45 @@ def gauss_laguerre(n: int, alpha: jnp.ndarray) -> Tuple[jnp.ndarray, jnp.ndarray
     return nodes, 2 * jnp.log(jnp.abs(vectors[:, 0, :])) + gammaln(alpha + 1)[:, None]
 
 
+def _log_gain_posterior_mode(
+    base_rates: jnp.ndarray, history_rates: jnp.ndarray, fish: jnp.ndarray, exposure: jnp.ndarray, shape: jnp.ndarray, rate: jnp.ndarray,
+    tol: float = 1e-10,
+) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    """frailty._log_gain_posterior_mode."""
+    n_fish, total_rate = exposure.shape[0], exposure + rate
+    per_fish = lambda w: segment_sum(w, fish, n_fish)
+
+    def share(v: jnp.ndarray) -> jnp.ndarray:
+        driven = jnp.exp(v)[fish] * base_rates
+        return jnp.where(driven + history_rates > 0, driven / jnp.where(driven + history_rates > 0, driven + history_rates, 1.0), 1.0)
+
+    def newton(state: Tuple) -> Tuple:
+        v, _, i = state
+        q = share(v)
+        hess = jnp.minimum(per_fish(q * (1 - q)) - total_rate * jnp.exp(v), -shape)
+        step = jnp.clip((shape + per_fish(q) - total_rate * jnp.exp(v)) / hess, -1.0, 1.0)
+        return v - step, jnp.max(jnp.abs(step), initial=0.0), i + 1
+
+    v0 = jnp.log((shape + per_fish(jnp.ones_like(base_rates))) / total_rate)
+    v, _, _ = jax.lax.while_loop(lambda st: (st[1] >= tol) & (st[2] < 100), newton, (v0, jnp.inf, 0))
+    return v, shape + per_fish(share(v) ** 2)
+
+
 def gamma_gain_evidence_by_fish(
     base_rates: jnp.ndarray, history_rates: jnp.ndarray, fish: jnp.ndarray, exposure: jnp.ndarray,
     shape: jnp.ndarray, rate: jnp.ndarray, n_nodes: int = 30,
 ) -> jnp.ndarray:
     """frailty.gamma_gain_evidence_by_fish: log Z per fish."""
-    n_fish = exposure.shape[0]
-    d = exposure + rate
-    driven = base_rates * (shape + segment_sum(jnp.ones_like(base_rates), fish, n_fish)[fish]) / d[fish]
-    total = driven + history_rates
-    k = jax.lax.stop_gradient(segment_sum(jnp.where(total > 0, driven / jnp.where(total > 0, total, 1.0), 0.0), fish, n_fish))
-    x, log_w = gauss_laguerre(n_nodes, shape - 1 + k)
-    g = x / d[:, None]
+    n_fish, total_rate = exposure.shape[0], exposure + rate
+    mode, a = (jax.lax.stop_gradient(y) for y in _log_gain_posterior_mode(*(jax.lax.stop_gradient(y) for y in (base_rates, history_rates)), fish,
+                                                                           *(jax.lax.stop_gradient(y) for y in (exposure, shape, rate))))
+    beta = a * jnp.exp(-mode)
+    x, log_w = gauss_laguerre(n_nodes, a - 1)
+    g = x / beta[:, None]
     logs = jnp.log(jnp.maximum(g[fish] * base_rates[:, None] + history_rates[:, None], 1e-300))
-    log_terms = log_w - k[:, None] * jnp.log(g) + segment_sum(logs, fish, n_fish)
+    log_terms = log_w + x + (1 - a)[:, None] * jnp.log(x) + (shape - 1) * jnp.log(g) - total_rate[:, None] * g + segment_sum(logs, fish, n_fish)
     peak = jax.lax.stop_gradient(log_terms.max(axis=1, keepdims=True))
-    return shape * jnp.log(rate) - gammaln(shape) - (shape + k) * jnp.log(d) + peak[:, 0] + jnp.log(jnp.exp(log_terms - peak).sum(axis=1))
+    return shape * jnp.log(rate) - gammaln(shape) - jnp.log(beta) + peak[:, 0] + jnp.log(jnp.exp(log_terms - peak).sum(axis=1))
 
 
 def zero_inflated_gain_evidence_by_fish(
