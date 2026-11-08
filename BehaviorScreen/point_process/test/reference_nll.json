@@ -63,6 +63,10 @@
   "initial": 8871.84162027348,
   "moved": 9461.848612584547
  },
+ "GammaMixedEffects[Poisson Exponential decay \u03bb(t)]": {
+  "initial": 8683.074149714274,
+  "moved": 8675.133840396393
+ },
  "GammaMixedEffects[Poisson Homogeneous \u03bb]": {
   "initial": 8573.229456348956,
   "moved": 8570.460338175608
@@ -223,6 +227,10 @@
   "initial": 1642.16601312636,
   "moved": 1278.1579685914003
  },
+ "GammaSideMixedEffects[Sided[Exponential decay \u03bb(t) | Homogeneous \u03bb]]": {
+  "initial": 12507.276088982902,
+  "moved": 12503.675709265732
+ },
  "GammaSideMixedEffects[Sided[Homogeneous \u03bb | Homogeneous \u03bb]]": {
   "initial": 12425.06752534596,
   "moved": 12423.547186387976
@@ -238,6 +246,10 @@
  "GammaSideMixedEffects[Sided[PreyCapture(Peak_Baseline_Ripple) | Homogeneous \u03bb]]": {
   "initial": 12519.625881622753,
   "moved": 12522.697978788927
+ },
+ "Poisson Exponential decay \u03bb(t)": {
+  "initial": 8948.497917490258,
+  "moved": 8801.813021260132
  },
  "Poisson Homogeneous \u03bb": {
   "initial": 8666.374973163376,
@@ -310,6 +322,10 @@
  "SidedSurvival SurvivalGaussianBump(Baseline_Habituating)": {
   "initial": 1820.4416027491552,
   "moved": 1382.1661502827044
+ },
+ "Sided[Exponential decay \u03bb(t) | Homogeneous \u03bb]": {
+  "initial": 13413.229387202511,
+  "moved": 13575.048838087328
  },
  "Sided[Homogeneous \u03bb | Homogeneous \u03bb]": {
   "initial": 13443.176655303427,

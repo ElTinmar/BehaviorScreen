@@ -7,6 +7,7 @@ import argparse
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon
 import numpy as np
 import pandas as pd
 from megabouts.utils import bouts_category_color, bouts_category_name_short
@@ -54,18 +55,22 @@ def bout_traces(row: pd.Series, mb: MegaboutResults, n_pre: int, n_post: int) ->
     return tail * flip, np.vstack((c * dx - s * dy, (s * dx + c * dy) * flip))
 
 
-def arrow_path(ax: plt.Axes, x: np.ndarray, y: np.ndarray, color: str, head_mm: float = 0.3) -> None:
-    """Path ending in an arrowhead. The line stops where the head starts, so it cannot show past the tip."""
+def arrow_path(ax: plt.Axes, x: np.ndarray, y: np.ndarray, color: str, head_mm: float = 1.0) -> None:
+    """
+    Path ending in a filled arrowhead drawn in data units. The line stops at the base of the head and the head
+    points along that last stretch of line, so the two are aligned and the line never shows past the tip.
+    """
     if len(x) < 2:
         return
     remaining = np.cumsum(np.hypot(np.diff(x), np.diff(y))[::-1])[::-1]  # path length from each point to the end
     cut = int(np.flatnonzero(remaining >= head_mm)[-1]) if remaining[0] >= head_mm else 0
-    ax.plot(x[: cut + 1], y[: cut + 1], color=color, lw=1.5, solid_capstyle="butt")
-    ax.update_datalim(np.column_stack((x, y)))  # annotations don't extend the axis limits
-    ax.autoscale_view()
-    ax.annotate("", xy=(x[-1], y[-1]), xytext=(x[cut], y[cut]),
-                arrowprops=dict(arrowstyle="-|>,head_length=0.6,head_width=0.3", color=color, lw=1.5,
-                                shrinkA=0, shrinkB=0, mutation_scale=7))
+    tip = np.array([x[-1], y[-1]])
+    direction = tip - (x[cut], y[cut])
+    direction /= np.linalg.norm(direction)
+    base = tip - head_mm * direction
+    normal = np.array([-direction[1], direction[0]]) * head_mm * 0.4
+    ax.plot([*x[: cut + 1], base[0]], [*y[: cut + 1], base[1]], color=color, lw=1.2, solid_capstyle="butt")
+    ax.add_patch(Polygon([tip, base + normal, base - normal], closed=True, color=color, lw=0))
 
 
 def scale_bar(ax: plt.Axes, x: float, y: float, dx: float, x_label: str, dy: float = 0, y_label: str = "") -> None:
@@ -119,7 +124,7 @@ def plot_bouts(args: argparse.Namespace) -> plt.Figure:
     ylim = (min(low, np.nanmin(bold)), max(high, np.nanmax(bold)))
     for ax, category in zip(tail_axes, categories):
         color = bouts_category_color[category]
-        ax.plot(time_ms, traces[category][: args.k].T, color=color, alpha=0.15, lw=0.5)  # the sample is already shuffled
+        ax.plot(time_ms, traces[category][: args.k].T, color=color, alpha=args.alpha, lw=0.5)  # the sample is already shuffled
         ax.plot(time_ms, traces[category][typical[category]], color=color, lw=1.5)
         ax.set(xlim=(time_ms[0], time_ms[-1]), ylim=ylim)
         ax.set_title(bouts_category_name_short[category], fontsize=8, color=color, pad=0)
@@ -129,6 +134,7 @@ def plot_bouts(args: argparse.Namespace) -> plt.Figure:
     corner.set(xlim=(time_ms[0], time_ms[-1]), ylim=ylim)
     scale_bar(corner, 0, ylim[0] / 2, 100, "100 ms", 90, "90°")
     corner.set_title("aligned on\nfirst half-beat", fontsize=6, pad=0)
+    traj_ax.autoscale_view()  # arrowheads are patches: include them in the limits before placing the scale bar
     scale_bar(traj_ax, traj_ax.get_xlim()[0], traj_ax.get_ylim()[0], 1, "1 mm")
     return fig
 
@@ -163,7 +169,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path)
     parser.add_argument("--n", type=int, default=100, help="events sampled per category")
-    parser.add_argument("--k", type=int, default=50, help="random bouts drawn per category, plus the most confidently classified one in bold")
+    parser.add_argument("--k", type=int, default=100, help="random bouts drawn per category, plus the most confidently classified one in bold")
+    parser.add_argument("--alpha", type=float, default=0.075, help="opacity of the faint bout traces")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--line", default=None, help="keep only this line (from the file name), e.g. WT")
     parser.add_argument("--qc-csv", default="qc.csv")

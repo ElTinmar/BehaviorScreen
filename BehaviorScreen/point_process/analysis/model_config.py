@@ -84,6 +84,7 @@ LATERAL_TURNS = ["RT", "HAT"]
 OKR_SWIMS = ["S1", "S2", "RT", "HAT"]
 
 flat = RateKernelFactory.homogeneous_poisson
+decay = RateKernelFactory.exponential_decay  # prey capture's simplest stimulus kernel, for teaching
 gamma = GammaMixedEffectsProcess
 zero_inflated = ZeroInflatedGammaMixedEffectsProcess
 side_gamma = SideFrailty  # sided processes: fish gain and fish side preference
@@ -293,6 +294,8 @@ def get_model_config() -> Dict[str, dict]:
                 gamma(refractory_renewal(prey("Peak_Baseline_Ripple"))),
                 gamma(refractory_renewal(prey("Peak_Baseline_Ripple")), trial_gain=True),
                 two_class(refractory_renewal(prey("Peak_Baseline_Ripple"))),
+                poisson(decay()),
+                gamma(poisson(decay())),
             ],
         ),
         "prey_capture_contra": experiment(
@@ -338,6 +341,8 @@ def get_model_config() -> Dict[str, dict]:
                 # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
                 # renewal(prey("Peak_Baseline_Ripple")),
                 # gamma(renewal(prey("Peak_Baseline_Ripple"))),
+                poisson(decay()),
+                gamma(poisson(decay())),
             ],
             events="saccades",
         ),
@@ -370,6 +375,8 @@ def get_model_config() -> Dict[str, dict]:
                 # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
                 # renewal(prey("Peak_Baseline_Ripple")),
                 # gamma(renewal(prey("Peak_Baseline_Ripple"))),
+                poisson(decay()),
+                gamma(poisson(decay())),
             ],
             events="saccades",
         ),
@@ -420,7 +427,7 @@ def get_model_config() -> Dict[str, dict]:
         # Both sides of a directional stimulus: strength (ipsi amplitudes) and directionality D
         "prey_capture": experiment(
             dataset("JT", [IPSI, CONTRA], 24.0, stim=Stim.PREY_CAPTURE),
-            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat, renewal=True),
+            sided_models(lambda: prey("Peak_Baseline_Ripple"), flat, renewal=True) + [sided(decay(), flat()), side_gamma(sided(decay(), flat()))],
         ),
         "phototaxis": experiment(
             dataset("RT", [IPSI, CONTRA], 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER),

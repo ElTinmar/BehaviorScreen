@@ -223,6 +223,23 @@ class RateKernelFactory:
         )
 
     @staticmethod
+    def exponential_decay() -> RateKernel:
+        """lambda(t) = A e^(-t/tau) + B: an onset transient over a tonic rate, the same in every trial."""
+
+        def _func(t, trial, params):
+            A, tau, B = params
+            return A * xp.exp(-t / tau) + B + 0.0 * trial
+
+        return RateKernel(
+            name="Exponential decay λ(t)",
+            func=_func,
+            param_names=["A", "tau", "B"],
+            initial_guesses=[0.56, 1.15, 0.40],
+            bounds=[(0.01, 10.0), (0.1, 5.0), (0.01, 5.0)],
+            latex_formula=r"$\lambda(t) = A e^{-t/\tau} + B$",
+        )
+
+    @staticmethod
     def phototaxis_ipsi() -> RateKernel:
         """
         λ(t, m) = B·e^(α_B m)·(1 − f_dip·e^(−t/τ)) + A_peak·e^(α_peak m)·e·(t/τ)·e^(−t/τ)
