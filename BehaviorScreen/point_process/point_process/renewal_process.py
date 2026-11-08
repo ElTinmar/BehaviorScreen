@@ -262,7 +262,7 @@ class RenewalKernelFactory:
             func=_func,
             param_names=["A_burst", "burst_peak_lag"],
             initial_guesses=[rate_init, peak_lag_init],
-            bounds=[(0.0, 20.0), (0.02, 5.0)],
+            bounds=[(0.0, 20.0), (0.1, 5.0)],  # peaks earlier hide in the refractory period, where they do nothing
             latex_formula=(
                 r"$E(\Delta t)=A_{\mathrm{burst}}\,\frac{\Delta t}{t_p}\,e^{1-\Delta t/t_p}$" if shape_k == 1 else
                 r"$E(\Delta t)=A_{\mathrm{burst}}\left(\frac{\Delta t}{t_p}\right)^k"

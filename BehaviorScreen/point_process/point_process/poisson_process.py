@@ -360,7 +360,7 @@ class RateKernelFactory:
             ],
             initial_guesses=[0.4, 0.0],
             bounds=[
-                (0.01, 10.0),
+                (0.01, 100.0),
                 (-0.5, 0.5),
             ],
             latex_formula=(r"$\lambda(t, m) = B e^{\alpha_B m}$"),
@@ -369,7 +369,7 @@ class RateKernelFactory:
     @staticmethod
     def after_looming(f_dip_upper: float = 0.95) -> RateKernel:
         return RateKernelFactory._recovering_dip(
-            "Looming recovery λ(t, m)", f_dip_upper, (-10, 10), (0.05, 15.0), (-2.0, 2.0)
+            "Looming recovery λ(t, m)", f_dip_upper, (-10, 10), (0.05, 60.0), (-2.0, 2.0)
         )
 
 
@@ -424,7 +424,7 @@ class RateKernelFactory:
     @staticmethod
     def phototaxis_dip_exgaussian_peak(
         tau_dip_init: float = 1.0,
-        tau_dip_bounds: Tuple[float, float] = (0.05, 5.0),
+        tau_dip_bounds: Tuple[float, float] = (0.05, 20.0),
         mu_init: float = 0.4,
         mu_bounds: Tuple[float, float] = (0.001, 3.0),
         sigma_init: float = 0.15,
