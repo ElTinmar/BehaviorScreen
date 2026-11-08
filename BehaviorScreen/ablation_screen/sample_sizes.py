@@ -22,7 +22,7 @@ from BehaviorScreen.core import Stim
 from BehaviorScreen.stim_specs import apply_table_filters, exclude_qc_fish, load_yaml_config
 
 RECORDING_S = 4490  # one fish's protocol
-WILD_TYPES = {"wt", "ab", "wik"}  # WT (TL) and the backgrounds: references, not lines tested
+WILD_TYPES = {"wt", "ab", "wik"}  # WT (TL) and the backgrounds
 COLORS = {"vehicle": "#2a78d6", "ronidazole": "#eb6834", "danieau": "#1baf7a"}  # in their order within a line
 INK = {"primary": "#0b0b0b", "secondary": "#52514e", "muted": "#898781", "grid": "#e1e0d9", "baseline": "#c3c2b7", "surface": "#fcfcfb"}
 RERUN_STIMULI = {int(Stim.PHOTOTAXIS), int(Stim.DARK), int(Stim.BRIGHT)}  # all a phototaxis re-run shows
@@ -53,8 +53,8 @@ def line_groups(counts: pd.DataFrame) -> Dict[str, List[str]]:
 
 def lines_tested(counts: pd.DataFrame) -> str:
     groups = line_groups(counts)
-    ntr, mutants = len(groups["NTR lines"]), len(groups["Mutants"])
-    return f"{ntr + mutants} lines tested ({ntr} NTR, {mutants} mutant{'s' if mutants != 1 else ''})"
+    wild, ntr, mutants = len(groups["WT"]), len(groups["NTR lines"]), len(groups["Mutants"])
+    return f"{wild + ntr + mutants} lines tested ({wild} WT, {ntr} NTR, {mutants} mutant{'s' if mutants != 1 else ''})"
 
 
 def _column(ax: plt.Axes, x: float, value: float, width: float, color: str, radius_pt: float = 3.0) -> None:
