@@ -444,7 +444,8 @@ class Frailty(_GainWrapper):
             position = np.arange(len(stream)) - np.searchsorted(stream, stream)  # padded already: phantom events are dropped
             arrays.update(position=jnp.asarray(position), mask=jnp.asarray(dataset.fish_trial_mask, dtype=float))
             real = stream[stream < dataset.num_fish * dataset.num_trials]
-            static["max_events"] = padded(int(np.bincount(real, minlength=1).max()), minimum=4, steps_per_doubling=1)
+            block = gains_jax.POISSON_BINOMIAL_BLOCK
+            static["max_events"] = -(-padded(int(np.bincount(real, minlength=1).max()), minimum=block) // block) * block
         return Arrays(arrays, static)
 
     def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:

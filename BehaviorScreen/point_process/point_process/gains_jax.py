@@ -109,16 +109,24 @@ def side_mixture(
     return jax.scipy.special.logsumexp(log_weights + log_mixture - u**2 / (2 * s**2) + nodes**2 / 2, axis=1) + jnp.log(sd / s)
 
 
+POISSON_BINOMIAL_BLOCK = 8
+
+
 def poisson_binomial(p: jnp.ndarray, stream: jnp.ndarray, position: jnp.ndarray, n_streams: int, max_events: int) -> jnp.ndarray:
-    """frailty.poisson_binomial: per stream, the distribution of the number of successes; position: each event's index in its stream."""
+    """
+    frailty.poisson_binomial: per stream, the distribution of the number of successes; position: each
+    event's index in its stream; max_events: a multiple of POISSON_BINOMIAL_BLOCK. Checkpointed by
+    blocks of events: the gradient keeps one distribution per block and per event of one block, not per event.
+    """
     q = jnp.zeros((n_streams, max_events)).at[stream, position].set(p)
 
     def add_event(pmf: jnp.ndarray, q_j: jnp.ndarray) -> Tuple[jnp.ndarray, None]:
         q_j = q_j[:, None]
         return jnp.concatenate([pmf[:, :1] * (1 - q_j), pmf[:, 1:] * (1 - q_j) + pmf[:, :-1] * q_j], axis=1), None
 
+    add_block = lambda pmf, q_block: (jax.lax.scan(add_event, pmf, q_block)[0], None)
     pmf0 = jnp.zeros((n_streams, max_events + 1)).at[:, 0].set(1.0)
-    return jax.lax.scan(jax.checkpoint(add_event), pmf0, q.T)[0]
+    return jax.lax.scan(jax.checkpoint(add_block), pmf0, q.T.reshape(-1, POISSON_BINOMIAL_BLOCK, n_streams))[0]
 
 
 def _log_gain_mode(n: jnp.ndarray, S: jnp.ndarray, mask: jnp.ndarray, r: jnp.ndarray, a: jnp.ndarray, mode: jnp.ndarray,
