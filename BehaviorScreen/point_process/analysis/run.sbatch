@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=72
 #SBATCH --mem=240G
 #SBATCH --constraint="gpu"
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:a100:4
 #SBATCH --time=24:00:00
 
 mkdir -p logs
