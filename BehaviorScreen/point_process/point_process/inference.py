@@ -263,19 +263,25 @@ class InferenceMixin:
         """
         minimize, restarted from its own result while that improves the NLL: L-BFGS-B
         can stop well short of the optimum in a curved valley once its Hessian estimate,
-        built from far-away steps, goes stale; a fresh start from there continues.
+        built from far-away steps, goes stale; a fresh start from there continues. A line
+        search that ends ABNORMAL (no decrease found) is converged when a fresh start
+        cannot lower the NLL by 1e-3 either: the NLL's last digits are numerical noise.
         precise (exact gradients): then continued with tighter tolerances (1e-10 can still stop
         short in a slow valley); from a converged point its line search can end ABNORMAL
         (no decrease left in the NLL's last digits), which keeps its point if not worse.
         """
         fun, jac = (self.nll_and_grad, True) if self.supports_jax() else (self._nll, None)
         run = lambda x: minimize(fun, x0=x, args=(dataset,), method=method, jac=jac, bounds=self.bounds, **kwargs)
+        stalled = lambda r: not r.success and np.isfinite(r.fun) and "ABNORMAL" in str(r.message)
         res = run(x0)
         for _ in range(max_restarts):
             again = run(res.x)
-            if not (again.success and again.fun < res.fun - 1e-3):
-                break
-            res = again
+            if again.fun < res.fun - 1e-3 and (again.success or stalled(again)):
+                res = again
+                continue
+            if stalled(res):
+                res = OptimizeResult({**res, "success": True})
+            break
         if precise and jac and method == "L-BFGS-B" and res.success:
             options = {"ftol": 1e-11, "gtol": 1e-5, **kwargs.get("options", {})}
             tight = minimize(fun, x0=res.x, args=(dataset,), method=method, jac=jac, bounds=self.bounds, **{**kwargs, "options": options})
