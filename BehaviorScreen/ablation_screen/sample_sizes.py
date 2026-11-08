@@ -22,6 +22,7 @@ from BehaviorScreen.core import Stim
 from BehaviorScreen.stim_specs import apply_table_filters, exclude_qc_fish, load_yaml_config
 
 RECORDING_S = 4490  # one fish's protocol
+WILD_TYPES = {"wt", "ab", "wik"}  # WT (TL) and the backgrounds: references, not lines tested
 COLORS = {"vehicle": "#2a78d6", "ronidazole": "#eb6834", "danieau": "#1baf7a"}  # in their order within a line
 INK = {"primary": "#0b0b0b", "secondary": "#52514e", "muted": "#898781", "grid": "#e1e0d9", "baseline": "#c3c2b7", "surface": "#fcfcfb"}
 RERUN_STIMULI = {int(Stim.PHOTOTAXIS), int(Stim.DARK), int(Stim.BRIGHT)}  # all a phototaxis re-run shows
@@ -39,11 +40,15 @@ def fish_per_arm(root: Path) -> pd.DataFrame:
 
 
 def line_groups(counts: pd.DataFrame) -> Dict[str, List[str]]:
-    """Lines with fish, by group: WT (the reference), NTR lines (vehicle or ronidazole fish) and mutants; each sorted by name."""
-    tested = counts[counts["fish"] > 0]
-    ntr = set(tested.loc[tested["condition"].isin(["vehicle", "ronidazole"]), "line"])
-    by_name = lambda lines: sorted(lines, key=str.lower)
-    return {"WT": by_name(set(tested["line"]) & {"WT"}), "NTR lines": by_name(ntr - {"WT"}), "Mutants": by_name(set(tested["line"]) - ntr - {"WT"})}
+    """
+    Lines with fish, by group: WT and the wild-type backgrounds (WILD_TYPES, WT first), NTR lines
+    (vehicle or ronidazole fish) and mutants; each sorted by name.
+    """
+    lines = set(counts.loc[counts["fish"] > 0, "line"])
+    wild = {line for line in lines if line.lower() in WILD_TYPES}
+    ntr = set(counts.loc[(counts["fish"] > 0) & counts["condition"].isin(["vehicle", "ronidazole"]), "line"]) - wild
+    by_name = lambda group: sorted(group, key=lambda line: (line != "WT", line.lower()))
+    return {"WT": by_name(wild), "NTR lines": by_name(ntr), "Mutants": by_name(lines - wild - ntr)}
 
 
 def lines_tested(counts: pd.DataFrame) -> str:
