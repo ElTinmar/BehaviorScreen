@@ -148,7 +148,7 @@ def sided_survival(kernel: RateKernel) -> SidedSurvivalProcess:
 
 def sided_models(
     ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel], renewal: bool = False,
-    burst_shapes: Sequence[float] = (),
+    burst_shapes: Sequence[float] = (), renewal_ipsi: Optional[Callable[[], RateKernel]] = None,
 ) -> List[PointProcess]:
     """
     Both sides of a stimulus in one model: without a fish effect, with a fish gain, with a gain and a
@@ -156,10 +156,12 @@ def sided_models(
     processes with bursts that follow the stimulus, the gains scaling the stimulus-driven rate only,
     and last the renewal one with a two-class fish gain (two_class). burst_shapes: the renewal one
     with a trial gain again with other burst shapes k (a profile of k, warm-started from k = 1).
+    renewal_ipsi: the ipsi kernel of the renewal models, if not ipsi.
     """
     models = [sided(ipsi(), contra()), gamma(sided(ipsi(), contra())), side_gamma(sided(ipsi(), contra()))]
     models.append(side_gamma(sided(ipsi(), contra()), trial_gain=True))
     if renewal:
+        ipsi = renewal_ipsi or ipsi
         models += [side_gamma(sided_renewal(ipsi(), contra())), side_gamma(sided_renewal(ipsi(), contra()), trial_gain=True)]
         models += [side_gamma(sided_renewal(ipsi(), contra(), k), trial_gain=True) for k in burst_shapes]
         models.append(two_class(sided_renewal(ipsi(), contra())))
@@ -435,7 +437,7 @@ def get_model_config() -> Dict[str, dict]:
         ),
         "omr_lateral": experiment(
             dataset(LATERAL_TURNS, [IPSI, CONTRA], 9.0, epoch_name=gratings),
-            sided_models(RateKernelFactory.omr_lateral, RateKernelFactory.omr_lateral, renewal=True),
+            sided_models(RateKernelFactory.omr_lateral, RateKernelFactory.omr_lateral, renewal=True, renewal_ipsi=RateKernelFactory.omr_lateral_ipsi),
         ),
         "okr": experiment(
             dataset(OKR_SWIMS, [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat, renewal=True),

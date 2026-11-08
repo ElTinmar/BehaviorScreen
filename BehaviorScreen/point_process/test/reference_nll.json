@@ -179,9 +179,9 @@
   "initial": 13300.28624764195,
   "moved": 13799.840568325188
  },
- "GammaSideMixedEffects+Trial[SidedRenewal[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
-  "initial": 13007.031769891373,
-  "moved": 13912.444976285653
+ "GammaSideMixedEffects+Trial[SidedRenewal[OMR lateral ipsi \u03bb(m) | OMR lateral \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
+  "initial": 13009.827576692769,
+  "moved": 13912.00933585973
  },
  "GammaSideMixedEffects+Trial[SidedRenewal[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
   "initial": 12791.399741368794,
@@ -211,9 +211,9 @@
   "initial": 13368.994209234075,
   "moved": 13856.662708670136
  },
- "GammaSideMixedEffects[SidedRenewal[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
-  "initial": 13122.518407388601,
-  "moved": 13986.689973713252
+ "GammaSideMixedEffects[SidedRenewal[OMR lateral ipsi \u03bb(m) | OMR lateral \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
+  "initial": 13123.31225236935,
+  "moved": 13984.145652529798
  },
  "GammaSideMixedEffects[SidedRenewal[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
   "initial": 12963.232915114642,
@@ -427,9 +427,9 @@
   "initial": 13418.689587326578,
   "moved": 13914.689041050426
  },
- "ZeroInflatedGammaSideMixedEffects[SidedRenewal[OMR lateral \u03bb(t, m) | OMR lateral \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]] (fit c)": {
-  "initial": 13161.217915943453,
-  "moved": 14045.466021532615
+ "ZeroInflatedGammaSideMixedEffects[SidedRenewal[OMR lateral ipsi \u03bb(m) | OMR lateral \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]] (fit c)": {
+  "initial": 13162.423899451846,
+  "moved": 14043.29997188808
  },
  "ZeroInflatedGammaSideMixedEffects[SidedRenewal[PhototaxisDipExGaussianPeak | Phototaxis Contra \u03bb(t, m), history: WeibullRecovery, events: StimulusBurst(k=1)]] (fit c)": {
   "initial": 12985.040869508812,

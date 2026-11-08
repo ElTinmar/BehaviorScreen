@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Tuple, Optional, Union
 
 import numpy as np
@@ -365,6 +365,11 @@ class RateKernelFactory:
             ],
             latex_formula=(r"$\lambda(t, m) = B e^{\alpha_B m}$"),
         )
+
+    @staticmethod
+    def omr_lateral_ipsi() -> RateKernel:
+        """omr_lateral without its onset dip, B e^(alpha_B m): with bout history (renewal) the dip is not needed."""
+        return replace(RateKernelFactory.spont(), name="OMR lateral ipsi λ(m)", latex_formula=r"$\lambda(m) = B e^{\alpha_B m}$")
 
     @staticmethod
     def after_looming(f_dip_upper: float = 0.95) -> RateKernel:
