@@ -127,6 +127,58 @@ def sequential_drive_taus(
     return np.maximum(taus, 0.0)
 
 
+def sequential_trial_drive_taus(
+    gain: Union["GammaGain", "ZeroInflatedGain"], a: float, stream: np.ndarray, num_trials: int, drive_exposure: np.ndarray,
+    burst_exposure: np.ndarray, drive_rates: np.ndarray, burst_rates: np.ndarray, censored: np.ndarray, block: int = 32,
+) -> np.ndarray:
+    """
+    sequential_drive_taus with a trial gain h ~ Gamma(a, a) too (rate g h d + b), each stream's intervals in order
+    (its last censored): over the posterior of g given the fish's earlier trials and of h given the trial's earlier
+    intervals. Given g, h is exact: a trial's first j events give prod(d + b) sum_k P_jk (g h)^k, P_j their
+    Poisson-binomial distribution (probabilities d / (d + b)), and E[h^k e^(-g h X)] = a^a (a)_k (a + g X)^-(a + k).
+    Nodes in g for what trials with their own gains tell about it (n a / (n + a) events per trial of n), fine
+    enough for a trial's own factor (its knee in log g is about 2 / sqrt(n) wide).
+    """
+    taus = np.empty(len(stream))
+    share = np.divide(drive_rates, drive_rates + burst_rates, out=np.ones_like(drive_rates), where=drive_rates + burst_rates > 0)
+    ends = np.flatnonzero(censored) + 1
+    starts = np.concatenate([[0], ends[:-1]])
+    fish = stream[starts] // num_trials
+    bounds = np.flatnonzero(np.concatenate([[True], fish[1:] != fish[:-1], [True]]))
+
+    def trial_factor(log_coef: np.ndarray, g: np.ndarray, X: np.ndarray) -> np.ndarray:
+        """log sum_k P_jk (a)_k g^k (a + g X_j)^-(a + k), rows j x nodes (log_coef: log P_jk (a)_k)."""
+        log_c = np.log(a + g * X[:, None])
+        log_x = np.log(np.maximum(g, 1e-300)) - log_c
+        k = np.arange(log_coef.shape[1])[None, :, None]
+        return np.concatenate([logsumexp(log_coef[i : i + block, :, None] + k * log_x[i : i + block, None, :], axis=1)
+                               for i in range(0, len(X), block)]) - a * log_c
+
+    for f0, f1 in zip(bounds[:-1], bounds[1:]):
+        trials = list(zip(starts[f0:f1], ends[f0:f1]))
+        n = np.array([e - s - 1 for s, e in trials], dtype=float)
+        n_eff = max(float(np.sum(n * a / (n + a))), n.max() / 8)
+        exposure = float(drive_exposure[starts[f0] : ends[f1 - 1]].sum())
+        g, W = gain.log_nodes(n_eff, exposure * n_eff / max(n.sum(), 1.0))
+        for s, e in trials:
+            L = e - s
+            P = np.zeros((L + 1, L + 1))
+            P[0, 0] = 1.0
+            for j, q in enumerate(np.where(censored[s:e], 0.0, share[s:e])):
+                P[j + 1] = P[j] * (1 - q)
+                P[j + 1, 1:] += P[j, :-1] * q
+            with np.errstate(divide="ignore"):
+                log_coef = np.log(P) + gammaln(a + np.arange(L + 1)) - gammaln(a)
+            X = np.cumsum(drive_exposure[s:e])
+            before = logsumexp(W + trial_factor(log_coef[:L], g, X - drive_exposure[s:e]), axis=1)
+            after = trial_factor(log_coef[:L], g, X)
+            taus[s:e] = burst_exposure[s:e] + before - logsumexp(W + after, axis=1)
+            W = W + trial_factor(log_coef[L:], g, X[-1:])[0]
+            keep = W > W.max() - 50.0
+            g, W = g[keep], W[keep]
+    return np.maximum(taus, 0.0)
+
+
 def gamma_gain_evidence(
     base_rates: np.ndarray, history_rates: np.ndarray, exposure: float, shape: float, rate: float, n_nodes: int = 30
 ) -> Tuple[float, float]:
@@ -387,8 +439,8 @@ class Frailty(_GainWrapper):
     (a: 'r_trial'), lambda_fm = g_f h_fm lambda_base: a fish's engagement varies
     from trial to trial around its own level. Needs
     base_process.stream_likelihood_terms; h is integrated in closed form, g by
-    adaptive Gauss-Hermite quadrature on log g. The compensators (time-rescaling
-    diagnostics) still condition on the fish gain only.
+    adaptive Gauss-Hermite quadrature on log g. Time rescaling conditions on both
+    (sequential_trial_drive_taus).
     """
 
     def __init__(self, base_process: PointProcess, gains: GainFamily, trial_gain: bool = False, a_init: float = 5.0) -> None:
@@ -556,7 +608,7 @@ class Frailty(_GainWrapper):
         Predictable compensator: each fish's trials in order, the gain
         posterior conditioned on events and exposure strictly before each probe.
         """
-        if self.base_process.gain_scales_drive_only:
+        if self.trial_gain or self.base_process.gain_scales_drive_only:
             return self._drive_stream_tau_values(dataset)
         gain = self._gain()
         result: StreamTaus = {}
@@ -583,13 +635,31 @@ class Frailty(_GainWrapper):
     def _drive_stream_tau_values(self, dataset: PointProcessDataset) -> StreamTaus:
         """
         Time rescaling with a gain on the driven rate only (sequential_drive_taus), the
-        gain posterior carried over the fish's trials (as BaselineFrailty).
+        gain posterior carried over the fish's trials (as BaselineFrailty); with a trial
+        gain, sequential_trial_drive_taus, the whole rate driven unless the base says otherwise.
         """
-        drive, burst, stream, censored, drive_rates, burst_rates = self.base_process.interval_drive_terms(dataset)
-        taus = sequential_drive_taus(self._gain(), stream // dataset.num_trials, drive, burst, drive_rates, burst_rates, censored)
+        if self.base_process.gain_scales_drive_only:
+            drive, burst, stream, censored, drive_rates, burst_rates = self.base_process.interval_drive_terms(dataset)
+        else:
+            drive, stream, censored = self._whole_rate_intervals(dataset)
+            burst, drive_rates, burst_rates = np.zeros_like(drive), np.ones_like(drive), np.zeros_like(drive)
+        if self.trial_gain:
+            taus = sequential_trial_drive_taus(self._gain(), self._r_trial(), stream, dataset.num_trials, drive, burst, drive_rates, burst_rates, censored)
+        else:
+            taus = sequential_drive_taus(self._gain(), stream // dataset.num_trials, drive, burst, drive_rates, burst_rates, censored)
         ends = np.flatnonzero(censored)[:-1] + 1
         return {divmod(int(s[0]), dataset.num_trials): list(zip(t.tolist(), c.tolist()))
                 for s, t, c in zip(np.split(stream, ends), np.split(taus, ends), np.split(censored, ends))}
+
+    def _whole_rate_intervals(self, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """The base's compensator over every interval (streams in order, each one's last censored), its stream, whether censored."""
+        exposures, streams = [], []
+        for f_idx, t_idx, t_ev in dataset.iter_streams():
+            _, cum, _, _ = self.base_process.stream_compensator_profile(t_ev, t_idx, dataset.duration_s, history=dataset.history_times(f_idx, t_idx))
+            exposures.append(np.diff(cum, prepend=0.0))
+            streams.append(np.full(len(cum), f_idx * dataset.num_trials + t_idx))
+        stream = np.concatenate(streams)
+        return np.concatenate(exposures), stream, np.append(stream[1:] != stream[:-1], True)
 
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         """Whole-session posterior per fish (for reporting, not for time rescaling)."""

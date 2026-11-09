@@ -372,3 +372,33 @@ class TestGainOnDrivenRateKnownAnswer:
         assert gamma_gain_evidence_by_fish(d, b, fish, S, shape, shape)[0][0] == pytest.approx(expected, abs=tol)
         jax_value = gains_jax.gamma_gain_evidence_by_fish(*(jnp.asarray(x) for x in (d, b, fish, S)), jnp.asarray(shape), jnp.asarray(shape))
         assert float(jax_value[0]) == pytest.approx(expected, abs=tol)
+
+
+class TestTrialGainRescalingKnownAnswer:
+    @pytest.mark.parametrize("r, a, sizes, burst", [(1.3, 0.7, [3, 0, 5], 0.0), (0.7, 4.0, [2, 6], 0.6)])
+    def test_taus_match_double_quadrature(self, r: float, a: float, sizes: list, burst: float) -> None:
+        """
+        Rescaled intervals with fish and trial gains, g h on the driven rate: -log of the predictive
+        no-event probability over (g, h) given the fish's earlier intervals, by a log-g x log-h trapezoid.
+        """
+        from scipy.special import gammaln, logsumexp
+        from BehaviorScreen.point_process.point_process.frailty import GammaGain, sequential_trial_drive_taus
+
+        rng = np.random.default_rng(1)
+        v, u = np.linspace(-30, 6, 1801)[:, None], np.linspace(-30, 6, 1801)[None, :]
+        g, h = np.exp(v), np.exp(u)
+        log_ph = a * np.log(a) - gammaln(a) + a * u - a * h
+        W, expected, columns = r * np.log(r) - gammaln(r) + r * v[:, 0] - r * g[:, 0], [], []
+        for m, n in enumerate(sizes):
+            S, d = rng.uniform(0.02, 0.4, n + 1), rng.uniform(0.5, 1.5, n + 1)
+            b = d * burst * rng.uniform(0, 2, n + 1)
+            d[-1] = b[-1] = b[0] = 0.0
+            columns.append((np.full(n + 1, m), S, burst * S, d, b, np.arange(n + 1) == n))
+            log_l = np.zeros_like(v + u)
+            for j in range(n + 1):
+                expected.append(burst * S[j] - logsumexp(W[:, None] + log_ph + log_l - g * h * S[j]) + logsumexp(W[:, None] + log_ph + log_l))
+                log_l = log_l - g * h * S[j] + (np.log(g * h * d[j] + b[j]) if j < n else 0.0)
+            W = W + logsumexp(log_ph + log_l, axis=1)
+        stream, S, B, d, b, censored = (np.concatenate(c) for c in zip(*columns))
+        taus = sequential_trial_drive_taus(GammaGain(r, r), a, stream, 10, S, B, d, b, censored)
+        np.testing.assert_allclose(taus, expected, atol=1e-6)
