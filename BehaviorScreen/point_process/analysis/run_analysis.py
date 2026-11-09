@@ -51,15 +51,10 @@ def make_loaders(args: argparse.Namespace) -> Callable[[str], BehavioralDataLoad
     return loader
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Point-process analysis of one screen")
-    parser.add_argument("--exp", help="Experiment key (e.g. prey_capture_ipsi); needed by fit and diagnostics.")
+def add_data_arguments(parser: argparse.ArgumentParser, required: bool) -> None:
+    """The data tables make_loaders reads."""
     parser.add_argument(
-        "--mode", choices=["diagnostics", "fit", "plot", "consolidate"], default="fit",
-        help="plot: every rung's checks and plots from a finished fit run's parameters (in -o), without refitting it.",
-    )
-    parser.add_argument(
-        "-d", "--data-root", type=Path, dest="data_root", required=True,
+        "-d", "--data-root", type=Path, dest="data_root", required=required,
         help="Directory the file arguments below are relative to.",
     )
     parser.add_argument("--bouts", "--events", default="bouts_control.csv", help="Bout table.")
@@ -69,6 +64,16 @@ def parse_args() -> argparse.Namespace:
         help="Trial tables from quality control, one per screen folder.",
     )
     parser.add_argument("--qc", nargs="*", default=["qc_control.csv"], help="Fish-level exclusion tables from quality control.")
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Point-process analysis of one screen")
+    parser.add_argument("--exp", help="Experiment key (e.g. prey_capture_ipsi); needed by fit and diagnostics.")
+    parser.add_argument(
+        "--mode", choices=["diagnostics", "fit", "plot", "consolidate"], default="fit",
+        help="plot: every rung's checks and plots from a finished fit run's parameters (in -o), without refitting it.",
+    )
+    add_data_arguments(parser, required=True)
     parser.add_argument("-o", "--output-dir", type=Path, default=Path("./figures"), help="Output figures and CSVs.")
     parser.add_argument(
         "--refit", nargs="+", default=["missing"],

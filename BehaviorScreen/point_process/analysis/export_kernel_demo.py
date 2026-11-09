@@ -4,14 +4,16 @@ DATA markers), in Tier 1 map order: every candidate's formula, parameters
 (fitted values where a fit run is given, else the initial guesses), bounds and
 structure, the Tier 1 model and its per-arm parameters (tier1_config), plus
 kernel values computed here, which the page checks its own kernels against.
+With a data root, also the events the ladders were fitted to, as histograms the
+page draws beside its simulations.
 
-    python -m BehaviorScreen.point_process.analysis.export_kernel_demo [-o <fit output dir>]
+    python -m BehaviorScreen.point_process.analysis.export_kernel_demo [-o <fit output dir>] [-d <data root>]
 """
 import argparse
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 from megabouts.utils import bouts_category_name, bouts_category_name_short
@@ -19,17 +21,20 @@ from megabouts.utils import bouts_category_name, bouts_category_name_short
 from BehaviorScreen.core import Laterality, Stim
 from BehaviorScreen.ablation_screen.tier1_config import AMPLITUDE_PARAMETERS, MAP_COLUMNS, PINNED_AMPLITUDES, TIER1_MODELS
 from BehaviorScreen.point_process.analysis.model_config import get_model_config
+from BehaviorScreen.point_process.analysis.run_analysis import add_data_arguments, make_loaders
 from BehaviorScreen.point_process.analysis.tasks import load_fit_records
+from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader, PointProcessDataset
 from BehaviorScreen.point_process.point_process.frailty import Frailty, SideFrailty, ZeroInflatedFamily
 from BehaviorScreen.point_process.point_process.lag_kernel import LagKernel
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.poisson_process import PoissonProcess, RateKernel
 from BehaviorScreen.point_process.point_process.renewal_process import RenewalProcess
-from BehaviorScreen.point_process.point_process.sided_process import SidedPoissonProcess, SidedRenewalProcess, SidedSurvivalProcess
+from BehaviorScreen.point_process.point_process.sided_process import CONTRA, IPSI, SidedPoissonProcess, SidedRenewalProcess, SidedSurvivalProcess
 from BehaviorScreen.point_process.point_process.survival_process import SurvivalProcess
 
 PAGE = Path(__file__).resolve().parents[1] / "point_process" / "kernel_demo.html"
 DATA = re.compile(r"(/\*BEGIN DATA\*/).*?(/\*END DATA\*/)", re.S)
+DATA_BIN = 0.05  # s; the page's time bins are multiples of it
 
 BOUT_NAMES = dict(zip(bouts_category_name_short, (n.replace("_", " ") for n in bouts_category_name)))
 PER_TRIAL = "log / trial"
@@ -187,7 +192,21 @@ def model_entry(model: PointProcess, fitted: Optional[List[float]], t_end: float
     return {"name": model.name, "latex": model.latex_formula.strip("$"), "fitted": fitted is not None, "params": params, "structure": shape}
 
 
-def export(output_dir: Optional[Path]) -> List[dict]:
+def observed(dataset: PointProcessDataset, sided: bool, survival: bool) -> dict:
+    """Events per trial and DATA_BIN time bin (ipsi and contra apart if sided; first events if survival) and fish per trial."""
+    nb = round(dataset.duration_s / DATA_BIN)
+    def counts(d: PointProcessDataset) -> List[int]:
+        bins = np.minimum((d.event_times / DATA_BIN).astype(int), nb - 1)
+        return np.bincount(d.event_trials_idx * nb + bins, minlength=dataset.num_trials * nb).tolist()
+    data = {"bin": DATA_BIN, "n_fish": dataset.num_fish, "fish": dataset.n_fish_per_trial.astype(int).tolist()}
+    if survival:
+        return {**data, "first": counts(dataset.first_events())}
+    if sided:
+        return {**data, "ipsi": counts(dataset.select(laterality=IPSI)), "contra": counts(dataset.select(laterality=CONTRA))}
+    return {**data, "all": counts(dataset)}
+
+
+def export(output_dir: Optional[Path], loader: Optional[Callable[[str], BehavioralDataLoader]]) -> List[dict]:
     configs = get_model_config()
     experiments = []
     for name in [n for n in MAP_COLUMNS if n in configs]:
@@ -200,19 +219,25 @@ def export(output_dir: Optional[Path]) -> List[dict]:
             models.append(tier1)
         free = [] if tier1 is None else [p for p in tier1.param_names if p in AMPLITUDE_PARAMETERS and p not in PINNED_AMPLITUDES.get(name, ())]
         events, selected = selection(config)
+        entries = [model_entry(m, fits.get(m.name), t_end) for m in models]
         experiments.append({
             "name": name, "label": MAP_COLUMNS[name], "t_end": t_end, "tier1": tier1 and tier1.name, "free": free,
-            "events": events, "selected": selected,
-            "models": [model_entry(m, fits.get(m.name), t_end) for m in models],
+            "events": events, "selected": selected, "models": entries,
         })
+        if loader:
+            null = entries[0]["structure"]
+            kind = (null["base"] if null["kind"] == "gain" else null)["kind"]
+            dataset = loader(config["events"]).prepare_dataset(**config["dataset"])
+            experiments[-1]["data"] = observed(dataset, kind.startswith("sided"), kind.endswith("survival"))
     return experiments
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("-o", "--output-dir", type=Path, help="Output folder of fit runs (<exp>/models/fit_records.json).")
+    add_data_arguments(parser, required=False)
     args = parser.parse_args()
-    data = json.dumps(export(args.output_dir), separators=(",", ":"))
+    data = json.dumps(export(args.output_dir, make_loaders(args) if args.data_root else None), separators=(",", ":"))
     page = PAGE.read_text(encoding="utf-8")
     if not DATA.search(page):
         raise ValueError(f"{PAGE} has no /*BEGIN DATA*/ ... /*END DATA*/ block: restore the page from the repository")

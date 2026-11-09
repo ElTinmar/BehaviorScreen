@@ -35,7 +35,7 @@
   .param-row input[type=range] { width:100%; }
   .plot-title { font-size:12px; font-weight:600; color:#334155; margin-bottom:4px; }
   canvas { background:#fff; border:1px solid var(--border); border-radius:8px; width:100%; height:200px; display:block; }
-  #c-surf { height:260px; }
+  #c-surf, #c-data { height:260px; }
   .legend { font-size:11px; color:var(--muted); margin-top:3px; }
   .legend span { margin-right:12px; white-space:nowrap; }
   button.small { font-size:11px; padding:4px 10px; border-radius:6px; border:1px solid var(--border); background:#f1f5f9; cursor:pointer; margin:6px 6px 0 0; }
@@ -49,7 +49,8 @@
 The Tier 1 model of an experiment (<code>tier1_config.TIER1_MODELS</code>) is marked and shown first; ★ marks its parameters
 fitted per arm, every other one being pinned to the control fit. Pick a rung to see its formula, move the sliders to reshape it. Parameters start at the fitted values when the page was exported from a fit run
 (<code>export_kernel_demo -o &lt;output dir&gt;</code>), else at the initial guesses. Plots keep their y range while you move sliders or change rung, so changes show as they are; <b>Rescale axes</b> fits them again (a new experiment starts rescaled). Sliders keep their value when the next rung
-has the same parameter. Regenerate with <code>python -m BehaviorScreen.point_process.analysis.export_kernel_demo</code>.</p>
+has the same parameter. Regenerate with <code>python -m BehaviorScreen.point_process.analysis.export_kernel_demo</code>; with a data root
+(<code>-d &lt;data root&gt;</code>) the page also shows the events the ladders were fitted to (dots, and the data surface).</p>
 <div id="banner"></div>
 
 <div class="top">
@@ -205,6 +206,11 @@ function plot(canvas, xs, series, opts = {}) {
       for (let i = xs.length - 1; i >= 0; i--) ctx.lineTo(X(xs[i]), Y(s.lo[i]));
       ctx.fill(); continue;
     }
+    if (s.dots) {
+      ctx.fillStyle = s.color;
+      xs.forEach((x, i) => { const y = s.ys[i]; if (y !== null && isFinite(y)) { ctx.beginPath(); ctx.arc(X(x), Y(y), 1.8, 0, 2 * Math.PI); ctx.fill(); } });
+      continue;
+    }
     if (s.ticks) {  // event ticks along the bottom
       ctx.strokeStyle = s.color; ctx.lineWidth = 1.5;
       for (const x of s.ticks) { ctx.beginPath(); ctx.moveTo(X(x), T + ph); ctx.lineTo(X(x), T + ph - 10); ctx.stroke(); }
@@ -216,7 +222,10 @@ function plot(canvas, xs, series, opts = {}) {
     ctx.stroke(); ctx.setLineDash([]);
   }
 }
-const legend = items => `<div class="legend">${items.map(([c, t, dash]) => `<span><span style="display:inline-block;width:14px;border-top:2px ${dash ? "dashed" : "solid"} ${c};vertical-align:middle;margin-right:4px"></span>${t}</span>`).join("")}</div>`;
+const mark = (c, dash) => dash === "dot" ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${c};vertical-align:middle;margin:0 8px 0 4px"></span>`
+  : `<span style="display:inline-block;width:14px;border-top:2px ${dash ? "dashed" : "solid"} ${c};vertical-align:middle;margin-right:4px"></span>`;
+const legend = items => `<div class="legend">${items.map(([c, t, dash]) => `<span>${mark(c, dash)}${t}</span>`).join("")}</div>`;
+const DATA_COLOR = "#0f172a";
 
 // ---------------------------------------------------------------- page
 const state = {values: {}, m: 0, seed: 1, trials: 10, bin: 0.1, timer: null, ylim: {}, side: "all"};  // ylim: y range per plot, kept until "Rescale axes"
@@ -264,6 +273,13 @@ function render() {
     const h = rateOf(base.hazard, v), surv = mm => { let acc = 0; return ts.map((t, i) => { if (i) acc += 0.5 * (h(t, mm) + h(ts[i - 1], mm)) * (t - ts[i - 1]); return g ? (g.pi * Math.exp(-g.c * acc) + (1 - g.pi) * Math.pow((g.r / g.mu) / (g.r / g.mu + acc), g.r)) : Math.exp(-acc); }); };
     const S = surv(m), series = [{ys: S, color: "#334155"}], items = [["#334155", "no escape yet"]];
     if (m !== 0) series.unshift({ys: surv(0), color: "#94a3b8", width: 1.3, dash: [5, 4]});
+    const d = experiment.data;
+    if (d && m < d.fish.length) {  // fraction of the trial-m streams without an event yet
+      const nb0 = Math.round(T / d.bin), cum = [0];
+      for (let i = 0; i < nb0; i++) cum.push(cum[i] + d.first[m * nb0 + i]);
+      series.push({ys: ts.map(t => 1 - cum[Math.min(nb0, Math.floor(t / d.bin + 1e-9))] / d.fish[m]), color: DATA_COLOR, dots: true});
+      items.push([DATA_COLOR, `data, trial ${m} (${d.fish[m]} fish)`, "dot"]);
+    }
     if (base.kind === "sided_survival") {  // typical fish (u = 0): escapes split with odds D
       const share = v.D / (1 + v.D);
       series.push({ys: S.map(x => share * (1 - x)), color: "#dc2626"}, {ys: S.map(x => (1 - share) * (1 - x)), color: "#2563eb"});
@@ -336,11 +352,11 @@ function simulate({base, gain, g, v, T, sided, renewal}) {
   return {counts, nb, M, stimI, stimC};
 }
 
-function heatmap(canvas, values, M, nb, T) {  // trials (rows, trial 0 at the bottom) x time bins
+function heatmap(canvas, values, M, nb, T, vmax) {  // trials (rows, trial 0 at the bottom) x time bins
   const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
   canvas.width = W * dpr; canvas.height = H * dpr;
   const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const L = 44, R = 50, Tp = 10, B = 28, pw = W - L - R, ph = H - Tp - B, vmax = state.ylim[canvas.id] ??= Math.max(...values) || 1;
+  const L = 44, R = 50, Tp = 10, B = 28, pw = W - L - R, ph = H - Tp - B;
   const color = x => {  // viridis, 5 stops
     const stops = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]], s = Math.min(1, x) * 4, i = Math.min(3, Math.floor(s)), f = s - i;
     return `rgb(${stops[i].map((c, k) => Math.round(c + f * (stops[i + 1][k] - c))).join(",")})`;
@@ -360,12 +376,28 @@ function heatmap(canvas, values, M, nb, T) {  // trials (rows, trial 0 at the bo
   ctx.fillText(vmax.toPrecision(2), W - R + 23, Tp + 8); ctx.fillText("0 Hz", W - R + 23, Tp + ph);
 }
 
+function observed(T) {  // the data's event counts per trial and time bin (state.bin), by side
+  const d = experiment.data, M = d.fish.length, nb = Math.round(T / state.bin), nb0 = Math.round(T / d.bin);
+  const rebin = counts => {
+    const out = new Float64Array(M * nb);
+    for (let m = 0; m < M; m++) for (let i = 0; i < nb0; i++) out[m * nb + Math.min(nb - 1, Math.floor(i * d.bin / state.bin + 1e-9))] += counts[m * nb0 + i];
+    return out;
+  };
+  const c = Object.fromEntries(["all", "ipsi", "contra"].filter(k => d[k]).map(k => [k, rebin(d[k])]));
+  c.all ??= c.ipsi.map((x, i) => x + c.contra[i]);
+  return {M, c};
+}
+
 function surface(args) {
   if (!document.getElementById("c-surf")) return;  // the rung changed meanwhile
   const {counts, nb, M, stimI, stimC} = simulate(args), bin = args.T / nb, perBin = FISH * bin;
   const side = args.sided ? state.side : "all", pick = {all: (c, i) => c + counts.contra[i], ipsi: c => c, contra: (c, i) => counts.contra[i]}[side];
   const total = counts.ipsi.map((c, i) => pick(c, i) / perBin);
-  heatmap(document.getElementById("c-surf"), total, M, nb, args.T);
+  const d = experiment.data, obs = d && observed(args.T), fish = m => Math.max(1, d.fish[m]);
+  const data = obs && obs.c[side].map((x, i) => x / (fish(Math.floor(i / nb)) * bin));
+  const vmax = state.ylim["c-surf"] ??= Math.max(...total, ...(data || [])) || 1;
+  heatmap(document.getElementById("c-surf"), total, M, nb, args.T, vmax);
+  if (data) heatmap(document.getElementById("c-data"), data, obs.M, nb, args.T, vmax);
   const centers = Array.from({length: nb}, (_, b) => (b + 0.5) * bin), psth = side => centers.map((_, b) => {
     let s = 0; for (let m = 0; m < M; m++) s += side[m * nb + b]; return s / (perBin * M);
   });
@@ -373,9 +405,22 @@ function surface(args) {
   const series = [{ys: psth(counts.ipsi), color: "#2563eb"}, {ys: stimMean(stimI), color: "#2563eb", width: 1.2, dash: [5, 4]}];
   const items = [["#2563eb", args.sided ? "ipsi, simulated" : "simulated"], ["#2563eb", "stimulus-driven rate (gain 1, no history)", true]];
   if (stimC) { series.push({ys: psth(counts.contra), color: "#dc2626"}, {ys: stimMean(stimC), color: "#dc2626", width: 1.2, dash: [5, 4]}); items.push(["#dc2626", "contra, simulated"]); }
+  if (obs) {  // per fish present in each trial
+    const exposure = d.fish.reduce((a, b) => a + b, 0) * bin;
+    const dataPsth = counts => centers.map((_, b) => { let s = 0; for (let m = 0; m < obs.M; m++) s += counts[m * nb + b]; return s / exposure; });
+    if (args.sided) {
+      series.push({ys: dataPsth(obs.c.ipsi), color: "#1e3a8a", dots: true}, {ys: dataPsth(obs.c.contra), color: "#991b1b", dots: true});
+      items.push(["#1e3a8a", "ipsi, data", "dot"], ["#991b1b", "contra, data", "dot"]);
+    } else { series.push({ys: dataPsth(obs.c.all), color: DATA_COLOR, dots: true}); items.push([DATA_COLOR, "data", "dot"]); }
+  }
   plot(document.getElementById("c-psth"), centers, series, {yLabel: "rate (Hz)"});
-  const trials = Array.from({length: M}, (_, m) => m), perTrial = trials.map(m => { let s = 0; for (let b = 0; b < nb; b++) s += total[m * nb + b]; return s / nb; });
-  plot(document.getElementById("c-trial"), trials, [{ys: perTrial, color: {all: "#334155", ipsi: "#2563eb", contra: "#dc2626"}[side]}], {xLabel: "trial", yLabel: `mean rate (Hz), ${side === "all" ? "all events" : side}`});
+  const trials = Array.from({length: Math.max(M, obs ? obs.M : 0)}, (_, m) => m);
+  const perTrial = (values, n) => trials.map(m => { if (m >= n) return null; let s = 0; for (let b = 0; b < nb; b++) s += values[m * nb + b]; return s / nb; });
+  const trialSeries = [{ys: perTrial(total, M), color: {all: "#334155", ipsi: "#2563eb", contra: "#dc2626"}[side]}];
+  if (data) trialSeries.push({ys: perTrial(data, obs.M), color: DATA_COLOR, dots: true});
+  plot(document.getElementById("c-trial"), trials, trialSeries, {xLabel: "trial", yLabel: `mean rate (Hz), ${side === "all" ? "all events" : side}`});
+  document.getElementById("l-trial").innerHTML = data ? legend([[trialSeries[0].color, "simulated"], [DATA_COLOR, "data", "dot"]]) : "";
+  if (data) document.getElementById("l-data").innerHTML = `<div class="legend">${d.n_fish} fish, the events the ladder was fitted to; rate per fish present in each trial.</div>`;
   document.getElementById("l-surf").innerHTML = `<div class="legend">${FISH} simulated fish × ${M} trials, ${+bin.toPrecision(3)} s bins${args.g ? ", each fish with its own gain" : ""}${args.gain && args.gain.trial ? " and trial gains" : ""}${args.gain && args.gain.side ? " and side preference" : ""}.${args.renewal ? " History: the simulated events only (in the data every bout resets the recovery)." : ""}</div>`;
   document.getElementById("l-psth").innerHTML = legend(items);
 }
@@ -405,7 +450,7 @@ function showModel(index) {
       <div class="controls">
         <div id="sliders"></div>
         <div class="param-row"><label>trial m <span class="val" id="mval">${state.m}</span></label><input type="range" id="mslider" min="0" max="25" step="1" value="${state.m}"></div>
-        ${survival ? "" : `<div class="param-row"><label>trials simulated <span class="val" id="nval">${state.trials}</span></label><input type="range" id="nslider" min="1" max="26" step="1" value="${state.trials}"></div>
+        ${survival ? "" : `<div class="param-row"><label>trials simulated <span class="val" id="nval">${state.trials}</span></label><input type="range" id="nslider" min="1" max="${Math.max(26, state.trials)}" step="1" value="${state.trials}"></div>
         <div class="param-row"><label>time bin (s) <select id="bin">${[0.05, 0.1, 0.25, 0.5, 1].map(b => `<option${b === state.bin ? " selected" : ""}>${b}</option>`).join("")}</select></label></div>`}
         <button class="small" id="reset">Reset to this rung's values</button><button class="small" id="rescale">Rescale axes</button>${survival ? "" : `<button class="small" id="resim">Simulate again</button>`}
       </div>
@@ -416,6 +461,7 @@ function showModel(index) {
         ${base.kind.startsWith("sided") ? block("side", base.kind === "sided_survival" ? "Share of escapes to the preferred side" : "Share of events that are ipsi") : ""}
         ${renewal ? block("hist", "Recovery and burst") : ""}
         ${survival ? "" : `<div style="grid-column:1 / -1">${block("surf", base.kind.startsWith("sided") ? `Simulated histogram surface <select id="side">${["all", "ipsi", "contra"].map(x => `<option${x === state.side ? " selected" : ""}>${x}</option>`).join("")}</select>` : "Simulated histogram surface (all events)")}</div>
+          ${experiment.data ? `<div style="grid-column:1 / -1">${block("data", "Data histogram surface (same colour scale)")}</div>` : ""}
           ${block("psth", "Mean over trials (PSTH)")}${block("trial", "Mean rate per trial")}`}
       </div>
     </div>`;
@@ -450,6 +496,7 @@ function showModel(index) {
 function showExperiment(name) {
   experiment = EXPERIMENTS.find(e => e.name === name);
   state.values = {}; state.m = 0; state.ylim = {};
+  if (experiment.data) state.trials = experiment.data.fish.length;
   const fitted = experiment.models.filter(x => x.fitted).length;
   document.getElementById("events").innerHTML = `<b>Events modelled</b> (every rung): ${experiment.events}`;
   document.getElementById("fitnote").textContent = fitted ? `${fitted}/${experiment.models.length} rungs with fitted values` : "no fit given: initial guesses";
