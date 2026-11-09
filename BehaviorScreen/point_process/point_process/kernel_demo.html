@@ -358,11 +358,12 @@ function simulate({base, gain, g, v, T, sided, renewal}) {
   return {counts, nb, M, present, others: !!others};
 }
 
+const quantile = (values, q) => values.sort((a, b) => a - b)[Math.floor(q * (values.length - 1))];
 function heatmap(canvas, values, M, nb, T, vmax) {  // trials (rows, trial 0 at the bottom) x time bins
   const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
   canvas.width = W * dpr; canvas.height = H * dpr;
   const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
-  const L = 44, R = 50, Tp = 10, B = 28, pw = W - L - R, ph = H - Tp - B;
+  const L = 44, R = 60, Tp = 10, B = 28, pw = W - L - R, ph = H - Tp - B;
   const color = x => {  // viridis, 5 stops
     const stops = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]], s = Math.min(1, x) * 4, i = Math.min(3, Math.floor(s)), f = s - i;
     return `rgb(${stops[i].map((c, k) => Math.round(c + f * (stops[i + 1][k] - c))).join(",")})`;
@@ -379,7 +380,7 @@ function heatmap(canvas, values, M, nb, T, vmax) {  // trials (rows, trial 0 at 
   ctx.save(); ctx.translate(11, Tp + ph / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("trial", 0, 0); ctx.restore();
   for (let i = 0; i < 40; i++) { ctx.fillStyle = color(1 - i / 40); ctx.fillRect(W - R + 10, Tp + i * ph / 40, 10, ph / 40 + 0.5); }
   ctx.fillStyle = "#64748b"; ctx.textAlign = "left";
-  ctx.fillText(vmax.toPrecision(2), W - R + 23, Tp + 8); ctx.fillText("0 Hz", W - R + 23, Tp + ph);
+  ctx.fillText(`≥${vmax.toPrecision(2)}`, W - R + 23, Tp + 8); ctx.fillText("0 Hz", W - R + 23, Tp + ph);
 }
 
 function observed(T) {  // the data's event counts per trial and time bin (state.bin), by side
@@ -401,7 +402,7 @@ function surface(args) {
   const total = counts.ipsi.map((c, i) => pick(c, i) / perBin(i));
   const d = experiment.data, obs = d && observed(args.T), fish = m => Math.max(1, d.fish[m]);
   const data = obs && obs.c[side].map((x, i) => x / (fish(Math.floor(i / nb)) * bin));
-  const vmax = state.ylim["c-surf"] ??= Math.max(...total, ...(data || [])) || 1;
+  const vmax = state.ylim["c-surf"] ??= quantile([...total, ...(data || [])], 0.99) || 1;
   heatmap(document.getElementById("c-surf"), total, M, nb, args.T, vmax);
   if (data) heatmap(document.getElementById("c-data"), data, obs.M, nb, args.T, vmax);
   const simExposure = present.reduce((a, b) => a + b, 0) * bin, centers = Array.from({length: nb}, (_, b) => (b + 0.5) * bin), psth = side => centers.map((_, b) => {
