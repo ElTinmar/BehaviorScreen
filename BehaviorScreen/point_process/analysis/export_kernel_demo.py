@@ -35,6 +35,7 @@ from BehaviorScreen.point_process.point_process.survival_process import Survival
 PAGE = Path(__file__).resolve().parents[1] / "point_process" / "kernel_demo.html"
 DATA = re.compile(r"(/\*BEGIN DATA\*/).*?(/\*END DATA\*/)", re.S)
 DATA_BIN = 0.05  # s; the page's time bins are multiples of it
+PAGE_FISH, PAGE_DT = 200, 0.01  # the page's simulated fish and time step
 
 BOUT_NAMES = dict(zip(bouts_category_name_short, (n.replace("_", " ") for n in bouts_category_name)))
 PER_TRIAL = "log / trial"
@@ -192,6 +193,16 @@ def model_entry(model: PointProcess, fitted: Optional[List[float]], t_end: float
     return {"name": model.name, "latex": model.latex_formula.strip("$"), "fitted": fitted is not None, "params": params, "structure": shape}
 
 
+def other_bouts(dataset: PointProcessDataset) -> List[List[Optional[List[int]]]]:
+    """
+    For PAGE_FISH fish drawn at random, per trial: the times (in PAGE_DT steps) of its bouts that are not events,
+    the last one before the trial included (negative), or None where the fish lacks the trial.
+    """
+    fish = np.random.default_rng(0).choice(dataset.num_fish, min(PAGE_FISH, dataset.num_fish), replace=False)
+    return [[np.round(dataset.other_times(f, m) / PAGE_DT).astype(int).tolist() if dataset.fish_trial_mask[f, m] else None
+             for m in range(dataset.num_trials)] for f in fish]
+
+
 def observed(dataset: PointProcessDataset, sided: bool, survival: bool) -> dict:
     """Events per trial and DATA_BIN time bin (ipsi and contra apart if sided; first events if survival) and fish per trial."""
     nb = round(dataset.duration_s / DATA_BIN)
@@ -229,6 +240,8 @@ def export(output_dir: Optional[Path], loader: Optional[Callable[[str], Behavior
             kind = (null["base"] if null["kind"] == "gain" else null)["kind"]
             dataset = loader(config["events"]).prepare_dataset(**config["dataset"])
             experiments[-1]["data"] = observed(dataset, kind.startswith("sided"), kind.endswith("survival"))
+            if any(m.uses_history for m in models):
+                experiments[-1]["data"]["others"] = other_bouts(dataset)
     return experiments
 
 
@@ -242,7 +255,7 @@ def main() -> None:
     if not DATA.search(page):
         raise ValueError(f"{PAGE} has no /*BEGIN DATA*/ ... /*END DATA*/ block: restore the page from the repository")
     PAGE.write_text(DATA.sub(lambda m: f"{m.group(1)}\nconst EXPERIMENTS = {data};\n{m.group(2)}", page), encoding="utf-8")
-    print(f"wrote {PAGE}")
+    print(f"wrote {PAGE} ({PAGE.stat().st_size / 1e6:.1f} MB)")
 
 
 if __name__ == "__main__":

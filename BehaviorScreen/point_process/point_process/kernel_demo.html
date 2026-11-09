@@ -324,8 +324,11 @@ function render() {
 
 const FISH = 200;
 function simulate({base, gain, g, v, T, sided, renewal}) {
-  // Every fish and trial (its own gains and side shift), events by trial and time bin
+  // Every fish and trial (its own gains and side shift), events by trial and time bin, and the fish per trial.
+  // With the data's other bouts, simulated fish f has those of recorded fish f (as the pipeline's simulations):
+  // they reset the recovery, and the trials that fish lacks are left out.
   const u = rng(state.seed), dt = 0.01, steps = Math.round(T / dt), nb = Math.round(T / state.bin), M = state.trials;
+  const others = renewal && experiment.data && experiment.data.others, present = new Float64Array(M);
   const stimI = rateOf(sided ? base.ipsi : base.stim, v), stimC = sided ? rateOf(base.contra, v) : null;
   const table = f => Array.from({length: M}, (_, m) => Float64Array.from({length: steps}, (_, i) => f(i * dt, m)));
   const I = table(stimI), C = stimC ? table(stimC) : null;
@@ -335,21 +338,25 @@ function simulate({base, gain, g, v, T, sided, renewal}) {
   for (let f = 0; f < FISH; f++) {
     const gf = g ? drawGain(g, u) : 1, side = gain && gain.side ? v.s_side * normal(u) : 0;
     for (let m = 0; m < M; m++) {
+      const row = others ? others[f % others.length] : [], bouts = m < row.length ? row[m] : [];  // steps of the other bouts, null: no such trial
+      if (bouts === null) continue;
+      present[m]++;
       const h = gain && gain.trial ? gammaDraw(u, v.r_trial, v.r_trial) : 1;
-      let last = -1;
+      let lastEvent = -Infinity, lastOther = -Infinity, k = 0;
       for (let i = 0; i < steps; i++) {
-        const stim = I[m][i] + (C ? C[m][i] : 0), since = i - last;
-        const burst = E && last >= 0 ? E[since] * (relative ? stim : 1) : 0;
-        const rate = (rho && last >= 0 ? rho[since] : 1) * (gf * h * stim + burst);
+        while (k < bouts.length && bouts[k] <= i) lastOther = bouts[k++];
+        const stim = I[m][i] + (C ? C[m][i] : 0), lastBout = Math.max(lastEvent, lastOther);
+        const burst = E && lastEvent >= 0 ? E[i - lastEvent] * (relative ? stim : 1) : 0;
+        const rate = (rho && lastBout > -Infinity ? rho[Math.min(i - lastBout, steps - 1)] : 1) * (gf * h * stim + burst);
         if (u() < rate * dt) {
-          last = i;
+          lastEvent = i;
           const isIpsi = !C || u() < sigmoid(Math.log(I[m][i] / C[m][i]) + side);
           counts[isIpsi ? "ipsi" : "contra"][m * nb + Math.min(nb - 1, Math.floor(i * dt / state.bin))]++;
         }
       }
     }
   }
-  return {counts, nb, M, stimI, stimC};
+  return {counts, nb, M, stimI, stimC, present, others: !!others};
 }
 
 function heatmap(canvas, values, M, nb, T, vmax) {  // trials (rows, trial 0 at the bottom) x time bins
@@ -390,16 +397,16 @@ function observed(T) {  // the data's event counts per trial and time bin (state
 
 function surface(args) {
   if (!document.getElementById("c-surf")) return;  // the rung changed meanwhile
-  const {counts, nb, M, stimI, stimC} = simulate(args), bin = args.T / nb, perBin = FISH * bin;
+  const {counts, nb, M, stimI, stimC, present, others} = simulate(args), bin = args.T / nb, perBin = i => Math.max(1, present[Math.floor(i / nb)]) * bin;
   const side = args.sided ? state.side : "all", pick = {all: (c, i) => c + counts.contra[i], ipsi: c => c, contra: (c, i) => counts.contra[i]}[side];
-  const total = counts.ipsi.map((c, i) => pick(c, i) / perBin);
+  const total = counts.ipsi.map((c, i) => pick(c, i) / perBin(i));
   const d = experiment.data, obs = d && observed(args.T), fish = m => Math.max(1, d.fish[m]);
   const data = obs && obs.c[side].map((x, i) => x / (fish(Math.floor(i / nb)) * bin));
   const vmax = state.ylim["c-surf"] ??= Math.max(...total, ...(data || [])) || 1;
   heatmap(document.getElementById("c-surf"), total, M, nb, args.T, vmax);
   if (data) heatmap(document.getElementById("c-data"), data, obs.M, nb, args.T, vmax);
-  const centers = Array.from({length: nb}, (_, b) => (b + 0.5) * bin), psth = side => centers.map((_, b) => {
-    let s = 0; for (let m = 0; m < M; m++) s += side[m * nb + b]; return s / (perBin * M);
+  const simExposure = present.reduce((a, b) => a + b, 0) * bin, centers = Array.from({length: nb}, (_, b) => (b + 0.5) * bin), psth = side => centers.map((_, b) => {
+    let s = 0; for (let m = 0; m < M; m++) s += side[m * nb + b]; return s / simExposure;
   });
   const stimMean = f => centers.map(t => { let s = 0; for (let m = 0; m < M; m++) s += f(t, m); return s / M; });
   const series = [{ys: psth(counts.ipsi), color: "#2563eb"}, {ys: stimMean(stimI), color: "#2563eb", width: 1.2, dash: [5, 4]}];
@@ -421,7 +428,7 @@ function surface(args) {
   plot(document.getElementById("c-trial"), trials, trialSeries, {xLabel: "trial", yLabel: `mean rate (Hz), ${side === "all" ? "all events" : side}`});
   document.getElementById("l-trial").innerHTML = data ? legend([[trialSeries[0].color, "simulated"], [DATA_COLOR, "data", "dot"]]) : "";
   if (data) document.getElementById("l-data").innerHTML = `<div class="legend">${d.n_fish} fish, the events the ladder was fitted to; rate per fish present in each trial.</div>`;
-  document.getElementById("l-surf").innerHTML = `<div class="legend">${FISH} simulated fish × ${M} trials, ${+bin.toPrecision(3)} s bins${args.g ? ", each fish with its own gain" : ""}${args.gain && args.gain.trial ? " and trial gains" : ""}${args.gain && args.gain.side ? " and side preference" : ""}.${args.renewal ? " History: the simulated events only (in the data every bout resets the recovery)." : ""}</div>`;
+  document.getElementById("l-surf").innerHTML = `<div class="legend">${FISH} simulated fish × ${M} trials, ${+bin.toPrecision(3)} s bins${args.g ? ", each fish with its own gain" : ""}${args.gain && args.gain.trial ? " and trial gains" : ""}${args.gain && args.gain.side ? " and side preference" : ""}.${args.renewal ? (others ? " Each simulated fish also has the other bouts (and last bout before the trial) of a recorded fish, which reset its recovery, as in the fit." : " History: the simulated events only (in the data every bout resets the recovery): export with a data root for the other bouts.") : ""}</div>`;
   document.getElementById("l-psth").innerHTML = legend(items);
 }
 
