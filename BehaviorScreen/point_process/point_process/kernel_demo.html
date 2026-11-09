@@ -48,8 +48,7 @@
 <p class="sub">Each experiment's candidate models (the null first), as in <code>model_config.py</code>, in Tier 1 map order.
 The Tier 1 model of an experiment (<code>tier1_config.TIER1_MODELS</code>) is marked and shown first; ★ marks its parameters
 fitted per arm, every other one being pinned to the control fit. Pick a rung to see its formula, move the sliders to reshape it. Parameters start at the fitted values when the page was exported from a fit run
-(<code>export_kernel_demo -o &lt;output dir&gt;</code>), else at the initial guesses. Plots keep their y range while you move sliders or change rung, so changes show as they are; <b>Rescale axes</b> fits them again (a new experiment starts rescaled). Sliders keep their value when the next rung
-has the same parameter. Regenerate with <code>python -m BehaviorScreen.point_process.analysis.export_kernel_demo</code>; with a data root
+(<code>export_kernel_demo -o &lt;output dir&gt;</code>), else at the initial guesses. Plots keep their y range while you move sliders or change rung, so changes show as they are; <b>Rescale axes</b> fits them again (a new experiment starts rescaled). Picking a rung sets the sliders to its values. Regenerate with <code>python -m BehaviorScreen.point_process.analysis.export_kernel_demo</code>; with a data root
 (<code>-d &lt;data root&gt;</code>) the page also shows the events the ladders were fitted to (dots, and the data surface).</p>
 <div id="banner"></div>
 
@@ -445,7 +444,7 @@ function showModel(index) {
   clearTimeout(state.timer);
   model = experiment.models[index];
   document.querySelectorAll(".rung").forEach((b, i) => b.classList.toggle("active", i === index));
-  for (const p of model.params) if (!(p.name in state.values)) state.values[p.name] = p.value;
+  state.values = Object.fromEntries(model.params.map(p => [p.name, p.value]));
   const {gain, base} = unwrap(model.structure);
   const survival = base.kind === "survival" || base.kind === "sided_survival", renewal = base.kind.endsWith("renewal");
   const block = (id, title) => `<div><div class="plot-title">${title}</div><canvas id="c-${id}"></canvas><div id="l-${id}"></div></div>`;
@@ -488,7 +487,7 @@ function showModel(index) {
     sliders.appendChild(row);
   }
   document.getElementById("mslider").addEventListener("input", e => { state.m = +e.target.value; document.getElementById("mval").textContent = state.m; render(); });
-  document.getElementById("reset").addEventListener("click", () => { for (const p of model.params) state.values[p.name] = p.value; showModel(index); });
+  document.getElementById("reset").addEventListener("click", () => showModel(index));
   const nslider = document.getElementById("nslider");
   const binSelect = document.getElementById("bin");
   const sideSelect = document.getElementById("side");
@@ -502,7 +501,7 @@ function showModel(index) {
 
 function showExperiment(name) {
   experiment = EXPERIMENTS.find(e => e.name === name);
-  state.values = {}; state.m = 0; state.ylim = {};
+  state.m = 0; state.ylim = {};
   if (experiment.data) state.trials = experiment.data.fish.length;
   const fitted = experiment.models.filter(x => x.fitted).length;
   document.getElementById("events").innerHTML = `<b>Events modelled</b> (every rung): ${experiment.events}`;
