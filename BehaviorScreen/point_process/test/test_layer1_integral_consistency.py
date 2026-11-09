@@ -200,3 +200,27 @@ class TestRefractoryDelayedExcitationKernel:
         expected = 1.0 - np.exp(-lag / 0.1)
 
         np.testing.assert_allclose(observed, expected)
+
+
+class TestSurvivalHazardIntegralConsistency:
+    @pytest.mark.parametrize("name, params", [
+        ("constant_hazard", [0.3]),
+        ("gaussian_bump_baseline", [2.0, 0.12, 0.016, 0.08]),
+        ("gaussian_bump_baseline_habituating", [2.0, 0.12, 0.03, 0.08, -0.1]),
+        ("gaussian_bump_baseline_habituating_variable_width", [2.0, 0.5, 0.1, 0.05, -0.1, 0.4]),
+        ("gamma_pulse_baseline_habituating", [1.5, 0.2, 0.05, -0.05]),
+        ("exgaussian_bump_baseline_habituating", [0.44, 0.08, 0.016, 0.054, 0.08, -0.1]),
+    ])
+    def test_closed_form_matches_quadrature(self, name: str, params: list) -> None:
+        """Every survival hazard's integral_func against quad of its hazard, in NumPy and JAX, from t = 0."""
+        import jax.numpy as jnp
+        from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory
+
+        kernel = getattr(SurvivalKernelFactory, name)()
+        t = np.array([0.0, 0.05, 0.08, 0.1, 0.3, 2.0])
+        for trial in (0, 4):
+            expected = [scipy_integrate.quad(lambda s: kernel.evaluate(np.array([s]), np.array([trial]), params)[0], 0, x,
+                                             points=[0.08, 0.12, 0.5], limit=200, epsabs=1e-13)[0] for x in t]
+            np.testing.assert_allclose(kernel.integral_func(0, t, trial, params), expected, rtol=1e-9, atol=1e-12)
+            jax_value = kernel.integral_func(0.0, jnp.asarray(t), jnp.full(len(t), float(trial)), jnp.asarray(params, dtype=float))
+            np.testing.assert_allclose(np.asarray(jax_value), expected, rtol=1e-9, atol=1e-12)

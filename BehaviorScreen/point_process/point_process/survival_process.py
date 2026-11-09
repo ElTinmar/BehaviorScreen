@@ -1,13 +1,23 @@
 # point_process/survival_process.py
-from typing import List, Optional, Tuple, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
 
-from .backend import Arrays, jnp, pad, padded, xp
+from .backend import Arrays, jnp, special, xp
 from .dataset import PointProcessDataset
 from .point_process import PointProcess, thin
 from .poisson_process import RateKernel
-from .kernel_shapes import bounded_trial_scale, exgaussian_shape
+from .kernel_shapes import bounded_trial_scale, exgaussian_cdf, exgaussian_shape
+
+
+def exact(antiderivative: Callable) -> Callable:
+    """A RateKernel's integral_func from an antiderivative(t, trial, params) of its hazard."""
+    return lambda t0, t1, trial, params: antiderivative(t1, trial, params) - antiderivative(t0, trial, params)
+
+
+def gaussian_area(t, mu, sigma):
+    """Integral of exp(-(s - mu)^2 / 2 sigma^2) from -inf to t."""
+    return sigma * np.sqrt(2 * np.pi) * special.ndtr((t - mu) / sigma)
 
 
 class SurvivalKernelFactory:
@@ -30,6 +40,7 @@ class SurvivalKernelFactory:
             initial_guesses=[0.3],
             bounds=[(1e-4, 20.0)],
             latex_formula=r"$h = B$",
+            integral_func=exact(lambda t, trial, params: params[0] * (t + 0.0 * trial)),
         )
 
     @staticmethod
@@ -52,6 +63,7 @@ class SurvivalKernelFactory:
             initial_guesses=[1.0, t_init, 0.1, 0.02],
             bounds=[(0.001, 30.0), t_bounds, (0.005, 3.0), (1e-4, 1.0)],
             latex_formula=r"$h(t) = H \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right) + B$",
+            integral_func=exact(lambda t, trial, params: params[0] * gaussian_area(t, *params[1:3]) + params[3] * (t + 0.0 * trial)),
         )
 
     @staticmethod
@@ -91,6 +103,7 @@ class SurvivalKernelFactory:
             latex_formula=(
                 r"$h(t,m) = H e^{\alpha m} \exp\left(-\frac{(t-\mu)^2}{2\sigma^2}\right) + B$"
             ),
+            integral_func=exact(lambda t, trial, params: params[0] * xp.exp(params[4] * trial) * gaussian_area(t, *params[1:3]) + params[3] * t),
         )
 
     @staticmethod
@@ -137,6 +150,8 @@ class SurvivalKernelFactory:
                 r"$h(t,m) = H e^{\alpha m} \exp\left(-\frac{(t-\mu)^2}"
                 r"{2(\sigma_0 \cdot 2/(1+e^{-\beta_\sigma m}))^2}\right) + B$"
             ),
+            integral_func=exact(lambda t, trial, params: params[0] * xp.exp(params[4] * trial)
+                                * gaussian_area(t, params[1], params[2] * bounded_trial_scale(trial, params[5])) + params[3] * t),
         )
 
     @staticmethod
@@ -179,6 +194,7 @@ class SurvivalKernelFactory:
             initial_guesses=[1.0, tau_init, 0.02, 0.0],
             bounds=[(0.001, 30.0), tau_bounds, (1e-4, 1.0), (-2.0, 2.0)],
             latex_formula=r"$h(t,m) = H e^{\alpha m} \frac{t}{\tau} e^{-t/\tau} + B$",
+            integral_func=exact(lambda t, trial, params: -params[0] * xp.exp(params[3] * trial) * (params[1] + t) * xp.exp(-t / params[1]) + params[2] * t),
         )
 
     @staticmethod
@@ -230,6 +246,7 @@ class SurvivalKernelFactory:
             latex_formula=(
                 r"$h(t,m) = H e^{\alpha m}\cdot\mathrm{exGauss}(t;\mu,\sigma,\tau) + B$"
             ),
+            integral_func=exact(lambda t, trial, params: params[0] * xp.exp(params[5] * trial) * exgaussian_cdf(t, *params[1:4]) + params[4] * t),
         )
 
 
@@ -358,47 +375,21 @@ class SurvivalProcess(PointProcess):
         return float(np.sum(H)) - self._log_hazard_at_events(trial, t_obs, censored, params)
 
     def supports_jax(self) -> bool:
-        return True
+        return self.kernel.integral_func is not None
 
     def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
-        """
-        Per active stream its fish, trial, first-passage time and whether it is censored;
-        and RateKernel.cumulative_integrate's grid of each trial (to its latest observation),
-        concatenated and padded (padded) with grid starts, with each observation's grid point.
-        """
+        """Per active stream its fish, trial, first-passage time and whether it is censored."""
         fish, trial, t_obs, censored = (np.array(c) for c in zip(*(
             (f, m, *self._first_event_or_censor(t_ev, dataset.duration_s)) for f, m, t_ev in dataset.iter_streams()
         )))
-        grids, starts, point = [], [], np.zeros(len(t_obs), dtype=int)
-        offset = 0
-        for m in np.unique(trial):
-            in_trial = trial == m
-            t_max = t_obs[in_trial].max()
-            grid = np.append(np.arange(0, t_max, self.integration_dt), t_max)
-            k = np.clip(np.searchsorted(grid, t_obs[in_trial], side="right") - 1, 0, len(grid) - 1)
-            point[in_trial] = offset + k
-            grids.append(np.stack([grid, np.full(len(grid), m)]))
-            starts.append(np.r_[True, np.zeros(len(grid) - 1, bool)])
-            offset += len(grid)
-        grid = np.concatenate(grids, axis=1)
-        size = padded(grid.shape[1])
-        start = pad(np.concatenate(starts), size, True)
-        return Arrays({
-            "fish": jnp.asarray(fish), "trial": jnp.asarray(trial), "t_obs": jnp.asarray(t_obs), "censored": jnp.asarray(censored),
-            "grid_t": jnp.asarray(pad(grid[0], size, 0.0)), "grid_trial": jnp.asarray(pad(grid[1], size, 0.0)), "grid_start": jnp.asarray(start),
-            "start_index": jnp.asarray(np.maximum.accumulate(np.where(start, np.arange(size), 0))), "point": jnp.asarray(point),
-        }, {"num_fish": dataset.num_fish, "num_trials": dataset.num_trials})
+        return Arrays({"fish": jnp.asarray(fish), "trial": jnp.asarray(trial), "t_obs": jnp.asarray(t_obs), "censored": jnp.asarray(censored)},
+                      {"num_fish": dataset.num_fish, "num_trials": dataset.num_trials})
 
     def jax_stream_terms(self, params: jnp.ndarray, a: Arrays) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Sum of log hazards at the first events, and events and cumulative hazard per stream (fish x trial)."""
-        t, m = a["grid_t"], a["grid_trial"]
-        rate = self.kernel.evaluate(t, m, params)
-        steps = jnp.where(a["grid_start"], 0.0, (rate + jnp.roll(rate, 1)) / 2 * (t - jnp.roll(t, 1)))
-        cumulative = jnp.cumsum(steps)
-        cumulative = cumulative - cumulative[a["start_index"]]
-        k, t_obs, trial = a["point"], a["t_obs"], a["trial"].astype(float)
+        t_obs, trial = a["t_obs"], a["trial"].astype(float)
+        H = self.kernel.integral_func(0.0, t_obs, trial, params)
         h = self.kernel.evaluate(t_obs, trial, params)
-        H = cumulative[k] + (t_obs - t[k]) * (rate[k] + h) / 2
         log_hazards = jnp.sum(jnp.where(a["censored"], 0.0, jnp.log(jnp.maximum(h, 1e-12))))
         per_stream = lambda values: jnp.zeros((a["num_fish"], a["num_trials"])).at[a["fish"], a["trial"]].add(values)
         return log_hazards, per_stream(jnp.where(a["censored"], 0.0, 1.0)), per_stream(H)

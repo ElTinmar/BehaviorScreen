@@ -140,12 +140,12 @@
   "moved": 9615.066789771856
  },
  "GammaMixedEffects[SidedSurvival SurvivalGaussianBump(Baseline)]": {
-  "initial": 1642.4944851418168,
-  "moved": 1272.2536068449235
+  "initial": 1642.4946457256033,
+  "moved": 1272.2529290765494
  },
  "GammaMixedEffects[SidedSurvival SurvivalGaussianBump(Baseline_Habituating)]": {
-  "initial": 1642.4944851418168,
-  "moved": 1278.610066055142
+  "initial": 1642.4946457256033,
+  "moved": 1278.6089484938054
  },
  "GammaMixedEffects[Sided[Homogeneous \u03bb | Homogeneous \u03bb]]": {
   "initial": 13215.250321658867,
@@ -164,16 +164,16 @@
   "moved": 13461.645884612239
  },
  "GammaMixedEffects[Survival SurvivalExGaussianBump(Baseline_Habituating)]": {
-  "initial": 1254.5010769896032,
-  "moved": 1011.9795920854992
+  "initial": 1254.491741538533,
+  "moved": 1011.9726548057143
  },
  "GammaMixedEffects[Survival SurvivalGaussianBump(Baseline)]": {
-  "initial": 1349.920250160764,
-  "moved": 1026.9102681008367
+  "initial": 1349.9988189628061,
+  "moved": 1026.9722996430714
  },
  "GammaMixedEffects[Survival SurvivalGaussianBump(Baseline_Habituating)]": {
-  "initial": 1349.920250160764,
-  "moved": 1056.2110985052898
+  "initial": 1349.9988189628061,
+  "moved": 1056.2832432876835
  },
  "GammaSideMixedEffects+Trial[SidedRenewal[Homogeneous \u03bb | Homogeneous \u03bb, history: WeibullRecovery, events: StimulusBurst(k=1)]]": {
   "initial": 13300.28624764195,
@@ -224,8 +224,8 @@
   "moved": 13636.071196044113
  },
  "GammaSideMixedEffects[SidedSurvival SurvivalGaussianBump(Baseline_Habituating)]": {
-  "initial": 1642.16601312636,
-  "moved": 1278.1579685914003
+  "initial": 1642.1661737101465,
+  "moved": 1278.1568510300638
  },
  "GammaSideMixedEffects[Sided[Exponential decay \u03bb(t) | Homogeneous \u03bb]]": {
   "initial": 12507.276088982902,
@@ -313,15 +313,15 @@
  },
  "SidedSurvival SurvivalConstantHazard": {
   "initial": 1034.6890160770117,
-  "moved": 1022.9812144122868
+  "moved": 1022.9812144122884
  },
  "SidedSurvival SurvivalGaussianBump(Baseline)": {
-  "initial": 1820.4416027491552,
-  "moved": 1379.9415924168545
+  "initial": 1820.4417071642456,
+  "moved": 1379.941278189338
  },
  "SidedSurvival SurvivalGaussianBump(Baseline_Habituating)": {
-  "initial": 1820.4416027491552,
-  "moved": 1382.1661502827044
+  "initial": 1820.4417071642456,
+  "moved": 1382.165624727089
  },
  "Sided[Exponential decay \u03bb(t) | Homogeneous \u03bb]": {
   "initial": 13413.229387202511,
@@ -344,20 +344,20 @@
   "moved": 13591.857796847231
  },
  "Survival SurvivalConstantHazard": {
-  "initial": 772.8075618687703,
-  "moved": 760.3933222553612
+  "initial": 772.8075618687701,
+  "moved": 760.3933222553628
  },
  "Survival SurvivalExGaussianBump(Baseline_Habituating)": {
-  "initial": 1266.772516183695,
-  "moved": 1002.1722886647174
+  "initial": 1266.7662088087002,
+  "moved": 1002.1665085741245
  },
  "Survival SurvivalGaussianBump(Baseline)": {
-  "initial": 1431.1029342575225,
-  "moved": 1046.080814473563
+  "initial": 1431.143840003654,
+  "moved": 1046.123007392285
  },
  "Survival SurvivalGaussianBump(Baseline_Habituating)": {
-  "initial": 1431.1029342575225,
-  "moved": 1060.8494746229132
+  "initial": 1431.143840003654,
+  "moved": 1060.902838197194
  },
  "ZeroInflatedGammaMixedEffects[Poisson Homogeneous \u03bb]": {
   "initial": 8589.076068522641,

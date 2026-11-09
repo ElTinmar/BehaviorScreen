@@ -36,6 +36,11 @@ def exgaussian_shape(t, mu, sigma, tau):
     return xp.exp(inv_k * (0.5 * inv_k - z) + special.log_ndtr(z - inv_k) - xp.log(tau / sigma) - xp.log(sigma))
 
 
+def exgaussian_cdf(t, mu, sigma, tau):
+    """Integral of exgaussian_shape from -inf to t: Phi(z) - tau * exgaussian_shape(t)."""
+    return special.ndtr((t - mu) / sigma) - tau * exgaussian_shape(t, mu, sigma, tau)
+
+
 def sigmoid_bounded(z: np.ndarray, upper: float) -> np.ndarray:
     """
     Squash an unconstrained real z into (0, upper) via a logistic.
