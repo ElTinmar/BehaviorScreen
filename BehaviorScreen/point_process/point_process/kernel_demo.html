@@ -355,7 +355,7 @@ function simulate({base, gain, g, v, T, sided, renewal}) {
       }
     }
   }
-  return {counts, nb, M, stimI, stimC, present, others: !!others};
+  return {counts, nb, M, present, others: !!others};
 }
 
 function heatmap(canvas, values, M, nb, T, vmax) {  // trials (rows, trial 0 at the bottom) x time bins
@@ -396,7 +396,7 @@ function observed(T) {  // the data's event counts per trial and time bin (state
 
 function surface(args) {
   if (!document.getElementById("c-surf")) return;  // the rung changed meanwhile
-  const {counts, nb, M, stimI, stimC, present, others} = simulate(args), bin = args.T / nb, perBin = i => Math.max(1, present[Math.floor(i / nb)]) * bin;
+  const {counts, nb, M, present, others} = simulate(args), bin = args.T / nb, perBin = i => Math.max(1, present[Math.floor(i / nb)]) * bin;
   const side = args.sided ? state.side : "all", pick = {all: (c, i) => c + counts.contra[i], ipsi: c => c, contra: (c, i) => counts.contra[i]}[side];
   const total = counts.ipsi.map((c, i) => pick(c, i) / perBin(i));
   const d = experiment.data, obs = d && observed(args.T), fish = m => Math.max(1, d.fish[m]);
@@ -407,10 +407,9 @@ function surface(args) {
   const simExposure = present.reduce((a, b) => a + b, 0) * bin, centers = Array.from({length: nb}, (_, b) => (b + 0.5) * bin), psth = side => centers.map((_, b) => {
     let s = 0; for (let m = 0; m < M; m++) s += side[m * nb + b]; return s / simExposure;
   });
-  const stimMean = f => centers.map(t => { let s = 0; for (let m = 0; m < M; m++) s += f(t, m); return s / M; });
-  const series = [{ys: psth(counts.ipsi), color: "#2563eb"}, {ys: stimMean(stimI), color: "#2563eb", width: 1.2, dash: [5, 4]}];
-  const items = [["#2563eb", args.sided ? "ipsi, simulated" : "simulated"], ["#2563eb", "stimulus-driven rate (gain 1, no history)", true]];
-  if (stimC) { series.push({ys: psth(counts.contra), color: "#dc2626"}, {ys: stimMean(stimC), color: "#dc2626", width: 1.2, dash: [5, 4]}); items.push(["#dc2626", "contra, simulated"]); }
+  const series = [{ys: psth(counts.ipsi), color: "#2563eb"}];
+  const items = [["#2563eb", args.sided ? "ipsi, simulated" : "simulated"]];
+  if (args.sided) { series.push({ys: psth(counts.contra), color: "#dc2626"}); items.push(["#dc2626", "contra, simulated"]); }
   if (obs) {  // per fish present in each trial
     const exposure = d.fish.reduce((a, b) => a + b, 0) * bin;
     const dataPsth = counts => centers.map((_, b) => { let s = 0; for (let m = 0; m < obs.M; m++) s += counts[m * nb + b]; return s / exposure; });
