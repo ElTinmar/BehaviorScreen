@@ -487,7 +487,7 @@ function showModel(index) {
     sliders.appendChild(row);
   }
   document.getElementById("mslider").addEventListener("input", e => { state.m = +e.target.value; document.getElementById("mval").textContent = state.m; render(); });
-  document.getElementById("reset").addEventListener("click", () => showModel(index));
+  document.getElementById("reset").addEventListener("click", () => { state.ylim = {}; showModel(index); });
   const nslider = document.getElementById("nslider");
   const binSelect = document.getElementById("bin");
   const sideSelect = document.getElementById("side");
