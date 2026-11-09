@@ -1,8 +1,9 @@
 # Derivations
 
 Proofs of the identities the likelihood and the time rescaling rely on, each tied to the code that implements it.
-Approximations (quadrature over gains, the time grid of renewal processes, the optimizer) are not covered here:
-the tests check those against independent methods.
+The algebra of sections 1 to 3 and the limit of section 4 are also checked symbolically (`test/test_layer0_symbolic.py`);
+section 4's argument is on paper only. Approximations (quadrature over gains, the time grid of renewal processes, the
+optimizer) are not covered here: the tests check those against independent methods.
 
 Notation: $\Phi$, $\varphi$ the standard normal CDF and density; $(a)_k = \Gamma(a+k)/\Gamma(a)$; a stream is one fish's trial.
 

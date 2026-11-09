@@ -12,6 +12,7 @@ dependencies:
 - umap-learn
 - pynndescent == 0.5.13  # the version paper_reference.joblib was saved with
 - statsmodels
+- sympy  # test_layer0_symbolic: the proofs of DERIVATIONS.md
 - requests
 - h5py
 - joblib
