@@ -402,7 +402,7 @@ function surface(args) {
   const total = counts.ipsi.map((c, i) => pick(c, i) / perBin(i));
   const d = experiment.data, obs = d && observed(args.T), fish = m => Math.max(1, d.fish[m]);
   const data = obs && obs.c[side].map((x, i) => x / (fish(Math.floor(i / nb)) * bin));
-  const vmax = state.ylim["c-surf"] ??= quantile([...total, ...(data || [])], 0.99) || 1;
+  const vmax = state.ylim["c-surf"] ??= quantile([...total, ...(data || [])], 0.999) || 1;
   heatmap(document.getElementById("c-surf"), total, M, nb, args.T, vmax);
   if (data) heatmap(document.getElementById("c-data"), data, obs.M, nb, args.T, vmax);
   const simExposure = present.reduce((a, b) => a + b, 0) * bin, centers = Array.from({length: nb}, (_, b) => (b + 0.5) * bin), psth = side => centers.map((_, b) => {
