@@ -35,7 +35,7 @@
   .param-row input[type=range] { width:100%; }
   .plot-title { font-size:12px; font-weight:600; color:#334155; margin-bottom:4px; }
   canvas { background:#fff; border:1px solid var(--border); border-radius:8px; width:100%; height:200px; display:block; }
-  #c-surf, #c-data, #c-psth, #c-trial, #c-share, #c-share-trial { height:260px; }
+  #c-surf, #c-data, #c-psth, #c-trial, #c-share, #c-share-trial, #c-counts-trial, #c-counts-fish { height:260px; }
   .row { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:14px; }
   .row > div { flex:1 1 calc((100% - (var(--cols, 2) - 1) * 14px) / var(--cols, 2)); min-width:0; }
   .legend { font-size:11px; color:var(--muted); margin-top:3px; }
@@ -334,12 +334,14 @@ function simulate({base, gain, g, v, T, sided, renewal}) {
   const lagTable = comp => comp ? Float64Array.from({length: steps}, (_, k) => lagOf(comp, v)(k * dt)) : null;
   const rho = renewal ? lagTable(base.recovery) : null, E = renewal ? lagTable(base.burst) : null, relative = renewal && base.burst && base.burst.relative;
   const counts = {ipsi: new Float64Array(M * nb), contra: new Float64Array(M * nb)};
+  const streams = {ipsi: new Int32Array(state.fish * M), contra: new Int32Array(state.fish * M), present: new Uint8Array(state.fish * M)};  // fish x trial
   for (let f = 0; f < state.fish; f++) {
     const gf = g ? drawGain(g, u) : 1, side = gain && gain.side ? v.s_side * normal(u) : 0;
     for (let m = 0; m < M; m++) {
       const row = others ? others[f % others.length] : [], bouts = m < row.length ? row[m] : [];  // steps of the other bouts, null: no such trial
       if (bouts === null) continue;
       present[m]++;
+      streams.present[f * M + m] = 1;
       const h = gain && gain.trial ? gammaDraw(u, v.r_trial, v.r_trial) : 1;
       let lastEvent = -Infinity, lastOther = -Infinity, k = 0;
       for (let i = 0; i < steps; i++) {
@@ -351,11 +353,12 @@ function simulate({base, gain, g, v, T, sided, renewal}) {
           lastEvent = i;
           const isIpsi = !C || u() < sigmoid(Math.log(I[m][i] / C[m][i]) + side);
           counts[isIpsi ? "ipsi" : "contra"][m * nb + Math.min(nb - 1, Math.floor(i * dt / state.bin))]++;
+          streams[isIpsi ? "ipsi" : "contra"][f * M + m]++;
         }
       }
     }
   }
-  return {counts, nb, M, present, others: !!others};
+  return {counts, streams, nb, M, present, others: !!others};
 }
 
 const quantile = (values, q) => values.sort((a, b) => a - b)[Math.floor(q * (values.length - 1))];
@@ -397,7 +400,7 @@ function observed(T) {  // the data's event counts per trial and time bin (state
 
 function surface(args) {
   if (!document.getElementById("c-surf")) return;  // the rung changed meanwhile
-  const {counts, nb, M, present, others} = simulate(args), bin = args.T / nb, perBin = i => Math.max(1, present[Math.floor(i / nb)]) * bin;
+  const {counts, streams, nb, M, present, others} = simulate(args), bin = args.T / nb, perBin = i => Math.max(1, present[Math.floor(i / nb)]) * bin;
   const side = args.sided ? state.side : "all", pick = {all: (c, i) => c + counts.contra[i], ipsi: c => c, contra: (c, i) => counts.contra[i]}[side];
   const total = counts.ipsi.map((c, i) => pick(c, i) / perBin(i));
   const d = experiment.data, obs = d && observed(args.T), fish = m => Math.max(1, d.fish[m]);
@@ -427,9 +430,31 @@ function surface(args) {
   plot(document.getElementById("c-trial"), trials, trialSeries, {xLabel: "trial", yLabel: `mean rate (Hz), ${side === "all" ? "all events" : side}`});
   document.getElementById("l-trial").innerHTML = data ? legend([[trialSeries[0].color, "simulated"], [DATA_COLOR, "data", "dot"]]) : "";
   if (args.sided) shares(counts, obs, nb, M, centers, trials);
+  distributions(streams, side, M);
   if (data) document.getElementById("l-data").innerHTML = `<div class="legend">${d.n_fish} fish, the events the ladder was fitted to; rate per fish present in each trial.</div>`;
   document.getElementById("l-surf").innerHTML = `<div class="legend">${state.fish} simulated fish × ${M} trials, ${+bin.toPrecision(3)} s bins${args.g ? ", each fish with its own gain" : ""}${args.gain && args.gain.trial ? " and trial gains" : ""}${args.gain && args.gain.side ? " and side preference" : ""}.${args.renewal ? (others ? " Each simulated fish also has the other bouts (and last bout before the trial) of a recorded fish, which reset its recovery, as in the fit." : " History: the simulated events only (in the data every bout resets the recovery): export with a data root for the other bouts.") : ""}</div>`;
   document.getElementById("l-psth").innerHTML = legend(items);
+}
+
+function distributions(streams, side, M) {  // events per trial (fish x trial) and per fish, simulated and data, as shares of each
+  const count = {all: i => streams.ipsi[i] + streams.contra[i], ipsi: i => streams.ipsi[i], contra: i => streams.contra[i]}[side];
+  const perTrial = [], perFish = [];
+  for (let f = 0; f < streams.present.length / M; f++) {
+    let total = 0, any = false;
+    for (let i = f * M; i < (f + 1) * M; i++) if (streams.present[i]) { any = true; perTrial.push(count(i)); total += count(i); }
+    if (any) perFish.push(total);
+  }
+  const histogram = values => { const h = []; for (const v of values) h[v] = (h[v] || 0) + 1; return Array.from(h, x => x || 0); };
+  const d = experiment.data && experiment.data.histograms && experiment.data.histograms[side];
+  for (const [id, sim, data, unit, xLabel] of [["counts-trial", histogram(perTrial), d && d.streams, "trials", "events in a trial"],
+                                               ["counts-fish", histogram(perFish), d && d.fish, "fish", "events of a fish over its trials"]]) {
+    const n = Math.max(sim.length, data ? data.length : 0), width = Math.max(1, Math.ceil(n / 40)), nbins = Math.ceil(n / width);
+    const rebin = h => { const out = new Float64Array(nbins), total = h.reduce((a, b) => a + b, 0) || 1; h.forEach((c, k) => out[Math.floor(k / width)] += c / total); return Array.from(out); };
+    const series = [{ys: rebin(sim), color: "#2563eb"}, ...(data ? [{ys: rebin(data), color: DATA_COLOR, dots: true}] : [])];
+    plot(document.getElementById(`c-${id}`), Array.from({length: nbins}, (_, b) => b * width + (width - 1) / 2), series, {xLabel, yLabel: `share of ${unit}`});
+    document.getElementById(`l-${id}`).innerHTML = legend([["#2563eb", "simulated"], ...(data ? [[DATA_COLOR, "data", "dot"]] : [])])
+      + `<div class="legend">${side === "all" ? "All events" : `${side[0].toUpperCase()}${side.slice(1)} events`}${width > 1 ? `, in bins of ${width}` : ""}.</div>`;
+  }
 }
 
 function shares(counts, obs, nb, M, centers, trials) {  // ipsi / (ipsi + contra) per time bin and per trial, simulated and data
@@ -488,7 +513,8 @@ function showModel(index) {
         ${survival ? "" : `<div style="grid-column:1 / -1">${block("surf", base.kind.startsWith("sided") ? `Simulated histogram surface <select id="side">${["all", "ipsi", "contra"].map(x => `<option${x === state.side ? " selected" : ""}>${x}</option>`).join("")}</select>` : "Simulated histogram surface (all events)")}</div>
           ${experiment.data ? `<div style="grid-column:1 / -1">${block("data", "Data histogram surface (same colour scale)")}</div>` : ""}
           <div class="row">${block("psth", "Mean over trials (PSTH)")}${block("trial", "Mean rate per trial")}</div>
-          ${base.kind.startsWith("sided") ? `<div class="row">${block("share", "Share of events that are ipsi, over time")}${block("share-trial", "Share of events that are ipsi, per trial")}</div>` : ""}`}
+          ${base.kind.startsWith("sided") ? `<div class="row">${block("share", "Share of events that are ipsi, over time")}${block("share-trial", "Share of events that are ipsi, per trial")}</div>` : ""}
+          <div class="row">${block("counts-trial", "Events per trial (each fish and trial)")}${block("counts-fish", "Events per fish (over its trials)")}</div>`}
       </div>
     </div>`;
   for (const clause of clauses(model.latex)) {

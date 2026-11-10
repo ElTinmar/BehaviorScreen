@@ -201,8 +201,16 @@ def other_bouts(dataset: PointProcessDataset) -> List[List[Optional[List[int]]]]
              for m in range(dataset.num_trials)] for f in fish]
 
 
+def count_histograms(dataset: PointProcessDataset) -> dict:
+    """How many streams (fish x trial) and how many fish have each number of events."""
+    return {"streams": np.bincount(dataset.stream_event_counts.astype(int)).tolist(), "fish": np.bincount(dataset.fish_total_counts.astype(int)).tolist()}
+
+
 def observed(dataset: PointProcessDataset, sided: bool, survival: bool) -> dict:
-    """Events per trial and DATA_BIN time bin (ipsi and contra apart if sided; first events if survival) and fish per trial."""
+    """
+    Events per trial and DATA_BIN time bin (ipsi and contra apart if sided; first events if survival), fish per trial,
+    and (but for survival) count_histograms of all events and of each side.
+    """
     nb = round(dataset.duration_s / DATA_BIN)
     def counts(d: PointProcessDataset) -> List[int]:
         bins = np.minimum((d.event_times / DATA_BIN).astype(int), nb - 1)
@@ -211,8 +219,10 @@ def observed(dataset: PointProcessDataset, sided: bool, survival: bool) -> dict:
     if survival:
         return {**data, "first": counts(dataset.first_events())}
     if sided:
-        return {**data, "ipsi": counts(dataset.select(laterality=IPSI)), "contra": counts(dataset.select(laterality=CONTRA))}
-    return {**data, "all": counts(dataset)}
+        ipsi, contra = dataset.select(laterality=IPSI), dataset.select(laterality=CONTRA)
+        histograms = {"all": count_histograms(dataset), "ipsi": count_histograms(ipsi), "contra": count_histograms(contra)}
+        return {**data, "ipsi": counts(ipsi), "contra": counts(contra), "histograms": histograms}
+    return {**data, "all": counts(dataset), "histograms": {"all": count_histograms(dataset)}}
 
 
 def export(output_dir: Optional[Path], loader: Optional[Callable[[str], BehavioralDataLoader]]) -> List[dict]:
