@@ -448,10 +448,10 @@ const intervalEdges = T => (experiment.data && experiment.data.interval_edges) |
 
 function historyPlots(streams, intervals, side, M, T) {  // time between events, and count correlation between trials by lag: simulated and data
   const d = experiment.data && experiment.data.histograms && experiment.data.histograms[side];
-  const edges = intervalEdges(T), x = edges.slice(1).map((e, i) => Math.log10(Math.sqrt(e * edges[i]))), width = Math.log10(edges[1] / edges[0]);
-  const density = h => { const total = h.reduce((a, b) => a + b, 0) || 1; return Array.from(h, c => c / total / width); };
-  const series = [{ys: density(intervals[side]), color: "#2563eb"}, ...(d ? [{ys: density(d.intervals), color: DATA_COLOR, dots: true}] : [])];
-  plot(document.getElementById("c-intervals"), x, series, {xLabel: "time between events (s)", yLabel: "density per log10 s", logX: true});
+  const edges = intervalEdges(T), x = edges.slice(1).map((e, i) => Math.log10(Math.sqrt(e * edges[i])));
+  const share = h => { const total = h.reduce((a, b) => a + b, 0) || 1; return Array.from(h, c => c / total); };
+  const series = [{ys: share(intervals[side]), color: "#2563eb"}, ...(d ? [{ys: share(d.intervals), color: DATA_COLOR, dots: true}] : [])];
+  plot(document.getElementById("c-intervals"), x, series, {xLabel: "time between events (s, log scale)", yLabel: "share of intervals", logX: true});
   const count = {all: i => streams.ipsi[i] + streams.contra[i], ipsi: i => streams.ipsi[i], contra: i => streams.contra[i]}[side];
   const F = streams.present.length / M, mean = Array.from({length: M}, (_, m) => {
     let s = 0, n = 0; for (let f = 0; f < F; f++) if (streams.present[f * M + m]) { s += count(f * M + m); n++; } return n ? s / n : 0;
@@ -469,7 +469,8 @@ function historyPlots(streams, intervals, side, M, T) {  // time between events,
   const lagSeries = [{ys: simulated, color: "#2563eb"}, ...(d && d.lags ? [{ys: lags.map(k => d.lags[k - 1] ?? null), color: DATA_COLOR, dots: true}] : [])];
   if (lags.length > 1) plot(document.getElementById("c-lags"), lags, lagSeries, {xLabel: "trials apart", yLabel: "correlation of a fish's counts", yMax: 1 / 1.1});
   const items = legend([["#2563eb", "simulated"], ...(d ? [[DATA_COLOR, "data", "dot"]] : [])]);
-  document.getElementById("l-intervals").innerHTML = items + `<div class="legend">Between consecutive ${side === "all" ? "" : side + " "}events of a trial.</div>`;
+  document.getElementById("l-intervals").innerHTML = items + `<div class="legend">Between consecutive ${side === "all" ? "" : side + " "}events of a trial;
+    bins of equal width on the log time axis, each ${(edges[1] / edges[0]).toFixed(2)}× as long as the one before.</div>`;
   document.getElementById("l-lags").innerHTML = items + `<div class="legend">Each count less its trial's mean over fish. The model: flat (fish gain, independent trial gains); a slow state: decaying with lag.</div>`;
 }
 
