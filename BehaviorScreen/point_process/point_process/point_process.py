@@ -184,8 +184,8 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         """No frailty: every gain is 1."""
         return np.ones((num_fish, n_sims))
 
-    def _fish_draws(self, num_fish: int, rng: np.random.Generator) -> list:
-        """What simulate_stream gets per fish: its gain (pairs of gain and side shift for SideFrailty)."""
+    def _fish_draws(self, num_fish: int, rng: np.random.Generator, dataset: Optional[PointProcessDataset] = None) -> list:
+        """What simulate_stream gets per fish: its gain (pairs of gain and side shift for SideFrailty); dataset: the fish's covariates."""
         return [float(g) for g in self._draw_fish_gains(num_fish, 1, rng)[:, 0]]
 
     def simulate_dataset(
@@ -200,7 +200,7 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         """
         self._require_fitted()
         rng = rng or np.random.default_rng()
-        draws = self._fish_draws(template.num_fish, rng)
+        draws = self._fish_draws(template.num_fish, rng, template)
         others = lambda f_idx, t_idx: {"others": template.other_times(f_idx, t_idx)} if self.uses_history else {}
 
         streams = [
@@ -215,6 +215,7 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
             event_fish_idx=np.concatenate([[]] + [np.full(len(ev), f) for f, _, ev in streams]).astype(int),
             fish_trial_mask=template.fish_trial_mask.copy(),
             fish_ids=template.fish_ids.copy(),
+            fish_hours=template.fish_hours,
             category_label=template.category_label,
             laterality=template.laterality,
             duration_s=template.duration_s,

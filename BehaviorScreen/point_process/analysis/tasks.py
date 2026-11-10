@@ -257,7 +257,7 @@ def plot_rungs(models: list, dataset: PointProcessDataset, model_dir: Path, n_jo
 # Name pieces -> folder tokens, in folder order; each token at most once.
 FOLDER_TOKENS = [
     (r"^ZeroInflated", "zi"), (r"GammaSideMixedEffects", "side_gain"), (r"GammaMixedEffects", "gain"),
-    (r"BaselineOnly", "baseline_gain"), (r"\+Trial", "trial"), (r"SidedSurvival", "sided_survival"),
+    (r"BaselineOnly", "baseline_gain"), (r"\+Trial", "trial"), (r"\+Hour", "hour"), (r"SidedSurvival", "sided_survival"),
     (r"(?<!Sided)Survival ", "survival"), (r"Renewal", "renewal"), (r"Hawkes", "hawkes"),
 ]
 

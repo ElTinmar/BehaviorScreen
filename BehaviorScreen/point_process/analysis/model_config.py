@@ -298,6 +298,7 @@ def get_model_config() -> Dict[str, dict]:
                 two_class(refractory_renewal(prey("Peak_Baseline_Ripple"))),
                 poisson(decay()),
                 gamma(poisson(decay())),
+                gamma(refractory_renewal(prey("Peak_Baseline_Ripple")), trial_gain=True, time_of_day=True),
             ],
         ),
         "prey_capture_contra": experiment(

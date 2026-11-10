@@ -58,8 +58,8 @@ class Wrapper(PointProcess):
     def _draw_fish_gains(self, num_fish: int, n_sims: int, rng: np.random.Generator) -> np.ndarray:
         return self.base_process._draw_fish_gains(num_fish, n_sims, rng)
 
-    def _fish_draws(self, num_fish: int, rng: np.random.Generator) -> list:
-        return self.base_process._fish_draws(num_fish, rng)
+    def _fish_draws(self, num_fish: int, rng: np.random.Generator, dataset: Optional[PointProcessDataset] = None) -> list:
+        return self.base_process._fish_draws(num_fish, rng, dataset)
 
     def _stream_tau_values(self, dataset: PointProcessDataset):
         return self.base_process._stream_tau_values(dataset)

@@ -27,6 +27,7 @@ from .sided_process import IPSI, SidedSurvivalProcess
 from .wrappers import Wrapper
 
 ArrayLike = Union[float, np.ndarray]
+HOUR_REFERENCE = 13.5  # time of day (h) at which the time-of-day factor is 1: fixed, so beta_hour and the amplitudes mean the same in every dataset
 _EVENT_CHUNK = 512  # events per chunk of the quadrature: 512 x n_nodes values stay in cache
 
 
@@ -441,14 +442,21 @@ class Frailty(_GainWrapper):
     base_process.stream_likelihood_terms; h is integrated in closed form, g by
     adaptive Gauss-Hermite quadrature on log g. Time rescaling conditions on both
     (sequential_trial_drive_taus).
+
+    time_of_day: the fish gain's mean follows the time of day the fish's recording
+    started, g_f mu_f with mu_f = exp(beta_hour (t_f - HOUR_REFERENCE)) ('beta_hour', per
+    hour; dataset.fish_hours): everywhere the gain acts, the base's expected events of
+    fish f are scaled by mu_f. estimate_fish_gains reports g_f, the gain once mu_f is
+    accounted for.
     """
 
-    def __init__(self, base_process: PointProcess, gains: GainFamily, trial_gain: bool = False, a_init: float = 5.0) -> None:
+    def __init__(
+        self, base_process: PointProcess, gains: GainFamily, trial_gain: bool = False, a_init: float = 5.0, time_of_day: bool = False,
+    ) -> None:
         super().__init__(base_process, gains)
-        self.trial_gain = trial_gain
-        trial = "+Trial" if trial_gain else ""
-        self.name = f"{gains.prefix}GammaMixedEffects{trial}[{base_process.name}]{gains.suffix}"
-        self.latex_formula = rf"${gain_formula(base_process, trial_gain)},\ {gains.latex}" + (r",\ h_{fm}\sim\Gamma(a,a)$" if trial_gain else "$")
+        self.trial_gain, self.time_of_day = trial_gain, time_of_day
+        self.name = f"{gains.prefix}GammaMixedEffects{self._suffix}[{base_process.name}]{gains.suffix}"
+        self.latex_formula = rf"${gain_formula(base_process, trial_gain)},\ {gains.latex}" + (r",\ h_{fm}\sim\Gamma(a,a)" if trial_gain else "") + self._hour_latex + "$"
         if trial_gain:
             self.param_names = self.param_names + ["r_trial"]
             self.initial_guesses = self.initial_guesses + [a_init]
@@ -456,6 +464,48 @@ class Frailty(_GainWrapper):
             nodes, weights = np.polynomial.hermite_e.hermegauss(15)
             self._gain_nodes, self._gain_log_weights = nodes, np.log(weights / weights.sum())
             self._gain_mode = np.zeros(0)  # posterior log fish gains of the last call: where Newton starts
+        self._hour_idx = len(self.param_names)
+        if time_of_day:
+            self.param_names = self.param_names + ["beta_hour"]
+            self.initial_guesses = self.initial_guesses + [0.0]
+            self.bounds = self.bounds + [(-0.5, 0.5)]
+
+    @property
+    def _suffix(self) -> str:
+        return ("+Trial" if self.trial_gain else "") + ("+Hour" if self.time_of_day else "")
+
+    @property
+    def _hour_latex(self) -> str:
+        return rf",\ g_f \propto e^{{\beta_{{hour}}(t_f - {HOUR_REFERENCE:g}\,h)}}" if self.time_of_day else ""
+
+    def _hour_offsets(self, dataset: PointProcessDataset) -> np.ndarray:
+        """t_f - HOUR_REFERENCE per fish (0 for fish without trials)."""
+        active = dataset.fish_trial_mask.any(axis=1)
+        if dataset.fish_hours is None or np.isnan(dataset.fish_hours[active]).any():
+            raise ValueError(f"{self.name}: needs every fish's recording time (dataset.fish_hours; the event table's cos/sin_daytime)")
+        return np.where(active, dataset.fish_hours - HOUR_REFERENCE, 0.0)
+
+    def _hour_factor(self, params: List[float], dataset: PointProcessDataset) -> np.ndarray:
+        """mu_f per fish (ones without time_of_day)."""
+        return np.exp(params[self._hour_idx] * self._hour_offsets(dataset)) if self.time_of_day else np.ones(dataset.num_fish)
+
+    def _scale_drive(self, params: List[float], dataset: PointProcessDataset, drive_rates: np.ndarray, stream: np.ndarray, drive_exposure: np.ndarray):
+        """A gain on the driven rate: each event's driven rate and each stream's driven exposure times mu_f."""
+        if not self.time_of_day:
+            return drive_rates, drive_exposure
+        mu = self._hour_factor(params, dataset)
+        return drive_rates * mu[stream // dataset.num_trials], drive_exposure * mu[:, None]
+
+    def _scale_whole(self, params: List[float], dataset: PointProcessDataset, base_ll: float, n: np.ndarray, S: np.ndarray):
+        """A gain on the whole intensity: every event's log rate gains log mu_f, the expected events times mu_f (per fish or stream)."""
+        if not self.time_of_day:
+            return base_ll, S
+        mu = self._hour_factor(params, dataset)
+        mu = mu if n.ndim == 1 else mu[:, None]
+        return base_ll + float(np.sum(n * np.log(mu))), S * mu
+
+    def _jax_hour_factor(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
+        return jnp.exp(params[self._hour_idx] * a["hour_offset"])
 
     def _r_trial(self, params: Optional[List[float]] = None) -> float:
         params = self.params_ if params is None else params
@@ -487,6 +537,8 @@ class Frailty(_GainWrapper):
 
     def jax_arrays(self, dataset: PointProcessDataset) -> Arrays:
         arrays = {"base": self.base_process._arrays(dataset), "active": jnp.asarray(dataset.fish_trial_mask.any(axis=1))}
+        if self.time_of_day:
+            arrays["hour_offset"] = jnp.asarray(self._hour_offsets(dataset))
         static = dict(num_trials=dataset.num_trials, num_fish=dataset.num_fish)
         if self.trial_gain and not self.base_process.gain_scales_drive_only:
             arrays["mask"] = jnp.asarray(dataset.fish_trial_mask, dtype=float)
@@ -503,6 +555,9 @@ class Frailty(_GainWrapper):
     def jax_nll(self, params: jnp.ndarray, a: Arrays) -> jnp.ndarray:
         if not self.base_process.gain_scales_drive_only:
             log_rates, n, S = self.base_process.jax_stream_terms(params[: self._n_base], a["base"])
+            if self.time_of_day:
+                mu = self._jax_hour_factor(params, a)[:, None]
+                log_rates, S = log_rates + jnp.sum(n * jnp.log(mu)), S * mu
             if self.trial_gain:
                 r = jnp.maximum(params[self._n_base], 1e-8)
                 nested = gains_jax.log_nested_gamma_marginal(
@@ -513,6 +568,10 @@ class Frailty(_GainWrapper):
         constant, drive_rates, burst_rates, stream, drive_exposure, burst_exposure = self.base_process.jax_drive_likelihood_terms(
             params[: self._n_base], a["base"]
         )
+        if self.time_of_day:  # phantom events (padding) belong to stream num_fish * num_trials: factor 1
+            mu = self._jax_hour_factor(params, a)
+            drive_rates = drive_rates * jnp.where(stream < drive_exposure.size, mu[jnp.minimum(stream // a["num_trials"], a["num_fish"] - 1)], 1.0)
+            drive_exposure = drive_exposure * mu[:, None]
         r = jnp.maximum(params[self._n_base], 1e-8)
         if self.trial_gain:
             log_z = gains_jax.log_nested_drive_marginal(
@@ -532,6 +591,7 @@ class Frailty(_GainWrapper):
             constant, drive_rates, burst_rates, stream, drive_exposure, burst_exposure = self.base_process.drive_likelihood_terms(
                 dataset, self._base_params(params)
             )
+            drive_rates, drive_exposure = self._scale_drive(params, dataset, drive_rates, stream, drive_exposure)
             active = dataset.fish_trial_mask.any(axis=1)
             if self.trial_gain:
                 log_z, self._gain_mode = log_nested_drive_marginal(
@@ -544,12 +604,14 @@ class Frailty(_GainWrapper):
             return -(constant + float(np.sum(log_z[active] - burst_exposure.sum(axis=1)[active])))
         if self.trial_gain:
             base_ll, n, S = self.base_process.stream_likelihood_terms(dataset, self._base_params(params))
+            base_ll, S = self._scale_whole(params, dataset, base_ll, n, S)
             log_marginal, self._gain_mode = log_nested_gamma_marginal(
                 n, S, dataset.fish_trial_mask, self._gain(params).shape, self._r_trial(params),
                 self._gain_nodes, self._gain_log_weights, self._fish_modes(dataset),
             )
             return -(base_ll + float(np.sum(log_marginal)))
         base_ll, N, S = self.base_process.mixed_effects_likelihood_terms(dataset, self._base_params(params))
+        base_ll, S = self._scale_whole(params, dataset, base_ll, N, S)
         active = dataset.fish_trial_mask.any(axis=1)
         return -(base_ll + float(np.sum(self._gain(params).log_marginal(N[active], S[active]))))
 
@@ -564,12 +626,14 @@ class Frailty(_GainWrapper):
             return None
         self._nll(list(self.params_), dataset)  # posterior modes of this dataset's fish
         _, d, b, stream, S, _ = self.base_process.drive_likelihood_terms(dataset, self._base_params(self.params_))
+        d, S = self._scale_drive(self.params_, dataset, d, stream, S)
         if self.trial_gain:
             gains = posterior_stream_gains(d, b, stream, S, dataset.fish_trial_mask, self._gain().shape, self._r_trial(),
                                            self._gain_nodes, self._gain_log_weights, self._fish_modes(dataset))
         else:
             _, fish_gains = self._gain().evidence_by_fish(d, b, stream // dataset.num_trials, S.sum(axis=1), n_nodes=30)
             gains = np.repeat(fish_gains[:, None], dataset.num_trials, axis=1)
+        gains = gains * self._hour_factor(self.params_, dataset)[:, None]
         renewal = getattr(self.base_process, "ground", self.base_process)
         rate, n = np.zeros((dataset.num_trials, len(dataset.t_centers))), np.zeros(dataset.num_trials)
         for f, m, t_ev in dataset.iter_streams():
@@ -603,6 +667,11 @@ class Frailty(_GainWrapper):
     def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator, **history):
         return self.base_process.simulate_stream(dataset, t_idx, self._stream_gain(gain, rng), rng, **history)
 
+    def _fish_draws(self, num_fish: int, rng: np.random.Generator, dataset: Optional[PointProcessDataset] = None) -> list:
+        """Each fish's gain, times mu_f (time_of_day: needs the dataset)."""
+        draws = PointProcess._fish_draws(self, num_fish, rng)
+        return draws if not self.time_of_day else list(np.asarray(draws) * self._hour_factor(self.params_, dataset))
+
     def _stream_tau_values(self, dataset: PointProcessDataset) -> StreamTaus:
         """
         Predictable compensator: each fish's trials in order, the gain
@@ -610,7 +679,7 @@ class Frailty(_GainWrapper):
         """
         if self.trial_gain or self.base_process.gain_scales_drive_only:
             return self._drive_stream_tau_values(dataset)
-        gain = self._gain()
+        gain, mu = self._gain(), self._hour_factor(self.params_, dataset)
         result: StreamTaus = {}
         for f_idx, streams in groupby(dataset.iter_streams(), key=lambda stream: stream[0]):
             S_offset = S_prev = 0.0
@@ -619,6 +688,7 @@ class Frailty(_GainWrapper):
                 _, cum, last_censored, exposure = self.base_process.stream_compensator_profile(
                     t_ev, t_idx, dataset.duration_s, history=dataset.history_times(f_idx, t_idx)
                 )
+                cum, exposure = np.asarray(cum) * mu[f_idx], exposure * mu[f_idx]
                 pairs = []
                 for k, value in enumerate(cum):
                     S_abs = S_offset + value
@@ -643,6 +713,8 @@ class Frailty(_GainWrapper):
         else:
             drive, stream, censored = self._whole_rate_intervals(dataset)
             burst, drive_rates, burst_rates = np.zeros_like(drive), np.ones_like(drive), np.zeros_like(drive)
+        mu = self._hour_factor(self.params_, dataset)[stream // dataset.num_trials]
+        drive, drive_rates = drive * mu, drive_rates * mu
         if self.trial_gain:
             taus = sequential_trial_drive_taus(self._gain(), self._r_trial(), stream, dataset.num_trials, drive, burst, drive_rates, burst_rates, censored)
         else:
@@ -663,14 +735,19 @@ class Frailty(_GainWrapper):
 
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         """Whole-session posterior per fish (for reporting, not for time rescaling)."""
+        mu = self._hour_factor(self.params_, dataset)
+        hour = {"time_of_day_factor": mu} if self.time_of_day else {}
         if self.base_process.gain_scales_drive_only:
             _, drive_rates, burst_rates, stream, drive_exposure, _ = self.base_process.drive_likelihood_terms(dataset, self._base_params(self.params_))
+            drive_rates, drive_exposure = self._scale_drive(self.params_, dataset, drive_rates, stream, drive_exposure)
             fish = stream // dataset.num_trials
             _, gains = self._gain().evidence_by_fish(drive_rates, burst_rates, fish, drive_exposure.sum(axis=1), n_nodes=30)
             active = np.flatnonzero(dataset.fish_trial_mask.any(axis=1))
-            return pd.DataFrame({"fish_idx": active, "n_events": np.bincount(fish, minlength=dataset.num_fish)[active], "estimated_gain": gains[active]})
+            return pd.DataFrame({"fish_idx": active, "n_events": np.bincount(fish, minlength=dataset.num_fish)[active], "estimated_gain": gains[active],
+                                 **{k: v[active] for k, v in hour.items()}})
         gain = self._gain()
         _, N, S = self.base_process.mixed_effects_likelihood_terms(dataset, self._base_params(self.params_))
+        S = S * mu
         active = dataset.fish_trial_mask.any(axis=1)
         posterior = gain.posterior(N, S)
         return pd.DataFrame(
@@ -678,7 +755,7 @@ class Frailty(_GainWrapper):
                 "fish_idx": np.arange(dataset.num_fish)[active],
                 "n_events": N[active],
                 "expected_events_base": S[active],
-                **{column: values[active] for column, values in posterior.items()},
+                **{column: values[active] for column, values in {**posterior, **hour}.items()},
             }
         )
 
@@ -887,25 +964,26 @@ class SideFrailty(Frailty):
 
     def __init__(
         self, base_process: PointProcess, r_init: float = 5.0, s_init: float = 0.5, n_nodes: int = 15, trial_gain: bool = False,
-        gains: Optional[GainFamily] = None,
+        gains: Optional[GainFamily] = None, time_of_day: bool = False,
     ) -> None:
         """gains: the fish gain's family (default Gamma(r, r), r_init)."""
         gains = gains or GammaFamily(r_init)
-        super().__init__(base_process, gains, trial_gain=trial_gain)
+        super().__init__(base_process, gains, trial_gain=trial_gain, time_of_day=time_of_day)
         self.param_names = self.param_names + ["s_side"]
         self.initial_guesses = self.initial_guesses + [s_init]
         self.bounds = self.bounds + [(1e-3, 5.0)]
         nodes, weights = np.polynomial.hermite_e.hermegauss(n_nodes)
         self._nodes, self._log_weights = nodes, np.log(weights / weights.sum())
         self._mode = np.zeros(0)  # posterior side shifts of the last fit's fish: where the next Newton starts
-        self.name = f"{gains.prefix}GammaSideMixedEffects{'+Trial' if trial_gain else ''}[{base_process.name}]{gains.suffix}"
+        self.name = f"{gains.prefix}GammaSideMixedEffects{self._suffix}[{base_process.name}]{gains.suffix}"
         side = (r"P_{preferred} = \sigma(\log D + u_f)" if isinstance(base_process, SidedSurvivalProcess)
                 else r"P_{ipsi} = \sigma(\log(\lambda_{ipsi}/\lambda_{contra}) + u_f)")
         self.latex_formula = (
             rf"${gain_formula(base_process, trial_gain)},\ {gains.latex},\ "
             + side
             + r",\ u_f\sim N(0,s^2)"
-            + (r",\ h_{fm}\sim\Gamma(a,a)$" if trial_gain else "$")
+            + (r",\ h_{fm}\sim\Gamma(a,a)" if trial_gain else "")
+            + self._hour_latex + "$"
         )
 
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
@@ -967,9 +1045,10 @@ class SideFrailty(Frailty):
         p_ipsi = self.ipsi_probability(dataset.t_centers[None, :], np.arange(dataset.num_trials)[:, None])
         return total * (p_ipsi if side == IPSI else 1 - p_ipsi)
 
-    def _fish_draws(self, num_fish: int, rng: np.random.Generator) -> list:
-        """(gain, side shift u) per fish."""
+    def _fish_draws(self, num_fish: int, rng: np.random.Generator, dataset: Optional[PointProcessDataset] = None) -> list:
+        """(gain, side shift u) per fish; the gain times mu_f (time_of_day: needs the dataset)."""
         gains = self._draw_fish_gains(num_fish, 1, rng)[:, 0]
+        gains = gains * self._hour_factor(self.params_, dataset) if self.time_of_day else gains
         return list(zip(gains, rng.normal(0.0, self.params_[-1], num_fish)))
 
     def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, draw: Tuple[float, float], rng: np.random.Generator, **history):
@@ -1078,8 +1157,8 @@ class _ZeroInflatedProperties:
 
 
 class GammaMixedEffectsProcess(Frailty):
-    def __init__(self, base_process: PointProcess, r_init: float = 5.0, trial_gain: bool = False) -> None:
-        super().__init__(base_process, GammaFamily(r_init), trial_gain=trial_gain)
+    def __init__(self, base_process: PointProcess, r_init: float = 5.0, trial_gain: bool = False, time_of_day: bool = False) -> None:
+        super().__init__(base_process, GammaFamily(r_init), trial_gain=trial_gain, time_of_day=time_of_day)
 
 
 class ZeroInflatedGammaMixedEffectsProcess(_ZeroInflatedProperties, Frailty):
@@ -1091,8 +1170,9 @@ class ZeroInflatedGammaMixedEffectsProcess(_ZeroInflatedProperties, Frailty):
         fit_c: bool = False,
         c_init: float = 0.0,
         c_upper: float = 0.3,
+        time_of_day: bool = False,
     ) -> None:
-        super().__init__(base_process, ZeroInflatedFamily(pi_init, r_init, fit_c, c_init, c_upper))
+        super().__init__(base_process, ZeroInflatedFamily(pi_init, r_init, fit_c, c_init, c_upper), time_of_day=time_of_day)
 
 
 class BaselineOnlyFrailtyHawkesProcess(BaselineFrailty):

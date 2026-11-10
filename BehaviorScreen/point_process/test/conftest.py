@@ -88,6 +88,7 @@ def reference_dataset(num_fish: int = 40, num_trials: int = 10, duration_s: floa
             fish_ids=np.array([f"fish_{i}" for i in range(num_fish)]),
             duration_s=duration_s,
             marks=side,
+            fish_hours=np.linspace(9.0, 18.5, num_fish),  # recording start times, for the time-of-day factor
         )
 
     return replace(dataset(events, marks=True), history=dataset(bouts, marks=False))

@@ -35,6 +35,7 @@ class PointProcessDataset:
     # Every bout of the same streams, of any category or side: the events are a selection of
     # them. What a renewal process counts as "the last bout". None: the events themselves.
     history: Optional["PointProcessDataset"] = None
+    fish_hours: Optional[np.ndarray] = None  # per fish: time of day its recording started (h)
 
     @property
     def num_fish(self) -> int:
@@ -134,7 +135,7 @@ class PointProcessDataset:
             event_times=np.concatenate([[]] + [ev for _, _, ev in streams]).astype(float),
             event_trials_idx=np.concatenate([[]] + [np.full(len(ev), t) for _, t, ev in streams]).astype(int),
             event_fish_idx=np.concatenate([[]] + [np.full(len(ev), f) for f, _, ev in streams]).astype(int),
-            fish_trial_mask=self.fish_trial_mask, fish_ids=self.fish_ids, duration_s=self.duration_s,
+            fish_trial_mask=self.fish_trial_mask, fish_ids=self.fish_ids, duration_s=self.duration_s, fish_hours=self.fish_hours,
         )
         return replace(self, history=history)
 
@@ -331,6 +332,7 @@ class PointProcessDataset:
         new_fish_idx = np.repeat(np.arange(len(indices)), [len(piece) for piece in pieces])
         return self._with_events(
             take, new_fish_idx, fish_trial_mask=self.fish_trial_mask[indices], fish_ids=self.fish_ids[indices],
+            fish_hours=None if self.fish_hours is None else self.fish_hours[indices],
             history=None if self.history is None else self.history.fish(indices),
         )
 
@@ -362,6 +364,7 @@ class PointProcessDataset:
             event_fish_idx=joined(d.event_fish_idx + o for d, o in zip(datasets, offsets)),
             fish_trial_mask=np.vstack([d.fish_trial_mask for d in datasets]),
             fish_ids=joined(d.fish_ids for d in datasets),
+            fish_hours=None if any(d.fish_hours is None for d in datasets) else joined(d.fish_hours for d in datasets),
             marks={key: joined(d.marks[key] for d in datasets) for key in first.marks},
             history=None if any(d.history is None for d in datasets) else PointProcessDataset.concat(*(d.history for d in datasets)),
         )
@@ -558,6 +561,7 @@ class BehavioralDataLoader:
             event_fish_idx=events["file"].map(fish_map).to_numpy(int),
             fish_trial_mask=fish_trial_mask,
             fish_ids=fish_ids,
+            fish_hours=self._fish_hours(fish_ids),
             duration_s=t_end - t_start,
             binning_dt=binning_dt,
             category_label=category_label,
@@ -576,6 +580,13 @@ class BehavioralDataLoader:
         })
         criteria = {"category": codes, "laterality": lateralities}
         return replace(dataset.select(**{key: values for key, values in criteria.items() if values is not None}), history=history)
+
+    def _fish_hours(self, fish_ids: np.ndarray) -> Optional[np.ndarray]:
+        """Each fish's recording start time (h), from the table's cos/sin_daytime (NaN for a fish without events); None without them."""
+        if not {"cos_daytime", "sin_daytime"} <= set(self.events.columns):
+            return None
+        angle = self.events.groupby("file")[["cos_daytime", "sin_daytime"]].first().reindex(fish_ids)
+        return np.mod(np.arctan2(angle.sin_daytime, angle.cos_daytime).to_numpy(), 2 * np.pi) * 24 / (2 * np.pi)
 
     def _last_bouts_before(self, streams: pd.DataFrame, t_start: float) -> pd.DataFrame:
         """

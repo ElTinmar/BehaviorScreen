@@ -1,4 +1,8 @@
 {
+ "GammaMixedEffects+Trial+Hour[Renewal rate: PreyCapture(Peak_Baseline_Ripple), history: WeibullRecovery, events: StimulusBurst(k=1)]": {
+  "initial": 8931.553709025524,
+  "moved": 9342.970841256656
+ },
  "GammaMixedEffects+Trial[Poisson Homogeneous \u03bb]": {
   "initial": 8305.658969523192,
   "moved": 8303.137134063927

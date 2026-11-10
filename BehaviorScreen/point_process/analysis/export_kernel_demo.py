@@ -68,6 +68,7 @@ PARAMETERS = {
     "r_dispersion": ("shape", "fish gains Γ(r, r): CV 1/√r across fish; larger: fish more alike"),
     "r_trial": ("shape", "trial gains Γ(a, a): CV 1/√a across a fish's trials; larger: trials more alike"),
     "s_side": ("log-odds", "SD across fish of the side preference u_f"),
+    "beta_hour": ("1/h", "fish gain mean e^{β (t_f − 13.5 h)}, t_f: the time the fish's recording started; not simulated here (every fish at 13:30)"),
     "z_pi_nonresponder": ("logit", "fraction of non-responding fish, σ(z)"),
     "z_c_nonresponder": ("logit", "non-responders' residual gain, 0.3·σ(z)"),
 }
