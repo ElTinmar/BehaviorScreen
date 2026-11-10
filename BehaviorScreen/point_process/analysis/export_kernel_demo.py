@@ -201,9 +201,28 @@ def other_bouts(dataset: PointProcessDataset) -> List[List[Optional[List[int]]]]
              for m in range(dataset.num_trials)] for f in fish]
 
 
+def interval_edges(duration_s: float) -> np.ndarray:
+    """Log-spaced bins of the time between events: the page's simulation step (10 ms) stays below their width."""
+    return np.geomspace(0.05, duration_s, 31)
+
+
 def count_histograms(dataset: PointProcessDataset) -> dict:
-    """How many streams (fish x trial) and how many fish have each number of events."""
-    return {"streams": np.bincount(dataset.stream_event_counts.astype(int)).tolist(), "fish": np.bincount(dataset.fish_total_counts.astype(int)).tolist()}
+    """
+    How many streams (fish x trial) and how many fish have each number of events; how many intervals between a
+    stream's events fall in each interval_edges bin; and per lag k = 1, 2, ..., the correlation of a fish's counts
+    in trials k apart, each count less its trial's mean over fish (so that habituation adds none).
+    """
+    counts, mask = dataset.event_counts_per_stream(), dataset.fish_trial_mask
+    residual = np.where(mask, counts - (counts * mask).sum(axis=0) / np.maximum(mask.sum(axis=0), 1), np.nan)
+    lags = []
+    for k in range(1, dataset.num_trials):
+        a, b = residual[:, :-k], residual[:, k:]
+        ok = np.isfinite(a) & np.isfinite(b)
+        norm = np.sqrt(np.sum(a[ok] ** 2) * np.sum(b[ok] ** 2))
+        lags.append(float(np.sum(a[ok] * b[ok]) / norm) if norm > 0 else None)
+    intervals = np.concatenate([[]] + [np.diff(t) for _, _, t in dataset.iter_streams()])
+    return {"streams": np.bincount(dataset.stream_event_counts.astype(int)).tolist(), "fish": np.bincount(dataset.fish_total_counts.astype(int)).tolist(),
+            "intervals": np.histogram(intervals, interval_edges(dataset.duration_s))[0].tolist(), "lags": lags}
 
 
 def observed(dataset: PointProcessDataset, sided: bool, survival: bool) -> dict:
@@ -215,7 +234,8 @@ def observed(dataset: PointProcessDataset, sided: bool, survival: bool) -> dict:
     def counts(d: PointProcessDataset) -> List[int]:
         bins = np.minimum((d.event_times / DATA_BIN).astype(int), nb - 1)
         return np.bincount(d.event_trials_idx * nb + bins, minlength=dataset.num_trials * nb).tolist()
-    data = {"bin": DATA_BIN, "n_fish": dataset.num_fish, "fish": dataset.n_fish_per_trial.astype(int).tolist()}
+    data = {"bin": DATA_BIN, "n_fish": dataset.num_fish, "fish": dataset.n_fish_per_trial.astype(int).tolist(),
+            "interval_edges": interval_edges(dataset.duration_s).tolist()}
     if survival:
         return {**data, "first": counts(dataset.first_events())}
     if sided:
