@@ -1,6 +1,6 @@
 spont_dark
 spont_bright
-prey_capture
+prey_capture_ipsi
 prey_capture_convergent_saccade
 prey_capture_divergent_saccade
 phototaxis

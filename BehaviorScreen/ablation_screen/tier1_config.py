@@ -23,7 +23,7 @@ cats = "+".join
 MAP_COLUMNS = {
     "spont_dark": "dark · all bouts",
     "spont_bright": "bright · all bouts",
-    "prey_capture": "prey · JT",
+    "prey_capture_ipsi": "prey · ipsi JT",
     "prey_capture_convergent_saccade": "prey · Convergent",
     "prey_capture_divergent_saccade": "prey · Divergent",
     "phototaxis": "dark | bright · RT",

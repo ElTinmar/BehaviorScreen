@@ -3,8 +3,9 @@ import subprocess
 import sys
 
 EXPERIMENTS = [
-    # Directional stimuli: both sides in one sided model (Tier 1 columns)
+    # Directional stimuli: both sides in one sided model (Tier 1 columns, but for prey capture: ipsi only)
     "prey_capture", 
+    "prey_capture_ipsi",
     "phototaxis", 
     "omr_lateral",
     "okr",
@@ -20,7 +21,6 @@ EXPERIMENTS = [
     "spont_dark",
     "spont_bright",
     # One side at a time: no longer used by Tier 1; uncomment to refit
-    # "prey_capture_ipsi",
     # "prey_capture_contra",
     # "phototaxis_ipsi",
     # "phototaxis_contra",
