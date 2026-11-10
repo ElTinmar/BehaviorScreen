@@ -21,7 +21,7 @@ SACCADE_MODEL_URL = "https://neuro.files.academiccloud.de/s/ogBDNd4njLynHRw/down
 MODELS = {
     "full": (TAIL_MODEL_URL_APRIL_26, Path(".")),
     "eyes": (EYES_MODEL_URL, Path(".")),
-    "saccades": (SACCADE_MODEL_URL, Path("BehaviorScreen/eyes/paper_data/paper_reference.joblib")),
+    "saccades": (SACCADE_MODEL_URL, Path("Saccade_model/paper_reference.joblib")),
 }
 
 

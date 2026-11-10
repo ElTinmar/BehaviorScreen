@@ -34,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--saccade-model",
         type=Path,
-        default=Path('BehaviorScreen/eyes/paper_data/paper_reference.joblib'),
+        default=Path('Saccade_model/paper_reference.joblib'),
         help=(
             "Path to the Dowell saccade classification model. "
             "Required when starting from detect or classify."

@@ -2,7 +2,7 @@ from pathlib import Path
 
 ROOT = Path('/media/martin/DATA_18TB/Screen')
 CONFIG_YAML = Path('BehaviorScreen/screen.yaml')
-SACCADE_MODEL = Path('BehaviorScreen/eyes/paper_data/paper_reference.joblib')
+SACCADE_MODEL = Path('Saccade_model/paper_reference.joblib')
 
 def list_subdirectories_depth(root_dir, depth=2):
     root = Path(root_dir)

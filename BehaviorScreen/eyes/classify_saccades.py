@@ -18,7 +18,7 @@ The input CSV must contain:
 Example
 -------
 python classify_saccades.py \
-    --model paper_data/paper_reference.joblib \
+    --model paper_reference.joblib \
     --events saccades.csv \
     --output saccades_classified.csv
 """

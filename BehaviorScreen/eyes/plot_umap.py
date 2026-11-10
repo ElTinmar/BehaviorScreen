@@ -4,7 +4,7 @@ the tethered reference events (Dowell et al. 2024, grey) they were labelled
 from. Events rejected as too far from the reference are left out.
 
     python -m BehaviorScreen.eyes.plot_umap saccades_augmented_all.csv \
-        --model BehaviorScreen/eyes/paper_data/paper_reference.joblib \
+        --model Saccade_model/paper_reference.joblib \
         --output saccades_umap.png [--line WT] [--condition vehicle]
 """
 import argparse

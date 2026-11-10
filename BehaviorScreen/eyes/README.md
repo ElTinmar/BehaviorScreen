@@ -80,7 +80,7 @@ To classify the saccades, run
 
 ```
 python -m BehaviorScreen.eyes.classify_saccades \
-   --model BehaviorScreen/eyes/paper_data/paper_reference.joblib \
+   --model Saccade_model/paper_reference.joblib \
    --events /media/martin/DATA_18TB/Screen/WT/vehicle/saccades.csv \
    --output /media/martin/DATA_18TB/Screen/WT/vehicle/saccades_classified.csv
 ```
