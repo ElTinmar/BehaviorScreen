@@ -41,12 +41,13 @@ def make_loaders(args: argparse.Namespace) -> Callable[[str], BehavioralDataLoad
 
     @cache
     def loader(events: str) -> BehavioralDataLoader:
-        return BehavioralDataLoader(
+        loader = BehavioralDataLoader(
             events_csv=args.data_root / getattr(args, events),
             valid_trials_csvs=[args.data_root / p for p in args.valid_trials],
             qc_csvs=[args.data_root / p for p in args.qc],
             **EVENT_TABLES[events],
         )
+        return loader.subset(conditions=args.conditions) if args.conditions else loader
 
     return loader
 
@@ -64,6 +65,7 @@ def add_data_arguments(parser: argparse.ArgumentParser, required: bool) -> None:
         help="Trial tables from quality control, one per screen folder.",
     )
     parser.add_argument("--qc", nargs="*", default=["qc_control.csv"], help="Fish-level exclusion tables from quality control.")
+    parser.add_argument("--conditions", nargs="+", help="Conditions kept (e.g. vehicle danieau on the merged _all tables); default: every fish.")
 
 
 def parse_args() -> argparse.Namespace:

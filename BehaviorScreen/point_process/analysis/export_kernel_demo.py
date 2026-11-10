@@ -227,8 +227,8 @@ def count_histograms(dataset: PointProcessDataset) -> dict:
 
 def observed(dataset: PointProcessDataset, sided: bool, survival: bool) -> dict:
     """
-    Events per trial and DATA_BIN time bin (ipsi and contra apart if sided; first events if survival), fish per trial,
-    and (but for survival) count_histograms of all events and of each side.
+    Events per trial and DATA_BIN time bin (ipsi and contra apart if sided), fish per trial, and count_histograms of
+    all events and of each side; for survival, of the first events (and all of them per bin as "first").
     """
     nb = round(dataset.duration_s / DATA_BIN)
     def counts(d: PointProcessDataset) -> List[int]:
@@ -237,12 +237,13 @@ def observed(dataset: PointProcessDataset, sided: bool, survival: bool) -> dict:
     data = {"bin": DATA_BIN, "n_fish": dataset.num_fish, "fish": dataset.n_fish_per_trial.astype(int).tolist(),
             "interval_edges": interval_edges(dataset.duration_s).tolist()}
     if survival:
-        return {**data, "first": counts(dataset.first_events())}
+        dataset = dataset.first_events()
+        data["first"] = counts(dataset)
     if sided:
         ipsi, contra = dataset.select(laterality=IPSI), dataset.select(laterality=CONTRA)
         histograms = {"all": count_histograms(dataset), "ipsi": count_histograms(ipsi), "contra": count_histograms(contra)}
         return {**data, "ipsi": counts(ipsi), "contra": counts(contra), "histograms": histograms}
-    return {**data, "all": counts(dataset), "histograms": {"all": count_histograms(dataset)}}
+    return {**data, **({} if survival else {"all": counts(dataset)}), "histograms": {"all": count_histograms(dataset)}}
 
 
 def export(output_dir: Optional[Path], loader: Optional[Callable[[str], BehavioralDataLoader]]) -> List[dict]:
