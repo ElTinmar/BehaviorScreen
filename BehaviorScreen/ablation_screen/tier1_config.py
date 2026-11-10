@@ -1,39 +1,19 @@
 """
-Tier 1 behaviors: the model each one uses, with every parameter pinned to
-the control fit of the same model (matched by name) except the amplitudes.
+Tier 1 behaviors: each experiment's best model (its fit run's best_model.json), with every
+parameter pinned to the control fit except the amplitudes. A contrast pins them to the control
+fit refitted without its own arms (Arms.architecture), which keeps the permutation test exact.
 """
 import copy
 from pathlib import Path
-from typing import Callable, Dict, Optional, Sequence
+from typing import Dict, Optional, Sequence
 
 from BehaviorScreen.point_process.analysis.model_config import (
-    FLASH_ESCAPE, FORWARD_SWIMS, LATERAL_TURNS, LOOMING_ESCAPE, OKR_SWIMS,
-    flat, gamma, get_model_config, poisson, prey, side_gamma, sided, sided_survival,
+    FLASH_ESCAPE, FORWARD_SWIMS, LATERAL_TURNS, LOOMING_ESCAPE, OKR_SWIMS, get_model_config,
 )
-from BehaviorScreen.point_process.analysis.tasks import load_fitted_params
+from BehaviorScreen.point_process.analysis.tasks import load_best_model
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
-from BehaviorScreen.point_process.point_process.poisson_process import RateKernelFactory
-from BehaviorScreen.point_process.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
 from BehaviorScreen.point_process.point_process.wrappers import PartiallyFixedProcess
 
-looming = lambda: SurvivalKernelFactory.gaussian_bump_baseline_habituating(t_init=5, t_bounds=(4, 6))
-# Directional stimuli: both sides in one sided model (strength: ipsi amplitudes; direction: D).
-TIER1_MODELS = {
-    "prey_capture": lambda: side_gamma(sided(prey("Peak_Baseline_Ripple"), flat())),
-    "phototaxis": lambda: side_gamma(sided(RateKernelFactory.phototaxis_dip_exgaussian_peak(), RateKernelFactory.phototaxis_contra())),
-    "omr_lateral": lambda: side_gamma(sided(RateKernelFactory.omr_lateral(), RateKernelFactory.omr_lateral())),
-    "omr_forward": lambda: gamma(poisson(RateKernelFactory.omr_forward())),
-    "okr": lambda: side_gamma(sided(flat(), flat())),
-    "looming": lambda: side_gamma(sided_survival(looming())),  # strength: H (escape at all); direction: D (away)
-    "dark_flash": lambda: gamma(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating())),
-    "spont_dark": lambda: gamma(poisson(RateKernelFactory.spont())),
-    "spont_bright": lambda: gamma(poisson(RateKernelFactory.spont())),
-    "after_looming": lambda: gamma(poisson(RateKernelFactory.after_looming())),
-    "prey_capture_convergent_saccade": lambda: gamma(poisson(prey("Peak_Baseline_Ripple"))),
-    "prey_capture_divergent_saccade": lambda: gamma(poisson(prey("Baseline_Ripple"))),
-    "okr_conjugate_saccades": lambda: side_gamma(sided(flat(), flat())),
-    "looming_divergent_saccade": lambda: gamma(SurvivalProcess(looming())),
-}
 # Amplitudes also pinned to the control fit: these baselines are near zero (about
 # one event a minute), so their per-arm log ratios are noise.
 PINNED_AMPLITUDES = {name: ["B"] for name in ("looming", "looming_divergent_saccade", "dark_flash")}
@@ -66,6 +46,7 @@ class PinnedArchitecture:
     """Factory of fresh, unfitted copies of a fitted model with every non-amplitude parameter, and `pinned`, fixed."""
 
     def __init__(self, fitted: PointProcess, pinned: Sequence[str] = ()) -> None:
+        self.fitted, self.pinned = copy.deepcopy(fitted), tuple(pinned)
         self.template = copy.deepcopy(fitted)
         self.template.initial_guesses = [float(v) for v in fitted.params_]  # free amplitudes start at the control fit
         self.template.params_, self.template.param_dict_, self.template.fit_result = None, {}, None
@@ -85,20 +66,16 @@ class Fresh:
         return copy.deepcopy(self.template)
 
 
-def tier1_behaviors(
-    models: Dict[str, Callable[[], PointProcess]], fits_root: Path, pinned: Optional[Dict[str, Sequence[str]]] = None
-) -> Dict[str, dict]:
+def tier1_behaviors(fits_root: Path, pinned: Optional[Dict[str, Sequence[str]]] = None) -> Dict[str, dict]:
     """
     {experiment: {"events", "dataset", "architecture", "null", "model_name", "free"}}
-    for each experiment and model builder in `models`; the pinned values come
-    from the `fit` run of that experiment (fits_root / experiment / models).
-    `pinned` lists, per experiment, amplitudes to pin as well.
+    for each experiment of MAP_COLUMNS: its best model, pinned to the `fit` run of that
+    experiment (fits_root / experiment / models). `pinned` lists, per experiment, amplitudes to pin as well.
     """
     config = get_model_config()
     behaviors = {}
-    for name, build in models.items():
-        model = build()
-        model.set_params(load_fitted_params(fits_root / name / "models", model.name))
+    for name in MAP_COLUMNS:
+        model = load_best_model(config[name], fits_root / name / "models")
         architecture = PinnedArchitecture(model, (pinned or {}).get(name, ()))
         behaviors[name] = {
             "events": config[name]["events"],

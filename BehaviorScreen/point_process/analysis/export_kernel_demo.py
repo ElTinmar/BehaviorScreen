@@ -1,8 +1,8 @@
 """
-Writes the model ladders of model_config (the experiments of the Tier 1 map) into kernel_demo.html (between its
-DATA markers), in Tier 1 map order: every candidate's formula, parameters
+Writes the model ladders of model_config (the experiments of the Tier 1 map) into kernel_demo_data.js, which
+kernel_demo.html loads (a generated file, not in the repository), in Tier 1 map order: every candidate's formula, parameters
 (fitted values where a fit run is given, else the initial guesses), bounds and
-structure, the Tier 1 model and its per-arm parameters (tier1_config), plus
+structure, the Tier 1 model (the best rung of the fit run) and its per-arm parameters, plus
 kernel values computed here, which the page checks its own kernels against.
 With a data root, also the events the ladders were fitted to, as histograms the
 page draws beside its simulations.
@@ -11,7 +11,6 @@ page draws beside its simulations.
 """
 import argparse
 import json
-import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -19,7 +18,7 @@ import numpy as np
 from megabouts.utils import bouts_category_name, bouts_category_name_short
 
 from BehaviorScreen.core import Laterality, Stim
-from BehaviorScreen.ablation_screen.tier1_config import AMPLITUDE_PARAMETERS, MAP_COLUMNS, PINNED_AMPLITUDES, TIER1_MODELS
+from BehaviorScreen.ablation_screen.tier1_config import AMPLITUDE_PARAMETERS, MAP_COLUMNS, PINNED_AMPLITUDES
 from BehaviorScreen.point_process.analysis.model_config import get_model_config
 from BehaviorScreen.point_process.analysis.run_analysis import add_data_arguments, make_loaders
 from BehaviorScreen.point_process.analysis.tasks import load_fit_records
@@ -32,8 +31,7 @@ from BehaviorScreen.point_process.point_process.renewal_process import RenewalPr
 from BehaviorScreen.point_process.point_process.sided_process import CONTRA, IPSI, SidedPoissonProcess, SidedRenewalProcess, SidedSurvivalProcess
 from BehaviorScreen.point_process.point_process.survival_process import SurvivalProcess
 
-PAGE = Path(__file__).resolve().parents[1] / "point_process" / "kernel_demo.html"
-DATA = re.compile(r"(/\*BEGIN DATA\*/).*?(/\*END DATA\*/)", re.S)
+DATA = Path(__file__).resolve().parents[1] / "point_process" / "kernel_demo_data.js"
 DATA_BIN = 0.05  # s; the page's time bins are multiples of it
 PAGE_FISH, PAGE_DT = 200, 0.01  # the page's simulated fish and time step
 
@@ -225,9 +223,8 @@ def export(output_dir: Optional[Path], loader: Optional[Callable[[str], Behavior
         fits = {n: r["params"] for n, r in load_fit_records(output_dir / name / "models").items()} if output_dir else {}
         t_end = float(config["dataset"]["t_end"])
         models = [config["null_model"]] + [m for m in config["models"] if m.name != config["null_model"].name]
-        tier1 = TIER1_MODELS[name]() if name in TIER1_MODELS else None
-        if tier1 is not None and tier1.name not in {m.name for m in models}:
-            models.append(tier1)
+        best = output_dir / name / "models" / "best_model.json" if output_dir else None
+        tier1 = next(m for m in models if m.name == json.loads(best.read_text())["name"]) if best and best.exists() else None
         free = [] if tier1 is None else [p for p in tier1.param_names if p in AMPLITUDE_PARAMETERS and p not in PINNED_AMPLITUDES.get(name, ())]
         events, selected = selection(config)
         entries = [model_entry(m, fits.get(m.name), t_end) for m in models]
@@ -251,11 +248,8 @@ def main() -> None:
     add_data_arguments(parser, required=False)
     args = parser.parse_args()
     data = json.dumps(export(args.output_dir, make_loaders(args) if args.data_root else None), separators=(",", ":"))
-    page = PAGE.read_text(encoding="utf-8")
-    if not DATA.search(page):
-        raise ValueError(f"{PAGE} has no /*BEGIN DATA*/ ... /*END DATA*/ block: restore the page from the repository")
-    PAGE.write_text(DATA.sub(lambda m: f"{m.group(1)}\nconst EXPERIMENTS = {data};\n{m.group(2)}", page), encoding="utf-8")
-    print(f"wrote {PAGE} ({PAGE.stat().st_size / 1e6:.1f} MB)")
+    DATA.write_text(f"window.EXPERIMENTS = {data};\n", encoding="utf-8")
+    print(f"wrote {DATA} ({DATA.stat().st_size / 1e6:.1f} MB); open kernel_demo.html next to it")
 
 
 if __name__ == "__main__":

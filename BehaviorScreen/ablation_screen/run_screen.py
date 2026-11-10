@@ -1,9 +1,9 @@
 """
 Tier 1 end-to-end run. Behaviors come from the control fits (run_analysis
---mode fit): each experiment's chosen model with every parameter pinned to
+--mode fit): each experiment's best model with every parameter pinned to
 its control value except the amplitudes (tier1_config.AMPLITUDE_PARAMETERS),
-which are fitted per arm. Each model must be one of its experiment's control
-candidates (matched by name). Contrasts: drug against vehicle within each NTR
+which are fitted per arm. A contrast's tests pin to the control fit refitted
+without its own arms (Arms.architecture). Contrasts: drug against vehicle within each NTR
 line, and each straight mutant against its wild-type background. The
 configuration lives in screen_setup.
 
@@ -60,7 +60,7 @@ def smoke_test(arms: Arms, behavior: str) -> None:
     for name in arms.contrasts:
         ds_ref, ds_test = arms.datasets(name, behavior)
         if ds_ref is not None and ds_test is not None and ds_ref.num_fish >= 3 and ds_test.num_fish >= 3:
-            deviance, m_ref, m_test, _ = fit_tier1(arms.process_factories[behavior], ds_ref, ds_test)
+            deviance, m_ref, m_test, _ = fit_tier1(arms.process_factory(name, behavior), ds_ref, ds_test)
             print(f"Smoke test {name}/{behavior} (n_ref={ds_ref.num_fish}, n_test={ds_test.num_fish}): deviance={deviance:.3f}, "
                   f"LL_ref={m_ref.log_likelihood:.2f}, LL_test={m_test.log_likelihood:.2f}, free_params={m_ref.param_names}")
             return
@@ -77,7 +77,7 @@ def negative_control(arms: Arms, behavior: str, out: Path) -> None:
         perm = np.random.default_rng(seed).permutation(ds_wt.num_fish)
         half = ds_wt.num_fish // 2
         try:
-            result = tier1_permutation_test(arms.process_factories[behavior], ds_wt.fish(perm[:half]), ds_wt.fish(perm[half:]), n_perm=200)
+            result = tier1_permutation_test(arms.architecture(behavior, frozenset({("WT", "danieau")})), ds_wt.fish(perm[:half]), ds_wt.fish(perm[half:]), n_perm=200)
             if not result["permutation_unreliable"]:
                 null_ps.append(result["p_value"])
         except Exception:

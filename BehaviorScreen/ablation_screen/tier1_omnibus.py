@@ -195,10 +195,11 @@ def _tier1_one(
                 "total_events": total_events, "min_events_required": min_events, "p_value": np.nan}
 
     # --- Model QC gate on each arm before trusting any comparison ---
-    qc_ref = assess_group_fit(partial(arms.model, *contrast.reference, behavior), null_process_factory, ds_ref, line, behavior, "reference",
-                               min_fish=min_fish)
-    qc_test = assess_group_fit(partial(arms.model, *contrast.test, behavior), null_process_factory, ds_test, line, behavior, "test",
-                                min_fish=min_fish)
+    exclude = arms.contrast_arms(line)
+    qc_ref = assess_group_fit(partial(arms.model, *contrast.reference, behavior, exclude), null_process_factory, ds_ref, line, behavior,
+                               "reference", min_fish=min_fish)
+    qc_test = assess_group_fit(partial(arms.model, *contrast.test, behavior, exclude), null_process_factory, ds_test, line, behavior,
+                                "test", min_fish=min_fish)
 
     # Only a HARD flag on either arm excludes the cell. "reliable_no_signal"
     # (architecture didn't beat null, but fit is otherwise trustworthy)
@@ -221,14 +222,14 @@ def _tier1_one(
     # --- Real fit + permutation test ---
     try:
         m_ref, m_test = arms.models(line, behavior)
-        m_pooled = arms.process_factories[behavior]()
+        m_pooled = arms.process_factory(line, behavior)()
         m_pooled.fit(PointProcessDataset.concat(ds_ref, ds_test))
         observed_deviance = tier1_deviance(m_ref, m_test, m_pooled)
     except Exception as e:
         return {"line": line, "behavior": behavior, "status": f"fit_failed: {type(e).__name__}: {e}",
                 "p_value": np.nan}
 
-    perm = tier1_permutation_test(arms.process_factories[behavior], ds_ref, ds_test,
+    perm = tier1_permutation_test(arms.process_factory(line, behavior), ds_ref, ds_test,
                                    observed_deviance=observed_deviance, n_perm=n_perm,
                                    pooled_log_likelihood=m_pooled.log_likelihood)
     eff = tier1_effect_size(m_ref, ds_ref, m_test, ds_test)
@@ -258,13 +259,13 @@ def run_tier1_screen(
     """
     One row per (contrast, behavior); the contrast name is in column 'line'.
     store: each row saved there as soon as it is done (store/<behavior>/), and
-    reused while the behavior's model, pinned values and n_perm are the same.
+    reused while the behavior's model, control fit and n_perm are the same.
     """
     jobs = [(name, behavior) for name in arms.contrasts for behavior in behaviors]
     done = {}
     for behavior in behaviors if store is not None else []:
         architecture = arms.process_factories[behavior]
-        key = {"model": architecture.template.name, "fixed": architecture.fixed, "n_perm": n_perm}
+        key = {"model": architecture.template.name, "fixed": architecture.fixed, "n_perm": n_perm, "pinning": "control without the contrast's arms"}
         done.update({(r["line"], behavior): r for r in load_replicates(store / behavior, key).values()})
     todo = [job for job in jobs if job not in done]
     cell_iter = tqdm(todo, desc="Tier 1 cells", position=0, unit="cell") if show_progress else todo
@@ -324,10 +325,10 @@ def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFram
     """Free parameters of both arms of every 'ok' cell, with standard errors."""
     records, errors = [], {}
 
-    def standard_errors(arm: Tuple[str, str], behavior: str) -> Dict[str, float]:
-        key = (*arm, behavior)
+    def standard_errors(arm: Tuple[str, str], behavior: str, exclude: frozenset) -> Dict[str, float]:
+        key = (*arm, behavior, exclude)
         if key not in errors:
-            errors[key] = _standard_errors(arms.model(*key), arms.dataset(*key))
+            errors[key] = _standard_errors(arms.model(*key), arms.dataset(*arm, behavior))
         return errors[key]
 
     for _, row in tier1_df[tier1_df["status"] == "ok"].iterrows():
@@ -338,7 +339,8 @@ def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFram
         except Exception as e:
             tqdm.write(f"[{line}/{behavior}] refit failed during parameter extraction: {e}")
             continue
-        se_ref, se_test = standard_errors(contrast.reference, behavior), standard_errors(contrast.test, behavior)
+        exclude = arms.contrast_arms(line)
+        se_ref, se_test = standard_errors(contrast.reference, behavior, exclude), standard_errors(contrast.test, behavior, exclude)
         for pname in m_ref.param_names:
             records.append({
                 "family": contrast.family, "line": line, "behavior": behavior, "parameter": pname,

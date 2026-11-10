@@ -109,7 +109,8 @@ def run_tier2_screen(
             if any(ds is None for ds in datasets):
                 records.append({**record, "status": "skipped_reference_missing", "p_value": np.nan})
                 continue
-            result = tier2_interaction_test(arms.process_factories[behavior], datasets, n_boot=n_boot, n_jobs=n_jobs)
+            factory = arms.architecture(behavior, arms.contrast_arms(reference) | arms.contrast_arms(line))  # pinned without its four arms
+            result = tier2_interaction_test(factory, datasets, n_boot=n_boot, n_jobs=n_jobs)
             records.append({**record, "status": "ok", **result})
         except Exception as exc:
             records.append({**record, "status": f"fit_failed: {type(exc).__name__}: {exc}", "p_value": np.nan})

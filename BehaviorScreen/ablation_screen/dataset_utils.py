@@ -3,15 +3,24 @@ Dataset building that tolerates missing data, plus model-free per-fish
 summary statistics used as a fallback when a parametric fit is flagged
 (see model_qc.py).
 """
+import copy
 import warnings
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional, Sequence, Tuple, Union
+from typing import Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import pandas as pd
 
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader, PointProcessDataset
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
+from BehaviorScreen.ablation_screen.tier1_config import PinnedArchitecture
+
+Arm = Tuple[str, str]  # (line, condition)
+CONTROL_CONDITIONS = ("vehicle", "danieau")  # the fish of the control fits
+
+
+def control_arms(arms: FrozenSet[Arm]) -> FrozenSet[Arm]:
+    return frozenset(arm for arm in arms if arm[1] in CONTROL_CONDITIONS)
 
 
 def safe_prepare_dataset(
@@ -54,9 +63,14 @@ def mutant_contrast(line: str, reference: Tuple[str, str] = ("WT", "danieau"), c
 class Arms:
     """
     Every (line, condition, behavior) arm of the screen, prepared and fitted
-    at most once per run, so a reference shared by several contrasts is
-    fitted once. dataset() is None when the data cannot form a dataset;
-    model() raises the (cached) fit error.
+    at most once per run and per pinning. dataset() is None when the data
+    cannot form a dataset; model() raises the (cached) fit error.
+
+    process_factories pins each behavior to its control fit, whose fish include
+    every vehicle and danieau arm. A test of a contrast pins it instead to the
+    control fit refitted without the contrast's own arms (architecture(behavior,
+    exclude)): then the pinned values do not depend on which of its fish are
+    labelled reference or test, and its permutation test is exact.
     """
 
     def __init__(
@@ -73,7 +87,43 @@ class Arms:
         self.process_factories = process_factories
         self.contrasts = {c.name: c for c in contrasts}
         self._datasets: Dict[Tuple[str, str, str], Optional[PointProcessDataset]] = {}
-        self._models: Dict[Tuple[str, str, str], Union[PointProcess, Exception]] = {}
+        self._models: Dict[Tuple[str, str, str, FrozenSet[Arm]], Union[PointProcess, Exception]] = {}
+        self._architectures: Dict[Tuple[str, FrozenSet[Arm]], PinnedArchitecture] = {}
+        self._controls: Dict[str, Tuple[PointProcessDataset, List[Arm]]] = {}
+
+    def control(self, behavior: str) -> Tuple[PointProcessDataset, List[Arm]]:
+        """The control fish's dataset and each fish's arm."""
+        if behavior not in self._controls:
+            loader = self.loaders[self.events[behavior]]
+            dataset = loader.subset(conditions=list(CONTROL_CONDITIONS)).prepare_dataset(**self.dataset_configs[behavior])
+            arm_of = loader.trials.drop_duplicates("file").set_index("file")[["line", "condition"]].astype(str)
+            self._controls[behavior] = dataset, [tuple(arm_of.loc[f]) for f in dataset.fish_ids]
+        return self._controls[behavior]
+
+    def architecture(self, behavior: str, exclude: FrozenSet[Arm] = frozenset()) -> PinnedArchitecture:
+        """
+        process_factories[behavior], pinned to the control fit refitted without the control arms in `exclude`:
+        from the control fit to convergence, the optimum without them whatever the start.
+        """
+        exclude = control_arms(exclude)
+        if not exclude:
+            return self.process_factories[behavior]
+        if (behavior, exclude) not in self._architectures:
+            dataset, arms = self.control(behavior)
+            control = self.process_factories[behavior]
+            refit = copy.deepcopy(control.fitted)
+            refit.initial_guesses = [float(v) for v in control.fitted.params_]
+            refit.fit(dataset.fish([i for i, arm in enumerate(arms) if arm not in exclude]))
+            self._architectures[behavior, exclude] = PinnedArchitecture(refit, control.pinned)
+        return self._architectures[behavior, exclude]
+
+    def contrast_arms(self, contrast: str) -> FrozenSet[Arm]:
+        c = self.contrasts[contrast]
+        return frozenset({c.reference, c.test})
+
+    def process_factory(self, contrast: str, behavior: str) -> PinnedArchitecture:
+        """The pinned model a contrast's tests fit: architecture without its arms."""
+        return self.architecture(behavior, self.contrast_arms(contrast))
 
     def dataset(self, line: str, condition: str, behavior: str) -> Optional[PointProcessDataset]:
         key = (line, condition, behavior)
@@ -83,12 +133,13 @@ class Arms:
             )
         return self._datasets[key]
 
-    def model(self, line: str, condition: str, behavior: str) -> PointProcess:
-        key = (line, condition, behavior)
+    def model(self, line: str, condition: str, behavior: str, exclude: FrozenSet[Arm] = frozenset()) -> PointProcess:
+        """The arm fitted with architecture(behavior, exclude)."""
+        key = (line, condition, behavior, control_arms(exclude))
         if key not in self._models:
-            model = self.process_factories[behavior]()
             try:
-                model.fit(self.dataset(*key))
+                model = self.architecture(behavior, key[3])()
+                model.fit(self.dataset(line, condition, behavior))
                 self._models[key] = model
             except Exception as exc:
                 self._models[key] = exc
@@ -103,9 +154,9 @@ class Arms:
         return self.dataset(*c.reference, behavior), self.dataset(*c.test, behavior)
 
     def models(self, contrast: str, behavior: str) -> Tuple[PointProcess, PointProcess]:
-        """(reference, test) fitted models of a contrast."""
-        c = self.contrasts[contrast]
-        return self.model(*c.reference, behavior), self.model(*c.test, behavior)
+        """(reference, test) fitted models of a contrast, pinned without its arms."""
+        c, exclude = self.contrasts[contrast], self.contrast_arms(contrast)
+        return self.model(*c.reference, behavior, exclude), self.model(*c.test, behavior, exclude)
 
 
 def per_fish_summary(dataset: PointProcessDataset) -> pd.DataFrame:

@@ -1,6 +1,6 @@
 """
 The screen's configuration, shared by run_screen and the commands run after
-it (arm_bootstrap): data, Tier 1 models (each experiment's control fit with
+it (arm_bootstrap): data, Tier 1 models (each experiment's best control model with
 every parameter pinned except tier1_config.AMPLITUDE_PARAMETERS), contrasts
 and the arms they compare. Importing it loads the event tables.
 """
@@ -11,7 +11,7 @@ from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoa
 from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, get_model_config
 from BehaviorScreen.ablation_screen.dataset_utils import Arms, mutant_contrast, ntr_contrast
 from BehaviorScreen.ablation_screen.line_names import warn_unnamed
-from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS, PINNED_AMPLITUDES, TIER1_MODELS, tier1_behaviors
+from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS, PINNED_AMPLITUDES, tier1_behaviors
 
 # Paths: run_screen's arguments set them (or the environment does)
 OUTPUT_DIR = Path(os.environ.get("SCREEN_OUTPUT_DIR", "./tier1_results"))
@@ -28,10 +28,10 @@ loaders = {
 
 # Map columns in protocol order, labelled "stimulus · response" with the stimulus names
 # of screen.yaml and the bout or saccade categories each experiment counts.
-untested = set(get_model_config()) - set(TIER1_MODELS)
+untested = set(get_model_config()) - set(MAP_COLUMNS)
 if untested:
     print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")
-BEHAVIOR_CONFIG = tier1_behaviors(TIER1_MODELS, FITS_ROOT, PINNED_AMPLITUDES)
+BEHAVIOR_CONFIG = tier1_behaviors(FITS_ROOT, PINNED_AMPLITUDES)
 BEHAVIORS = list(BEHAVIOR_CONFIG)
 MAP_ORDER = [b for b in MAP_COLUMNS if b in BEHAVIORS] + [b for b in BEHAVIORS if b not in MAP_COLUMNS]
 DATASET_CONFIGS = {b: cfg['dataset'] for b, cfg in BEHAVIOR_CONFIG.items()}
