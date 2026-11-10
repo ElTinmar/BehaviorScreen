@@ -4,7 +4,6 @@ import sys
 
 EXPERIMENTS = [
     # Directional stimuli: both sides in one sided model (Tier 1 columns, but for prey capture: ipsi only)
-    "prey_capture", 
     "prey_capture_ipsi",
     "phototaxis", 
     "omr_lateral",
