@@ -168,6 +168,22 @@ def sided_models(
     return models
 
 
+def renewal_hour_rungs(kernel: Callable[[], RateKernel]) -> List[PointProcess]:
+    """
+    The time-of-day factor (time_of_day) on a renewal ladder's winner (fish and trial gains) and on its
+    first fish-gain rung without history: the effect beyond bout history, and all of it.
+    """
+    return [gamma(refractory_renewal(kernel()), trial_gain=True, time_of_day=True), gamma(poisson(kernel()), time_of_day=True)]
+
+
+def sided_hour_rungs(
+    ipsi: Callable[[], RateKernel], contra: Callable[[], RateKernel], renewal_ipsi: Optional[Callable[[], RateKernel]] = None,
+) -> List[PointProcess]:
+    """renewal_hour_rungs for sided_models: the renewal rung with a trial gain and the one with a side preference, without history."""
+    return [side_gamma(sided_renewal((renewal_ipsi or ipsi)(), contra()), trial_gain=True, time_of_day=True),
+            side_gamma(sided(ipsi(), contra()), time_of_day=True)]
+
+
 def dataset(category, laterality, t_end: float, binning_dt: float = 0.05, **selection) -> dict:
     """prepare_dataset arguments; category and laterality may be lists (pooled) or None (all)."""
     return dict(
@@ -298,8 +314,7 @@ def get_model_config() -> Dict[str, dict]:
                 two_class(refractory_renewal(prey("Peak_Baseline_Ripple"))),
                 poisson(decay()),
                 gamma(poisson(decay())),
-                gamma(refractory_renewal(prey("Peak_Baseline_Ripple")), trial_gain=True, time_of_day=True),
-            ],
+            ] + renewal_hour_rungs(lambda: prey("Peak_Baseline_Ripple")),
         ),
         "prey_capture_contra": experiment(
             dataset("JT", CONTRA, 24.0, stim=Stim.PREY_CAPTURE),
@@ -346,6 +361,7 @@ def get_model_config() -> Dict[str, dict]:
                 # gamma(renewal(prey("Peak_Baseline_Ripple"))),
                 poisson(decay()),
                 gamma(poisson(decay())),
+                gamma(poisson(prey("Peak_Baseline_Ripple")), time_of_day=True),
             ],
             events="saccades",
         ),
@@ -380,6 +396,7 @@ def get_model_config() -> Dict[str, dict]:
                 # gamma(renewal(prey("Peak_Baseline_Ripple"))),
                 poisson(decay()),
                 gamma(poisson(decay())),
+                gamma(poisson(prey("Baseline_Ripple")), time_of_day=True),
             ],
             events="saccades",
         ),
@@ -419,7 +436,7 @@ def get_model_config() -> Dict[str, dict]:
         ),
         "omr_forward": experiment(
             dataset(FORWARD_SWIMS, NONDIRECTIONAL, 9.0, epoch_name="grating forward"),
-            rate_models(RateKernelFactory.omr_forward),
+            rate_models(RateKernelFactory.omr_forward) + renewal_hour_rungs(RateKernelFactory.omr_forward),
         ),
         "okr_ipsi": experiment(
             dataset(OKR_SWIMS, IPSI, 9.0, stim=Stim.OKR), flat_models(),
@@ -434,25 +451,29 @@ def get_model_config() -> Dict[str, dict]:
         ),
         "phototaxis": experiment(
             dataset("RT", [IPSI, CONTRA], 24.0, stim=Stim.PHOTOTAXIS, trial_filters=PHOTOTAXIS_FILTER),
-            sided_models(RateKernelFactory.phototaxis_dip_exgaussian_peak, RateKernelFactory.phototaxis_contra, renewal=True),
+            sided_models(RateKernelFactory.phototaxis_dip_exgaussian_peak, RateKernelFactory.phototaxis_contra, renewal=True)
+            + sided_hour_rungs(RateKernelFactory.phototaxis_dip_exgaussian_peak, RateKernelFactory.phototaxis_contra),
         ),
         "omr_lateral": experiment(
             dataset(LATERAL_TURNS, [IPSI, CONTRA], 9.0, epoch_name=gratings),
-            sided_models(RateKernelFactory.omr_lateral, RateKernelFactory.omr_lateral, renewal=True, renewal_ipsi=RateKernelFactory.omr_lateral_ipsi),
+            sided_models(RateKernelFactory.omr_lateral, RateKernelFactory.omr_lateral, renewal=True, renewal_ipsi=RateKernelFactory.omr_lateral_ipsi)
+            + sided_hour_rungs(RateKernelFactory.omr_lateral, RateKernelFactory.omr_lateral, renewal_ipsi=RateKernelFactory.omr_lateral_ipsi),
         ),
         "okr": experiment(
-            dataset(OKR_SWIMS, [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat, renewal=True),
+            dataset(OKR_SWIMS, [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat, renewal=True) + sided_hour_rungs(flat, flat),
         ),
         "okr_conjugate_saccades": experiment(
-            dataset("Conjugate", [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat), events="saccades",
+            dataset("Conjugate", [IPSI, CONTRA], 9.0, stim=Stim.OKR), sided_models(flat, flat) + [side_gamma(sided(flat(), flat()), time_of_day=True)],
+            events="saccades",
         ),
         "looming": experiment(
             dataset(LOOMING_ESCAPE, [IPSI, CONTRA], 9.0, stim=Stim.LOOMING),
-            survival_models(looming_bump, looming_habituating, sided=True),
+            survival_models(looming_bump, looming_habituating, sided=True)
+            + [side_gamma(sided_survival(looming_habituating()), time_of_day=True)],
         ),
         "looming_divergent_saccade": experiment(
             dataset("Divergent", NONDIRECTIONAL, 9.0, stim=Stim.LOOMING),
-            survival_models(looming_bump, looming_habituating),
+            survival_models(looming_bump, looming_habituating) + [gamma(SurvivalProcess(looming_habituating()), time_of_day=True)],
             events="saccades",
         ),
         "dark_flash": experiment(
@@ -463,15 +484,15 @@ def get_model_config() -> Dict[str, dict]:
                 flash_bump,
                 flash_habituating,
                 SurvivalKernelFactory.exgaussian_bump_baseline_habituating,
-            ),
+            ) + [gamma(SurvivalProcess(SurvivalKernelFactory.exgaussian_bump_baseline_habituating()), time_of_day=True)],
         ),
         "spont_dark": experiment(
             dataset(None, None, 24.0, epoch_name="spontaneous dark"),
-            rate_models(RateKernelFactory.spont),
+            rate_models(RateKernelFactory.spont) + renewal_hour_rungs(RateKernelFactory.spont),
         ),
         "spont_bright": experiment(
             dataset(None, None, 24.0, epoch_name="spontaneous bright"),
-            rate_models(RateKernelFactory.spont),
+            rate_models(RateKernelFactory.spont) + renewal_hour_rungs(RateKernelFactory.spont),
         ),
         "after_looming": experiment(
             dataset(
@@ -487,7 +508,7 @@ def get_model_config() -> Dict[str, dict]:
                 gamma(refractory_renewal(RateKernelFactory.after_looming())),
                 gamma(refractory_renewal(RateKernelFactory.after_looming()), trial_gain=True),
                 two_class(refractory_renewal(RateKernelFactory.after_looming())),
-            ],
+            ] + renewal_hour_rungs(RateKernelFactory.after_looming),
         ),
         "okr_conjugate_contra_saccades": experiment(
             dataset("Conjugate", CONTRA, 9.0, stim=Stim.OKR),
