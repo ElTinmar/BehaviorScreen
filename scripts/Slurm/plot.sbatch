@@ -19,4 +19,4 @@ PARENT_DIR=$(basename "$(dirname "$INPUT_PATH")")
 JOB_NAME="plot_${PARENT_DIR}/${FILE_NAME}"
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
-srun conda run --no-capture-output -n BehaviorScreen python -m BehaviorScreen.preprocessing.plot "$INPUT_PATH" $EXTRA_ARGS 
+srun conda run --no-capture-output -n BehaviorScreen python -m BehaviorScreen.preprocessing.plots.bout_heatmap "$INPUT_PATH" $EXTRA_ARGS 

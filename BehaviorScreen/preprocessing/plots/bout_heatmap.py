@@ -12,7 +12,7 @@ import pandas as pd
 from megabouts.utils import bouts_category_name_short
 
 from BehaviorScreen.core import EventDirection
-from BehaviorScreen.preprocessing.event_rates import (
+from BehaviorScreen.preprocessing.plots.event_rates import (
     EventKind,
     PreparedEvents,
     aggregate,
@@ -20,7 +20,7 @@ from BehaviorScreen.preprocessing.event_rates import (
     load_events,
     prepare_events,
 )
-from BehaviorScreen.preprocessing.plot_utils import plot_rate_heatmaps
+from BehaviorScreen.preprocessing.plots.plot_utils import plot_rate_heatmaps
 from BehaviorScreen.stim_specs import load_valid_trials, load_yaml_config, stimulus_name_order
 
 MAX_COLORBAR = 0.6

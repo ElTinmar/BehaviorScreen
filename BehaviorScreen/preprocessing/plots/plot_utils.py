@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from BehaviorScreen.preprocessing.event_rates import (
+from BehaviorScreen.preprocessing.plots.event_rates import (
     EventKind,
     PreparedEvents,
     aggregate,

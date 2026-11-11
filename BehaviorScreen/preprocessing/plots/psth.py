@@ -21,7 +21,7 @@ of the arc, 1 at its end, from stim_phase) and the looming radius. Stimuli with
 a phase get an extra column with the rate against phase, all trials together
 (the phase advances at a constant speed, so exposure is uniform over phase).
 
-    python -m BehaviorScreen.preprocessing.psth ROOT YAML [--sigma 0.1] [--stack 0]
+    python -m BehaviorScreen.preprocessing.plots.psth ROOT YAML [--sigma 0.1] [--stack 0]
 """
 from __future__ import annotations
 
@@ -34,9 +34,9 @@ import numpy as np
 import pandas as pd
 from scipy.ndimage import gaussian_filter1d
 
-from BehaviorScreen.preprocessing.event_rates import EventKind, PreparedEvents, load_events, prepare_events
-from BehaviorScreen.preprocessing.saccades.plot_saccade_heatmap import saccade_kind
-from BehaviorScreen.preprocessing.plot import BOUTS
+from BehaviorScreen.preprocessing.plots.event_rates import EventKind, PreparedEvents, load_events, prepare_events
+from BehaviorScreen.preprocessing.plots.saccade_heatmap import saccade_kind
+from BehaviorScreen.preprocessing.plots.bout_heatmap import BOUTS
 from BehaviorScreen.stim_specs import StimEntry, load_valid_trials, load_yaml_config, read_stim_entries, select_events
 
 DT, PHASE_BINS, PHASE_SIGMA = 0.01, 72, 2 * np.pi / 36

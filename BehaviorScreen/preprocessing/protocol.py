@@ -56,7 +56,7 @@ def epoch(
     stim/ipsi_sign/parameters all agree; if they don't, that's a genuine
     inconsistency and raises immediately here, instead of silently
     producing a wrong/missing laterality or presence entry discovered only
-    later, deep in bouts.py or plot.py.
+    later, deep in bouts.py or plots/bout_heatmap.py.
     """
     existing = _REGISTRY.get(name)
     if existing is not None:

@@ -13,7 +13,7 @@ from BehaviorScreen.preprocessing.saccades.augment_saccades import augment_sacca
 from BehaviorScreen.preprocessing.saccades.classify_saccades import classify_saccades
 from BehaviorScreen.preprocessing.saccades.detect_saccades import collect_events
 from BehaviorScreen.preprocessing.saccades.plot_clusters import plot_cluster_traces
-from BehaviorScreen.preprocessing.saccades.plot_saccade_heatmap import (
+from BehaviorScreen.preprocessing.plots.saccade_heatmap import (
     make_saccade_heatmaps,
 )
 

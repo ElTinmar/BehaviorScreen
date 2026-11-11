@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from BehaviorScreen.core import Laterality
-from BehaviorScreen.preprocessing.dataframe_utils import compact_dataframe
+from BehaviorScreen.preprocessing.plots.dataframe_utils import compact_dataframe
 from BehaviorScreen.preprocessing.load import fish_metadata
 from BehaviorScreen.stim_specs import (
     StimEntry,
