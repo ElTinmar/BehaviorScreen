@@ -24,7 +24,7 @@ from BehaviorScreen.point_process.parallel import parallel_map, report_failures
 from BehaviorScreen.point_process.point_process import PointProcess
 
 from .dataset_utils import Arms
-from .line_names import line_name
+from BehaviorScreen.screen.line_names import line_name
 from .multi_group_process import GroupSpec, MultiGroupProcess
 from .param_links import LogLink
 from .tier1_omnibus import plot_tier1_map

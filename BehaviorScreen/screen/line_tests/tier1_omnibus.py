@@ -37,7 +37,7 @@ from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric
 from .gain_structure import GainStructure, fish_groups
 from .arm_contrast import output_metric
 from .model_qc import assess_group_fit
-from .line_names import line_name
+from BehaviorScreen.screen.line_names import line_name
 
 # Behavior-specific minimum total-event floor. Fish count is the WRONG
 # denominator for point-process/survival identifiability -- total events

@@ -10,7 +10,7 @@ from pathlib import Path
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.screen.control_models.model_config import EVENT_TABLES, MUTANT_REFERENCES, get_model_config
 from BehaviorScreen.screen.line_tests.dataset_utils import Arms, mutant_contrast, ntr_contrast
-from BehaviorScreen.screen.line_tests.line_names import warn_unnamed
+from BehaviorScreen.screen.line_names import warn_unnamed
 from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS, PINNED_AMPLITUDES, tier1_behaviors
 
 # Paths: run_screen's arguments set them (or the environment does)

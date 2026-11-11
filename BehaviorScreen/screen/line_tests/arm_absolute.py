@@ -31,7 +31,7 @@ from BehaviorScreen.point_process.parallel import parallel_map
 from BehaviorScreen.point_process.point_process import PointProcess
 
 from .dataset_utils import Arms, Contrast
-from .line_names import line_name
+from BehaviorScreen.screen.line_names import line_name
 from .tier1_config import MAP_COLUMNS
 from .tier1_omnibus import PARAMETER_LABELS, compute_parameter_deltas, map_rows
 

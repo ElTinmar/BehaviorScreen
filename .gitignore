@@ -2,8 +2,8 @@
 *.mat
 *.joblib
 *.csv
-!BehaviorScreen/screen/line_tests/facility_lines.csv
-!BehaviorScreen/screen/line_tests/screen_lines.csv
+!BehaviorScreen/screen/facility_lines.csv
+!BehaviorScreen/screen/screen_lines.csv
 model/
 figures/
 tier1_results/
