@@ -76,7 +76,7 @@ COUNT_READOUTS: Dict[str, CountReadout] = {
     "looming_divergent_saccade": CountReadout("looming_divergent_saccade", "E", window=(4.0, 7.0)),
     "after_looming": CountReadout("after_looming", "R"),
 }
-COUNT_COLUMNS = {name: MAP_COLUMNS[r.experiment] for name, r in COUNT_READOUTS.items()}  # map column labels
+COUNT_COLUMNS = {name: MAP_COLUMNS.get(r.experiment, r.experiment) for name, r in COUNT_READOUTS.items()}  # map column labels
 EVENT_COLUMNS = {"R": [0], "G": [0, 2], "E": [0], "P": [1]}  # columns of fish_counts holding events
 
 
