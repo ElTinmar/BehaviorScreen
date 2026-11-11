@@ -13,7 +13,11 @@ them unchanged:
 
 Each arm pools its fish; arms are compared by fish-label permutation of the log
 value, standard errors and per-arm intervals by fish bootstrap. One FDR family
-per readout (and contrast family).
+per readout (and contrast family). As in Tier 1, the arms of an NTR contrast keep
+the days recorded in both and their fish are permuted within the day.
+
+Rates count each trial by what the control fish do on it (trial_weights): responses
+habituate over trials, so a fish missing late trials is not compared with the mean trial.
 
     python -m BehaviorScreen.ablation_screen.count_readouts [--output ./count_results]
 
@@ -31,11 +35,11 @@ import numpy as np
 import pandas as pd
 
 from BehaviorScreen.core import Laterality
-from BehaviorScreen.point_process.analysis.model_config import get_model_config
+from BehaviorScreen.point_process.analysis.model_config import control_loader, get_model_config
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader, PointProcessDataset
 from BehaviorScreen.point_process.point_process.io import save_fig
 
-from .dataset_utils import Contrast, safe_prepare_dataset
+from .dataset_utils import Contrast, recording_days, safe_prepare_dataset
 from .tier1_config import MAP_COLUMNS
 
 IPSI, CONTRA = Laterality.IPSILATERAL, Laterality.CONTRALATERAL
@@ -80,16 +84,26 @@ COUNT_COLUMNS = {name: MAP_COLUMNS.get(r.experiment, r.experiment) for name, r i
 EVENT_COLUMNS = {"R": [0], "G": [0, 2], "E": [0], "P": [1]}  # columns of fish_counts holding events
 
 
-def fish_counts(ds: PointProcessDataset, r: CountReadout) -> np.ndarray:
+def trial_weights(control: PointProcessDataset) -> np.ndarray:
+    """Per trial, the control fish's mean events relative to their mean trial (1 for trials without control fish)."""
+    n = control.fish_trial_mask.sum(axis=0)
+    events = (control.event_counts_per_stream() * control.fish_trial_mask).sum(axis=0)
+    profile = np.divide(events, n, out=np.full(len(n), np.nan), where=n > 0)
+    return np.nan_to_num(profile / np.nanmean(profile), nan=1.0) if np.nansum(profile) > 0 else np.ones(len(n))
+
+
+def fish_counts(ds: PointProcessDataset, r: CountReadout, weights: Optional[np.ndarray] = None) -> np.ndarray:
     """
     Per fish, the counts the readout pools: R (events, exposure), G (events in the
     window, its exposure, events outside it, their exposure), E (trials with an
     event in the window, trials), P (events on the side, events).
+    weights (trial_weights): R's exposure counts each trial by its weight.
     """
     per_fish = lambda mask: np.bincount(ds.event_fish_idx[mask], minlength=ds.num_fish)
     trials = ds.fish_trial_mask.sum(axis=1)
     if r.parameter == "R":
-        return np.column_stack([per_fish(np.ones(len(ds.event_times), bool)), trials * ds.duration_s])
+        exposure = trials if weights is None else ds.fish_trial_mask @ weights
+        return np.column_stack([per_fish(np.ones(len(ds.event_times), bool)), exposure * ds.duration_s])
     if r.parameter == "P":
         ds = ds.first_events() if r.first_only else ds
         return np.column_stack([per_fish(ds.marks["laterality"] == int(r.side)), per_fish(np.ones(len(ds.event_times), bool))])
@@ -115,34 +129,58 @@ def bootstrap_logs(counts: np.ndarray, parameter: str, n_boot: int, rng: np.rand
     return log_value(counts[rng.integers(0, len(counts), (n_boot, len(counts)))], parameter)
 
 
-def count_test(ref: np.ndarray, test: np.ndarray, parameter: str, n_perm: int, rng: np.random.Generator) -> dict:
+def count_test(
+    ref: np.ndarray, test: np.ndarray, parameter: str, n_perm: int, rng: np.random.Generator, strata: Optional[np.ndarray] = None
+) -> dict:
+    """strata: per fish (reference then test), e.g. its recording day: fish are permuted within their stratum only."""
     stat = lambda c: log_value(c, parameter)
     pooled, n_ref = np.vstack([ref, test]), len(ref)
-    perms = rng.permuted(np.tile(np.arange(len(pooled)), (n_perm, 1)), axis=1)
+    strata = np.zeros(len(pooled), dtype=int) if strata is None else pd.factorize(strata)[0]
+    perms, splits = np.empty((n_perm, len(pooled)), dtype=int), 1
+    for s in np.unique(strata):
+        fish = np.flatnonzero(strata == s)
+        perms[:, fish] = rng.permuted(np.tile(fish, (n_perm, 1)), axis=1)
+        splits *= math.comb(len(fish), int(np.sum(fish < n_ref)))
     null = stat(pooled[perms[:, n_ref:]]) - stat(pooled[perms[:, :n_ref]])
     observed = stat(test) - stat(ref)
     return {
         "p_value": float((np.sum(np.abs(null) >= abs(observed)) + 1) / (n_perm + 1)),
-        "p_value_floor": 1.0 / (math.comb(len(pooled), n_ref) + 1),
+        "p_value_floor": 1.0 / (splits + 1),
     }
 
 
-def arm_counts(
-    loaders: Dict[str, BehavioralDataLoader], contrasts: Sequence[Contrast]
-) -> Dict[Tuple[str, str, str], Optional[np.ndarray]]:
-    """{(line, condition, readout): per-fish counts}, None where the arm has no dataset; each dataset prepared once."""
-    config, datasets, counts = get_model_config(), {}, {}
+Counts = Dict[Tuple[str, str, str], Optional[np.ndarray]]
+
+
+def arm_counts(loaders: Dict[str, BehavioralDataLoader], contrasts: Sequence[Contrast]) -> Tuple[Counts, Counts]:
+    """
+    ({(line, condition, readout): per-fish counts}, {the same: each fish's recording day}), None where the arm
+    has no dataset; each dataset prepared once. The arms of an NTR contrast keep the days recorded in both.
+    """
+    config, datasets, weights, counts, days = get_model_config(), {}, {}, {}, {}
     arms = list(dict.fromkeys(arm for c in contrasts for arm in (c.reference, c.test)))
     for name, r in COUNT_READOUTS.items():
+        loader, dataset = loaders[config[r.experiment]["events"]], config[r.experiment]["dataset"]
+        if r.experiment not in weights:
+            weights[r.experiment] = trial_weights(control_loader(loader).prepare_dataset(**dataset))
         for arm in arms:
             key = (*arm, r.experiment)
             if key not in datasets:
-                loader = loaders[config[r.experiment]["events"]].subset(arm[0], [arm[1]])
-                datasets[key] = safe_prepare_dataset(loader, config[r.experiment]["dataset"], "/".join(key))
+                datasets[key] = safe_prepare_dataset(loader.subset(arm[0], [arm[1]]), dataset, "/".join(key))
             ds = datasets[key]
-            c = None if ds is None else fish_counts(ds, r)
-            counts[(*arm, name)] = None if c is None else c[c[:, 1] > 0]  # P: fish with events; others: fish with trials
-    return counts
+            if ds is None:
+                counts[(*arm, name)] = days[(*arm, name)] = None
+                continue
+            per_fish = fish_counts(ds, r, weights[r.experiment])
+            keep = per_fish[:, 1] > 0  # P: fish with events; others: fish with trials
+            counts[(*arm, name)], days[(*arm, name)] = per_fish[keep], recording_days(ds.fish_ids[keep])
+        for c in contrasts:
+            ref, test = (*c.reference, name), (*c.test, name)
+            if c.family == "ntr" and counts[ref] is not None and counts[test] is not None:
+                for arm, other in ((ref, test), (test, ref)):
+                    shared = np.isin(days[arm], days[other])
+                    counts[arm], days[arm] = counts[arm][shared], days[arm][shared]
+    return counts, days
 
 
 def arm_bootstrap(counts: Dict[Tuple[str, str, str], Optional[np.ndarray]], n_boot: int, rng: np.random.Generator) -> pd.DataFrame:
@@ -160,10 +198,10 @@ def arm_bootstrap(counts: Dict[Tuple[str, str, str], Optional[np.ndarray]], n_bo
 
 
 def run_count_screen(
-    counts: Dict[Tuple[str, str, str], Optional[np.ndarray]], contrasts: Sequence[Contrast],
+    counts: Counts, days: Counts, contrasts: Sequence[Contrast],
     n_perm: int = 10000, n_boot: int = 1000, min_fish: int = 6, min_events: int = 20, seed: int = 0,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-    """(Tier 1-style results, parameter rows) for every contrast and count readout."""
+    """(Tier 1-style results, parameter rows) for every contrast and count readout; NTR fish are permuted within their day."""
     rng = np.random.default_rng(seed)
     results: List[dict] = []
     params: List[dict] = []
@@ -179,7 +217,8 @@ def run_count_screen(
             if min(len(ref), len(test)) < min_fish or row["total_events"] < min_events:
                 results.append({**row, "status": "skipped_insufficient_data", "p_value": np.nan})
                 continue
-            results.append({**row, "status": "ok", **count_test(ref, test, r.parameter, n_perm, rng)})
+            strata = np.concatenate([days[(*c.reference, name)], days[(*c.test, name)]]) if c.family == "ntr" else None
+            results.append({**row, "status": "ok", **count_test(ref, test, r.parameter, n_perm, rng, strata)})
             v_ref, v_test = np.exp(log_value(ref, r.parameter)), np.exp(log_value(test, r.parameter))
             se_ref, se_test = (float(np.std(bootstrap_logs(a, r.parameter, n_boot, rng))) for a in (ref, test))
             params.append({"family": c.family, "line": c.name, "behavior": name, "parameter": r.parameter,
@@ -196,8 +235,8 @@ def main(args: argparse.Namespace) -> None:
 
     out = args.output
     out.mkdir(parents=True, exist_ok=True)
-    counts = arm_counts(loaders, CONTRASTS)
-    results, params = run_count_screen(counts, CONTRASTS, args.n_perm, args.n_boot)
+    counts, days = arm_counts(loaders, CONTRASTS)
+    results, params = run_count_screen(counts, days, CONTRASTS, args.n_perm, args.n_boot)
     param_df = compute_parameter_deltas(params)
     tier1_df = add_testability(add_fdr_per_behavior(results, alpha=0.05))
     tier1_df.to_csv(out / "tier1_results.csv", index=False)
