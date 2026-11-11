@@ -1,23 +1,4 @@
 from enum import IntEnum
-from pathlib import Path
-from typing import Callable, TypedDict
-
-TIME_TOLERANCE_S: float = 40
-ROLLOVER_TIME_S: int = 3600  # ZebVR shader clock period
-
-
-def write_complete(target: Path, write: Callable[[Path], None]) -> None:
-    """
-    write(path) into .partial/ next to target, then move the file to target: an
-    interrupted write never leaves a file that looks finished.
-    """
-    partial = target.parent / ".partial" / target.name
-    partial.parent.mkdir(parents=True, exist_ok=True)
-    partial.unlink(missing_ok=True)
-    write(partial)
-    if not partial.exists():
-        raise RuntimeError(f"{target.name} was not written")
-    partial.replace(target)
 
 
 class MyIntEnum(IntEnum):
@@ -37,7 +18,7 @@ class Laterality(MyIntEnum):
     CONTRALATERAL = -1
 
 
-## Stim and stim parameters (from ZebVR)
+## Stim (from ZebVR)
 
 
 class Stim(MyIntEnum):
@@ -54,50 +35,6 @@ class Stim(MyIntEnum):
     RAMP = 10
     TURING = 11
 
-
-STIM_PARAMETERS = [
-    "looming_angle_start_deg",
-    "looming_angle_stop_deg",
-    "looming_center_mm",
-    "looming_distance_to_screen_mm",
-    "looming_expansion_speed_deg_per_sec",
-    "looming_expansion_speed_mm_per_sec",
-    "looming_expansion_time_sec",
-    "looming_period_sec",
-    "looming_size_to_speed_ratio_ms",
-    "looming_type",
-    "n_preys",
-    "okr_spatial_frequency_deg",
-    "okr_speed_deg_per_sec",
-    "omr_angle_deg",
-    "omr_spatial_period_mm",
-    "omr_speed_mm_per_sec",
-    "phototaxis_polarity",
-    "prey_arc_start_deg",
-    "prey_arc_stop_deg",
-    "prey_capture_type",
-    "prey_radius_mm",
-    "prey_speed_deg_s",
-    "prey_speed_mm_s",
-    "prey_trajectory_radius_mm",
-    "ramp_duration_sec",
-    "ramp_powerlaw_exponent",
-    "ramp_type",
-    "start_time_sec",
-]
-
-## Physical dimensions of the experimental arenas
-
-
-class WellDimensions(TypedDict):
-    well_radius_mm: float
-    distance_between_well_centers_mm: float
-
-
-AGAROSE_WELL_DIMENSIONS: WellDimensions = {
-    "well_radius_mm": 19.5 / 2,
-    "distance_between_well_centers_mm": 22,
-}
 
 SACCADE_CLASS_NAMES = {
     -1: "Unassigned",

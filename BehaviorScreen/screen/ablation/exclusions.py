@@ -20,7 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from BehaviorScreen.screen.analysis.model_config import EVENT_TABLES
-from BehaviorScreen.stim_specs import parse_rules
+from BehaviorScreen.filters import parse_rules
 
 ARM = ["line", "condition"]
 FLAGS = ["not_moving", "centroid_issue", "heading_issue", "well_not_found", "frame_order_issue"]

@@ -16,7 +16,7 @@ from BehaviorScreen.core import SACCADE_CLASS_COLORS, SACCADE_CLASS_NAMES
 from BehaviorScreen.preprocessing.load import Directories, find_files, parse_fish
 from BehaviorScreen.preprocessing.bouts import MegaboutResults, load_megabout
 from BehaviorScreen.preprocessing.recording import Recording
-from BehaviorScreen.stim_specs import apply_event_filters, exclude_qc_fish, load_yaml_config
+from BehaviorScreen.filters import apply_event_filters, exclude_qc_fish, load_yaml_config
 
 TAIL_SEGMENT = 6  # 7th of 10 tail angles
 TAIL_WINDOW_S = (-0.04, 0.18)  # around the first half-beat

@@ -19,7 +19,7 @@ from matplotlib.transforms import blended_transform_factory
 
 from BehaviorScreen.screen.ablation.line_names import line_name
 from BehaviorScreen.core import Stim
-from BehaviorScreen.stim_specs import apply_table_filters, exclude_qc_fish, load_yaml_config
+from BehaviorScreen.filters import apply_table_filters, exclude_qc_fish, load_yaml_config
 
 RECORDING_S = 4490  # one fish's protocol
 WILD_TYPES = {"wt", "ab", "wik"}  # WT (TL) and the backgrounds

@@ -12,7 +12,8 @@ import pandas as pd
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES
 from BehaviorScreen.preprocessing.plots.event_rates import EventKind, load_events, prepare_events
 from BehaviorScreen.preprocessing.plots.plot_utils import plot_rate_heatmaps
-from BehaviorScreen.stim_specs import load_valid_trials, load_yaml_config
+from BehaviorScreen.filters import load_yaml_config
+from BehaviorScreen.preprocessing.stim_specs import load_valid_trials
 
 DEFAULT_CLASS_ORDER = [
     1,  # Conjugate

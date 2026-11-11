@@ -9,7 +9,7 @@ import pandas as pd
 
 from BehaviorScreen.core import Laterality, Stim
 from BehaviorScreen.point_process.dataset import PointProcessDataset
-from BehaviorScreen.stim_specs import apply_table_filters, exclude_qc_fish
+from BehaviorScreen.filters import apply_table_filters, exclude_qc_fish
 
 
 # Usable trials shorter than this fraction of the analysis window are kept but

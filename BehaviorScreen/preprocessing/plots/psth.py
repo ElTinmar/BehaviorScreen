@@ -37,7 +37,8 @@ from scipy.ndimage import gaussian_filter1d
 from BehaviorScreen.preprocessing.plots.event_rates import EventKind, PreparedEvents, load_events, prepare_events
 from BehaviorScreen.preprocessing.plots.saccade_heatmap import saccade_kind
 from BehaviorScreen.preprocessing.plots.bout_heatmap import BOUTS
-from BehaviorScreen.stim_specs import StimEntry, load_valid_trials, load_yaml_config, read_stim_entries, select_events
+from BehaviorScreen.filters import load_yaml_config
+from BehaviorScreen.preprocessing.stim_specs import StimEntry, load_valid_trials, read_stim_entries, select_events
 
 DT, PHASE_BINS, PHASE_SIGMA = 0.01, 72, 2 * np.pi / 36
 SIDE_SIGN = {"ipsi": 1.0, "contra": -1.0, "none": 1.0}

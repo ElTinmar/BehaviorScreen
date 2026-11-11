@@ -12,17 +12,10 @@ import pandas as pd
 from BehaviorScreen.core import Laterality
 from BehaviorScreen.preprocessing.plots.dataframe_utils import compact_dataframe
 from BehaviorScreen.preprocessing.load import fish_metadata
-from BehaviorScreen.stim_specs import (
-    StimEntry,
-    StimSpec,
-    apply_event_filters,
-    exclude_qc_fish,
-    exclude_unusable_trials,
-    get_epoch_trial_count,
-    get_matching_epoch_names,
-    read_stim_entries,
-    restrict_trials_to_analysed_fish,
-    select_events,
+from BehaviorScreen.filters import apply_event_filters, exclude_qc_fish
+from BehaviorScreen.preprocessing.stim_specs import (
+    StimEntry, StimSpec, exclude_unusable_trials, get_epoch_trial_count, get_matching_epoch_names, read_stim_entries,
+    restrict_trials_to_analysed_fish, select_events,
 )
 
 LATERALITY_LABELS = {

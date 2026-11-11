@@ -6,8 +6,7 @@ import numpy as np
 import cv2
 from video_tools import FFMPEG_VideoWriter_CPU
 from tqdm import tqdm
-from BehaviorScreen.core import write_complete
-from BehaviorScreen.preprocessing.load import load_lightning_pose
+from BehaviorScreen.preprocessing.load import load_lightning_pose, write_complete
 
 EYE_CROP_MM, EYE_CROP_PX_PER_MM = 1.6, 40.0  # TODO get px_per_mm from metadata
 

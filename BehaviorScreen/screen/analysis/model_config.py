@@ -5,7 +5,7 @@ from typing import Callable, Dict, List, Optional, Sequence
 
 from megabouts.utils import bouts_category_name_short
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, Laterality, Stim
-from BehaviorScreen.stim_specs import load_yaml_config
+from BehaviorScreen.filters import load_yaml_config
 from BehaviorScreen.point_process.frailty import (
     BaselineOnlyFrailtyHawkesProcess,
     GammaMixedEffectsProcess,

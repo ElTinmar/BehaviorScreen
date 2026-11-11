@@ -4,13 +4,29 @@ import time
 from datetime import datetime
 from pathlib import Path
 from re import Match, Pattern
-from typing import Any, NamedTuple, Optional
+from typing import Any, Callable, NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
 from video_tools import OpenCV_VideoReader
 
-from BehaviorScreen.core import TIME_TOLERANCE_S
+
+TIME_TOLERANCE_S: float = 40
+
+
+def write_complete(target: Path, write: Callable[[Path], None]) -> None:
+    """
+    write(path) into .partial/ next to target, then move the file to target: an
+    interrupted write never leaves a file that looks finished.
+    """
+    partial = target.parent / ".partial" / target.name
+    partial.parent.mkdir(parents=True, exist_ok=True)
+    partial.unlink(missing_ok=True)
+    write(partial)
+    if not partial.exists():
+        raise RuntimeError(f"{target.name} was not written")
+    partial.replace(target)
+
 
 MONTH_MAP = {
     "jan": 1,

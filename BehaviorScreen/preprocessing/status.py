@@ -19,9 +19,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from BehaviorScreen.core import TIME_TOLERANCE_S
 from BehaviorScreen.preprocessing.load import (
-    FileNameInfo, filename_regexp, lightningpose_eyes_filename_regexp, lightningpose_full_filename_regexp, load_metadata,
+    TIME_TOLERANCE_S, FileNameInfo, filename_regexp, lightningpose_eyes_filename_regexp, lightningpose_full_filename_regexp, load_metadata,
     parse_filename, parse_fish, stimuli_filename_regexp, temperature_filename_regexp, tracking_filename_regexp,
     video_filename_regexp, video_timestamps_filename_regexp,
 )

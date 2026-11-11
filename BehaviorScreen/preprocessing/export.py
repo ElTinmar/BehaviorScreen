@@ -6,8 +6,7 @@ from pathlib import Path
 import numpy as np
 from video_tools import CPU_VideoProcessor
 
-from BehaviorScreen.core import write_complete
-from BehaviorScreen.preprocessing.load import Directories, find_files
+from BehaviorScreen.preprocessing.load import Directories, find_files, write_complete
 from BehaviorScreen.preprocessing.process import detect_well, get_background_image_safe
 from BehaviorScreen.preprocessing.protocol import protocol, protocol_ptx
 from BehaviorScreen.preprocessing.recording import Recording

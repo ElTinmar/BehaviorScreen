@@ -21,7 +21,8 @@ from BehaviorScreen.preprocessing.plots.event_rates import (
     prepare_events,
 )
 from BehaviorScreen.preprocessing.plots.plot_utils import plot_rate_heatmaps
-from BehaviorScreen.stim_specs import load_valid_trials, load_yaml_config, stimulus_name_order
+from BehaviorScreen.filters import load_yaml_config
+from BehaviorScreen.preprocessing.stim_specs import load_valid_trials, stimulus_name_order
 
 MAX_COLORBAR = 0.6
 

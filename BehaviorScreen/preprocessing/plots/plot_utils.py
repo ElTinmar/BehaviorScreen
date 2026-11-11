@@ -17,7 +17,7 @@ from BehaviorScreen.preprocessing.plots.event_rates import (
     frequency_table,
     order_lateralities,
 )
-from BehaviorScreen.stim_specs import stimulus_name_order
+from BehaviorScreen.preprocessing.stim_specs import stimulus_name_order
 
 CATEGORY_PERCENTILE = 99.5  # top of each category's own colour scale
 

@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 from video_tools import OpenCV_VideoReader
 
-from BehaviorScreen.core import STIM_PARAMETERS
 from BehaviorScreen.preprocessing.load import (
     BehaviorFiles,
     load_lightning_pose,
@@ -23,6 +22,38 @@ from BehaviorScreen.preprocessing.load import (
     load_video_timestamps,
 )
 from BehaviorScreen.preprocessing.process import Well
+
+
+STIM_PARAMETERS = [
+    "looming_angle_start_deg",
+    "looming_angle_stop_deg",
+    "looming_center_mm",
+    "looming_distance_to_screen_mm",
+    "looming_expansion_speed_deg_per_sec",
+    "looming_expansion_speed_mm_per_sec",
+    "looming_expansion_time_sec",
+    "looming_period_sec",
+    "looming_size_to_speed_ratio_ms",
+    "looming_type",
+    "n_preys",
+    "okr_spatial_frequency_deg",
+    "okr_speed_deg_per_sec",
+    "omr_angle_deg",
+    "omr_spatial_period_mm",
+    "omr_speed_mm_per_sec",
+    "phototaxis_polarity",
+    "prey_arc_start_deg",
+    "prey_arc_stop_deg",
+    "prey_capture_type",
+    "prey_radius_mm",
+    "prey_speed_deg_s",
+    "prey_speed_mm_s",
+    "prey_trajectory_radius_mm",
+    "ramp_duration_sec",
+    "ramp_powerlaw_exponent",
+    "ramp_type",
+    "start_time_sec",
+]
 
 
 def nearest_indices(reference: np.ndarray, targets: np.ndarray) -> np.ndarray:
