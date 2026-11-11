@@ -1,5 +1,5 @@
 from .config import FOLDERS, CONFIG_YAML
-from BehaviorScreen.screen.descriptive.plot import plot_heatmaps
+from BehaviorScreen.preprocessing.plot import plot_heatmaps
 from multiprocessing import Pool
 
 N = 6

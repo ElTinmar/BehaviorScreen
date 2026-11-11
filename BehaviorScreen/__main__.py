@@ -246,8 +246,8 @@ def bouts(args: argparse.Namespace) -> None:
 
 def heatmaps(args: argparse.Namespace) -> None:
     """Bout and saccade heatmaps, each when its table exists."""
-    from BehaviorScreen.screen.descriptive.plot_saccade_heatmap import make_saccade_heatmaps
-    from BehaviorScreen.screen.descriptive.plot import plot_heatmaps
+    from BehaviorScreen.preprocessing.saccades.plot_saccade_heatmap import make_saccade_heatmaps
+    from BehaviorScreen.preprocessing.plot import plot_heatmaps
     plots = args.root / args.plots
     plots.mkdir(parents=True, exist_ok=True)
     common = dict(quality_control=args.root / args.qc_csv, valid_trials_csv=args.root / args.valid_trials_csv, config_yaml=args.yaml)
