@@ -2,7 +2,7 @@ import argparse
 from pathlib import Path
 from typing import Callable, Dict
 
-from BehaviorScreen.status import SACCADES_CSV
+from BehaviorScreen.preprocessing.status import SACCADES_CSV
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -164,7 +164,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 def export(args: argparse.Namespace) -> None:
-    from BehaviorScreen.export import export_single_animals
+    from BehaviorScreen.preprocessing.export import export_single_animals
     export_single_animals(
         root=args.root,
         metadata=args.metadata,
@@ -184,7 +184,7 @@ def export(args: argparse.Namespace) -> None:
 
 
 def pose(args: argparse.Namespace) -> None:
-    from BehaviorScreen.pose_estimation import estimate_pose
+    from BehaviorScreen.preprocessing.pose_estimation import estimate_pose
     estimate_pose(
         model_directory=args.full_model_dir,
         video_directory=args.root / args.results,
@@ -193,7 +193,7 @@ def pose(args: argparse.Namespace) -> None:
 
 
 def eye_crop(args: argparse.Namespace) -> None:
-    from BehaviorScreen.pose_estimation import export_cropped_eyes_video
+    from BehaviorScreen.preprocessing.pose_estimation import export_cropped_eyes_video
     export_cropped_eyes_video(
         full_video_directory=args.root / args.results,
         eye_video_directory=args.root / args.eyes_video_dir,
@@ -202,7 +202,7 @@ def eye_crop(args: argparse.Namespace) -> None:
 
 
 def eye_pose(args: argparse.Namespace) -> None:
-    from BehaviorScreen.pose_estimation import estimate_pose
+    from BehaviorScreen.preprocessing.pose_estimation import estimate_pose
     estimate_pose(
         model_directory=args.eyes_model_dir,
         video_directory=args.root / args.eyes_video_dir,
@@ -211,7 +211,7 @@ def eye_pose(args: argparse.Namespace) -> None:
 
 
 def qc(args: argparse.Namespace) -> None:
-    from BehaviorScreen.qc import quality_control
+    from BehaviorScreen.preprocessing.qc import quality_control
     quality_control(
         root=args.root,
         output_csv=args.qc_csv,
@@ -228,7 +228,7 @@ def qc(args: argparse.Namespace) -> None:
 
 
 def bouts(args: argparse.Namespace) -> None:
-    from BehaviorScreen.megabouts import run_megabouts
+    from BehaviorScreen.preprocessing.bouts import run_megabouts
     run_megabouts(
         root=args.root,
         output_csv=args.bouts_csv,
@@ -246,8 +246,8 @@ def bouts(args: argparse.Namespace) -> None:
 
 def heatmaps(args: argparse.Namespace) -> None:
     """Bout and saccade heatmaps, each when its table exists."""
-    from BehaviorScreen.eyes.plot_saccade_heatmap import make_saccade_heatmaps
-    from BehaviorScreen.plot import plot_heatmaps
+    from BehaviorScreen.screen.descriptive.plot_saccade_heatmap import make_saccade_heatmaps
+    from BehaviorScreen.screen.descriptive.plot import plot_heatmaps
     plots = args.root / args.plots
     plots.mkdir(parents=True, exist_ok=True)
     common = dict(quality_control=args.root / args.qc_csv, valid_trials_csv=args.root / args.valid_trials_csv, config_yaml=args.yaml)
@@ -264,7 +264,7 @@ def heatmaps(args: argparse.Namespace) -> None:
 
 
 def saccades(args: argparse.Namespace) -> None:
-    from BehaviorScreen.eyes.run_analysis import run_analysis
+    from BehaviorScreen.preprocessing.saccades.run_analysis import run_analysis
     run_analysis(
         root=args.root,
         model_path=args.saccade_model,

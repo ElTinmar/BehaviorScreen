@@ -2,8 +2,8 @@
 *.mat
 *.joblib
 *.csv
-!BehaviorScreen/ablation_screen/facility_lines.csv
-!BehaviorScreen/ablation_screen/screen_lines.csv
+!BehaviorScreen/screen/ablation/facility_lines.csv
+!BehaviorScreen/screen/ablation/screen_lines.csv
 model/
 figures/
 tier1_results/
@@ -219,4 +219,4 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-BehaviorScreen/point_process/point_process/kernel_demo_data.js
+BehaviorScreen/screen/analysis/kernel_demo_data.js

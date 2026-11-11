@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model Ladder Explorer</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+<style>
+  :root { --accent:#2563eb; --contra:#dc2626; --bg:#f8fafc; --panel:#ffffff; --border:#e2e8f0; --muted:#64748b; }
+  body { font-family:-apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:var(--bg); margin:0; padding:20px; color:#1e293b; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  p.sub { color:var(--muted); font-size:13px; margin:0 0 14px; max-width:960px; }
+  #banner { display:none; background:#fef2f2; border:1px solid #fecaca; color:#991b1b; padding:10px 14px; border-radius:8px; font-size:13px; margin-bottom:12px; }
+  .top { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  select { font-size:13px; padding:5px 8px; border-radius:6px; border:1px solid var(--border); }
+  #rungs { display:flex; flex-direction:column; gap:4px; margin-bottom:14px; }
+  .rung { text-align:left; padding:5px 10px; border:1px solid var(--border); background:var(--panel); border-radius:6px; cursor:pointer; font-size:12px; font-family:ui-monospace, Menlo, monospace; }
+  .rung.active { background:var(--accent); color:white; border-color:var(--accent); }
+  .rung .idx { color:var(--muted); margin-right:8px; }
+  .rung.active .idx { color:#dbeafe; }
+  .badge { font-family:-apple-system, Segoe UI, sans-serif; font-size:10px; background:#fef3c7; color:#92400e; border-radius:4px; padding:1px 6px; margin-left:8px; }
+  .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:18px; }
+  .formula { background:#f1f5f9; padding:10px 14px; border-radius:8px; margin:0 0 6px; overflow-x:auto; font-size:14px; line-height:2; }
+  .events { font-size:13px; color:#334155; margin:-4px 0 10px; }
+  .note { font-size:11px; color:var(--muted); margin:4px 0 12px; }
+  .layout { display:flex; gap:22px; flex-wrap:wrap; }
+  .controls { flex:1 1 280px; min-width:260px; max-width:360px; }
+  .plots { flex:2 1 520px; min-width:320px; display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:14px; align-content:start; }
+  .param-row { margin-bottom:8px; }
+  .param-row label { display:flex; justify-content:space-between; font-size:12px; color:#334155; margin-bottom:1px; font-family:ui-monospace, Menlo, monospace; }
+  .param-row .unit { color:var(--muted); font-weight:400; }
+  .param-row .info { font-size:11px; color:var(--muted); line-height:1.3; margin-bottom:2px; }
+  .param-row .val { color:var(--accent); font-weight:600; font-variant-numeric:tabular-nums; }
+  .param-row input[type=range] { width:100%; }
+  .plot-title { font-size:12px; font-weight:600; color:#334155; margin-bottom:4px; }
+  canvas { background:#fff; border:1px solid var(--border); border-radius:8px; width:100%; height:200px; display:block; }
+  #c-surf, #c-data, #c-psth, #c-trial, #c-share, #c-share-trial, #c-counts-trial, #c-counts-fish, #c-intervals, #c-lags { height:260px; }
+  .row { grid-column:1 / -1; display:flex; flex-wrap:wrap; gap:14px; }
+  .row > div { flex:1 1 calc((100% - (var(--cols, 2) - 1) * 14px) / var(--cols, 2)); min-width:0; }
+  .legend { font-size:11px; color:var(--muted); margin-top:3px; }
+  .legend span { margin-right:12px; white-space:nowrap; }
+  button.small { font-size:11px; padding:4px 10px; border-radius:6px; border:1px solid var(--border); background:#f1f5f9; cursor:pointer; margin:6px 6px 0 0; }
+  @media (max-width:600px) { body { padding:12px; } .plots { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+
+<h1>Model Ladder Explorer</h1>
+<p class="sub">Each experiment's candidate models (the null first), as in <code>model_config.py</code>, in Tier 1 map order.
+The Tier 1 model of an experiment, its best rung (<code>best_model.json</code>, when exported from a fit run), is marked and shown first; ★ marks its parameters
+fitted per arm, every other one being pinned to the control fit. Pick a rung to see its formula, move the sliders to reshape it. Parameters start at the fitted values when the page was exported from a fit run
+(<code>export_kernel_demo -o &lt;output dir&gt;</code>), else at the initial guesses. Plots keep their y range while you move sliders or change rung, so changes show as they are; <b>Rescale axes</b> fits them again (a new experiment starts rescaled). Picking a rung sets the sliders to its values. Regenerate with <code>python -m BehaviorScreen.screen.analysis.export_kernel_demo</code>; with a data root
+(<code>-d &lt;data root&gt;</code>) the page also shows the events the ladders were fitted to (dots, and the data surface).</p>
+<div id="banner"></div>
+
+<div class="top">
+  <label for="experiment" style="font-size:13px">Experiment</label>
+  <select id="experiment"></select>
+  <span class="note" id="fitnote" style="margin:0"></span>
+</div>
+<div class="events" id="events"></div>
+<div id="rungs"></div>
+<div class="panel" id="panel"></div>
+
+<script src="kernel_demo_data.js"></script>
+<script>
+const EXPERIMENTS = window.EXPERIMENTS || [];  // kernel_demo_data.js, written by export_kernel_demo
+
+// ---------------------------------------------------------------- math
+function logErfc(x) {  // log erfc(x), relative error < 1.2e-7 (Numerical Recipes erfcc)
+  const z = Math.abs(x), t = 1 / (1 + 0.5 * z);
+  const log = Math.log(t) - z * z - 1.26551223 + t * (1.00002368 + t * (0.37409196 + t * (0.09678418 + t * (-0.18628806 + t * (0.27886807
+    + t * (-1.13520398 + t * (1.48851587 + t * (-0.82215223 + t * 0.17087277))))))));
+  return x >= 0 ? log : Math.log(2 - Math.exp(log));
+}
+function exGauss(t, mu, sigma, tau) {  // scipy exponnorm.pdf(t, tau / sigma, loc=mu, scale=sigma)
+  return Math.exp(-Math.log(2 * tau) + (mu - t) / tau + sigma * sigma / (2 * tau * tau) + logErfc((mu + sigma * sigma / tau - t) / (Math.SQRT2 * sigma)));
+}
+const sigmoid = (z, upper = 1) => upper / (1 + Math.exp(-z));
+const pulse = (lag, peak, k) => lag <= 0 ? 0 : Math.pow(lag / peak, k) * Math.exp(k * (1 - lag / peak));
+function lgamma(x) {
+  const c = [76.18009172947146, -86.50532032941677, 24.01409824083091, -1.231739572450155, 0.1208650973866179e-2, -0.5395239384953e-5];
+  let y = x, tmp = x + 5.5; tmp -= (x + 0.5) * Math.log(tmp);
+  let ser = 1.000000000190015; for (const ci of c) ser += ci / ++y;
+  return -tmp + Math.log(2.5066282746310005 * ser / x);
+}
+const gammaPdf = (x, shape, rate) => x <= 0 ? 0 : Math.exp(shape * Math.log(rate) - lgamma(shape) + (shape - 1) * Math.log(x) - rate * x);
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function normal(u) { return Math.sqrt(-2 * Math.log(1 - u())) * Math.cos(2 * Math.PI * u()); }
+function gammaDraw(u, shape, rate) {  // Marsaglia-Tsang
+  if (shape < 1) return gammaDraw(u, shape + 1, rate) * Math.pow(u(), 1 / shape);
+  const d = shape - 1 / 3, c = 1 / Math.sqrt(9 * d);
+  for (;;) { const z = normal(u), v = (1 + c * z) ** 3; if (v > 0 && Math.log(u()) < z * z / 2 + d - d * v + d * Math.log(v)) return d * v / rate; }
+}
+const linspace = (a, b, n) => Array.from({length: n}, (_, i) => a + i * (b - a) / (n - 1));
+
+// ---------------------------------------------------------------- kernels (names as in the Python code)
+const dip = (p, t, m, upper) => p.B * Math.exp(p.alpha_B * m) * (1 - sigmoid(p.z0_dip + p.alpha_dip * m, upper) * Math.exp(-t / p.tau_dip));
+const RATE = {
+  "Homogeneous λ": (t, m, p) => p.B,
+  "Exponential decay λ(t)": (t, m, p) => p.A * Math.exp(-t / p.tau) + p.B,
+  "Spontaneous λ(t, m)": (t, m, p) => p.B * Math.exp(p.alpha_B * m),
+  "OMR lateral ipsi λ(m)": (t, m, p) => p.B * Math.exp(p.alpha_B * m),
+  "OMR lateral λ(t, m)": (t, m, p, c) => dip(p, t, m, c.f_dip_upper),
+  "Phototaxis Contra λ(t, m)": (t, m, p, c) => dip(p, t, m, c.f_dip_upper),
+  "Looming recovery λ(t, m)": (t, m, p, c) => dip(p, t, m, c.f_dip_upper),
+  "OMR forward λ(t)": (t, m, p, c) => p.B * (1 - sigmoid(p.z_dip, c.f_dip_upper) * Math.exp(-t / p.tau_dip)),
+  "OMR lateral contra λ(t)": (t, m, p) => p.B * (1 - p.f_dip * Math.exp(-t / p.tau_dip)),
+  "Phototaxis Minimal Dip+Peak λ(t, m)": (t, m, p) => p.B * Math.exp(p.alpha_B * m) * (1 - p.f_dip * Math.exp(-t / p.tau))
+    + p.A_peak * Math.exp(p.alpha_peak * m) * Math.E * (t / p.tau) * Math.exp(-t / p.tau),
+  "PhototaxisDipExGaussianPeak": (t, m, p) => p.B * Math.exp(p.alpha_B * m) * (1 - p.f_dip * Math.exp(-t / p.tau_dip))
+    + p.A_peak * Math.exp(p.alpha_peak * m) * exGauss(t, p.mu, p.sigma, p.tau_decay),
+  "SurvivalConstantHazard": (t, m, p) => p.B,
+  "SurvivalGaussianBump(Baseline)": (t, m, p) => p.H * Math.exp(-0.5 * ((t - p.mu) / p.sigma) ** 2) + p.B,
+  "SurvivalGaussianBump(Baseline_Habituating)": (t, m, p) => p.H * Math.exp(p.alpha * m) * Math.exp(-0.5 * ((t - p.mu) / p.sigma) ** 2) + p.B,
+  "SurvivalExGaussianBump(Baseline_Habituating)": (t, m, p) => p.H * Math.exp(p.alpha * m) * exGauss(t, p.mu, p.sigma, p.tau) + p.B,
+};
+function preyCapture(t, m, p, c) {  // PreyCapture variants: c.modulated maps term -> its alpha
+  const a = term => c.modulated[term] ? p[c.modulated[term]] : 0, phase = 2 * Math.PI * c.stim_freq * t;
+  const wave = 0.5 * (Math.sin(phase + p.phi1) + Math.sin(2 * phase + p.phi2));
+  return ((p.A ?? 0) * Math.exp(-t / (p.tau ?? 1)) * Math.exp(a("peak") * m) + p.B * Math.exp(a("baseline") * m)) * (1 + sigmoid(p.z0_ripple + a("ripple") * m, 0.95) * wave);
+}
+function lagKernel(name) {
+  if (name === "WeibullRecovery") return (lag, p) => lag > 0 ? 1 - Math.exp(-Math.pow(lag / p.tau_refractory, p.k_refractory)) : 0;
+  if (/^(Stimulus)?Burst\(k=/.test(name)) return (lag, p, c) => p.A_burst * pulse(lag, p.burst_peak_lag, c.shape_k);
+  return null;
+}
+function rateKernel(name) { return name.startsWith("PreyCapture(") ? preyCapture : RATE[name] || null; }
+
+// A component's kernel parameters from the model's values: a name, or [a, b] for a / b (B_contra = B / D)
+function kernelParams(comp, values) {
+  const out = {};
+  for (const [k, spec] of Object.entries(comp.args)) out[k] = Array.isArray(spec) ? values[spec[0]] / values[spec[1]] : values[spec];
+  return out;
+}
+const rateOf = (comp, values) => { const f = rateKernel(comp.name), p = kernelParams(comp, values); return (t, m) => f(t, m, p, comp.constants); };
+const lagOf = (comp, values) => { const f = lagKernel(comp.name), p = kernelParams(comp, values); return lag => lag < 0 || lag === null ? null : f(lag, p, comp.constants); };
+
+// ---------------------------------------------------------------- structure helpers
+function unwrap(s) {  // gain layer (if any) and the base underneath
+  return s.kind === "gain" ? {gain: s, base: s.base} : {gain: null, base: s};
+}
+function components(s, out = []) {  // every kernel with its reference values
+  if (s.kind === "gain") return components(s.base, out);
+  for (const key of ["stim", "ipsi", "contra", "hazard", "recovery", "burst"]) if (s[key]) out.push([key, s[key]]);
+  return out;
+}
+
+// Self-check: the page's kernels against the values the Python code computed for them
+function selfCheck() {
+  const problems = new Set();
+  for (const exp of EXPERIMENTS) for (const model of exp.models) {
+    const values = Object.fromEntries(model.params.map(p => [p.name, p.value]));
+    for (const [key, comp] of components(model.structure)) {
+      const isLag = key === "recovery" || key === "burst";
+      if (!(isLag ? lagKernel(comp.name) : rateKernel(comp.name))) { problems.add(`${comp.name}: no kernel on this page`); continue; }
+      const f = isLag ? lagOf(comp, values) : rateOf(comp, values);
+      comp.check.t.forEach((t, i) => {
+        const got = isLag ? f(t) : f(t, comp.check.m[i]), want = comp.check.values[i];
+        if (!(Math.abs(got - want) <= 1e-6 * Math.max(1, Math.abs(want)))) problems.add(`${comp.name} (${exp.name}): page ${got.toPrecision(6)} vs Python ${want.toPrecision(6)}`);
+      });
+    }
+  }
+  if (EXPERIMENTS.length === 0) problems.add("No model data: run export_kernel_demo, which writes kernel_demo_data.js next to this page.");
+  if (problems.size) {
+    const b = document.getElementById("banner");
+    b.style.display = "block";
+    b.innerHTML = "<b>This page disagrees with the Python models</b> (update its kernels or re-export):<br>" + [...problems].slice(0, 12).join("<br>");
+  }
+}
+
+// ---------------------------------------------------------------- plotting
+function ticks(a, b, n) {  // round values (1, 2, 2.5 or 5 x 10^k apart) from a to b
+  const raw = (b - a) / n, mag = 10 ** Math.floor(Math.log10(raw)), step = mag * [1, 2, 2.5, 5, 10].find(f => f * mag >= raw);
+  const out = []; for (let x = Math.ceil(a / step - 1e-9) * step; x <= b + 1e-9 * step; x += step) out.push(x);
+  return out;
+}
+const capture = {active: false, series: {}};  // replicate simulations for the bands: plot() records the simulated series (sim: true) instead of drawing
+function plot(canvas, xs, series, opts = {}) {
+  if (capture.active) { capture.series[canvas.id] = series.filter(s => s.sim).map(s => ({ys: s.ys, color: s.color})); return; }
+  const band = state.bands[canvas.id];  // once the simulations are done: their median as the line, 5th to 95th percentile as a band
+  if (band) { let k = 0; series = [...band.map(b => ({lo: b.lo, hi: b.hi, fill: b.color + "33"})), ...series.map(s => s.sim ? {...s, ys: band[k++].mid} : s)]; }
+  const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+  if (!W || !H) return;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const L = 44, R = 10, T = 10, B = 28, pw = W - L - R, ph = H - T - B;
+  let yMax = opts.yMax || 0;
+  if (!opts.yMax) for (const s of series) for (const v of (s.hi || s.ys || [])) if (isFinite(v)) yMax = Math.max(yMax, v);
+  yMax = yMax > 0 ? yMax * 1.1 : 1;
+  if (!opts.yMax) yMax = state.ylim[canvas.id] ??= yMax;
+  const x0 = xs[0], x1 = xs[xs.length - 1], X = x => L + (x - x0) / (x1 - x0) * pw, Y = y => T + ph - Math.min(Math.max(y, 0), yMax) / yMax * ph;
+  ctx.font = "10px sans-serif"; ctx.fillStyle = "#64748b";
+  const xTicks = opts.logX ? Array.from({length: Math.floor(x1) - Math.ceil(x0) + 1}, (_, i) => Math.ceil(x0) + i) : ticks(x0, x1, 5);
+  for (const xv of xTicks) {  // logX: xs are log10 values, labelled in their units
+    ctx.strokeStyle = "#f1f5f9"; ctx.beginPath(); ctx.moveTo(X(xv), T); ctx.lineTo(X(xv), T + ph); ctx.stroke();
+    ctx.textAlign = "center"; ctx.fillText(opts.logX ? +(10 ** xv).toPrecision(2) : +xv.toPrecision(4), X(xv), T + ph + 13);
+  }
+  for (const yv of ticks(0, yMax, 4)) {
+    ctx.strokeStyle = "#f1f5f9"; ctx.beginPath(); ctx.moveTo(L, Y(yv)); ctx.lineTo(L + pw, Y(yv)); ctx.stroke();
+    ctx.textAlign = "right"; ctx.fillText(+yv.toPrecision(4), L - 5, Y(yv) + 3);
+  }
+  ctx.strokeStyle = "#cbd5e1"; ctx.beginPath(); ctx.moveTo(L, T); ctx.lineTo(L, T + ph); ctx.lineTo(L + pw, T + ph); ctx.stroke();
+  ctx.fillStyle = "#334155"; ctx.textAlign = "center"; ctx.fillText(opts.xLabel || "t (s)", L + pw / 2, H - 3);
+  ctx.save(); ctx.translate(11, T + ph / 2); ctx.rotate(-Math.PI / 2); ctx.fillText(opts.yLabel || "", 0, 0); ctx.restore();
+  for (const s of series) {
+    if (s.lo) {  // band
+      ctx.fillStyle = s.fill; ctx.beginPath();
+      xs.forEach((x, i) => i ? ctx.lineTo(X(x), Y(s.hi[i])) : ctx.moveTo(X(x), Y(s.hi[i])));
+      for (let i = xs.length - 1; i >= 0; i--) ctx.lineTo(X(xs[i]), Y(s.lo[i]));
+      ctx.fill(); continue;
+    }
+    if (s.dots) {
+      ctx.fillStyle = s.color;
+      xs.forEach((x, i) => { const y = s.ys[i]; if (y !== null && isFinite(y)) { ctx.beginPath(); ctx.arc(X(x), Y(y), 1.8, 0, 2 * Math.PI); ctx.fill(); } });
+      continue;
+    }
+    if (s.ticks) {  // event ticks along the bottom
+      ctx.strokeStyle = s.color; ctx.lineWidth = 1.5;
+      for (const x of s.ticks) { ctx.beginPath(); ctx.moveTo(X(x), T + ph); ctx.lineTo(X(x), T + ph - 10); ctx.stroke(); }
+      continue;
+    }
+    ctx.strokeStyle = s.color; ctx.lineWidth = s.width || 2; ctx.setLineDash(s.dash || []);
+    ctx.beginPath(); let started = false;
+    xs.forEach((x, i) => { const y = s.ys[i]; if (y === null || !isFinite(y)) { started = false; return; } started ? ctx.lineTo(X(x), Y(y)) : ctx.moveTo(X(x), Y(y)); started = true; });
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+}
+const mark = (c, dash) => dash === "dot" ? `<span style="display:inline-block;width:6px;height:6px;border-radius:50%;background:${c};vertical-align:middle;margin:0 8px 0 4px"></span>`
+  : `<span style="display:inline-block;width:14px;border-top:2px ${dash ? "dashed" : "solid"} ${c};vertical-align:middle;margin-right:4px"></span>`;
+const legend = items => `<div class="legend">${items.map(([c, t, dash]) => `<span>${mark(c, dash)}${t}</span>`).join(" ")}</div>`;
+const DATA_COLOR = "#0f172a";
+
+// ---------------------------------------------------------------- page
+const state = {values: {}, m: 0, seed: 1, trials: 10, fish: 200, replicates: 20, bands: {}, run: 0, countBins: {}, bin: 0.1, timer: null, ylim: {}, side: "all"};  // ylim: y range per plot, kept until "Rescale axes"
+let experiment = null, model = null;
+
+function gainOf(gain, v) {  // {draw(u), pdf(x), quantile10/90 (approx.), mass at c}
+  if (!gain) return null;
+  if (gain.type === "gamma") return {r: v.r_dispersion, pi: 0, c: 0, mu: 1};
+  const pi = sigmoid(v.z_pi_nonresponder), c = gain.fit_c ? sigmoid(v.z_c_nonresponder, gain.c_upper) : gain.c;
+  return {r: v.r_dispersion, pi, c, mu: (1 - pi * c) / (1 - pi)};
+}
+function drawGain(g, u) { return u() < g.pi ? g.c : gammaDraw(u, g.r, g.r / g.mu); }
+function gainQuantiles(g) {  // 10th and 90th percentiles of the fish gain, by simulation
+  const u = rng(7), draws = Array.from({length: 4000}, () => drawGain(g, u)).sort((a, b) => a - b);
+  return [draws[400], draws[3600]];
+}
+
+function render() {
+  const v = state.values, m = state.m, s = model.structure, {gain, base} = unwrap(s), T = experiment.t_end;
+  const ts = linspace(0, T, 400);
+  const survival = base.kind === "survival" || base.kind === "sided_survival";
+  const sided = base.kind === "sided" || base.kind === "sided_renewal";
+  const renewal = base.kind === "sided_renewal" || base.kind === "renewal";
+  const g = gainOf(gain && gain.gain, v), q = g ? gainQuantiles(g) : null;
+
+  // 1. stimulus-driven rate or hazard
+  const curves = [], legendItems = [];
+  const add = (f, color, label) => {
+    if (q) curves.push({lo: ts.map(t => q[0] * f(t, m)), hi: ts.map(t => q[1] * f(t, m)), fill: color + "22"});
+    if (m !== 0) curves.push({ys: ts.map(t => f(t, 0)), color: "#94a3b8", width: 1.3, dash: [5, 4]});
+    curves.push({ys: ts.map(t => f(t, m)), color}); legendItems.push([color, label]);
+  };
+  if (sided) { add(rateOf(base.ipsi, v), "#2563eb", "λ_ipsi"); add(rateOf(base.contra, v), "#dc2626", "λ_contra"); }
+  else if (base.kind === "sided_survival") {
+    const h = rateOf(base.hazard, v), D = v.D;
+    add((t, mm) => h(t, mm) * D / (1 + D), "#dc2626", "h_preferred = h D/(1+D)"); add((t, mm) => h(t, mm) / (1 + D), "#2563eb", "h_other = h/(1+D)");
+  }
+  else add(rateOf(base.stim || base.hazard, v), "#2563eb", survival ? "hazard h(t)" : "λ_stim");
+  if (m !== 0) legendItems.push(["#94a3b8", "trial 0", true]);
+  plot(document.getElementById("c-rate"), ts, curves, {yLabel: survival ? "hazard (1/s)" : "rate (Hz)"});
+  document.getElementById("l-rate").innerHTML = legend(legendItems) + (q ? `<div class="legend">Band: fish at the 10th to 90th percentile of the fish gain (×${q[0].toFixed(2)} to ×${q[1].toFixed(2)})${renewal ? ", on the stimulus-driven rate" : ""}.</div>` : "");
+
+  // 2. survival
+  if (survival) {
+    const h = rateOf(base.hazard, v), surv = mm => { let acc = 0; return ts.map((t, i) => { if (i) acc += 0.5 * (h(t, mm) + h(ts[i - 1], mm)) * (t - ts[i - 1]); return g ? (g.pi * Math.exp(-g.c * acc) + (1 - g.pi) * Math.pow((g.r / g.mu) / (g.r / g.mu + acc), g.r)) : Math.exp(-acc); }); };
+    const S = surv(m), series = [{ys: S, color: "#334155"}], items = [["#334155", "no escape yet"]];
+    if (m !== 0) series.unshift({ys: surv(0), color: "#94a3b8", width: 1.3, dash: [5, 4]});
+    const d = experiment.data;
+    if (d && m < d.fish.length) {  // fraction of the trial-m streams without an event yet
+      const nb0 = Math.round(T / d.bin), cum = [0];
+      for (let i = 0; i < nb0; i++) cum.push(cum[i] + d.first[m * nb0 + i]);
+      series.push({ys: ts.map(t => 1 - cum[Math.min(nb0, Math.floor(t / d.bin + 1e-9))] / d.fish[m]), color: DATA_COLOR, dots: true});
+      items.push([DATA_COLOR, `data, trial ${m} (${d.fish[m]} fish)`, "dot"]);
+    }
+    if (base.kind === "sided_survival") {  // typical fish (u = 0): escapes split with odds D
+      const share = v.D / (1 + v.D);
+      series.push({ys: S.map(x => share * (1 - x)), color: "#dc2626"}, {ys: S.map(x => (1 - share) * (1 - x)), color: "#2563eb"});
+      items.push(["#dc2626", "escaped to the preferred side"], ["#2563eb", "escaped to the other side"]);
+    }
+    plot(document.getElementById("c-surv"), ts, series, {yLabel: "probability", yMax: 1 / 1.1});
+    document.getElementById("l-surv").innerHTML = legend(items);
+  }
+
+  // 3. gains
+  if (g) {
+    const xs = linspace(0.001, 3, 300), series = [{ys: xs.map(x => (1 - g.pi) * gammaPdf(x, g.r, g.r / g.mu)), color: "#7c3aed"}], items = [["#7c3aed", `fish gain g_f (r = ${g.r.toFixed(2)})`]];
+    if (gain.trial) { series.push({ys: xs.map(x => gammaPdf(x, v.r_trial, v.r_trial)), color: "#059669"}); items.push(["#059669", `trial gain h_fm (a = ${v.r_trial.toFixed(2)})`]); }
+    plot(document.getElementById("c-gain"), xs, series, {xLabel: "gain", yLabel: "density"});
+    document.getElementById("l-gain").innerHTML = legend(items) + (g.pi ? `<div class="legend">Plus non-responders: ${(100 * g.pi).toFixed(1)}% of fish with gain ${g.c.toFixed(3)}.</div>` : "");
+  }
+
+  // 4. side split (spread over fish with a side preference)
+  if (sided || base.kind === "sided_survival") {
+    const z = gain && gain.side ? 1.2816 * v.s_side : 0, items = [["#2563eb", z ? "typical fish (u = 0)" : "share of events"], ["#cbd5e1", "0.5 = no side preference"]];
+    const logOdds = base.kind === "sided_survival" ? (() => Math.log(v.D)) : (() => { const i = rateOf(base.ipsi, v), c = rateOf(base.contra, v); return t => Math.log(i(t, m) / c(t, m)); })();
+    const lo = ts.map(t => sigmoid(logOdds(t) - z)), hi = ts.map(t => sigmoid(logOdds(t) + z)), mid = ts.map(t => sigmoid(logOdds(t)));
+    plot(document.getElementById("c-side"), ts, [...(z ? [{lo, hi, fill: "#2563eb22"}] : []), {ys: ts.map(() => 0.5), color: "#cbd5e1", width: 1}, {ys: mid, color: "#2563eb"}],
+      {yLabel: base.kind === "sided_survival" ? "P(preferred)" : "P(ipsi)", yMax: 1 / 1.1});
+    document.getElementById("l-side").innerHTML = legend(items) + (z ? `<div class="legend">Band: fish at the 10th to 90th percentile of the side preference u_f ~ N(0, ${v.s_side.toFixed(2)}²).</div>` : "");
+  }
+
+  // 5. history kernels
+  if (renewal) {
+    const lags = linspace(0, 3, 300), rho = lagOf(base.recovery, v), series = [{ys: lags.map(rho), color: "#0f766e"}], items = [["#0f766e", "recovery ρ(Δt_b)"]];
+    if (base.burst) { const E = lagOf(base.burst, v); series.push({ys: lags.map(E), color: "#ea580c"}); items.push(["#ea580c", base.burst.relative ? "burst E(Δt_e), × λ_stim" : "burst E(Δt_e), Hz"]); }
+    plot(document.getElementById("c-hist"), lags, series, {xLabel: "time since the last bout / selected bout (s)"});
+    document.getElementById("l-hist").innerHTML = legend(items);
+  }
+
+  // 6. simulated histogram surface (after the sliders settle: it simulates many fish)
+  clearTimeout(state.timer);
+  state.timer = setTimeout(() => surface({base, gain, g, v, T, sided: sided || base.kind === "sided_survival", renewal, survival}), 150);
+}
+
+function simulateSurvival(args) {
+  // The first event of every fish and trial (its own gain and side shift): its cumulative hazard (2 ms trapezoid) inverted at
+  // an Exp(1) draw over the gain; to the preferred side with odds D e^u. Same output as simulate, without intervals.
+  const {base, gain, g, v, T} = args, u = rng(args.seed ?? state.seed), dt = 0.002, steps = Math.round(T / dt), nb = Math.round(T / state.bin), M = state.trials;
+  const h = rateOf(base.hazard, v), preferred = base.preferred === -1 ? "contra" : "ipsi", other = preferred === "ipsi" ? "contra" : "ipsi";
+  const H = Array.from({length: M}, (_, m) => { const c = new Float64Array(steps + 1); for (let i = 0; i < steps; i++) c[i + 1] = c[i] + 0.5 * (h(i * dt, m) + h((i + 1) * dt, m)) * dt; return c; });
+  const counts = {ipsi: new Float64Array(M * nb), contra: new Float64Array(M * nb)}, present = new Float64Array(M).fill(state.fish);
+  const streams = {ipsi: new Int32Array(state.fish * M), contra: new Int32Array(state.fish * M), present: new Uint8Array(state.fish * M).fill(1)};
+  for (let f = 0; f < state.fish; f++) {
+    const gf = g ? drawGain(g, u) : 1, shift = gain && gain.side ? v.s_side * normal(u) : 0;
+    for (let m = 0; m < M; m++) {
+      const target = -Math.log(1 - u()) / gf, c = H[m];
+      if (!(c[steps] >= target)) continue;  // no escape in the trial (or a gain of 0)
+      let lo = 0, hi = steps;
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (c[mid] < target) lo = mid; else hi = mid; }
+      const t = (lo + (target - c[lo]) / Math.max(c[hi] - c[lo], 1e-300)) * dt;
+      const key = base.kind === "sided_survival" ? (u() < sigmoid(Math.log(v.D) + shift) ? preferred : other) : "ipsi";
+      counts[key][m * nb + Math.min(nb - 1, Math.floor(t / state.bin))]++;
+      streams[key][f * M + m]++;
+    }
+  }
+  const none = new Float64Array(intervalEdges(T).length - 1);
+  return {counts, streams, intervals: {all: none, ipsi: none, contra: none}, nb, M, present, others: false};
+}
+
+function simulate(args) {
+  if (args.survival) return simulateSurvival(args);
+  const {base, gain, g, v, T, sided, renewal} = args;
+  // Every fish and trial (its own gains and side shift), events by trial and time bin, and the fish per trial.
+  // With the data's other bouts, simulated fish f has those of recorded fish f (as the pipeline's simulations):
+  // they reset the recovery, and the trials that fish lacks are left out.
+  const u = rng(args.seed ?? state.seed), dt = 0.01, steps = Math.round(T / dt), nb = Math.round(T / state.bin), M = state.trials;
+  const others = renewal && experiment.data && experiment.data.others, present = new Float64Array(M);
+  const stimI = rateOf(sided ? base.ipsi : base.stim, v), stimC = sided ? rateOf(base.contra, v) : null;
+  const table = f => Array.from({length: M}, (_, m) => Float64Array.from({length: steps}, (_, i) => f(i * dt, m)));
+  const I = table(stimI), C = stimC ? table(stimC) : null;
+  const lagTable = comp => comp ? Float64Array.from({length: steps}, (_, k) => lagOf(comp, v)(k * dt)) : null;
+  const rho = renewal ? lagTable(base.recovery) : null, E = renewal ? lagTable(base.burst) : null, relative = renewal && base.burst && base.burst.relative;
+  const counts = {ipsi: new Float64Array(M * nb), contra: new Float64Array(M * nb)};
+  const streams = {ipsi: new Int32Array(state.fish * M), contra: new Int32Array(state.fish * M), present: new Uint8Array(state.fish * M)};  // fish x trial
+  const edges = intervalEdges(T), logRatio = Math.log(edges[1] / edges[0]);
+  const intervals = {all: new Float64Array(edges.length - 1), ipsi: new Float64Array(edges.length - 1), contra: new Float64Array(edges.length - 1)};
+  const addInterval = (key, steps) => { const b = Math.floor(Math.log(steps * dt / edges[0]) / logRatio); if (b >= 0 && b < edges.length - 1) intervals[key][b]++; };
+  for (let f = 0; f < state.fish; f++) {
+    const gf = g ? drawGain(g, u) : 1, side = gain && gain.side ? v.s_side * normal(u) : 0;
+    for (let m = 0; m < M; m++) {
+      const row = others ? others[f % others.length] : [], bouts = m < row.length ? row[m] : [];  // steps of the other bouts, null: no such trial
+      if (bouts === null) continue;
+      present[m]++;
+      streams.present[f * M + m] = 1;
+      const h = gain && gain.trial ? gammaDraw(u, v.r_trial, v.r_trial) : 1;
+      let lastEvent = -Infinity, lastOther = -Infinity, k = 0;
+      const lastOn = {ipsi: -Infinity, contra: -Infinity};
+      for (let i = 0; i < steps; i++) {
+        while (k < bouts.length && bouts[k] <= i) lastOther = bouts[k++];
+        const stim = I[m][i] + (C ? C[m][i] : 0), lastBout = Math.max(lastEvent, lastOther);
+        const burst = E && lastEvent >= 0 ? E[i - lastEvent] * (relative ? stim : 1) : 0;
+        const rate = (rho && lastBout > -Infinity ? rho[Math.min(i - lastBout, steps - 1)] : 1) * (gf * h * stim + burst);
+        if (u() < rate * dt) {
+          const isIpsi = !C || u() < sigmoid(Math.log(I[m][i] / C[m][i]) + side), key = isIpsi ? "ipsi" : "contra";
+          if (lastEvent >= 0) addInterval("all", i - lastEvent);
+          if (lastOn[key] >= 0) addInterval(key, i - lastOn[key]);
+          lastEvent = lastOn[key] = i;
+          counts[isIpsi ? "ipsi" : "contra"][m * nb + Math.min(nb - 1, Math.floor(i * dt / state.bin))]++;
+          streams[isIpsi ? "ipsi" : "contra"][f * M + m]++;
+        }
+      }
+    }
+  }
+  return {counts, streams, intervals, nb, M, present, others: !!others};
+}
+
+const quantile = (values, q) => values.sort((a, b) => a - b)[Math.floor(q * (values.length - 1))];
+function heatmap(canvas, values, M, nb, T, vmax) {  // trials (rows, trial 0 at the bottom) x time bins
+  const dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  const ctx = canvas.getContext("2d"); ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, W, H);
+  const L = 44, R = 60, Tp = 10, B = 28, pw = W - L - R, ph = H - Tp - B;
+  const color = x => {  // viridis, 5 stops
+    const stops = [[68, 1, 84], [59, 82, 139], [33, 145, 140], [94, 201, 98], [253, 231, 37]], s = Math.min(1, x) * 4, i = Math.min(3, Math.floor(s)), f = s - i;
+    return `rgb(${stops[i].map((c, k) => Math.round(c + f * (stops[i + 1][k] - c))).join(",")})`;
+  };
+  for (let m = 0; m < M; m++) for (let b = 0; b < nb; b++) {
+    ctx.fillStyle = color(values[m * nb + b] / vmax);
+    ctx.fillRect(L + b * pw / nb, Tp + (M - 1 - m) * ph / M, pw / nb + 0.5, ph / M + 0.5);
+  }
+  ctx.font = "10px sans-serif"; ctx.fillStyle = "#64748b"; ctx.textAlign = "center";
+  for (const t of ticks(0, T, 5)) ctx.fillText(+t.toPrecision(4), L + t / T * pw, Tp + ph + 13);
+  ctx.textAlign = "right";
+  for (let m = 0; m < M; m += Math.max(1, Math.round(M / 5))) ctx.fillText(m, L - 5, Tp + (M - 0.5 - m) * ph / M + 3);
+  ctx.fillStyle = "#334155"; ctx.textAlign = "center"; ctx.fillText("t (s)", L + pw / 2, H - 3);
+  ctx.save(); ctx.translate(11, Tp + ph / 2); ctx.rotate(-Math.PI / 2); ctx.fillText("trial", 0, 0); ctx.restore();
+  for (let i = 0; i < 40; i++) { ctx.fillStyle = color(1 - i / 40); ctx.fillRect(W - R + 10, Tp + i * ph / 40, 10, ph / 40 + 0.5); }
+  ctx.fillStyle = "#64748b"; ctx.textAlign = "left";
+  ctx.fillText(`≥${vmax.toPrecision(2)}`, W - R + 23, Tp + 8); ctx.fillText("0 Hz", W - R + 23, Tp + ph);
+}
+
+function observed(T) {  // the data's event counts per trial and time bin (state.bin), by side
+  const d = experiment.data, M = d.fish.length, nb = Math.round(T / state.bin), nb0 = Math.round(T / d.bin);
+  const rebin = counts => {
+    const out = new Float64Array(M * nb);
+    for (let m = 0; m < M; m++) for (let i = 0; i < nb0; i++) out[m * nb + Math.min(nb - 1, Math.floor(i * d.bin / state.bin + 1e-9))] += counts[m * nb0 + i];
+    return out;
+  };
+  const c = Object.fromEntries(["all", "ipsi", "contra"].filter(k => d[k]).map(k => [k, rebin(d[k])]));
+  if (d.first && !d.ipsi) c.all = rebin(d.first);  // survival: first events
+  c.all ??= c.ipsi.map((x, i) => x + c.contra[i]);
+  return {M, c};
+}
+
+function surface(args) {
+  if (!document.getElementById("c-surf")) return;  // the rung changed meanwhile
+  if (!capture.active && !args.withBands) state.bands = {};
+  const {counts, streams, intervals, nb, M, present, others} = simulate(args), bin = args.T / nb, perBin = i => Math.max(1, present[Math.floor(i / nb)]) * bin;
+  const side = args.sided ? state.side : "all", pick = {all: (c, i) => c + counts.contra[i], ipsi: c => c, contra: (c, i) => counts.contra[i]}[side];
+  const total = counts.ipsi.map((c, i) => pick(c, i) / perBin(i));
+  const d = experiment.data, obs = d && observed(args.T), fish = m => Math.max(1, d.fish[m]);
+  const data = obs && obs.c[side] && obs.c[side].map((x, i) => x / (fish(Math.floor(i / nb)) * bin));
+  const vmax = state.ylim["c-surf"] ??= quantile([...total, ...(data || [])], 0.999) || 1;
+  if (!capture.active) {
+    heatmap(document.getElementById("c-surf"), total, M, nb, args.T, vmax);
+    const dataCanvas = document.getElementById("c-data");
+    if (data) heatmap(dataCanvas, data, obs.M, nb, args.T, vmax);
+    else if (dataCanvas) dataCanvas.getContext("2d").clearRect(0, 0, dataCanvas.width, dataCanvas.height);  // this side is not in the data file
+  }
+  const simExposure = present.reduce((a, b) => a + b, 0) * bin, centers = Array.from({length: nb}, (_, b) => (b + 0.5) * bin), psth = side => centers.map((_, b) => {
+    let s = 0; for (let m = 0; m < M; m++) s += side[m * nb + b]; return s / simExposure;
+  });
+  const series = [{ys: psth(counts.ipsi), color: "#2563eb", sim: true}];
+  const items = [["#2563eb", args.sided ? "ipsi, simulated" : "simulated"]];
+  if (args.sided) { series.push({ys: psth(counts.contra), color: "#dc2626", sim: true}); items.push(["#dc2626", "contra, simulated"]); }
+  if (obs) {  // per fish present in each trial
+    const exposure = d.fish.reduce((a, b) => a + b, 0) * bin;
+    const dataPsth = counts => centers.map((_, b) => { let s = 0; for (let m = 0; m < obs.M; m++) s += counts[m * nb + b]; return s / exposure; });
+    if (args.sided && obs.c.ipsi) {
+      series.push({ys: dataPsth(obs.c.ipsi), color: "#1e3a8a", dots: true}, {ys: dataPsth(obs.c.contra), color: "#991b1b", dots: true});
+      items.push(["#1e3a8a", "ipsi, data", "dot"], ["#991b1b", "contra, data", "dot"]);
+    } else { series.push({ys: dataPsth(obs.c.all), color: DATA_COLOR, dots: true}); items.push([DATA_COLOR, "data", "dot"]); }
+  }
+  plot(document.getElementById("c-psth"), centers, series, {yLabel: "rate (Hz)"});
+  const trials = Array.from({length: Math.max(M, obs ? obs.M : 0)}, (_, m) => m);
+  const perTrial = (values, n) => trials.map(m => { if (m >= n) return null; let s = 0; for (let b = 0; b < nb; b++) s += values[m * nb + b]; return s / nb; });
+  const trialSeries = [{ys: perTrial(total, M), color: {all: "#334155", ipsi: "#2563eb", contra: "#dc2626"}[side], sim: true}];
+  if (data) trialSeries.push({ys: perTrial(data, obs.M), color: DATA_COLOR, dots: true});
+  plot(document.getElementById("c-trial"), trials, trialSeries, {xLabel: "trial", yLabel: `mean rate (Hz), ${side === "all" ? "all events" : side}`});
+  document.getElementById("l-trial").innerHTML = data ? legend([[trialSeries[0].color, "simulated"], [DATA_COLOR, "data", "dot"]]) : "";
+  if (args.sided) shares(counts, obs && obs.c.ipsi ? obs : null, nb, M, centers, trials);
+  distributions(streams, side, M);
+  historyPlots(streams, intervals, side, M, args.T, args.survival);
+  if (d && document.getElementById("l-data")) document.getElementById("l-data").innerHTML = `<div class="legend">${data ? `${d.n_fish} fish, the events the ladder was fitted to; rate per fish present in each trial.`
+    : `The data file has no ${side} events for this experiment: re-export it with export_kernel_demo.`}</div>`;
+  document.getElementById("l-surf").innerHTML = `<div class="legend">${state.fish} simulated fish × ${M} trials, ${+bin.toPrecision(3)} s bins${args.g ? ", each fish with its own gain" : ""}${args.gain && args.gain.trial ? " and trial gains" : ""}${args.gain && args.gain.side ? " and side preference" : ""}.${args.renewal ? (others ? " Each simulated fish also has the other bouts (and last bout before the trial) of a recorded fish, which reset its recovery, as in the fit." : " History: the simulated events only (in the data every bout resets the recovery): export with a data root for the other bouts.") : ""}</div>`;
+  document.getElementById("l-psth").innerHTML = legend(items);
+  if (!capture.active && !args.withBands) bands(args);
+}
+
+function bands(args) {  // every simulated curve over this simulation and state.replicates more: median, 5th and 95th percentiles
+  const run = ++state.run, note = document.getElementById("bandnote"), curves = {};
+  if (!state.replicates) { note.textContent = ""; return; }
+  let r = 0;
+  const step = () => {
+    if (run !== state.run || !document.getElementById("c-surf")) return;
+    capture.active = true;
+    try { surface({...args, seed: state.seed + 7919 * r}); } finally { capture.active = false; }
+    for (const [id, list] of Object.entries(capture.series)) (curves[id] ??= []).push(list);
+    note.textContent = `Bands: ${r++}/${state.replicates} more simulations…`;
+    if (r <= state.replicates) return setTimeout(step, 0);
+    const percentile = (values, q) => {  // linear between order statistics
+      const v = values.filter(x => x !== null && isFinite(x)).sort((a, b) => a - b), x = q * (v.length - 1), i = Math.floor(x);
+      return v.length ? v[i] + (i + 1 < v.length ? (x - i) * (v[i + 1] - v[i]) : 0) : null;
+    };
+    const across = (reps, k, i, q) => percentile(reps.map(rep => rep[k].ys[i]), q);
+    state.bands = Object.fromEntries(Object.entries(curves).map(([id, reps]) => [id, reps[0].map((s, k) => ({
+      color: s.color, lo: s.ys.map((_, i) => across(reps, k, i, 0.05)), mid: s.ys.map((_, i) => across(reps, k, i, 0.5)), hi: s.ys.map((_, i) => across(reps, k, i, 0.95)),
+    }))]));
+    note.textContent = `Simulated curves: median of ${state.replicates + 1} simulations of ${state.fish} fish (as many as the data has, by default); bands: their 5th to 95th percentile.`;
+    surface({...args, withBands: true});
+  };
+  setTimeout(step, 0);
+}
+
+const intervalEdges = T => (experiment.data && experiment.data.interval_edges) || Array.from({length: 31}, (_, i) => 0.05 * (T / 0.05) ** (i / 30));
+
+function historyPlots(streams, intervals, side, M, T, survival) {  // time between events (not for first events), count correlation between trials by lag: simulated and data
+  const d = experiment.data && experiment.data.histograms && experiment.data.histograms[side];
+  const items = legend([["#2563eb", "simulated"], ...(d ? [[DATA_COLOR, "data", "dot"]] : [])]);
+  if (!survival) intervalPlot(intervals, side, T, d, items);
+  lagPlot(streams, side, M, d, items);
+}
+
+function intervalPlot(intervals, side, T, d, items) {
+  const edges = intervalEdges(T), x = edges.slice(1).map((e, i) => Math.log10(Math.sqrt(e * edges[i])));
+  const share = h => { const total = h.reduce((a, b) => a + b, 0) || 1; return Array.from(h, c => c / total); };
+  const series = [{ys: share(intervals[side]), color: "#2563eb", sim: true}, ...(d ? [{ys: share(d.intervals), color: DATA_COLOR, dots: true}] : [])];
+  plot(document.getElementById("c-intervals"), x, series, {xLabel: "time between events (s, log scale)", yLabel: "share of intervals", logX: true});
+  document.getElementById("l-intervals").innerHTML = items + `<div class="legend">Between consecutive ${side === "all" ? "" : side + " "}events of a trial;
+    bins of equal width on the log time axis, each ${(edges[1] / edges[0]).toFixed(2)}× as long as the one before.</div>`;
+}
+
+function lagPlot(streams, side, M, d, items) {
+  const count = {all: i => streams.ipsi[i] + streams.contra[i], ipsi: i => streams.ipsi[i], contra: i => streams.contra[i]}[side];
+  const F = streams.present.length / M, mean = Array.from({length: M}, (_, m) => {
+    let s = 0, n = 0; for (let f = 0; f < F; f++) if (streams.present[f * M + m]) { s += count(f * M + m); n++; } return n ? s / n : 0;
+  });
+  const lags = Array.from({length: M - 1}, (_, j) => j + 1), simulated = lags.map(k => {
+    let ab = 0, aa = 0, bb = 0;
+    for (let f = 0; f < F; f++) for (let m = 0; m + k < M; m++) {
+      const i = f * M + m, j = i + k;
+      if (!streams.present[i] || !streams.present[j]) continue;
+      const a = count(i) - mean[m], b = count(j) - mean[m + k];
+      ab += a * b; aa += a * a; bb += b * b;
+    }
+    return aa && bb ? ab / Math.sqrt(aa * bb) : null;
+  });
+  const lagSeries = [{ys: simulated, color: "#2563eb", sim: true}, ...(d && d.lags ? [{ys: lags.map(k => d.lags[k - 1] ?? null), color: DATA_COLOR, dots: true}] : [])];
+  if (lags.length > 1) plot(document.getElementById("c-lags"), lags, lagSeries, {xLabel: "trials apart", yLabel: "correlation of a fish's counts", yMax: 1 / 1.1});
+  document.getElementById("l-lags").innerHTML = items + `<div class="legend">Each count less its trial's mean over fish. The model: flat (fish gain, independent trial gains); a slow state: decaying with lag.</div>`;
+}
+
+function distributions(streams, side, M) {  // events per trial (fish x trial) and per fish, simulated and data, as shares of each
+  const count = {all: i => streams.ipsi[i] + streams.contra[i], ipsi: i => streams.ipsi[i], contra: i => streams.contra[i]}[side];
+  const perTrial = [], perFish = [];
+  for (let f = 0; f < streams.present.length / M; f++) {
+    let total = 0, any = false;
+    for (let i = f * M; i < (f + 1) * M; i++) if (streams.present[i]) { any = true; perTrial.push(count(i)); total += count(i); }
+    if (any) perFish.push(total);
+  }
+  const histogram = values => { const h = []; for (const v of values) h[v] = (h[v] || 0) + 1; return Array.from(h, x => x || 0); };
+  const d = experiment.data && experiment.data.histograms && experiment.data.histograms[side];
+  for (const [id, sim, data, unit, xLabel] of [["counts-trial", histogram(perTrial), d && d.streams, "trials", "events in a trial"],
+                                               ["counts-fish", histogram(perFish), d && d.fish, "fish", "events of a fish over its trials"]]) {
+    if (!document.getElementById(`c-${id}`)) continue;  // survival: one event at most per trial
+    const n = Math.max(sim.length, data ? data.length : 0);
+    const [width, nbins] = capture.active ? state.countBins[id] : (state.countBins[id] = [Math.max(1, Math.ceil(n / 40)), Math.ceil(n / Math.max(1, Math.ceil(n / 40)))]);
+    const rebin = h => { const out = new Float64Array(nbins), total = h.reduce((a, b) => a + b, 0) || 1; h.forEach((c, k) => out[Math.min(nbins - 1, Math.floor(k / width))] += c / total); return Array.from(out); };
+    const series = [{ys: rebin(sim), color: "#2563eb", sim: true}, ...(data ? [{ys: rebin(data), color: DATA_COLOR, dots: true}] : [])];
+    plot(document.getElementById(`c-${id}`), Array.from({length: nbins}, (_, b) => b * width + (width - 1) / 2), series, {xLabel, yLabel: `share of ${unit}`});
+    document.getElementById(`l-${id}`).innerHTML = legend([["#2563eb", "simulated"], ...(data ? [[DATA_COLOR, "data", "dot"]] : [])])
+      + `<div class="legend">${side === "all" ? "All events" : `${side[0].toUpperCase()}${side.slice(1)} events`}${width > 1 ? `, in bins of ${width}` : ""}.</div>`;
+  }
+}
+
+function shares(counts, obs, nb, M, centers, trials) {  // ipsi / (ipsi + contra) per time bin and per trial, simulated and data
+  const share = (c, rows, cells) => cells.map(cell => {
+    let ipsi = 0, all = 0;
+    for (const i of cell) if (i < rows * nb) { ipsi += c.ipsi[i]; all += c.ipsi[i] + c.contra[i]; }
+    return all ? ipsi / all : null;
+  });
+  const byBin = rows => centers.map((_, b) => Array.from({length: rows}, (_, m) => m * nb + b));
+  const byTrial = rows => trials.map(m => m < rows ? Array.from({length: nb}, (_, b) => m * nb + b) : []);
+  const half = xs => ({ys: xs.map(() => 0.5), color: "#cbd5e1", width: 1});
+  for (const [id, xs, cells] of [["share", centers, byBin], ["share-trial", trials, byTrial]]) {
+    const series = [half(xs), {ys: share(counts, M, cells(M)), color: "#2563eb", sim: true}];
+    if (obs) series.push({ys: share(obs.c, obs.M, cells(obs.M)), color: DATA_COLOR, dots: true});
+    plot(document.getElementById(`c-${id}`), xs, series, {yLabel: "P(ipsi)", yMax: 1 / 1.1, xLabel: id === "share" ? "t (s)" : "trial"});
+    document.getElementById(`l-${id}`).innerHTML = legend([["#2563eb", "simulated"], ...(obs ? [[DATA_COLOR, "data", "dot"]] : []), ["#cbd5e1", "0.5 = no side preference"]]);
+  }
+}
+
+function clauses(latex) {  // one per line, a \left ... \right group kept whole
+  const depth = text => (text.match(/\\left\b/g) || []).length - (text.match(/\\right\b/g) || []).length;
+  const lines = [];
+  for (const piece of latex.split(";\\ ")) {
+    if (lines.length && depth(lines[lines.length - 1]) > 0) lines[lines.length - 1] += ";\\ " + piece; else lines.push(piece);
+  }
+  return lines;
+}
+
+function showModel(index) {
+  clearTimeout(state.timer);
+  model = experiment.models[index];
+  document.querySelectorAll(".rung").forEach((b, i) => b.classList.toggle("active", i === index));
+  state.values = Object.fromEntries(model.params.map(p => [p.name, p.value]));
+  const {gain, base} = unwrap(model.structure);
+  const survival = base.kind === "survival" || base.kind === "sided_survival", renewal = base.kind.endsWith("renewal");
+  const block = (id, title) => `<div><div class="plot-title">${title}</div><canvas id="c-${id}"></canvas><div id="l-${id}"></div></div>`;
+  const panel = document.getElementById("panel");
+  panel.innerHTML = `
+    <div class="formula" id="formula"></div>
+    <div class="note">${model.name}${model.fitted ? " — fitted values" : " — initial guesses (no fit given)"}${renewal ? `. Δt_b: time since the fish's last bout of any category; Δt_e: time since its last ${experiment.selected} event.` : ""}</div>
+    <div class="layout">
+      <div class="controls">
+        <div id="sliders"></div>
+        <div class="param-row"><label>trial m <span class="val" id="mval">${state.m}</span></label><input type="range" id="mslider" min="0" max="25" step="1" value="${state.m}"></div>
+        <div class="param-row"><label>trials simulated <span class="val" id="nval">${state.trials}</span></label><input type="range" id="nslider" min="1" max="${Math.max(26, state.trials)}" step="1" value="${state.trials}"></div>
+        <div class="param-row"><label>simulations for bands (0: none) <input type="number" id="replicates" min="0" max="200" step="1" value="${state.replicates}" style="width:60px"></label></div>
+        <div class="param-row"><label>fish simulated <input type="number" id="fish" min="10" max="5000" step="10" value="${state.fish}" style="width:70px"></label></div>
+        <div class="param-row"><label>time bin (s) <select id="bin">${[0.05, 0.1, 0.25, 0.5, 1].map(b => `<option${b === state.bin ? " selected" : ""}>${b}</option>`).join("")}</select></label></div>
+        <button class="small" id="reset">Reset to this rung's values</button><button class="small" id="rescale">Rescale axes</button><button class="small" id="resim">Simulate again</button>
+        <div class="note" id="bandnote"></div>
+      </div>
+      <div class="plots">
+        <div class="row" id="top">${block("rate", survival ? "Hazard" : renewal ? "Stimulus-driven rate (before recovery and bursts)" : "Rate")}
+        ${survival ? block("surv", "Survival (population, over the fish gains)") : ""}
+        ${gain ? block("gain", "Gain distributions (mean 1)") : ""}
+        ${base.kind.startsWith("sided") ? block("side", base.kind === "sided_survival" ? "Share of escapes to the preferred side" : "Share of events that are ipsi") : ""}
+        ${renewal ? block("hist", "Recovery and burst") : ""}</div>
+        <div style="grid-column:1 / -1">${block("surf", base.kind.startsWith("sided") ? `Simulated histogram surface${survival ? " of first events" : ""} <select id="side">${["all", "ipsi", "contra"].map(x => `<option${x === state.side ? " selected" : ""}>${x}</option>`).join("")}</select>` : `Simulated histogram surface (${survival ? "first events" : "all events"})`)}</div>
+          ${experiment.data ? `<div style="grid-column:1 / -1">${block("data", "Data histogram surface (same colour scale)")}</div>` : ""}
+          <div class="row">${block("psth", "Mean over trials (PSTH)")}${block("trial", "Mean rate per trial")}</div>
+          ${base.kind.startsWith("sided") ? `<div class="row">${block("share", "Share of events that are ipsi, over time")}${block("share-trial", "Share of events that are ipsi, per trial")}</div>` : ""}
+          <div class="row">${survival ? "" : block("counts-trial", "Events per trial (each fish and trial)")}${block("counts-fish", survival ? "Trials with an escape, per fish" : "Events per fish (over its trials)")}</div>
+          <div class="row">${survival ? "" : block("intervals", "Time between events")}${block("lags", survival ? "Escape correlation between trials" : "Count correlation between trials")}</div>
+      </div>
+    </div>`;
+  for (const clause of clauses(model.latex)) {
+    const line = document.createElement("div");
+    try { katex.render(clause, line, {throwOnError: false}); } catch (e) { line.textContent = clause; }
+    document.getElementById("formula").appendChild(line);
+  }
+  const sliders = document.getElementById("sliders"), tier1 = model.name === experiment.tier1;
+  if (tier1) sliders.insertAdjacentHTML("beforebegin", `<div class="note">★ fitted per arm in Tier 1; every other parameter is pinned to the control fit.</div>`);
+  for (const p of model.params) {
+    const [lo, hi] = p.range, step = (hi - lo) / 1000, row = document.createElement("div");
+    row.className = "param-row";
+    row.innerHTML = `<label><span>${p.name}${tier1 && experiment.free.includes(p.name) ? " ★" : ""} <span class="unit">[${p.unit}]</span></span> <span class="val">${(+state.values[p.name]).toPrecision(3)}</span></label><div class="info">${p.info}</div><input type="range" min="${lo}" max="${hi}" step="${step}" value="${state.values[p.name]}">`;
+    const input = row.querySelector("input"), out = row.querySelector(".val");
+    input.addEventListener("input", () => { state.values[p.name] = +input.value; out.textContent = (+input.value).toPrecision(3); render(); });
+    sliders.appendChild(row);
+  }
+  document.getElementById("mslider").addEventListener("input", e => { state.m = +e.target.value; document.getElementById("mval").textContent = state.m; render(); });
+  document.getElementById("reset").addEventListener("click", () => { state.ylim = {}; showModel(index); });
+  const nslider = document.getElementById("nslider");
+  const binSelect = document.getElementById("bin");
+  const sideSelect = document.getElementById("side");
+  if (sideSelect) sideSelect.addEventListener("change", e => { state.side = e.target.value; render(); });
+  if (binSelect) binSelect.addEventListener("change", e => { state.bin = +e.target.value; render(); });
+  const fishBox = document.getElementById("fish");
+  const replicateBox = document.getElementById("replicates");
+  if (replicateBox) replicateBox.addEventListener("change", () => { state.replicates = Math.min(200, Math.max(0, Math.round(+replicateBox.value) || 0)); replicateBox.value = state.replicates; render(); });
+  if (fishBox) fishBox.addEventListener("change", () => { state.fish = Math.min(5000, Math.max(10, Math.round(+fishBox.value) || 200)); fishBox.value = state.fish; render(); });
+  if (nslider) nslider.addEventListener("input", e => { state.trials = +e.target.value; document.getElementById("nval").textContent = state.trials; render(); });
+  balance();
+  document.getElementById("rescale").addEventListener("click", () => { state.ylim = {}; render(); });
+  const resim = document.getElementById("resim"); if (resim) resim.addEventListener("click", () => { state.seed++; render(); });
+  render();
+}
+
+function showExperiment(name) {
+  experiment = EXPERIMENTS.find(e => e.name === name);
+  state.m = 0; state.ylim = {};
+  if (experiment.data) [state.trials, state.fish] = [experiment.data.fish.length, Math.min(5000, experiment.data.n_fish)];
+  const fitted = experiment.models.filter(x => x.fitted).length;
+  document.getElementById("events").innerHTML = `<b>Events modelled</b> (every rung): ${experiment.events}`;
+  document.getElementById("fitnote").textContent = fitted ? `${fitted}/${experiment.models.length} rungs with fitted values` : "no fit given: initial guesses";
+  const rungs = document.getElementById("rungs");
+  rungs.innerHTML = "";
+  experiment.models.forEach((x, i) => {
+    const b = document.createElement("button");
+    b.className = "rung"; b.innerHTML = `<span class="idx">${i === 0 ? "null" : i}</span>${x.name}${x.name === experiment.tier1 ? '<span class="badge">Tier 1</span>' : ""}`;
+    b.addEventListener("click", () => showModel(i));
+    rungs.appendChild(b);
+  });
+  const tier1 = experiment.models.findIndex(x => x.name === experiment.tier1);
+  showModel(tier1 >= 0 ? tier1 : experiment.models.length - 1);
+}
+
+selfCheck();
+const select = document.getElementById("experiment");
+for (const e of EXPERIMENTS) select.add(new Option(e.label === e.name ? e.name : `${e.label}  (${e.name})`, e.name));
+select.addEventListener("change", () => showExperiment(select.value));
+if (EXPERIMENTS.length) showExperiment(EXPERIMENTS[0].name);
+function balance() {  // each row's plots side by side, else in rows of equal length, the last one stretched
+  for (const row of document.querySelectorAll(".row")) {
+    const n = row.children.length, fit = Math.max(1, Math.floor((row.clientWidth + 14) / (300 + 14)));
+    row.style.setProperty("--cols", Math.ceil(n / Math.ceil(n / Math.min(n, fit))));
+  }
+}
+window.addEventListener("resize", () => { balance(); model && render(); });
+</script>
+</body>
+</html>

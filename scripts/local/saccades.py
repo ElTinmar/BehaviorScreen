@@ -1,5 +1,5 @@
 from .config import FOLDERS, CONFIG_YAML, SACCADE_MODEL
-from BehaviorScreen.eyes.run_analysis import run_analysis
+from BehaviorScreen.preprocessing.saccades.run_analysis import run_analysis
 from multiprocessing import Pool
 
 N = 4

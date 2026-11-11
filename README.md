@@ -13,7 +13,7 @@ conda env create -f LightningPose.yml
 
 ```
 conda activate BehaviorScreen
-python -m BehaviorScreen.download_model
+python -m BehaviorScreen.preprocessing.download_model
 ```
 
 ## Usage

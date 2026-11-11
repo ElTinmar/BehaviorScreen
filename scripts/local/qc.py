@@ -1,5 +1,5 @@
 from .config import FOLDERS
-from BehaviorScreen.qc import quality_control
+from BehaviorScreen.preprocessing.qc import quality_control
 from multiprocessing import Pool
 
 N = 4

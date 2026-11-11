@@ -1,5 +1,5 @@
 from .config import FOLDERS
-from BehaviorScreen.megabouts import run_megabouts
+from BehaviorScreen.preprocessing.bouts import run_megabouts
 from multiprocessing import Pool
 
 N = 4

@@ -1,5 +1,5 @@
 from .config import FOLDERS
-from BehaviorScreen.export import export_single_animals
+from BehaviorScreen.preprocessing.export import export_single_animals
 from multiprocessing import Pool
 
 N = 4

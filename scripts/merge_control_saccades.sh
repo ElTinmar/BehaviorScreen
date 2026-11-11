@@ -1,7 +1,7 @@
 #DATA_ROOT=/media/martin/DATA_18TB/Screen
 DATA_ROOT=/media/martin/datastore_baier_group/_Projects/Martin_Privat/DATA/Behavioral_screen/DATA/Screen
 
-python -m BehaviorScreen.merge_csv $DATA_ROOT \
+python -m BehaviorScreen.screen.merge_csv $DATA_ROOT \
 -o saccades_augmented_control.csv \
 ccka/vehicle/saccades_augmented.csv \
 lhx9/vehicle/saccades_augmented.csv \
@@ -43,7 +43,7 @@ lhx2b/vehicle/saccades_augmented.csv \
 mpn318/vehicle/saccades_augmented.csv
 
 
-python -m BehaviorScreen.merge_csv $DATA_ROOT \
+python -m BehaviorScreen.screen.merge_csv $DATA_ROOT \
 -o qc.csv \
 ccka/vehicle/qc.csv \
 lhx9/vehicle/qc.csv \
@@ -84,7 +84,7 @@ cort/vehicle/qc.csv \
 lhx2b/vehicle/qc.csv \
 mpn318/vehicle/qc.csv 
 
-python -m BehaviorScreen.merge_csv $DATA_ROOT \
+python -m BehaviorScreen.screen.merge_csv $DATA_ROOT \
 -o valid_trials.csv \
 ccka/vehicle/valid_trials.csv \
 lhx9/vehicle/valid_trials.csv \
