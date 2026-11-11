@@ -22,7 +22,8 @@ from BehaviorScreen.screen.ablation.tier1_config import AMPLITUDE_PARAMETERS, MA
 from BehaviorScreen.screen.analysis.model_config import get_model_config
 from BehaviorScreen.screen.analysis.run_analysis import add_data_arguments, make_loaders
 from BehaviorScreen.screen.analysis.tasks import load_fit_records
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader, PointProcessDataset
+from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.frailty import Frailty, SideFrailty, ZeroInflatedFamily
 from BehaviorScreen.point_process.lag_kernel import LagKernel
 from BehaviorScreen.point_process.point_process import PointProcess

@@ -8,7 +8,7 @@ import pytest
 from .conftest import DummyFitResult, make_scaffold_dataset, reference_dataset
 from .test_layer3_simulation_compensator_consistency import _km_exp1_sup_distance
 
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader, PointProcessDataset
+from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.frailty import (
     HOUR_REFERENCE, GammaMixedEffectsProcess, SideFrailty, ZeroInflatedGammaMixedEffectsProcess,
 )
@@ -102,17 +102,6 @@ def test_datasets_keep_fish_hours(data):
     model.set_params(with_beta(model, -0.05))
     simulated = model.simulate_dataset(data, np.random.default_rng(0))
     assert np.array_equal(simulated.fish_hours, data.fish_hours) and np.array_equal(simulated.history.fish_hours, data.fish_hours)
-
-
-def test_loader_reads_recording_times():
-    loader = object.__new__(BehavioralDataLoader)
-    hours = {"a": 9.25, "b": 17.5}
-    angle = lambda h: 2 * np.pi * h / 24
-    loader.events = pd.DataFrame({"file": ["a", "a", "b"], "cos_daytime": [np.cos(angle(hours[f])) for f in "aab"],
-                                  "sin_daytime": [np.sin(angle(hours[f])) for f in "aab"]})
-    assert loader._fish_hours(np.array(["b", "a", "c"])) == pytest.approx([17.5, 9.25, np.nan], nan_ok=True)
-    loader.events = loader.events.drop(columns=["cos_daytime", "sin_daytime"])
-    assert loader._fish_hours(np.array(["a"])) is None
 
 
 def simulated(model, params: np.ndarray, num_fish: int, num_trials: int, duration_s: float, seed: int, template=None) -> PointProcessDataset:

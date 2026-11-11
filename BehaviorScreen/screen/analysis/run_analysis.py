@@ -15,7 +15,7 @@ from BehaviorScreen.screen.analysis.tasks import (
     run_fit_task,
     run_plot_task,
 )
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader
+from BehaviorScreen.screen.loader import BehavioralDataLoader
 
 
 class Tee:

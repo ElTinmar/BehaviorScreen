@@ -18,7 +18,7 @@ from BehaviorScreen.point_process.hawkes_process import (
     HawkesProcess,
     HistoryKernelFactory,
 )
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader
+from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.poisson_process import (
     PoissonProcess,

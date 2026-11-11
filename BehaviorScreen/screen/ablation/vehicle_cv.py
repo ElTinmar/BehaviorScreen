@@ -41,7 +41,8 @@ from scipy import stats
 
 from BehaviorScreen.core import Laterality
 from BehaviorScreen.screen.analysis.model_config import EVENT_TABLES, get_model_config
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader, PointProcessDataset
+from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.screen.loader import BehavioralDataLoader
 
 from .dataset_utils import safe_prepare_dataset
 from .tier1_config import MAP_COLUMNS

@@ -25,7 +25,7 @@ import pandas as pd
 from scipy import stats
 
 from BehaviorScreen.screen.analysis.model_config import get_model_config
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader
+from BehaviorScreen.screen.loader import BehavioralDataLoader
 
 from .count_readouts import COUNT_READOUTS, fish_counts, log_value
 from .dataset_utils import CONTROL_CONDITIONS, RECORDING, safe_prepare_dataset

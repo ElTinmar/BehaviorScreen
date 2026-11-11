@@ -20,6 +20,11 @@ REFERENCE = Path(__file__).with_name("reference_nll.json")
 RTOL = 1e-9
 
 
+@pytest.fixture(scope="session")
+def reference_data() -> PointProcessDataset:
+    return reference_dataset()
+
+
 def points(model) -> Dict[str, np.ndarray]:
     """The initial guesses, and a point moved 5% (or 0.05) toward the middle of the bounds."""
     x = np.array(model.initial_guesses, dtype=float)

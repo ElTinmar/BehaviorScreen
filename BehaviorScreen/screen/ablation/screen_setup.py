@@ -7,7 +7,7 @@ and the arms they compare. Importing it loads the event tables.
 import os
 from pathlib import Path
 
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader
+from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.screen.analysis.model_config import EVENT_TABLES, MUTANT_REFERENCES, get_model_config
 from BehaviorScreen.screen.ablation.dataset_utils import Arms, mutant_contrast, ntr_contrast
 from BehaviorScreen.screen.ablation.line_names import warn_unnamed

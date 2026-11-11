@@ -227,8 +227,3 @@ def rng_factory():
         return np.random.default_rng(seed)
 
     return _make
-
-
-@pytest.fixture(scope="session")
-def reference_data() -> PointProcessDataset:
-    return reference_dataset()

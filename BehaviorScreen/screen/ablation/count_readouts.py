@@ -36,7 +36,8 @@ import pandas as pd
 
 from BehaviorScreen.core import Laterality
 from BehaviorScreen.screen.analysis.model_config import control_loader, get_model_config
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader, PointProcessDataset
+from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.io import save_fig
 
 from .dataset_utils import Contrast, recording_days, safe_prepare_dataset

@@ -15,11 +15,8 @@ import pandas as pd
 from scipy.optimize import OptimizeResult
 
 from BehaviorScreen.core import Laterality
-from BehaviorScreen.point_process.dataset import (
-    BehavioralDataLoader,
-    DatasetPlotter,
-    PointProcessDataset,
-)
+from BehaviorScreen.point_process.dataset import DatasetPlotter, PointProcessDataset
+from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.diagnostics import ModelPlotter
 from BehaviorScreen.point_process.frailty_analysis import (
     collect_fish_gains,

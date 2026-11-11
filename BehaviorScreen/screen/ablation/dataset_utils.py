@@ -12,7 +12,8 @@ import numpy as np
 import pandas as pd
 
 from BehaviorScreen.screen.analysis.model_config import CONTROL_CONDITIONS, control_loader
-from BehaviorScreen.point_process.dataset import BehavioralDataLoader, PointProcessDataset
+from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.screen.ablation.tier1_config import PinnedArchitecture
 
