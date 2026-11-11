@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
-from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, get_model_config
+from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, MUTANT_REFERENCES, get_model_config
 from BehaviorScreen.ablation_screen.dataset_utils import Arms, mutant_contrast, ntr_contrast
 from BehaviorScreen.ablation_screen.line_names import warn_unnamed
 from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS, PINNED_AMPLITUDES, tier1_behaviors
@@ -42,17 +42,6 @@ print("Per-behavior model and free parameters (everything else pinned to the con
 for behavior, cfg in BEHAVIOR_CONFIG.items():
     print(f"  {behavior}: {cfg['model_name']}, free={cfg['free']}")
 
-# Straight mutants against their wild-type background. wik and AB measure how
-# far background (and recording day) alone moves each behavior from WT (TL).
-WT = ("WT", "danieau")
-MUTANT_REFERENCES = {
-    "wik": WT,
-    "AB": WT,
-    "lak": WT,              # atoh7 th241, TL (Tuebingen)
-    "gr": WT,               # nr3c1 s357, TL (Muto et al. 2005)
-    "blu": WT,              # vglut2a tc257z, TL/Tuebingen (Smear et al. 2007)
-    "mecp2": ("AB", "danieau"),  # outcrossed to AB (Pietri et al. 2013)
-}
 all_lines = sorted(loaders["bouts"].trials["line"].astype(str).unique())
 warn_unnamed(all_lines)
 NTR_LINES = [l for l in all_lines if l not in MUTANT_REFERENCES and l != "WT"]

@@ -6,7 +6,7 @@ from functools import cache
 from pathlib import Path
 from typing import Callable, TextIO
 
-from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, get_model_config
+from BehaviorScreen.point_process.analysis.model_config import EVENT_TABLES, control_loader, get_model_config
 from BehaviorScreen.point_process.analysis.tasks import (
     Replicates,
     code_version,
@@ -47,7 +47,7 @@ def make_loaders(args: argparse.Namespace) -> Callable[[str], BehavioralDataLoad
             qc_csvs=[args.data_root / p for p in args.qc],
             **EVENT_TABLES[events],
         )
-        return loader.subset(conditions=args.conditions) if args.conditions else loader
+        return loader if args.every_fish else control_loader(loader)
 
     return loader
 
@@ -58,14 +58,17 @@ def add_data_arguments(parser: argparse.ArgumentParser, required: bool) -> None:
         "-d", "--data-root", type=Path, dest="data_root", required=required,
         help="Directory the file arguments below are relative to.",
     )
-    parser.add_argument("--bouts", "--events", default="bouts_control.csv", help="Bout table.")
-    parser.add_argument("--saccades", default="saccades_augmented_control.csv", help="Saccade table.")
+    parser.add_argument("--bouts", "--events", default="bouts_all.csv", help="Bout table.")
+    parser.add_argument("--saccades", default="saccades_augmented_all.csv", help="Saccade table.")
     parser.add_argument(
-        "--valid-trials", nargs="+", default=["valid_trials_control.csv"],
+        "--valid-trials", nargs="+", default=["valid_trials_all.csv"],
         help="Trial tables from quality control, one per screen folder.",
     )
-    parser.add_argument("--qc", nargs="*", default=["qc_control.csv"], help="Fish-level exclusion tables from quality control.")
-    parser.add_argument("--conditions", nargs="+", help="Conditions kept (e.g. vehicle danieau on the merged _all tables); default: every fish.")
+    parser.add_argument("--qc", nargs="*", default=["qc_all.csv"], help="Fish-level exclusion tables from quality control.")
+    parser.add_argument(
+        "--every-fish", action="store_true",
+        help="Every fish of the tables; default: the control fish of the merged tables (model_config.control_loader), as in the screen's tests.",
+    )
 
 
 def parse_args() -> argparse.Namespace:

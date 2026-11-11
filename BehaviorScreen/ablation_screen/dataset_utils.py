@@ -11,12 +11,12 @@ from typing import Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple, U
 import numpy as np
 import pandas as pd
 
+from BehaviorScreen.point_process.analysis.model_config import CONTROL_CONDITIONS, control_loader
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader, PointProcessDataset
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.ablation_screen.tier1_config import PinnedArchitecture
 
 Arm = Tuple[str, str]  # (line, condition)
-CONTROL_CONDITIONS = ("vehicle", "danieau")  # the fish of the control fits
 RECORDING = r"(?P<plate>.*_(?P<day>\d{2}_[A-Za-z]{3}_\d{4})_\d{2}h\d{2}min\d{2}sec)_fish_\d+$"  # a fish's file name
 
 
@@ -75,8 +75,8 @@ class Arms:
     The arms of an NTR contrast keep only the fish of the days both were
     recorded: siblings of one clutch, compared within the day.
 
-    process_factories pins each behavior to its control fit, whose fish include
-    every vehicle and danieau arm. A test of a contrast pins it instead to the
+    process_factories pins each behavior to its control fit, on the fish of
+    model_config.control_loader. A test of a contrast pins it instead to the
     control fit refitted without the contrast's own arms (architecture(behavior,
     exclude)): then the pinned values do not depend on which of its fish are
     labelled reference or test, and its permutation test is exact.
@@ -106,7 +106,7 @@ class Arms:
         """The control fish's dataset and each fish's arm."""
         if behavior not in self._controls:
             loader = self.loaders[self.events[behavior]]
-            dataset = loader.subset(conditions=list(CONTROL_CONDITIONS)).prepare_dataset(**self.dataset_configs[behavior])
+            dataset = control_loader(loader).prepare_dataset(**self.dataset_configs[behavior])
             arm_of = loader.trials.drop_duplicates("file").set_index("file")[["line", "condition"]].astype(str)
             self._controls[behavior] = dataset, [tuple(arm_of.loc[f]) for f in dataset.fish_ids]
         return self._controls[behavior]

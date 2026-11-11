@@ -21,8 +21,9 @@ class Loader:
         self.dataset, self.arms = dataset, arms
         self.trials = pd.DataFrame({"file": dataset.fish_ids, "line": [a[0] for a in arms], "condition": [a[1] for a in arms]})
 
-    def subset(self, line: Optional[str] = None, conditions: Optional[Sequence[str]] = None) -> "Loader":
-        keep = [i for i, (l, c) in enumerate(self.arms) if (line is None or l == line) and (conditions is None or c in conditions)]
+    def subset(self, line: Optional[str] = None, conditions: Optional[Sequence[str]] = None, exclude_lines: Sequence[str] = ()) -> "Loader":
+        keep = [i for i, (l, c) in enumerate(self.arms)
+                if (line is None or l == line) and (conditions is None or c in conditions) and l not in exclude_lines]
         return Loader(self.dataset.fish(keep), [self.arms[i] for i in keep])
 
     def prepare_dataset(self, **config) -> PointProcessDataset:
@@ -71,3 +72,13 @@ class TestLeaveContrastOutPinning:
         after = screen(0, resimulate=sorted(before.contrast_arms(contrast)))[0]
         fixed_before, fixed_after = before.process_factory(contrast, "spont").fixed, after.process_factory(contrast, "spont").fixed
         assert fixed_after == pytest.approx(fixed_before, rel=1e-3)
+
+
+def test_control_fit_leaves_out_mutants_and_treated_fish() -> None:
+    arms = [("WT", "danieau")] * 3 + [("lak", "danieau")] * 2 + [("L1", "vehicle")] * 2 + [("L1", "ronidazole")] * 2 + [("WT", "ronidazole")]
+    empty = np.array([], float)
+    data = PointProcessDataset(event_times=empty, event_trials_idx=empty.astype(int), event_fish_idx=empty.astype(int),
+                               fish_trial_mask=np.ones((len(arms), 2), bool), fish_ids=np.array([f"f{i}" for i in range(len(arms))]), marks={})
+    control, control_arms = Arms({"bouts": Loader(data, arms)}, {"spont": "bouts"}, {"spont": {}}, {}, []).control("spont")
+    assert control_arms == [("WT", "danieau")] * 3 + [("L1", "vehicle")] * 2
+    assert list(control.fish_ids) == ["f0", "f1", "f2", "f5", "f6"]

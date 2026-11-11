@@ -481,11 +481,11 @@ class BehavioralDataLoader:
         return trials.merge(trial_index.reset_index(), on=keys), len(trial_index)
 
     def subset(
-        self, line: Optional[str] = None, conditions: Optional[Sequence[str]] = None
+        self, line: Optional[str] = None, conditions: Optional[Sequence[str]] = None, exclude_lines: Sequence[str] = ()
     ) -> "BehavioralDataLoader":
         """
-        The same screen restricted to a line and/or conditions (columns added
-        by merge_csv). Trial indices stay those of the whole screen.
+        The same screen restricted to a line and/or conditions, without the lines in
+        exclude_lines (columns added by merge_csv). Trial indices stay those of the whole screen.
         """
         def keep(table: pd.DataFrame) -> pd.DataFrame:
             if "line" not in table.columns or "condition" not in table.columns:
@@ -495,7 +495,7 @@ class BehavioralDataLoader:
                 mask &= table["line"].astype(str) == line
             if conditions is not None:
                 mask &= table["condition"].isin(conditions)
-            return table[mask]
+            return table[mask & ~table["line"].astype(str).isin(exclude_lines)]
 
         subset = copy.copy(self)
         subset.events, subset.trials = keep(self.events), keep(self.trials)

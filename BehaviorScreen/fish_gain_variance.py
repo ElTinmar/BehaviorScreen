@@ -28,7 +28,7 @@ model term. Sided models: the fish gain only, not the side preference. Without o
 rate.
 
 Run from the repo root with run_analysis's data options (writes <output>/fish.csv), or again on that table:
-    python fish_gain_variance.py -d <data root> --bouts bouts_control.csv [--exps prey_capture_ipsi spont_dark] [--fits-root figures]
+    python fish_gain_variance.py -d <data root> [--exps prey_capture_ipsi spont_dark] [--fits-root figures]
     python fish_gain_variance.py --from-csv fish_gain_variance/fish.csv [--exps ...] [-o fish_gain_variance] [--n-boot 500]
 Outputs (<output>/): fish.csv (every experiment), summary.csv and summary.png (one row per experiment), and per
 experiment (<output>/<experiment>/): one CSV per table, report.txt (every table) and fish_gain_variance.png.

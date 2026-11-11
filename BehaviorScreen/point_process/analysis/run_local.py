@@ -32,9 +32,6 @@ EXPERIMENTS = [
 ]
 
 DATA_DIR = "/media/martin/DATA_18TB/Screen"
-EVENTS = "bouts_control.csv"
-VALID_TRIALS = "valid_trials_control.csv"
-QC = "qc_control.csv"
 OUT_DIR = "./figures"
 PROCESSES = 8  # parallel fits per experiment
 ENV = os.environ | {
@@ -54,9 +51,6 @@ def run_experiment(exp_name: str) -> int:
             "--exp", exp_name,
             "--mode", mode,
             "--data-root", DATA_DIR,
-            "--events", EVENTS,
-            "--valid-trials", VALID_TRIALS,
-            "--qc", QC,
             "--output-dir", OUT_DIR,
             "--n-jobs", str(PROCESSES),
         ]

@@ -18,6 +18,7 @@ from BehaviorScreen.point_process.point_process.hawkes_process import (
     HawkesProcess,
     HistoryKernelFactory,
 )
+from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
 from BehaviorScreen.point_process.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.point_process.poisson_process import (
     PoissonProcess,
@@ -51,6 +52,25 @@ TRACKING_FILTERS = {
     "bouts": ("bout_filters", ["distance_center", "centroid_mismatch_max"]),
     "saccades": ("saccade_filters", ["distance_center", "features_valid"]),
 }
+
+
+# Straight mutants and other strains, each compared with its wild-type background (line: reference arm).
+# wik and AB measure how far background (and recording day) alone moves each behavior from WT (TL).
+WT = ("WT", "danieau")
+MUTANT_REFERENCES = {
+    "wik": WT,
+    "AB": WT,
+    "lak": WT,              # atoh7 th241, TL (Tuebingen)
+    "gr": WT,               # nr3c1 s357, TL (Muto et al. 2005)
+    "blu": WT,              # vglut2a tc257z, TL/Tuebingen (Smear et al. 2007)
+    "mecp2": ("AB", "danieau"),  # outcrossed to AB (Pietri et al. 2013)
+}
+CONTROL_CONDITIONS = ("vehicle", "danieau")
+
+
+def control_loader(loader: BehavioralDataLoader) -> BehavioralDataLoader:
+    """The fish of the control fits: the untreated arms (vehicle, danieau) of WT and of the NTR lines."""
+    return loader.subset(conditions=CONTROL_CONDITIONS, exclude_lines=tuple(MUTANT_REFERENCES))
 
 
 def _filters(events: str) -> dict:
