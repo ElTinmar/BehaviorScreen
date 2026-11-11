@@ -164,3 +164,18 @@ def test_estimated_gains_exclude_the_factor():
     assert gains.estimated_gain[late].mean() == pytest.approx(1.0, abs=0.05)
     assert gains.time_of_day_factor[late].mean() < 0.65
     assert HOUR_REFERENCE == 13.5
+
+
+def test_ladder_starts_it_from_the_model_without_it():
+    """In a ladder, the time-of-day rung starts at its counterpart's fit with beta_hour = 0, wherever it sits: never a worse fit."""
+    from BehaviorScreen.point_process.point_process.inference import ModelComparator
+
+    true = FACTORIES["whole + trial"](time_of_day=True)
+    data = simulated(true, with_beta(true, -0.08), 200, 6, 10.0, seed=31)
+    plain, other, hour = FACTORIES["whole + trial"](), FACTORIES["whole"](), FACTORIES["whole + trial"](time_of_day=True)
+    assert hour.starts_from == plain.name
+    ModelComparator.compare([plain, other, hour], data, n_starts=3, n_jobs=1)
+    expected = dict(plain.param_dict_, beta_hour=0.0)
+    assert hour.initial_guesses == pytest.approx([expected[n] for n in hour.param_names])
+    assert hour.log_likelihood >= plain.log_likelihood - 1e-6
+    assert hour.bounds[hour._hour_idx] == (-0.2, 0.2)

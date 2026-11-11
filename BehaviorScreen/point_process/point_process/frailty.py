@@ -468,7 +468,12 @@ class Frailty(_GainWrapper):
         if time_of_day:
             self.param_names = self.param_names + ["beta_hour"]
             self.initial_guesses = self.initial_guesses + [0.0]
-            self.bounds = self.bounds + [(-0.5, 0.5)]
+            self.bounds = self.bounds + [(-0.2, 0.2)]
+
+    @property
+    def starts_from(self) -> Optional[str]:
+        """With time_of_day: the same model without it, whose fit a ladder starts this one from (beta_hour = 0)."""
+        return self.name.replace("+Hour", "") if self.time_of_day else None
 
     @property
     def _suffix(self) -> str:

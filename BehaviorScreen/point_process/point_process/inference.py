@@ -637,9 +637,12 @@ class ModelComparator:
 
         results = []
         fitted_values: Dict[str, float] = {}  # parameters already fitted, by name: where the next models start
+        fitted_models_values: Dict[str, Dict[str, float]] = {}
         for index, m in enumerate(models):
+            # a model extending another (starts_from: its name) starts at that one's fit, its own parameters at their guesses
+            start = fitted_models_values.get(getattr(m, "starts_from", None), fitted_values)
             m.initial_guesses = [
-                float(np.clip(fitted_values.get(n, g), lo if lo is not None else -np.inf, hi if hi is not None else np.inf))
+                float(np.clip(start.get(n, g), lo if lo is not None else -np.inf, hi if hi is not None else np.inf))
                 for n, g, (lo, hi) in zip(m.param_names, m.initial_guesses, m.bounds)
             ]
             if is_cached is not None and is_cached(index, m):
@@ -650,6 +653,7 @@ class ModelComparator:
                 m.fit_seconds_ = time.perf_counter() - started
             if results[-1][1] is None:
                 fitted_values.update(m.param_dict_)
+                fitted_models_values[m.name] = dict(m.param_dict_)
                 if on_fitted is not None:
                     on_fitted(index, m)
         fitted_models: List[PointProcess] = []
