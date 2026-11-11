@@ -19,7 +19,7 @@ the days recorded in both and their fish are permuted within the day.
 Rates count each trial by what the control fish do on it (trial_weights): responses
 habituate over trials, so a fish missing late trials is not compared with the mean trial.
 
-    python -m BehaviorScreen.screen.ablation.count_readouts [--output ./count_results]
+    python -m BehaviorScreen.screen.line_tests.count_readouts [--output ./count_results]
 
 writes tier1_results.csv, tier1_parameters.csv, tier1_map.png, contrasts.csv,
 arm_bootstrap.csv and tier1_absolute/; then
@@ -35,7 +35,7 @@ import numpy as np
 import pandas as pd
 
 from BehaviorScreen.core import Laterality
-from BehaviorScreen.screen.analysis.model_config import control_loader, get_model_config
+from BehaviorScreen.screen.control_models.model_config import control_loader, get_model_config
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.io import save_fig

@@ -57,9 +57,9 @@ def covariates(args: argparse.Namespace) -> Tuple[pd.DataFrame, Dict[str, Path]]
 
 def fish_table(args: argparse.Namespace, experiment: str, cov: pd.DataFrame, metadata: Dict[str, Path]) -> pd.DataFrame:
     """Posterior gain, rates and covariates of each fish of the experiment's controls."""
-    from BehaviorScreen.screen.analysis.model_config import get_model_config
-    from BehaviorScreen.screen.analysis.run_analysis import make_loaders
-    from BehaviorScreen.screen.analysis.tasks import load_best_model
+    from BehaviorScreen.screen.control_models.model_config import get_model_config
+    from BehaviorScreen.screen.control_models.run_analysis import make_loaders
+    from BehaviorScreen.screen.control_models.tasks import load_best_model
 
     config = get_model_config()[experiment]
     model = load_best_model(config, args.fits_root / experiment / "models")
@@ -354,7 +354,7 @@ def main() -> None:
     parser.add_argument("--n-boot", type=int, default=N_BOOT)
     parser.add_argument("--seed", type=int, default=0)
     try:
-        from BehaviorScreen.screen.analysis.run_analysis import add_data_arguments
+        from BehaviorScreen.screen.control_models.run_analysis import add_data_arguments
         add_data_arguments(parser, required=False)
     except ImportError:  # --from-csv outside the repo
         pass
@@ -369,7 +369,7 @@ def main() -> None:
         fish = fish if "experiment" in fish else fish.assign(experiment="experiment", model="")
         fish = fish[fish.experiment.isin(args.exps)] if args.exps else fish
     else:
-        from BehaviorScreen.screen.ablation.tier1_config import MAP_COLUMNS
+        from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
         cov, metadata = covariates(args)
         tables = []
         for experiment in args.exps or list(MAP_COLUMNS):

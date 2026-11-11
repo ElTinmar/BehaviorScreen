@@ -4,7 +4,7 @@ bootstrap intervals, drawn as one dumbbell figure per behavior: each test arm
 next to its own control, rows in map order, the spread of the control arms
 behind them.
 
-    python -m BehaviorScreen.screen.ablation.arm_absolute [--n-boot 200] [--resume] [--plot-only]
+    python -m BehaviorScreen.screen.line_tests.arm_absolute [--n-boot 200] [--resume] [--plot-only]
 
 Run after run_screen (hits come from tier1_results.csv). By default an
 existing arm_bootstrap.csv is replaced; --resume keeps it and skips the arms

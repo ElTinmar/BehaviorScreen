@@ -47,7 +47,7 @@ MODES = ["diagnostics", "fit"]
 def run_experiment(exp_name: str) -> int:
     for mode in MODES:
         cmd = [
-            "python", "-m", "BehaviorScreen.screen.analysis.run_analysis",
+            "python", "-m", "BehaviorScreen.screen.control_models.run_analysis",
             "--exp", exp_name,
             "--mode", mode,
             "--data-root", DATA_DIR,

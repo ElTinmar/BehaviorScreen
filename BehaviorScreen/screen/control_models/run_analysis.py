@@ -6,8 +6,8 @@ from functools import cache
 from pathlib import Path
 from typing import Callable, TextIO
 
-from BehaviorScreen.screen.analysis.model_config import EVENT_TABLES, control_loader, get_model_config
-from BehaviorScreen.screen.analysis.tasks import (
+from BehaviorScreen.screen.control_models.model_config import EVENT_TABLES, control_loader, get_model_config
+from BehaviorScreen.screen.control_models.tasks import (
     Replicates,
     code_version,
     run_consolidation_task,

@@ -7,10 +7,10 @@ import copy
 from pathlib import Path
 from typing import Dict, Optional, Sequence
 
-from BehaviorScreen.screen.analysis.model_config import (
+from BehaviorScreen.screen.control_models.model_config import (
     FLASH_ESCAPE, FORWARD_SWIMS, LATERAL_TURNS, LOOMING_ESCAPE, OKR_SWIMS, get_model_config,
 )
-from BehaviorScreen.screen.analysis.tasks import load_best_model
+from BehaviorScreen.screen.control_models.tasks import load_best_model
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.wrappers import PartiallyFixedProcess
 

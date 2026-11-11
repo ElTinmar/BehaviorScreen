@@ -361,7 +361,7 @@ class ModelPlotter:
         Empirical vs. model rate surface, each with overlaid empirical
         (solid) / model (dashed) marginals: one time-marginal strip
         spanning both heatmap columns, one shared trial-marginal column to
-        the right. Same layout convention as the ablation_screen arm-
+        the right. Same layout convention as the line_tests arm-
         surface-grid plots -- single shared GridSpec (not per-panel
         independent ones) so heatmaps and marginals stay pixel-aligned,
         and an explicit colorbar axis (not make_axes_locatable) so the

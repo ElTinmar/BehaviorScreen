@@ -2,8 +2,8 @@
 import numpy as np
 import pytest
 
-from BehaviorScreen.screen.ablation.count_readouts import COUNT_READOUTS, arm_counts, count_test, fish_counts, log_value, trial_weights
-from BehaviorScreen.screen.ablation.dataset_utils import mutant_contrast, ntr_contrast
+from BehaviorScreen.screen.line_tests.count_readouts import COUNT_READOUTS, arm_counts, count_test, fish_counts, log_value, trial_weights
+from BehaviorScreen.screen.line_tests.dataset_utils import mutant_contrast, ntr_contrast
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 
 from .test_tier1_pinning import Loader

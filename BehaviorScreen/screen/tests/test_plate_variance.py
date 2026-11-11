@@ -3,8 +3,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from BehaviorScreen.screen.ablation.dataset_utils import RECORDING
-from BehaviorScreen.screen.ablation.plate_variance import block_sums, icc, permutation_p, plate_variance
+from BehaviorScreen.screen.line_tests.dataset_utils import RECORDING
+from BehaviorScreen.screen.line_tests.plate_variance import block_sums, icc, permutation_p, plate_variance
 
 
 def simulate(rho: float, seed: int, blocks: int = 40, plates: int = 3) -> pd.DataFrame:

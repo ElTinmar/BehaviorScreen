@@ -1,8 +1,8 @@
 #!/bin/bash
 # Tier 1, one behavior per array task (the lines of experiments.txt):
-#   sbatch BehaviorScreen/screen/analysis/tier1.sbatch
+#   sbatch BehaviorScreen/screen/line_tests/tier1.sbatch
 # then, once they are done, their tables and maps merged:
-#   sbatch --array=1 BehaviorScreen/screen/analysis/tier1.sbatch --combine
+#   sbatch --array=1 BehaviorScreen/screen/line_tests/tier1.sbatch --combine
 # A resubmitted task skips the cells it has already saved.
 #SBATCH -o /u/mapri/logs/tier1.out.%A_%a
 #SBATCH -e /u/mapri/logs/tier1.err.%A_%a
@@ -20,11 +20,11 @@ if [ "$1" = "--combine" ]; then
     [ "$SLURM_ARRAY_TASK_ID" -gt 1 ] && exit 0  # submitted without --array=1: one task combines
     MODE=(--combine)
 else
-    BEHAVIOR=$(sed -n "${SLURM_ARRAY_TASK_ID}p" BehaviorScreen/screen/analysis/experiments.txt | tr -d '\r')
+    BEHAVIOR=$(sed -n "${SLURM_ARRAY_TASK_ID}p" BehaviorScreen/screen/control_models/experiments.txt | tr -d '\r')
     scontrol update JobId=${SLURM_ARRAY_JOB_ID}_${SLURM_ARRAY_TASK_ID} Name=tier1_$BEHAVIOR
     MODE=(--behavior "$BEHAVIOR")
 fi
 
 srun conda run --no-capture-output -n BehaviorScreen \
-    python -m BehaviorScreen.screen.ablation.run_screen "${MODE[@]}" \
+    python -m BehaviorScreen.screen.line_tests.run_screen "${MODE[@]}" \
     --data-root /ptmp/mapri --fits-root ./figures --output-dir ./tier1_results

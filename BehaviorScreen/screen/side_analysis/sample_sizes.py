@@ -17,7 +17,7 @@ import numpy as np
 from matplotlib.patches import Polygon, Rectangle
 from matplotlib.transforms import blended_transform_factory
 
-from BehaviorScreen.screen.ablation.line_names import line_name
+from BehaviorScreen.screen.line_tests.line_names import line_name
 from BehaviorScreen.core import Stim
 from BehaviorScreen.filters import apply_table_filters, exclude_qc_fish, load_yaml_config
 

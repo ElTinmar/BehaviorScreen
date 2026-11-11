@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 
-from BehaviorScreen.screen.analysis.model_config import BOUT_DEAD_TIME_S, EVENT_TABLES, get_model_config
+from BehaviorScreen.screen.control_models.model_config import BOUT_DEAD_TIME_S, EVENT_TABLES, get_model_config
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 
 root, experiment = Path(sys.argv[1]), sys.argv[2]

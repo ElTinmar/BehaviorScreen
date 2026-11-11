@@ -12,7 +12,7 @@ different days also differ by clutch), for the control arms and the drug arms:
     false_positive_rate  of a fish-label test at alpha = 0.05 with that icc (and with icc_hi):
                          2 Phi(-1.96 / sqrt(design effect)), design effect = 1 + (fish per plate - 1) icc
 
-    python -m BehaviorScreen.screen.ablation.plate_variance [--output ./plate_variance]
+    python -m BehaviorScreen.screen.line_tests.plate_variance [--output ./plate_variance]
 
 writes fish_values.csv and plate_variance.csv.
 """
@@ -24,7 +24,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from BehaviorScreen.screen.analysis.model_config import get_model_config
+from BehaviorScreen.screen.control_models.model_config import get_model_config
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 
 from .count_readouts import COUNT_READOUTS, fish_counts, log_value

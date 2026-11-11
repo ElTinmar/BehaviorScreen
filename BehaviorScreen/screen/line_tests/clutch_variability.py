@@ -17,7 +17,7 @@ The vehicle map shows each NTR line's untreated fish against the mean of all
 vehicle arms, framing atypical controls: a parameter offset beyond
 OUTLIER_Z x sqrt(tau^2 + SE^2), the spread expected of one more clutch.
 
-    python -m BehaviorScreen.screen.ablation.clutch_variability ./tier1_results
+    python -m BehaviorScreen.screen.line_tests.clutch_variability ./tier1_results
 """
 import sys
 from pathlib import Path

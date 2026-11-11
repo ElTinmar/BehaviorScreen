@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 
 from BehaviorScreen.point_process.io import save_fig
-from BehaviorScreen.screen.ablation.tier1_omnibus import (
+from BehaviorScreen.screen.line_tests.tier1_omnibus import (
     run_tier1_screen,
     tier1_permutation_test,
     fit_tier1,
@@ -38,13 +38,13 @@ from BehaviorScreen.screen.ablation.tier1_omnibus import (
     bootstrap_parameter_deltas,
     plot_parameter_forest
 )
-from BehaviorScreen.screen.ablation.fdr import add_fdr_per_behavior
-from BehaviorScreen.screen.ablation.pvalue_diagnostics import plot_pvalue_histogram
-from BehaviorScreen.screen.ablation.dataset_utils import Arms
-from BehaviorScreen.screen.ablation.gain_structure import GainStructure, calibrate, fish_groups
-# Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.screen.ablation.count_readouts
-from BehaviorScreen.screen.ablation.tier1_config import MAP_COLUMNS
-from BehaviorScreen.screen.ablation.tier2_interaction import plot_tier2_map, run_tier2_screen
+from BehaviorScreen.screen.line_tests.fdr import add_fdr_per_behavior
+from BehaviorScreen.screen.line_tests.pvalue_diagnostics import plot_pvalue_histogram
+from BehaviorScreen.screen.line_tests.dataset_utils import Arms
+from BehaviorScreen.screen.line_tests.gain_structure import GainStructure, calibrate, fish_groups
+# Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.screen.line_tests.count_readouts
+from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
+from BehaviorScreen.screen.line_tests.tier2_interaction import plot_tier2_map, run_tier2_screen
 
 TABLES = ("tier1_results", "tier1_parameters", "tier2_results", "bootstrap_parameter_deltas")
 
@@ -187,7 +187,7 @@ def main() -> None:
     for name, value in (("SCREEN_DATA_ROOT", args.data_root), ("SCREEN_FITS_ROOT", args.fits_root), ("SCREEN_OUTPUT_DIR", args.output_dir)):
         if value is not None:
             os.environ[name] = str(value)
-    from BehaviorScreen.screen.ablation.screen_setup import BEHAVIORS, MAP_ORDER, NULL_PROCESS_FACTORY, OUTPUT_DIR, arms  # loads the tables
+    from BehaviorScreen.screen.line_tests.screen_setup import BEHAVIORS, MAP_ORDER, NULL_PROCESS_FACTORY, OUTPUT_DIR, arms  # loads the tables
 
     if args.behavior is not None and args.behavior not in BEHAVIORS:
         raise SystemExit(f"--behavior must be one of {BEHAVIORS}")

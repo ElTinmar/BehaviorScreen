@@ -5,9 +5,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from BehaviorScreen.screen.ablation.dataset_utils import Arms, mutant_contrast, ntr_contrast
-from BehaviorScreen.screen.ablation.tier1_config import PinnedArchitecture
-from BehaviorScreen.screen.analysis.model_config import gamma, poisson
+from BehaviorScreen.screen.line_tests.dataset_utils import Arms, mutant_contrast, ntr_contrast
+from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
+from BehaviorScreen.screen.control_models.model_config import gamma, poisson
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.poisson_process import RateKernelFactory
 

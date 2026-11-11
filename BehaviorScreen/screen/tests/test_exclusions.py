@@ -4,7 +4,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from BehaviorScreen.screen.ablation.exclusions import counts, with_shares
+from BehaviorScreen.screen.line_tests.exclusions import counts, with_shares
 
 
 def test_counts_and_shares_per_arm(tmp_path: Path) -> None:

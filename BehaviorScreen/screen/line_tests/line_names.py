@@ -9,7 +9,7 @@ facility_lines.csv, one row per line kept in the fish facility:
     type          one of TYPES; gene-named types are set in italics in plot labels
     facility_ids  its stock IDs in the facility database, separated by ' / '
     mpn, zfin, zfin_id, mapzebrain, notes
-    Every line needs an mpn or a ZFIN ID: python -m BehaviorScreen.screen.ablation.line_names
+    Every line needs an mpn or a ZFIN ID: python -m BehaviorScreen.screen.line_tests.line_names
     lists the ones to ask for.
 
 screen_lines.csv, one row per data folder:

@@ -4,10 +4,10 @@ from typing import List, Tuple
 import numpy as np
 import pytest
 
-from BehaviorScreen.screen.ablation.gain_structure import GainStructure, calibrate, dependence, fish_groups, log_rates
-from BehaviorScreen.screen.ablation.tier1_config import PinnedArchitecture
-from BehaviorScreen.screen.ablation.tier1_omnibus import fit_tier1, tier1_simulated_test
-from BehaviorScreen.screen.analysis.model_config import gamma, poisson, zero_inflated
+from BehaviorScreen.screen.line_tests.gain_structure import GainStructure, calibrate, dependence, fish_groups, log_rates
+from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
+from BehaviorScreen.screen.line_tests.tier1_omnibus import fit_tier1, tier1_simulated_test
+from BehaviorScreen.screen.control_models.model_config import gamma, poisson, zero_inflated
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.poisson_process import RateKernelFactory
 

@@ -12,7 +12,7 @@ from typing import Dict
 import numpy as np
 import pytest
 
-from BehaviorScreen.screen.analysis.model_config import get_model_config
+from BehaviorScreen.screen.control_models.model_config import get_model_config
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.tests.conftest import reference_dataset
 

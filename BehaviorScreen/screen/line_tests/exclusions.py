@@ -12,14 +12,14 @@ Per (line, condition), from the merged tables:
 
 and each one's share of its total; the same pooled per condition is printed.
 
-    python -m BehaviorScreen.screen.ablation.exclusions DATA_ROOT [--output ./exclusions.csv]
+    python -m BehaviorScreen.screen.line_tests.exclusions DATA_ROOT [--output ./exclusions.csv]
 """
 import argparse
 from pathlib import Path
 
 import pandas as pd
 
-from BehaviorScreen.screen.analysis.model_config import EVENT_TABLES
+from BehaviorScreen.screen.control_models.model_config import EVENT_TABLES
 from BehaviorScreen.filters import parse_rules
 
 ARM = ["line", "condition"]

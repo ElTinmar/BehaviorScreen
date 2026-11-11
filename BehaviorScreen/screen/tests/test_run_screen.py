@@ -8,9 +8,9 @@ import pytest
 
 matplotlib.use("Agg")
 
-from BehaviorScreen.screen.ablation import run_screen
-from BehaviorScreen.screen.ablation.tier1_config import Fresh
-from BehaviorScreen.screen.analysis.model_config import flat, poisson
+from BehaviorScreen.screen.line_tests import run_screen
+from BehaviorScreen.screen.line_tests.tier1_config import Fresh
+from BehaviorScreen.screen.control_models.model_config import flat, poisson
 
 from .test_tier1_pinning import screen
 

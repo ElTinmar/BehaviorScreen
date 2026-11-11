@@ -40,12 +40,12 @@ import pandas as pd
 from scipy import stats
 
 from BehaviorScreen.core import Laterality
-from BehaviorScreen.screen.analysis.model_config import EVENT_TABLES, get_model_config
+from BehaviorScreen.screen.control_models.model_config import EVENT_TABLES, get_model_config
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 
-from BehaviorScreen.screen.ablation.dataset_utils import safe_prepare_dataset
-from BehaviorScreen.screen.ablation.tier1_config import MAP_COLUMNS
+from BehaviorScreen.screen.line_tests.dataset_utils import safe_prepare_dataset
+from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
 
 ESCAPES = {"looming", "dark_flash", "looming_divergent_saccade"}  # survival readouts: share of trials with an escape
 DIRECTION_SIDE = {"looming": Laterality.CONTRALATERAL}  # away; ipsi otherwise

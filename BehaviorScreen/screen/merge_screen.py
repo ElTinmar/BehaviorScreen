@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from BehaviorScreen.screen.ablation.line_names import warn_unnamed
+from BehaviorScreen.screen.line_tests.line_names import warn_unnamed
 from BehaviorScreen.screen.merge_csv import merge
 
 TABLES = ("bouts", "saccades_augmented", "qc", "valid_trials")

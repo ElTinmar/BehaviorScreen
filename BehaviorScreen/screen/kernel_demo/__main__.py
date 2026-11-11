@@ -18,10 +18,10 @@ import numpy as np
 from megabouts.utils import bouts_category_name, bouts_category_name_short
 
 from BehaviorScreen.core import Laterality, Stim
-from BehaviorScreen.screen.ablation.tier1_config import AMPLITUDE_PARAMETERS, MAP_COLUMNS, PINNED_AMPLITUDES
-from BehaviorScreen.screen.analysis.model_config import get_model_config
-from BehaviorScreen.screen.analysis.run_analysis import add_data_arguments, make_loaders
-from BehaviorScreen.screen.analysis.tasks import load_fit_records
+from BehaviorScreen.screen.line_tests.tier1_config import AMPLITUDE_PARAMETERS, MAP_COLUMNS, PINNED_AMPLITUDES
+from BehaviorScreen.screen.control_models.model_config import get_model_config
+from BehaviorScreen.screen.control_models.run_analysis import add_data_arguments, make_loaders
+from BehaviorScreen.screen.control_models.tasks import load_fit_records
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.frailty import Frailty, SideFrailty, ZeroInflatedFamily

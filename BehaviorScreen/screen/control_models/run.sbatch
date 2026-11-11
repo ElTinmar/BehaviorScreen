@@ -14,7 +14,7 @@ mkdir -p logs
 PROJECT_ROOT="/raven/u/mapri/Code/BehaviorScreen"
 cd "$PROJECT_ROOT" || exit 1
 
-EXP_FILE="$PROJECT_ROOT/BehaviorScreen/screen/analysis/experiments.txt"
+EXP_FILE="$PROJECT_ROOT/BehaviorScreen/screen/control_models/experiments.txt"
 
 # Extract key corresponding to the Slurm Array Task ID
 EXP_NAME=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$EXP_FILE" | tr -d '\r')
@@ -31,7 +31,7 @@ export MPLBACKEND=Agg OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1
 
 # Run Model Fitting & Bootstrapping exclusively on this node
 srun conda run --no-capture-output -n BehaviorScreen \
-    python -m BehaviorScreen.screen.analysis.run_analysis \
+    python -m BehaviorScreen.screen.control_models.run_analysis \
     --exp "$EXP_NAME" \
     --mode fit \
     --data-root "$DATA_DIR" \

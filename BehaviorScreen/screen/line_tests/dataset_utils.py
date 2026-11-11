@@ -11,11 +11,11 @@ from typing import Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple, U
 import numpy as np
 import pandas as pd
 
-from BehaviorScreen.screen.analysis.model_config import CONTROL_CONDITIONS, control_loader
+from BehaviorScreen.screen.control_models.model_config import CONTROL_CONDITIONS, control_loader
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.point_process import PointProcess
-from BehaviorScreen.screen.ablation.tier1_config import PinnedArchitecture
+from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
 
 Arm = Tuple[str, str]  # (line, condition)
 RECORDING = r"(?P<plate>.*_(?P<day>\d{2}_[A-Za-z]{3}_\d{4})_\d{2}h\d{2}min\d{2}sec)_fish_\d+$"  # a fish's file name

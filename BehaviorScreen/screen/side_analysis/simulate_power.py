@@ -39,9 +39,9 @@ from BehaviorScreen.point_process.io import save_fig
 from BehaviorScreen.point_process.parallel import parallel_map
 from BehaviorScreen.point_process.point_process import PointProcess
 
-from BehaviorScreen.screen.ablation.count_readouts import COUNT_READOUTS, count_test, fish_counts
-from BehaviorScreen.screen.ablation.tier1_config import PinnedArchitecture
-from BehaviorScreen.screen.ablation.tier1_omnibus import fit_tier1, tier1_permutation_test
+from BehaviorScreen.screen.line_tests.count_readouts import COUNT_READOUTS, count_test, fish_counts
+from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
+from BehaviorScreen.screen.line_tests.tier1_omnibus import fit_tier1, tier1_permutation_test
 
 
 @dataclass
@@ -147,7 +147,7 @@ def plot_power(table: pd.DataFrame, alpha: float) -> plt.Figure:
 
 
 def main(args: argparse.Namespace) -> None:
-    from BehaviorScreen.screen.ablation.screen_setup import BEHAVIOR_CONFIG, CONTRASTS, arms  # loads the event tables and control fits
+    from BehaviorScreen.screen.line_tests.screen_setup import BEHAVIOR_CONFIG, CONTRASTS, arms  # loads the event tables and control fits
 
     args.output.mkdir(parents=True, exist_ok=True)
     jobs = make_jobs(BEHAVIOR_CONFIG, arms, CONTRASTS, args.folds, args)

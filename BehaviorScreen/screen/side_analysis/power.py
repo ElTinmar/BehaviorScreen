@@ -56,8 +56,8 @@ from scipy import optimize, stats
 
 from BehaviorScreen.point_process.io import save_fig
 
-from BehaviorScreen.screen.ablation.arm_absolute import with_bootstrap_se
-from BehaviorScreen.screen.ablation.tier1_omnibus import PARAMETER_LABELS
+from BehaviorScreen.screen.line_tests.arm_absolute import with_bootstrap_se
+from BehaviorScreen.screen.line_tests.tier1_omnibus import PARAMETER_LABELS
 
 KEYS = ["behavior", "parameter"]
 FOLD_CHANGES = (1.5, 2.0, 3.0)
@@ -327,8 +327,8 @@ def map_row_order(tier1_df: pd.DataFrame) -> pd.Series:
 
 
 def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES, counts: bool = False) -> None:
-    from BehaviorScreen.screen.ablation.count_readouts import COUNT_COLUMNS
-    from BehaviorScreen.screen.ablation.tier1_config import MAP_COLUMNS
+    from BehaviorScreen.screen.line_tests.count_readouts import COUNT_COLUMNS
+    from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
 
     columns = COUNT_COLUMNS if counts else MAP_COLUMNS
 
