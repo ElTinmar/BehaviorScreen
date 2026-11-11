@@ -1,13 +1,13 @@
 """
 Writes the model ladders of model_config (the experiments of the Tier 1 map) into kernel_demo_data.js, which
-kernel_demo.html loads (a generated file, not in the repository), in Tier 1 map order: every candidate's formula, parameters
+index.html loads (a generated file, not in the repository), in Tier 1 map order: every candidate's formula, parameters
 (fitted values where a fit run is given, else the initial guesses), bounds and
 structure, the Tier 1 model (the best rung of the fit run) and its per-arm parameters, plus
 kernel values computed here, which the page checks its own kernels against.
 With a data root, also the events the ladders were fitted to, as histograms the
 page draws beside its simulations.
 
-    python -m BehaviorScreen.screen.side_analysis.export_kernel_demo [-o <fit output dir>] [-d <data root>]
+    python -m BehaviorScreen.screen.kernel_demo [-o <fit output dir>] [-d <data root>]
 """
 import argparse
 import json
@@ -96,7 +96,7 @@ def describe(name: str, kernel_kind: str, exgauss: bool) -> Tuple[str, str]:
     for table, applies in ((EXGAUSS_SURVIVAL, survival and exgauss), (SURVIVAL, survival), (PARAMETERS, True)):
         if applies and name in table:
             return table[name]
-    raise KeyError(f"export_kernel_demo: no description for parameter {name}")
+    raise KeyError(f"kernel_demo: no description for parameter {name}")
 
 
 def constants(kernel: LagKernel) -> Dict[str, Any]:
@@ -144,7 +144,7 @@ def structure(model: PointProcess, values: Dict[str, float], t_end: float) -> di
         return {"kind": "survival", "hazard": rate(model.kernel)}
     if isinstance(model, PoissonProcess):
         return {"kind": "poisson", "stim": rate(model.kernel)}
-    raise TypeError(f"export_kernel_demo: no page structure for {type(model).__name__}")
+    raise TypeError(f"kernel_demo: no page structure for {type(model).__name__}")
 
 
 def history(renewal: RenewalProcess, values: Dict[str, float]) -> dict:
@@ -282,7 +282,7 @@ def main() -> None:
     args = parser.parse_args()
     data = json.dumps(export(args.output_dir, make_loaders(args) if args.data_root else None), separators=(",", ":"))
     DATA.write_text(f"window.EXPERIMENTS = {data};\n", encoding="utf-8")
-    print(f"wrote {DATA} ({DATA.stat().st_size / 1e6:.1f} MB); open kernel_demo.html next to it")
+    print(f"wrote {DATA} ({DATA.stat().st_size / 1e6:.1f} MB); open index.html next to it")
 
 
 if __name__ == "__main__":

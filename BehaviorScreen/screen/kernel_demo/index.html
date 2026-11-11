@@ -50,7 +50,7 @@
 <p class="sub">Each experiment's candidate models (the null first), as in <code>model_config.py</code>, in Tier 1 map order.
 The Tier 1 model of an experiment, its best rung (<code>best_model.json</code>, when exported from a fit run), is marked and shown first; ★ marks its parameters
 fitted per arm, every other one being pinned to the control fit. Pick a rung to see its formula, move the sliders to reshape it. Parameters start at the fitted values when the page was exported from a fit run
-(<code>export_kernel_demo -o &lt;output dir&gt;</code>), else at the initial guesses. Plots keep their y range while you move sliders or change rung, so changes show as they are; <b>Rescale axes</b> fits them again (a new experiment starts rescaled). Picking a rung sets the sliders to its values. Regenerate with <code>python -m BehaviorScreen.screen.side_analysis.export_kernel_demo</code>; with a data root
+(<code>python -m BehaviorScreen.screen.kernel_demo -o &lt;output dir&gt;</code>), else at the initial guesses. Plots keep their y range while you move sliders or change rung, so changes show as they are; <b>Rescale axes</b> fits them again (a new experiment starts rescaled). Picking a rung sets the sliders to its values. Regenerate with <code>python -m BehaviorScreen.screen.kernel_demo</code>; with a data root
 (<code>-d &lt;data root&gt;</code>) the page also shows the events the ladders were fitted to (dots, and the data surface).</p>
 <div id="banner"></div>
 
@@ -65,7 +65,7 @@ fitted per arm, every other one being pinned to the control fit. Pick a rung to 
 
 <script src="kernel_demo_data.js"></script>
 <script>
-const EXPERIMENTS = window.EXPERIMENTS || [];  // kernel_demo_data.js, written by export_kernel_demo
+const EXPERIMENTS = window.EXPERIMENTS || [];  // kernel_demo_data.js, written by python -m BehaviorScreen.screen.kernel_demo
 
 // ---------------------------------------------------------------- math
 function logErfc(x) {  // log erfc(x), relative error < 1.2e-7 (Numerical Recipes erfcc)
@@ -162,7 +162,7 @@ function selfCheck() {
       });
     }
   }
-  if (EXPERIMENTS.length === 0) problems.add("No model data: run export_kernel_demo, which writes kernel_demo_data.js next to this page.");
+  if (EXPERIMENTS.length === 0) problems.add("No model data: run python -m BehaviorScreen.screen.kernel_demo, which writes kernel_demo_data.js next to this page.");
   if (problems.size) {
     const b = document.getElementById("banner");
     b.style.display = "block";
@@ -475,7 +475,7 @@ function surface(args) {
   distributions(streams, side, M);
   historyPlots(streams, intervals, side, M, args.T, args.survival);
   if (d && document.getElementById("l-data")) document.getElementById("l-data").innerHTML = `<div class="legend">${data ? `${d.n_fish} fish, the events the ladder was fitted to; rate per fish present in each trial.`
-    : `The data file has no ${side} events for this experiment: re-export it with export_kernel_demo.`}</div>`;
+    : `The data file has no ${side} events for this experiment: re-export it with python -m BehaviorScreen.screen.kernel_demo.`}</div>`;
   document.getElementById("l-surf").innerHTML = `<div class="legend">${state.fish} simulated fish × ${M} trials, ${+bin.toPrecision(3)} s bins${args.g ? ", each fish with its own gain" : ""}${args.gain && args.gain.trial ? " and trial gains" : ""}${args.gain && args.gain.side ? " and side preference" : ""}.${args.renewal ? (others ? " Each simulated fish also has the other bouts (and last bout before the trial) of a recorded fish, which reset its recovery, as in the fit." : " History: the simulated events only (in the data every bout resets the recovery): export with a data root for the other bouts.") : ""}</div>`;
   document.getElementById("l-psth").innerHTML = legend(items);
   if (!capture.active && !args.withBands) bands(args);

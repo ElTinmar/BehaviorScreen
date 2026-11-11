@@ -219,4 +219,4 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-BehaviorScreen/screen/side_analysis/kernel_demo_data.js
+BehaviorScreen/screen/kernel_demo/kernel_demo_data.js
