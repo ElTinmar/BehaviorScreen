@@ -134,7 +134,9 @@ def combine(behaviors: list, arms: Arms, map_order: list, output_dir: Path) -> N
     build_bad_fit_triage(tier1_df).to_csv(output_dir / "bad_fit_triage.csv", index=False)
 
     rows = map_rows(tier1_df, arms.contrasts.values())
-    fig, _ = plot_tier1_map(param_df, tier1_df, map_order, rows, column_labels=MAP_COLUMNS)
+    # A mutant and its reference are two clutches: its fish-label test is not framed (clutch_variability frames it).
+    siblings = tier1_df.assign(significant=tier1_df["significant"] & (tier1_df["family"] == "ntr"))
+    fig, _ = plot_tier1_map(param_df, siblings, map_order, rows, column_labels=MAP_COLUMNS, frame_label="significant (q < 0.05; NTR lines)")
     save_fig(fig, output_dir, "tier1_map")
     if (tier2_df["status"] == "ok").any():
         fig, _ = plot_tier2_map(param_df, tier2_df, map_order)

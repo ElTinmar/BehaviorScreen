@@ -32,7 +32,7 @@ from BehaviorScreen.point_process.point_process.frailty_analysis import (
     plot_fish_gain_correlation_dual,
 )
 
-from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric
+from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric, recording_days
 from .arm_contrast import output_metric
 from .model_qc import assess_group_fit
 from .line_names import line_name
@@ -67,17 +67,28 @@ def tier1_deviance(m_ref: PointProcess, m_test: PointProcess, m_pooled: PointPro
     return max(0.0, 2.0 * ((m_ref.log_likelihood + m_test.log_likelihood) - m_pooled.log_likelihood))
 
 
+def permute_within(strata: np.ndarray, rng: np.random.Generator) -> np.ndarray:
+    """A permutation of range(len(strata)) that moves every index within its stratum."""
+    grouped = np.argsort(strata, kind="stable")
+    permutation = np.empty(len(strata), dtype=int)
+    permutation[grouped] = grouped[np.lexsort((rng.random(len(strata)), strata[grouped]))]
+    return permutation
+
+
 def tier1_permutation_test(
     process_factory: Callable[[], PointProcess],
     ds_ref: PointProcessDataset, ds_test: PointProcessDataset,
     observed_deviance: Optional[float] = None,
     n_perm: int = 500, seed: int = 0, n_jobs: int = -1,
     pooled_log_likelihood: Optional[float] = None,
+    strata: Optional[np.ndarray] = None,
 ) -> Dict:
     """
     Fish shuffled between the arms (sizes kept), each arm refitted: the null
     distribution of the deviance. The pooled fit is the same for every labelling
     (the same fish), so it is fitted once, or taken from the caller.
+    strata: per fish (reference then test), e.g. its recording day: fish are
+    shuffled within their stratum only, each keeping its arm sizes.
     """
     pooled = PointProcessDataset.concat(ds_ref, ds_test)
     if pooled_log_likelihood is None:
@@ -92,11 +103,12 @@ def tier1_permutation_test(
     if observed_deviance is None:
         observed_deviance = deviance(ds_ref, ds_test)
     n_ref = ds_ref.num_fish
-    n_distinct = math.comb(pooled.num_fish, n_ref)
+    strata = np.zeros(pooled.num_fish, dtype=int) if strata is None else pd.factorize(strata)[0]
+    n_distinct = math.prod(math.comb(int(np.sum(strata == s)), int(np.sum(strata[:n_ref] == s))) for s in np.unique(strata))
     seeds = np.random.SeedSequence(seed).spawn(n_perm)
 
     def _one(s: np.random.SeedSequence) -> float | str:
-        perm = np.random.default_rng(s).permutation(pooled.num_fish)
+        perm = permute_within(strata, np.random.default_rng(s))
         try:
             return deviance(pooled.fish(perm[:n_ref]), pooled.fish(perm[n_ref:]))
         except Exception as exc:
@@ -229,9 +241,10 @@ def _tier1_one(
         return {"line": line, "behavior": behavior, "status": f"fit_failed: {type(e).__name__}: {e}",
                 "p_value": np.nan}
 
+    days = recording_days(np.concatenate([ds_ref.fish_ids, ds_test.fish_ids])) if contrast.family == "ntr" else None
     perm = tier1_permutation_test(arms.process_factory(line, behavior), ds_ref, ds_test,
                                    observed_deviance=observed_deviance, n_perm=n_perm,
-                                   pooled_log_likelihood=m_pooled.log_likelihood)
+                                   pooled_log_likelihood=m_pooled.log_likelihood, strata=days)
     eff = tier1_effect_size(m_ref, ds_ref, m_test, ds_test)
 
     return {
@@ -265,7 +278,8 @@ def run_tier1_screen(
     done = {}
     for behavior in behaviors if store is not None else []:
         architecture = arms.process_factories[behavior]
-        key = {"model": architecture.template.name, "fixed": architecture.fixed, "n_perm": n_perm, "pinning": "control without the contrast's arms"}
+        key = {"model": architecture.template.name, "fixed": architecture.fixed, "n_perm": n_perm, "pinning": "control without the contrast's arms",
+               "permutation": "NTR arms: days recorded in both, fish shuffled within day"}
         done.update({(r["line"], behavior): r for r in load_replicates(store / behavior, key).values()})
     todo = [job for job in jobs if job not in done]
     cell_iter = tqdm(todo, desc="Tier 1 cells", position=0, unit="cell") if show_progress else todo

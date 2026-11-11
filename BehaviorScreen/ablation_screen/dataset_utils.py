@@ -17,6 +17,12 @@ from BehaviorScreen.ablation_screen.tier1_config import PinnedArchitecture
 
 Arm = Tuple[str, str]  # (line, condition)
 CONTROL_CONDITIONS = ("vehicle", "danieau")  # the fish of the control fits
+RECORDING = r"(?P<plate>.*_(?P<day>\d{2}_[A-Za-z]{3}_\d{4})_\d{2}h\d{2}min\d{2}sec)_fish_\d+$"  # a fish's file name
+
+
+def recording_days(fish_ids: np.ndarray) -> np.ndarray:
+    """Each fish's recording day, from its file name ('' for names without one: a single day)."""
+    return pd.Series(fish_ids, dtype=str).str.extract(RECORDING)["day"].fillna("").to_numpy()
 
 
 def control_arms(arms: FrozenSet[Arm]) -> FrozenSet[Arm]:
@@ -66,6 +72,9 @@ class Arms:
     at most once per run and per pinning. dataset() is None when the data
     cannot form a dataset; model() raises the (cached) fit error.
 
+    The arms of an NTR contrast keep only the fish of the days both were
+    recorded: siblings of one clutch, compared within the day.
+
     process_factories pins each behavior to its control fit, whose fish include
     every vehicle and danieau arm. A test of a contrast pins it instead to the
     control fit refitted without the contrast's own arms (architecture(behavior,
@@ -86,6 +95,8 @@ class Arms:
         self.dataset_configs = dataset_configs
         self.process_factories = process_factories
         self.contrasts = {c.name: c for c in contrasts}
+        self._same_day = {arm: other for c in contrasts if c.family == "ntr" for arm, other in ((c.reference, c.test), (c.test, c.reference))}
+        self._prepared: Dict[Tuple[str, str, str], Optional[PointProcessDataset]] = {}
         self._datasets: Dict[Tuple[str, str, str], Optional[PointProcessDataset]] = {}
         self._models: Dict[Tuple[str, str, str, FrozenSet[Arm]], Union[PointProcess, Exception]] = {}
         self._architectures: Dict[Tuple[str, FrozenSet[Arm]], PinnedArchitecture] = {}
@@ -125,12 +136,23 @@ class Arms:
         """The pinned model a contrast's tests fit: architecture without its arms."""
         return self.architecture(behavior, self.contrast_arms(contrast))
 
+    def _prepare(self, line: str, condition: str, behavior: str) -> Optional[PointProcessDataset]:
+        key = (line, condition, behavior)
+        if key not in self._prepared:
+            self._prepared[key] = safe_prepare_dataset(
+                self.loaders[self.events[behavior]].subset(line, [condition]), self.dataset_configs[behavior], "/".join(key)
+            )
+        return self._prepared[key]
+
     def dataset(self, line: str, condition: str, behavior: str) -> Optional[PointProcessDataset]:
         key = (line, condition, behavior)
         if key not in self._datasets:
-            self._datasets[key] = safe_prepare_dataset(
-                self.loaders[self.events[behavior]].subset(line, [condition]), self.dataset_configs[behavior], "/".join(key)
-            )
+            ds, other = self._prepare(*key), self._same_day.get((line, condition))
+            partner = None if other is None else self._prepare(*other, behavior)
+            if ds is not None and partner is not None:
+                shared = np.isin(recording_days(ds.fish_ids), recording_days(partner.fish_ids))
+                ds = ds.fish(np.flatnonzero(shared)) if shared.any() else None
+            self._datasets[key] = ds
         return self._datasets[key]
 
     def model(self, line: str, condition: str, behavior: str, exclude: FrozenSet[Arm] = frozenset()) -> PointProcess:

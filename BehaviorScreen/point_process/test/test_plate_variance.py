@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from BehaviorScreen.ablation_screen.plate_variance import PLATE, block_sums, icc, permutation_p, plate_variance
+from BehaviorScreen.ablation_screen.dataset_utils import RECORDING
+from BehaviorScreen.ablation_screen.plate_variance import block_sums, icc, permutation_p, plate_variance
 
 
 def simulate(rho: float, seed: int, blocks: int = 40, plates: int = 3) -> pd.DataFrame:
@@ -20,7 +21,7 @@ def simulate(rho: float, seed: int, blocks: int = 40, plates: int = 3) -> pd.Dat
 
 
 def test_file_name_gives_plate_and_day() -> None:
-    names = pd.Series(["02_07dpf_GR_Wed_18_Mar_2026_15h30min46sec_fish_1"]).str.extract(PLATE)
+    names = pd.Series(["02_07dpf_GR_Wed_18_Mar_2026_15h30min46sec_fish_1"]).str.extract(RECORDING)
     assert names.loc[0].to_dict() == {"plate": "02_07dpf_GR_Wed_18_Mar_2026_15h30min46sec", "day": "18_Mar_2026"}
 
 

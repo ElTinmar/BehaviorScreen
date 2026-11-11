@@ -28,9 +28,7 @@ from BehaviorScreen.point_process.analysis.model_config import get_model_config
 from BehaviorScreen.point_process.point_process.dataset import BehavioralDataLoader
 
 from .count_readouts import COUNT_READOUTS, fish_counts, log_value
-from .dataset_utils import CONTROL_CONDITIONS, safe_prepare_dataset
-
-PLATE = r"(?P<plate>.*_(?P<day>\d{2}_[A-Za-z]{3}_\d{4})_\d{2}h\d{2}min\d{2}sec)_fish_\d+$"
+from .dataset_utils import CONTROL_CONDITIONS, RECORDING, safe_prepare_dataset
 
 
 def fish_values(loaders: Dict[str, BehavioralDataLoader]) -> pd.DataFrame:
@@ -50,7 +48,7 @@ def fish_values(loaders: Dict[str, BehavioralDataLoader]) -> pd.DataFrame:
             tables.append(pd.DataFrame({"readout": name, "line": line, "condition": condition, "file": datasets[key].fish_ids[keep],
                                         "value": log_value(counts[keep][:, None, :], r.parameter)}))
     values = pd.concat(tables, ignore_index=True)
-    names = values["file"].str.extract(PLATE)
+    names = values["file"].str.extract(RECORDING)
     if names["plate"].isna().any():
         raise ValueError(f"no plate in the file names {values.loc[names['plate'].isna(), 'file'].unique()[:5]}")
     return values.join(names)

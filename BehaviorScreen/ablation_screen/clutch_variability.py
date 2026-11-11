@@ -90,7 +90,7 @@ def line_report(param_df: pd.DataFrame, clutch_df: pd.DataFrame, alpha: float = 
     df["reference_offset_sd"] = df["reference_offset"] / tau
     df["z_clutch"] = df["delta"] / np.sqrt(df["delta_se"] ** 2 + np.where(ntr, 0, 2) * df["tau"] ** 2)
     df["p_clutch"] = np.where(ntr, np.nan, 2 * stats.norm.sf(np.abs(df["z_clutch"])))
-    mutants = [add_fdr(g, "p_clutch", alpha, prefix="clutch_") for _, g in df[~ntr].groupby(KEYS)]
+    mutants = [add_fdr(g, "p_clutch", alpha, prefix="clutch_") for _, g in df[~ntr].groupby("behavior")]
     return pd.concat([df[ntr], *mutants], ignore_index=True).rename(
         columns={"clutch_q_value": "q_clutch", "clutch_significant": "significant_clutch"}
     )
