@@ -28,10 +28,11 @@ def test_behavior_runs_and_combines(kept: float, tmp_path: Path, monkeypatch: py
     monkeypatch.setattr(run_screen, "run_tier2_screen", lambda *args, **kwargs: tier2(*args, **{**kwargs, "n_boot": 20}))
     monkeypatch.setattr(run_screen, "bootstrap_parameter_deltas", lambda *args, n_boot: pd.DataFrame())
 
-    run_screen.run_behavior("spont", arms, {"spont": Fresh(poisson(flat()))}, tmp_path, n_perm=99)
+    run_screen.run_behavior("spont", arms, {"spont": Fresh(poisson(flat()))}, tmp_path, n_perm=99, n_sim=30)
     run_screen.combine(["spont"], arms, ["spont"], tmp_path)
 
     tier1 = pd.read_csv(tmp_path / "tier1_results.csv")
     assert set(tier1["status"]) == {"ok"} and len(tier1) == 3
     assert bool(tier1.set_index("line").loc["L1", "significant"]) == (kept < 1)
-    assert (tmp_path / "tier1_map.png").exists()
+    assert tier1.set_index("line")["p_value_plate"].notna().to_dict() == {"WT": True, "L1": True, "mut": False}
+    assert (tmp_path / "tier1_map.png").exists() and (tmp_path / "spont" / "gain_structure.json").exists()

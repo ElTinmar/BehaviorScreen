@@ -33,10 +33,10 @@ def add_fdr(df: pd.DataFrame, pval_col: str = "p_value", alpha: float = 0.05, pr
     df[f"{prefix}significant"] = df[f"{prefix}q_value"] < alpha
     return df
 
-def add_fdr_per_behavior(df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
+def add_fdr_per_behavior(df: pd.DataFrame, alpha: float = 0.05, pval_col: str = "p_value", prefix: str = "") -> pd.DataFrame:
     """One FDR family per behavior, and per contrast family when there is a 'family' column."""
     keys = ["family", "behavior"] if "family" in df.columns else ["behavior"]
     if df.empty:
-        return add_fdr(df, alpha=alpha)
-    parts = [add_fdr(group.copy(), alpha=alpha) for _, group in df.groupby(keys, dropna=False)]
+        return add_fdr(df, pval_col, alpha, prefix)
+    parts = [add_fdr(group.copy(), pval_col, alpha, prefix) for _, group in df.groupby(keys, dropna=False)]
     return pd.concat(parts, ignore_index=True)

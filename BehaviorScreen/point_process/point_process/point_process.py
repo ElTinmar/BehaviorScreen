@@ -3,6 +3,7 @@ from typing import Callable, ClassVar, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from .backend import Arrays, compiled, jnp
 from .dataset import PointProcessDataset
@@ -184,12 +185,24 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         """No frailty: every gain is 1."""
         return np.ones((num_fish, n_sims))
 
-    def _fish_draws(self, num_fish: int, rng: np.random.Generator, dataset: Optional[PointProcessDataset] = None) -> list:
+    def _fish_gains(self, num_fish: int, rng: np.random.Generator, latent: Optional[np.ndarray] = None) -> np.ndarray:
+        """
+        One gain per fish. latent (a standard normal value per fish, dependent between fish):
+        each fish's gain is the quantile of the gain distribution its latent value has in the
+        normal one, so the gains keep their distribution and take the dependence of latent.
+        """
+        if latent is None:
+            return self._draw_fish_gains(num_fish, 1, rng)[:, 0]
+        return np.quantile(self._draw_fish_gains(4096, 1, rng)[:, 0], norm.cdf(latent))
+
+    def _fish_draws(
+        self, num_fish: int, rng: np.random.Generator, dataset: Optional[PointProcessDataset] = None, latent: Optional[np.ndarray] = None,
+    ) -> list:
         """What simulate_stream gets per fish: its gain (pairs of gain and side shift for SideFrailty); dataset: the fish's covariates."""
-        return [float(g) for g in self._draw_fish_gains(num_fish, 1, rng)[:, 0]]
+        return [float(g) for g in self._fish_gains(num_fish, rng, latent)]
 
     def simulate_dataset(
-        self, template: PointProcessDataset, rng: Optional[np.random.Generator] = None
+        self, template: PointProcessDataset, rng: Optional[np.random.Generator] = None, latent: Optional[np.ndarray] = None,
     ) -> PointProcessDataset:
         """
         One dataset from the current parameters with the design of `template`
@@ -197,10 +210,11 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         trials, history reset in every trial. A marked process's streams come
         as (times, marks) and keep their marks. The template's other bouts (not
         events) are kept as they are, around the simulated events, as history.
+        latent: dependence between the fish's gains (_fish_gains); None: independent.
         """
         self._require_fitted()
         rng = rng or np.random.default_rng()
-        draws = self._fish_draws(template.num_fish, rng, template)
+        draws = self._fish_draws(template.num_fish, rng, template, latent)
         others = lambda f_idx, t_idx: {"others": template.other_times(f_idx, t_idx)} if self.uses_history else {}
 
         streams = [

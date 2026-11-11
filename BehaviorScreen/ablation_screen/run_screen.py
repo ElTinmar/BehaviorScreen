@@ -12,6 +12,7 @@ configuration lives in screen_setup.
 screen's tables and maps. Without either, every behavior and then the combination.
 """
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -40,6 +41,7 @@ from BehaviorScreen.ablation_screen.tier1_omnibus import (
 from BehaviorScreen.ablation_screen.fdr import add_fdr_per_behavior
 from BehaviorScreen.ablation_screen.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.ablation_screen.dataset_utils import Arms
+from BehaviorScreen.ablation_screen.gain_structure import GainStructure, calibrate, fish_groups
 # Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.ablation_screen.count_readouts
 from BehaviorScreen.ablation_screen.tier1_config import MAP_COLUMNS
 from BehaviorScreen.ablation_screen.tier2_interaction import plot_tier2_map, run_tier2_screen
@@ -89,12 +91,34 @@ def negative_control(arms: Arms, behavior: str, out: Path) -> None:
         plt.close(fig)
 
 
-def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output_dir: Path, n_perm: int) -> None:
-    """Everything done per behavior, into output_dir / behavior."""
+def gain_structure(behavior: str, arms: Arms, out: Path) -> GainStructure:
+    """
+    The dependence between the control fish of a line, a day and a plate, calibrated on the behavior's control
+    fit and saved in out (gain_structure.json, gain_structure.csv); reused while the control fit is the same.
+    """
+    model = arms.process_factories[behavior].fitted
+    params, path = [float(p) for p in model.params_], out / "gain_structure.json"
+    if path.exists() and (saved := json.loads(path.read_text()))["params"] == params:
+        return GainStructure(**saved["shares"])
+    dataset, control_arms = arms.control(behavior)
+    structure, table = calibrate(model, dataset, fish_groups(dataset.fish_ids, [line for line, _ in control_arms]))
+    out.mkdir(parents=True, exist_ok=True)
+    table.to_csv(out / "gain_structure.csv", index=False)
+    path.write_text(json.dumps({"params": params, "shares": vars(structure)}))
+    print(f"Dependence between the control fish ({behavior}):\n{table.round(3).to_string(index=False)}")
+    return structure
+
+
+def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output_dir: Path, n_perm: int, n_sim: int = 500) -> None:
+    """Everything done per behavior, into output_dir / behavior. n_sim: datasets of each NTR cell's simulated null (0: none)."""
     out = output_dir / behavior
     smoke_test(arms, behavior)
-    tier1_df = run_tier1_screen(arms, behaviors=[behavior], null_process_factories=null_process_factories, n_perm=n_perm, store=output_dir / "cells")
+    structures = {behavior: gain_structure(behavior, arms, out)} if n_sim else None
+    tier1_df = run_tier1_screen(arms, behaviors=[behavior], null_process_factories=null_process_factories, n_perm=n_perm,
+                                store=output_dir / "cells", structures=structures, n_sim=n_sim)
     tier1_df = add_testability(add_fdr_per_behavior(tier1_df, alpha=0.05))
+    if "p_value_plate" in tier1_df:
+        tier1_df = add_fdr_per_behavior(tier1_df, alpha=0.05, pval_col="p_value_plate", prefix="plate_")
     print(tier1_df["status"].value_counts())
     param_df = compute_parameter_deltas(extract_fitted_parameters(tier1_df, arms))
 
@@ -158,6 +182,7 @@ def main() -> None:
     parser.add_argument("--fits-root", type=Path, help="run_analysis --mode fit output of the control screen (default: ./figures).")
     parser.add_argument("--output-dir", type=Path, help="Results (default: ./tier1_results).")
     parser.add_argument("--n-perm", type=int, default=1000, help="Permutations per Tier 1 cell.")
+    parser.add_argument("--n-sim", type=int, default=1000, help="Simulated datasets per NTR cell for p_value_plate (0: none).")
     args = parser.parse_args()
     for name, value in (("SCREEN_DATA_ROOT", args.data_root), ("SCREEN_FITS_ROOT", args.fits_root), ("SCREEN_OUTPUT_DIR", args.output_dir)):
         if value is not None:
@@ -168,7 +193,7 @@ def main() -> None:
         raise SystemExit(f"--behavior must be one of {BEHAVIORS}")
     if not args.combine:
         for behavior in [args.behavior] if args.behavior else BEHAVIORS:
-            run_behavior(behavior, arms, NULL_PROCESS_FACTORY, OUTPUT_DIR, args.n_perm)
+            run_behavior(behavior, arms, NULL_PROCESS_FACTORY, OUTPUT_DIR, args.n_perm, args.n_sim)
     if args.combine or args.behavior is None:
         combine(BEHAVIORS, arms, MAP_ORDER, OUTPUT_DIR)
     print(f"\nDone. Inspect {OUTPUT_DIR}: tier1_results.csv, the p-value histograms and the negative controls.")

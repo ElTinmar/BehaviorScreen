@@ -10,6 +10,7 @@ reference-only + test-only IS the saturated joint model, at lower
 dimensionality and with no risk of the optimizer fragility seen in the
 originally-attempted joint fits.
 """
+import copy
 import math
 import pickle
 from functools import partial
@@ -33,6 +34,7 @@ from BehaviorScreen.point_process.point_process.frailty_analysis import (
 )
 
 from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric, recording_days
+from .gain_structure import GainStructure, fish_groups
 from .arm_contrast import output_metric
 from .model_qc import assess_group_fit
 from .line_names import line_name
@@ -132,6 +134,34 @@ def tier1_permutation_test(
             "permutation_unreliable": False}
 
 
+def tier1_simulated_test(
+    process_factory: Callable[[], PointProcess], m_pooled: PointProcess,
+    ds_ref: PointProcessDataset, ds_test: PointProcessDataset, observed_deviance: float,
+    structure: GainStructure, n_sim: int = 500, seed: int = 0, n_jobs: int = -1,
+) -> Dict:
+    """
+    The deviance's null distribution from datasets simulated from the pooled fit (no difference between
+    the arms) with the contrast's fish, days and plates, the gains of the fish of a day and of a plate
+    dependent as in structure: what the fish-label permutation leaves out when a plate holds one arm.
+    """
+    pooled, n_ref = PointProcessDataset.concat(ds_ref, ds_test), ds_ref.num_fish
+    groups = fish_groups(pooled.fish_ids, "")
+
+    def _one(s: np.random.SeedSequence) -> float | str:
+        rng = np.random.default_rng(s)
+        try:
+            simulated = copy.deepcopy(m_pooled).simulate_dataset(pooled, rng, structure.latent(groups, rng))
+            return fit_tier1(process_factory, simulated.fish(np.arange(n_ref)), simulated.fish(np.arange(n_ref, pooled.num_fish)))[0]
+        except Exception as exc:
+            return repr(exc)
+
+    results = parallel_map(_one, np.random.SeedSequence(seed).spawn(n_sim), n_jobs=n_jobs, desc="Simulated null")
+    report_failures("simulated null", [r for r in results if isinstance(r, str)], n_sim)
+    null = np.array([v for v in results if not isinstance(v, str)])
+    p = (np.sum(null >= observed_deviance) + 1) / (len(null) + 1) if len(null) >= max(20, 0.3 * n_sim) else np.nan
+    return {"p_value_plate": float(p), "n_sim_success": len(null)}
+
+
 def single_param_effect_size(m_ref: PointProcess, m_test: PointProcess, free_param: str,
                               eps: float = 1e-9) -> Dict:
 
@@ -188,7 +218,7 @@ def tier1_effect_size(m_ref: PointProcess, ds_ref: PointProcessDataset,
 def _tier1_one(
     line: str, behavior: str, arms: Arms,
     null_process_factory: Callable[[], PointProcess],
-    min_fish: int = 6, n_perm: int = 500,
+    min_fish: int = 6, n_perm: int = 500, structure: Optional[GainStructure] = None, n_sim: int = 500,
 ) -> Dict:
     contrast = arms.contrasts[line]
     ds_ref, ds_test = arms.datasets(line, behavior)
@@ -246,6 +276,8 @@ def _tier1_one(
                                    observed_deviance=observed_deviance, n_perm=n_perm,
                                    pooled_log_likelihood=m_pooled.log_likelihood, strata=days)
     eff = tier1_effect_size(m_ref, ds_ref, m_test, ds_test)
+    if structure is not None and contrast.family == "ntr":
+        perm |= tier1_simulated_test(arms.process_factory(line, behavior), m_pooled, ds_ref, ds_test, observed_deviance, structure, n_sim)
 
     return {
         "line": line, "behavior": behavior, "status": "ok",
@@ -268,9 +300,12 @@ def _tier1_one(
 def run_tier1_screen(
     arms: Arms, behaviors, null_process_factories,
     n_perm=500, show_progress=True, store: Optional[Path] = None,
+    structures: Optional[Dict[str, GainStructure]] = None, n_sim: int = 500,
 ) -> pd.DataFrame:
     """
     One row per (contrast, behavior); the contrast name is in column 'line'.
+    structures: per behavior, the dependence between fish of a day and of a plate; NTR contrasts then
+    also get p_value_plate, from n_sim datasets simulated with it (tier1_simulated_test).
     store: each row saved there as soon as it is done (store/<behavior>/), and
     reused while the behavior's model, control fit and n_perm are the same.
     """
@@ -279,13 +314,15 @@ def run_tier1_screen(
     for behavior in behaviors if store is not None else []:
         architecture = arms.process_factories[behavior]
         key = {"model": architecture.template.name, "fixed": architecture.fixed, "n_perm": n_perm, "pinning": "control without the contrast's arms",
-               "permutation": "NTR arms: days recorded in both, fish shuffled within day"}
+               "permutation": "NTR arms: days recorded in both, fish shuffled within day",
+               "structure": None if not structures else [structures[behavior].line, structures[behavior].day, structures[behavior].plate, n_sim]}
         done.update({(r["line"], behavior): r for r in load_replicates(store / behavior, key).values()})
     todo = [job for job in jobs if job not in done]
     cell_iter = tqdm(todo, desc="Tier 1 cells", position=0, unit="cell") if show_progress else todo
     for name, behavior in cell_iter:
         try:
-            record = _tier1_one(name, behavior, arms, null_process_factories[behavior], n_perm=n_perm)
+            record = _tier1_one(name, behavior, arms, null_process_factories[behavior], n_perm=n_perm,
+                                structure=(structures or {}).get(behavior), n_sim=n_sim)
         except Exception as e:
             record = {"line": name, "behavior": behavior,
                       "status": f"unexpected_error: {type(e).__name__}: {e}", "p_value": np.nan}
