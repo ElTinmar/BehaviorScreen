@@ -19,6 +19,7 @@ dependencies:
 - psutil
 - qtpy
 - pyside6
+- pytest
 - pip:
   - jax == 0.7.1  # CPU; the likelihoods' exact gradients
   - pyyaml

@@ -1,6 +1,8 @@
 import argparse
-import pandas as pd
 from pathlib import Path
+from typing import Iterable
+
+import pandas as pd
 
 
 def create_parser():
@@ -19,50 +21,32 @@ def create_parser():
     return parser
 
 
-def main(args):
+def merge(root: Path, files: Iterable[Path], check_headers: bool = True) -> pd.DataFrame:
+    """The files' tables stacked, each with its line and condition: the first two folders below root."""
+    tables, headers = [], None
+    for file in files:
+        parts = file.relative_to(root).parts
+        if len(parts) < 3:
+            print(f"Skipping {file}: not in a <line>/<condition> folder of {root}")
+            continue
+        table = pd.read_csv(file)
+        if check_headers and headers is not None and list(table.columns) != headers:
+            raise ValueError(f"CSV headers do not match in {file}. Use --no-header-check to override.")
+        headers = list(table.columns)
+        table.insert(0, "line", parts[0])
+        table.insert(1, "condition", parts[1])
+        tables.append(table)
+    if not tables:
+        raise ValueError(f"no table to merge under {root}")
+    return pd.concat(tables, ignore_index=True)
 
+
+def main(args):
     output = Path(args.output)
     if not output.is_absolute():
         output = args.root / output
-
-    dfs = []
-    headers = None
-
-    for input_str in args.inputs:
-        input_file = args.root / input_str
-
-        try:
-            rel_parts = input_file.relative_to(args.root).parts
-            if len(rel_parts) < 2:
-                raise ValueError(
-                    f"File {input_str} must be at least 2 levels deep inside the root directory."
-                )
-            line, condition = rel_parts[0], rel_parts[1]
-        except ValueError as e:
-            print(f"Skipping {input_str}: {e}")
-            continue
-
-        df = pd.read_csv(input_file)
-
-        if not args.no_header_check:
-            current_headers = list(df.columns)
-            if headers is None:
-                headers = current_headers
-            elif current_headers != headers:
-                raise ValueError(
-                    f"CSV headers do not match in {input_str}. Use --no-header-check to override."
-                )
-
-        df.insert(0, "line", line)
-        df.insert(1, "condition", condition)
-        dfs.append(df)
-
-    if not dfs:
-        print("No valid DataFrames to concatenate.")
-        return
-
-    print(f"Concatenating {len(dfs)} files into {output}...")
-    pd.concat(dfs, ignore_index=True).to_csv(output, index=False)
+    print(f"Concatenating into {output}...")
+    merge(args.root, [args.root / i for i in args.inputs], not args.no_header_check).to_csv(output, index=False)
 
 
 if __name__ == "__main__":
