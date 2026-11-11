@@ -23,7 +23,7 @@ habituate over trials, so a fish missing late trials is not compared with the me
 
 writes tier1_results.csv, tier1_parameters.csv, tier1_map.png, contrasts.csv,
 arm_bootstrap.csv and tier1_absolute/; then
-    python -m BehaviorScreen.screen.ablation.power ./count_results --counts
+    python -m BehaviorScreen.screen.side_analysis.power ./count_results --counts
 """
 import argparse
 import math

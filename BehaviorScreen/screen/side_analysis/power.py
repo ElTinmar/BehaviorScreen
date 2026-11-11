@@ -40,9 +40,9 @@ Output (power/):
 
 Run after run_screen, arm_absolute (optional: bootstrap SEs) and clutch_variability
 (optional: mutant design):
-    python -m BehaviorScreen.screen.ablation.power ./tier1_results [fold changes, default 1.5 2 3]
+    python -m BehaviorScreen.screen.side_analysis.power ./tier1_results [fold changes, default 1.5 2 3]
 or, for the model-free readouts, after count_readouts:
-    python -m BehaviorScreen.screen.ablation.power ./count_results --counts [fold changes]
+    python -m BehaviorScreen.screen.side_analysis.power ./count_results --counts [fold changes]
 """
 import sys
 from pathlib import Path
@@ -56,8 +56,8 @@ from scipy import optimize, stats
 
 from BehaviorScreen.point_process.io import save_fig
 
-from .arm_absolute import with_bootstrap_se
-from .tier1_omnibus import PARAMETER_LABELS
+from BehaviorScreen.screen.ablation.arm_absolute import with_bootstrap_se
+from BehaviorScreen.screen.ablation.tier1_omnibus import PARAMETER_LABELS
 
 KEYS = ["behavior", "parameter"]
 FOLD_CHANGES = (1.5, 2.0, 3.0)
@@ -327,8 +327,8 @@ def map_row_order(tier1_df: pd.DataFrame) -> pd.Series:
 
 
 def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES, counts: bool = False) -> None:
-    from .count_readouts import COUNT_COLUMNS
-    from .tier1_config import MAP_COLUMNS
+    from BehaviorScreen.screen.ablation.count_readouts import COUNT_COLUMNS
+    from BehaviorScreen.screen.ablation.tier1_config import MAP_COLUMNS
 
     columns = COUNT_COLUMNS if counts else MAP_COLUMNS
 

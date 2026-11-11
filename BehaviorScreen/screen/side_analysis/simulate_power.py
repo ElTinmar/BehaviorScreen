@@ -18,7 +18,7 @@ clutch variance, which cost both alike, are not simulated.
 Outputs (OUTPUT/): simulations.csv (one p per replicate and test),
 power.csv (rate at alpha and at 0.05 with its binomial SE), power.png.
 
-    python -m BehaviorScreen.screen.ablation.simulate_power OUTPUT
+    python -m BehaviorScreen.screen.side_analysis.simulate_power OUTPUT
         [--behaviors looming okr] [--folds 0.5 0.67 1 1.5 2] [--reps 50]
         [--alpha 0.05/60] [--model-perm 0] [--jobs -1]
 """
@@ -39,9 +39,9 @@ from BehaviorScreen.point_process.io import save_fig
 from BehaviorScreen.point_process.parallel import parallel_map
 from BehaviorScreen.point_process.point_process import PointProcess
 
-from .count_readouts import COUNT_READOUTS, count_test, fish_counts
-from .tier1_config import PinnedArchitecture
-from .tier1_omnibus import fit_tier1, tier1_permutation_test
+from BehaviorScreen.screen.ablation.count_readouts import COUNT_READOUTS, count_test, fish_counts
+from BehaviorScreen.screen.ablation.tier1_config import PinnedArchitecture
+from BehaviorScreen.screen.ablation.tier1_omnibus import fit_tier1, tier1_permutation_test
 
 
 @dataclass
@@ -147,7 +147,7 @@ def plot_power(table: pd.DataFrame, alpha: float) -> plt.Figure:
 
 
 def main(args: argparse.Namespace) -> None:
-    from .screen_setup import BEHAVIOR_CONFIG, CONTRASTS, arms  # loads the event tables and control fits
+    from BehaviorScreen.screen.ablation.screen_setup import BEHAVIOR_CONFIG, CONTRASTS, arms  # loads the event tables and control fits
 
     args.output.mkdir(parents=True, exist_ok=True)
     jobs = make_jobs(BEHAVIOR_CONFIG, arms, CONTRASTS, args.folds, args)

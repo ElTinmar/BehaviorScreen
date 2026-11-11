@@ -4,7 +4,7 @@ and screen.yaml's common_filters, as the screen's loaders apply them), and the r
 time they add up to. Recordings of the phototaxis protocol alone are re-runs, not more fish:
 they are counted apart.
 
-    python -m BehaviorScreen.screen.ablation.sample_sizes [--data-root DIR] [-o line_sample_sizes.png]
+    python -m BehaviorScreen.screen.side_analysis.sample_sizes [--data-root DIR] [-o line_sample_sizes.png]
 """
 import argparse
 from pathlib import Path

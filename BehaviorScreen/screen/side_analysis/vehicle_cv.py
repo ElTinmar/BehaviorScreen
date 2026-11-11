@@ -29,7 +29,7 @@ Outputs (OUTPUT/):
                          vehicle fish pooled (adds arm-to-arm differences) and fish
                          per arm from the median within-arm values
 
-    python -m BehaviorScreen.screen.ablation.vehicle_cv ROOT OUTPUT [--lines 60]
+    python -m BehaviorScreen.screen.side_analysis.vehicle_cv ROOT OUTPUT [--lines 60]
 """
 import argparse
 from pathlib import Path
@@ -44,8 +44,8 @@ from BehaviorScreen.screen.analysis.model_config import EVENT_TABLES, get_model_
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 
-from .dataset_utils import safe_prepare_dataset
-from .tier1_config import MAP_COLUMNS
+from BehaviorScreen.screen.ablation.dataset_utils import safe_prepare_dataset
+from BehaviorScreen.screen.ablation.tier1_config import MAP_COLUMNS
 
 ESCAPES = {"looming", "dark_flash", "looming_divergent_saccade"}  # survival readouts: share of trials with an escape
 DIRECTION_SIDE = {"looming": Laterality.CONTRALATERAL}  # away; ipsi otherwise
