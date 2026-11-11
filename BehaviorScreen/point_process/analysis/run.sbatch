@@ -36,4 +36,8 @@ srun conda run --no-capture-output -n BehaviorScreen \
     --mode fit \
     --data-root "$DATA_DIR" \
     --output-dir "$OUT_DIR" \
-    --n-jobs "$SLURM_CPUS_PER_TASK"
+    --n-jobs "${N_JOBS:-$SLURM_CPUS_PER_TASK}" \
+    --bouts bouts_all.csv \
+    --saccades saccades_augmented_all.csv \
+    --valid-trials valid_trials_all.csv \
+    --qc qc_all.csv \
