@@ -168,7 +168,6 @@ class TestPoissonProcessRecovery:
 # =============================================================================
 
 
-@pytest.mark.slow
 class TestHawkesProcessRecovery:
 
     def test_homogeneous_baseline_exponential_history(self, rng_factory):
@@ -216,7 +215,6 @@ class TestHawkesProcessRecovery:
 # =============================================================================
 
 
-@pytest.mark.slow
 class TestRenewalProcessRecovery:
 
     def test_homogeneous_baseline_exponential_excitation(self, rng_factory):
@@ -252,7 +250,6 @@ class TestRenewalProcessRecovery:
 # =============================================================================
 
 
-@pytest.mark.slow
 class TestSurvivalProcessRecovery:
 
     def test_gaussian_bump_baseline(self, rng_factory):
@@ -293,7 +290,6 @@ class TestSurvivalProcessRecovery:
 # =============================================================================
 
 
-@pytest.mark.slow
 class TestGammaMixedEffectsProcessRecovery:
 
     def test_poisson_homogeneous_base(self, rng_factory):
@@ -325,7 +321,6 @@ class TestGammaMixedEffectsProcessRecovery:
 # =============================================================================
 
 
-@pytest.mark.slow
 class TestZeroInflatedGammaMixedEffectsProcessRecovery:
 
     def test_poisson_homogeneous_base_hard_nonresponders(self, rng_factory):
@@ -376,7 +371,6 @@ class TestZeroInflatedGammaMixedEffectsProcessRecovery:
 # =============================================================================
 
 
-@pytest.mark.slow
 class TestBaselineOnlyFrailtyHawkesProcessRecovery:
 
     def test_homogeneous_baseline_exponential_history(self, rng_factory):
@@ -417,9 +411,9 @@ class TestBaselineOnlyFrailtyHawkesProcessRecovery:
 # =============================================================================
 
 
-@pytest.mark.slow
 class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
 
+    @pytest.mark.slow
     def test_homogeneous_baseline_exponential_history_hard_nonresponders(
         self,
         rng_factory,

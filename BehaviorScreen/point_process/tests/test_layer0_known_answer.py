@@ -221,28 +221,20 @@ class TestSurvivalKnownAnswer:
 class TestGammaFrailtyCompensatorKnownAnswer:
 
     def test_predictive_increment_matches_gamma_laplace_transform(self):
-        r = 3.0
-        n_previous = 4
-        s_previous = 2.5
-        delta_s = 0.7
+        """-log P(no event on the next exposure), the gain's posterior after 4 events being Gamma(r + 4, r + s)."""
+        r, n_previous, s_previous, delta_s = 3.0, 4, 2.5, 0.7
+        no_event_probability = ((r + s_previous) / (r + s_previous + delta_s)) ** (r + n_previous)
+        computed = GammaGain(r, r).tau(n_previous, s_previous, s_previous + delta_s)
+        assert computed == pytest.approx(-np.log(no_event_probability), rel=1e-12)
 
-        posterior_shape = r + n_previous
-        posterior_rate = r + s_previous
+    def test_marginal_matches_quadrature(self):
+        """log of the integral of p(g) g^N exp(-g S) over the gain, shape and rate not equal."""
+        from scipy.integrate import quad
+        from scipy.stats import gamma
 
-        no_event_probability = (
-            posterior_rate / (posterior_rate + delta_s)
-        ) ** posterior_shape
-
-        expected = -np.log(no_event_probability)
-
-        implemented_formula = (r + n_previous) * np.log(
-            (r + s_previous + delta_s) / (r + s_previous)
-        )
-
-        assert implemented_formula == pytest.approx(
-            expected,
-            rel=1e-12,
-        )
+        shape, rate, n_events, exposure = 2.5, 1.7, 6, 3.2
+        expected = np.log(quad(lambda g: gamma.pdf(g, shape, scale=1 / rate) * g**n_events * np.exp(-g * exposure), 0, np.inf)[0])
+        assert GammaGain(shape, rate).log_marginal(n_events, exposure) == pytest.approx(expected, rel=1e-10)
 
 
 class TestZeroInflatedFrailtyCompensatorKnownAnswer:

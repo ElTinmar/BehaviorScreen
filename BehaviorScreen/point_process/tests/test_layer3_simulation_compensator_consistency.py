@@ -86,7 +86,7 @@ def _km_exp1_sup_distance(
 def _assert_residuals_exp1_calibrated(
     model,
     dataset: PointProcessDataset,
-    max_sup_distance: float = 0.06,
+    max_sup_distance: float = 0.03,
     min_at_risk: int = 20,
     min_exact: int = 100,
 ):
@@ -155,7 +155,6 @@ class TestPoissonSimulationCompensatorConsistency:
         _assert_residuals_exp1_calibrated(model, dataset)
 
 
-@pytest.mark.slow
 class TestHawkesSimulationCompensatorConsistency:
 
     def test_homogeneous_baseline_exponential_history(self, rng_factory):
@@ -182,7 +181,6 @@ class TestHawkesSimulationCompensatorConsistency:
         _assert_residuals_exp1_calibrated(model, dataset)
 
 
-@pytest.mark.slow
 class TestRenewalSimulationCompensatorConsistency:
 
     def test_homogeneous_baseline_exponential_excitation(self, rng_factory):
@@ -227,7 +225,6 @@ class TestSurvivalSimulationCompensatorConsistency:
         _assert_residuals_exp1_calibrated(model, dataset)
 
 
-@pytest.mark.slow
 class TestGammaFrailtySimulationCompensatorConsistency:
 
     def test_homogeneous_poisson_base(self, rng_factory):
@@ -261,15 +258,9 @@ class TestGammaFrailtySimulationCompensatorConsistency:
             fish_gains=gains,
         )
 
-        _assert_residuals_exp1_calibrated(
-            model,
-            dataset,
-            max_sup_distance=0.07,
-            min_at_risk=20,
-        )
+        _assert_residuals_exp1_calibrated(model, dataset)
 
 
-@pytest.mark.slow
 class TestZeroInflatedGammaFrailtySimulationCompensatorConsistency:
 
     def test_homogeneous_poisson_hard_nonresponders(self, rng_factory):
@@ -310,15 +301,9 @@ class TestZeroInflatedGammaFrailtySimulationCompensatorConsistency:
 
         assert np.sum(gains == 0.0) > 30
 
-        _assert_residuals_exp1_calibrated(
-            model,
-            dataset,
-            max_sup_distance=0.08,
-            min_at_risk=20,
-        )
+        _assert_residuals_exp1_calibrated(model, dataset)
 
 
-@pytest.mark.slow
 class TestBaselineOnlyFrailtyHawkesCompensatorConsistency:
 
     def test_homogeneous_baseline_exponential_history(self, rng_factory):
@@ -367,15 +352,9 @@ class TestBaselineOnlyFrailtyHawkesCompensatorConsistency:
             fish_gains=gains,
         )
 
-        _assert_residuals_exp1_calibrated(
-            model,
-            dataset,
-            max_sup_distance=0.08,
-            min_at_risk=20,
-        )
+        _assert_residuals_exp1_calibrated(model, dataset)
 
 
-@pytest.mark.slow
 class TestZeroInflatedBaselineOnlyFrailtyHawkesCompensatorConsistency:
 
     def test_hard_nonresponders(self, rng_factory):
@@ -430,9 +409,4 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesCompensatorConsistency:
             fish_gains=gains,
         )
 
-        _assert_residuals_exp1_calibrated(
-            model,
-            dataset,
-            max_sup_distance=0.09,
-            min_at_risk=20,
-        )
+        _assert_residuals_exp1_calibrated(model, dataset)

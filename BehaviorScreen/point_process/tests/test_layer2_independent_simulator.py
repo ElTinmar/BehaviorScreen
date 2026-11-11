@@ -154,7 +154,6 @@ class TestPoissonIndependentSimulatorRecovery:
         assert_recovered("B", model.param_dict_["B"], true_B, rtol=0.08)
 
 
-@pytest.mark.slow
 class TestHawkesIndependentSimulatorRecovery:
 
     def test_homogeneous_baseline_exponential_history(self, rng_factory):
@@ -185,7 +184,6 @@ class TestHawkesIndependentSimulatorRecovery:
         assert_recovered("beta_hawkes", pd["beta_hawkes"], true_beta, rtol=0.35)
 
 
-@pytest.mark.slow
 class TestRenewalIndependentSimulatorRecovery:
 
     def test_homogeneous_baseline_exponential_excitation(self, rng_factory):

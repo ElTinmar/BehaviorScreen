@@ -141,7 +141,7 @@ def test_time_rescaling_calibrated(kind):
     model.fit_result = DummyFitResult()
     tr = model.time_rescaling(data)
     residuals, censored = np.asarray(tr["residuals"], float), np.asarray(tr["censored"], bool)
-    assert _km_exp1_sup_distance(model, residuals, censored) <= 0.07
+    assert _km_exp1_sup_distance(model, residuals, censored) <= 0.03
 
 
 def test_estimated_gains_exclude_the_factor():

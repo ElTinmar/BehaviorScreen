@@ -226,7 +226,6 @@ class TestParametricGOFSurvival:
         )
 
 
-@pytest.mark.slow
 class TestParametricGOFPower:
 
     def test_poisson_rejects_strong_hawkes_data(
