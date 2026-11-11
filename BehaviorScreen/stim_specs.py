@@ -402,8 +402,7 @@ def exclude_qc_fish(
     result = dataframe.copy()
 
     if not quality_control_path.exists():
-        print(f"[qc] File does not exist; no fish excluded: " f"{quality_control_path}")
-        return result
+        raise FileNotFoundError(f"[qc] {quality_control_path} does not exist: no fish would be excluded")
 
     if file_column not in result.columns:
         raise ValueError(f"The input table has no {file_column!r} column.")

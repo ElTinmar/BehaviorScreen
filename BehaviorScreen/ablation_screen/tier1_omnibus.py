@@ -349,7 +349,8 @@ def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFram
                 "significant": bool(row.get("significant", False)),
             })
 
-    return pd.DataFrame(records)
+    columns = ["family", "line", "behavior", "parameter", "value_reference", "value_test", "se_reference", "se_test", "significant"]
+    return pd.DataFrame(records, columns=columns)
 
 
 def _dot_size(se: float, se_half_size: float) -> float:
