@@ -19,7 +19,7 @@ python -m BehaviorScreen.preprocessing.download_model
 ## Usage
 
 ```
-python -m BehaviorScreen /path/to/data_folder /path/to/model_folder
+python -m BehaviorScreen.preprocessing /path/to/data_folder /path/to/model_folder
 ```
 
 ## TODO

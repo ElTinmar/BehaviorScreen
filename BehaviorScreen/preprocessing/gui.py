@@ -1,5 +1,5 @@
 """
-Desktop front end of the preprocessing (python -m BehaviorScreen) and of the
+Desktop front end of the preprocessing (python -m BehaviorScreen.preprocessing) and of the
 overlay videos (python -m BehaviorScreen.preprocessing.overlay). The forms are built from the
 two command-line parsers; a run is those commands in a subprocess, with their
 output in the log. Settings are kept between sessions.
@@ -27,8 +27,8 @@ from qtpy.QtWidgets import (
     QMainWindow, QPlainTextEdit, QPushButton, QScrollArea, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
 
-from BehaviorScreen.__main__ import STEPS
-from BehaviorScreen.__main__ import build_parser as pipeline_parser
+from BehaviorScreen.preprocessing.__main__ import STEPS
+from BehaviorScreen.preprocessing.__main__ import build_parser as pipeline_parser
 from BehaviorScreen.preprocessing.overlay import build_parser as overlay_parser
 from BehaviorScreen.preprocessing.status import tab_status
 
