@@ -44,11 +44,16 @@ Run every command from the repository root.
 One line and condition (`<screen>/<line>/<condition>`) at a time:
 
 ```
-python -m BehaviorScreen.preprocessing /path/to/data_folder /path/to/model_folder
+python -m BehaviorScreen.preprocessing /path/to/screen/line/condition
 ```
 
-`--steps` selects among export, pose, eye_crop, eye_pose, qc, bouts, heatmaps and saccades;
-`scripts/Slurm/full_pipeline.sbatch` runs it on the cluster.
+`--steps` selects among export, pose, eye_crop, eye_pose, qc, bouts, saccades and heatmaps (default: all, in that order).
+Every folder of a screen, on the cluster (one job per folder) or locally:
+
+```
+bash BehaviorScreen/preprocessing/submit.sh /path/to/screen [--steps qc heatmaps]
+ls -d /path/to/screen/*/*/ | xargs -P 4 -I{} python -m BehaviorScreen.preprocessing {} --steps qc heatmaps
+```
 
 ### 2. Screen-wide tables
 

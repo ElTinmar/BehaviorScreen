@@ -1,4 +1,6 @@
 #!/bin/bash -l
+# Tracking overlay videos of one <line>/<condition> folder:
+#   sbatch BehaviorScreen/preprocessing/overlay.sbatch FOLDER
 #SBATCH -o /u/mapri/logs/job.out.%j
 #SBATCH -e /u/mapri/logs/job.err.%j
 #SBATCH -D /u/mapri/Code/BehaviorScreen
@@ -10,12 +12,12 @@
 #SBATCH --time=24:00:00
 
 module purge
-module load anaconda/3/2023.03 cuda/13.0
+module load anaconda/3/2023.03 
 
 INPUT_PATH=$1
 FILE_NAME=$(basename "$INPUT_PATH")
 PARENT_DIR=$(basename "$(dirname "$INPUT_PATH")")
-JOB_NAME="pose_estimation_${PARENT_DIR}/${FILE_NAME}"
+JOB_NAME="video_overlay_${PARENT_DIR}/${FILE_NAME}"
 scontrol update JobId=$SLURM_JOB_ID Name=$JOB_NAME
 
-srun conda run --no-capture-output -n BehaviorScreen python -m BehaviorScreen.preprocessing.pose_estimation "$INPUT_PATH" 
+srun conda run --no-capture-output -n BehaviorScreen python -m BehaviorScreen.preprocessing.overlay "$INPUT_PATH" --metadata='results' --stimuli='results' --tracking='results' --video='results' --video-timestamp='results'
