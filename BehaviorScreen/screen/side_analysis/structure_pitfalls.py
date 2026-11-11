@@ -4,8 +4,9 @@ for a non-specialist audience: one figure per mechanism, read left to right
 (the situation, then what a simple analysis makes of it). Numbers like
 the prey-capture control fits: about 5.5 J-turns in a 24 s trial.
 
-    python structure_pitfalls.py  ->  structure_1_history.png, structure_2_trials.png,
-                                      structure_3_time.png, structure_4_timing.png
+    python -m BehaviorScreen.screen.side_analysis.structure_pitfalls
+
+writes structure_1_history.png, structure_2_trials.png, structure_3_time.png, structure_4_timing.png.
 """
 import matplotlib.pyplot as plt
 import numpy as np

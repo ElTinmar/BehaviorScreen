@@ -7,7 +7,7 @@ kernel values computed here, which the page checks its own kernels against.
 With a data root, also the events the ladders were fitted to, as histograms the
 page draws beside its simulations.
 
-    python -m BehaviorScreen.screen.analysis.export_kernel_demo [-o <fit output dir>] [-d <data root>]
+    python -m BehaviorScreen.screen.side_analysis.export_kernel_demo [-o <fit output dir>] [-d <data root>]
 """
 import argparse
 import json

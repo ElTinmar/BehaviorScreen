@@ -2,7 +2,7 @@
 Gaps between each selected bout and the bout before it (of any category or
 side), for one experiment of model_config: how many fall under the dead time.
 
-    python check_bout_gaps.py <data_root> prey_capture
+    python -m BehaviorScreen.screen.side_analysis.check_bout_gaps <data_root> prey_capture
 """
 import sys
 from pathlib import Path

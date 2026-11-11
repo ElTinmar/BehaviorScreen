@@ -1,11 +1,11 @@
 """
 Between-fish variability of bout rates and screen readouts in the Marques et al. 2018 tracking data.
 
-    python marques_cv.py download ./marques_data
-    python marques_cv.py analyze ./marques_data ./marques_cv
-    python marques_cv.py fig3a ./marques_data ./marques_fig3a
-    python marques_cv.py inventory ./marques_data ./marques_inventory
-    python marques_cv.py compare ./marques_cv/readouts.csv ./vehicle_cv/vehicle_cv.csv ./marques_cv
+    python -m BehaviorScreen.screen.side_analysis.marques_cv download ./marques_data
+    python -m BehaviorScreen.screen.side_analysis.marques_cv analyze ./marques_data ./marques_cv
+    python -m BehaviorScreen.screen.side_analysis.marques_cv fig3a ./marques_data ./marques_fig3a
+    python -m BehaviorScreen.screen.side_analysis.marques_cv inventory ./marques_data ./marques_inventory
+    python -m BehaviorScreen.screen.side_analysis.marques_cv compare ./marques_cv/readouts.csv ./vehicle_cv/vehicle_cv.csv ./marques_cv
 
 `compare` plots the between-fish CV of each readout in the screen's vehicle arms (vehicle_cv)
 against Marques at the screen's trials (cv_screen, median over experiments): screen_vs_marques.png.

@@ -50,7 +50,7 @@
 <p class="sub">Each experiment's candidate models (the null first), as in <code>model_config.py</code>, in Tier 1 map order.
 The Tier 1 model of an experiment, its best rung (<code>best_model.json</code>, when exported from a fit run), is marked and shown first; ★ marks its parameters
 fitted per arm, every other one being pinned to the control fit. Pick a rung to see its formula, move the sliders to reshape it. Parameters start at the fitted values when the page was exported from a fit run
-(<code>export_kernel_demo -o &lt;output dir&gt;</code>), else at the initial guesses. Plots keep their y range while you move sliders or change rung, so changes show as they are; <b>Rescale axes</b> fits them again (a new experiment starts rescaled). Picking a rung sets the sliders to its values. Regenerate with <code>python -m BehaviorScreen.screen.analysis.export_kernel_demo</code>; with a data root
+(<code>export_kernel_demo -o &lt;output dir&gt;</code>), else at the initial guesses. Plots keep their y range while you move sliders or change rung, so changes show as they are; <b>Rescale axes</b> fits them again (a new experiment starts rescaled). Picking a rung sets the sliders to its values. Regenerate with <code>python -m BehaviorScreen.screen.side_analysis.export_kernel_demo</code>; with a data root
 (<code>-d &lt;data root&gt;</code>) the page also shows the events the ladders were fitted to (dots, and the data surface).</p>
 <div id="banner"></div>
 
