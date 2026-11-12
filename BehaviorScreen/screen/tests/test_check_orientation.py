@@ -80,9 +80,11 @@ def test_few_fish_or_events_are_inconclusive() -> None:
 
 def test_command_reads_the_merged_tables_and_fails_on_a_disagreement(tmp_path: Path, capsys: pytest.CaptureFixture) -> None:
     def write(**flipped: int) -> None:
-        bouts, saccades = screen(**flipped)
+        """As in the merged tables: a line named by a number among the others, and events outside any trial (no stimulus, no time)."""
+        bouts, saccades = (pd.concat(kind, ignore_index=True) for kind in zip(screen(**flipped, num_fish=6), screen(**flipped, num_fish=6, line="1010", seed=1)))
+        outside = saccades.iloc[:3].assign(stim=np.nan, event_timestamp=np.nan)
         bouts.assign(distance=1.0).to_csv(tmp_path / "bouts_all.csv", index=False)
-        saccades.to_csv(tmp_path / "saccades_augmented_all.csv", index=False)
+        pd.concat([saccades, outside]).to_csv(tmp_path / "saccades_augmented_all.csv", index=False)
 
     write()
     main(tmp_path)

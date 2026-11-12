@@ -34,7 +34,7 @@ SACCADE_COLUMNS = ["file", "line", "condition", "stim", "saccade_category", "eve
 
 
 def control(events: pd.DataFrame) -> pd.DataFrame:
-    return events[events["condition"].isin(CONTROL_CONDITIONS) & ~events["line"].astype(str).isin(MUTANT_REFERENCES)]
+    return events[events["condition"].isin(CONTROL_CONDITIONS) & ~events["line"].isin(MUTANT_REFERENCES)]
 
 
 def sided(events: pd.DataFrame, stim: Stim) -> pd.DataFrame:
@@ -43,7 +43,7 @@ def sided(events: pd.DataFrame, stim: Stim) -> pd.DataFrame:
 
 def pairs(turns: pd.DataFrame, saccades: pd.DataFrame) -> pd.DataFrame:
     """Each conjugate saccade without stimulus with the nearest turn of its fish within PAIR_WINDOW_S."""
-    quiet = lambda events: events[events["stim"].isin([int(Stim.DARK), int(Stim.BRIGHT)])].dropna(subset=["event_timestamp"]).sort_values("event_timestamp")
+    quiet = lambda events: events[events["stim"].isin([int(Stim.DARK), int(Stim.BRIGHT)])].dropna(subset=["event_timestamp"]).astype({"event_timestamp": "int64"}).sort_values("event_timestamp")
     return pd.merge_asof(
         quiet(saccades[saccades["event_direction"].isin([-1, 1])]), quiet(turns[turns["sign"].isin([-1, 1])])[["file", "event_timestamp", "sign"]],
         on="event_timestamp", by="file", direction="nearest", tolerance=int(PAIR_WINDOW_S * 1e9),
@@ -88,7 +88,8 @@ def diagnosis(table: pd.DataFrame) -> str:
 
 
 def main(root: Path) -> None:
-    table = check(pd.read_csv(root / "bouts_all.csv", usecols=BOUT_COLUMNS), pd.read_csv(root / "saccades_augmented_all.csv", usecols=SACCADE_COLUMNS))
+    read = lambda name, columns: pd.read_csv(root / name, usecols=columns, dtype={"line": str, "condition": str})
+    table = check(read("bouts_all.csv", BOUT_COLUMNS), read("saccades_augmented_all.csv", SACCADE_COLUMNS))
     print(table.to_string(index=False, float_format=lambda x: f"{x:.3g}"))
     message = diagnosis(table)
     if message.startswith("IN"):
