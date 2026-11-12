@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from BehaviorScreen.core import SACCADE_CLASS_NAMES
+from BehaviorScreen.preprocessing.rig import SACCADE_NAMES
 from BehaviorScreen.preprocessing.saccades.paper_reference import LABEL_COLORS
 
 REFERENCE_COLOR = "#d9d9d9"
@@ -46,7 +46,7 @@ def plot_umap(events: pd.DataFrame, reference: np.ndarray, max_points: int = 500
     counts = assigned["cluster"].astype(int).value_counts()
     for label in sorted(counts.index):
         ax.scatter([], [], s=20, color=LABEL_COLORS.get(label, "black"),
-                   label=f"{SACCADE_CLASS_NAMES.get(label, label)} ({counts[label]:,})")
+                   label=f"{SACCADE_NAMES.get(label, label)} ({counts[label]:,})")
     ax.legend(fontsize=7, frameon=False, loc="best")
     ax.set_title(f"Assigned saccade class ({len(assigned):,} events; grey: reference)", fontsize=10)
     ax.set(xlabel="UMAP 1", ylabel="UMAP 2")

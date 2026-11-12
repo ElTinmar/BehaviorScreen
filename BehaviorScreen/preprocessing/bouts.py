@@ -34,6 +34,7 @@ from megabouts.tracking_data import (
 from BehaviorScreen.preprocessing.event_context import event_context, trial_indices
 from BehaviorScreen.preprocessing.load import Directories, file_younger_than, find_files
 from BehaviorScreen.preprocessing.protocol import bout_laterality
+from BehaviorScreen.preprocessing.rig import bout_direction
 from BehaviorScreen.preprocessing.recording import Recording
 
 
@@ -238,7 +239,7 @@ def get_bout_metrics(rec: Recording, megabout: MegaboutResults) -> list[dict[str
         if trial < 0:
             continue
 
-        sign = int(bouts.sign[i])
+        sign = int(bout_direction(bouts.sign[i]))
         bout = {
             "bout_index": int(i),
             "frame_start": onset,

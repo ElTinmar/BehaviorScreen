@@ -27,7 +27,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from BehaviorScreen.core import SACCADE_CLASS_NAMES
+from BehaviorScreen.preprocessing.rig import SACCADE_NAMES
 
 
 def baseline_correct_traces(
@@ -324,7 +324,7 @@ def plot_cluster_traces(
             linewidth=0.8,
         )
 
-        cluster_name = SACCADE_CLASS_NAMES.get(
+        cluster_name = SACCADE_NAMES.get(
             int(cluster_id),
             f"Unknown cluster {cluster_id}",
         )

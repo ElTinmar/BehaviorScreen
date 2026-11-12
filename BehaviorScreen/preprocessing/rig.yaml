@@ -1,0 +1,18 @@
+# The recording setup: what changes with the rig, not with the analysis (screen.yaml).
+# Lateralities are written by preprocessing: after a change here, run its bouts and saccades steps again.
+
+orientation:
+  # Left and right of the saccade classes of Dowell et al. 2024 are swapped in this rig's image.
+  saccade_classes_mirrored: true
+  # Sign megabouts gives a leftward bout in this rig's image (-1 or 1).
+  bout_sign_left: -1
+
+well:
+  well_radius_mm: 9.75
+  distance_between_well_centers_mm: 22
+
+eye_crop:
+  size_mm: 1.6
+  px_per_mm: 40.0  # TODO get px_per_mm from metadata
+
+shader_clock_period_s: 3600  # ZebVR

@@ -7,8 +7,9 @@ import cv2
 from video_tools import FFMPEG_VideoWriter_CPU
 from tqdm import tqdm
 from BehaviorScreen.preprocessing.load import load_lightning_pose, write_complete
+from BehaviorScreen.preprocessing.rig import RIG
 
-EYE_CROP_MM, EYE_CROP_PX_PER_MM = 1.6, 40.0  # TODO get px_per_mm from metadata
+EYE_CROP_MM, EYE_CROP_PX_PER_MM = RIG["eye_crop"]["size_mm"], RIG["eye_crop"]["px_per_mm"]
 
 
 def eye_crop_size(crop_size_mm: float = EYE_CROP_MM, px_per_mm: float = EYE_CROP_PX_PER_MM) -> int:

@@ -2,9 +2,9 @@ from BehaviorScreen.core import (
     EventDirection,
     Laterality,
     Stim,
-    SACCADE_CLASS_DIRECTIONS,
     SACCADE_NONDIRECTIONAL_CLASSES,
 )
+from BehaviorScreen.preprocessing.rig import SACCADE_CLASS_DIRECTIONS
 from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass
 import numpy as np

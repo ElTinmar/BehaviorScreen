@@ -6,7 +6,7 @@ class MyIntEnum(IntEnum):
         return self.name
 
 
-# Valid for my data, needs checking
+# In the rig's image (preprocessing/rig.yaml)
 class EventDirection(MyIntEnum):
     LEFT = -1
     RIGHT = 1
@@ -39,7 +39,7 @@ class Stim(MyIntEnum):
 SACCADE_CLASS_NAMES = {
     -1: "Unassigned",
     0: "Unclassified",
-    1: "Conjugate left",  # NOTE left is probably right in my setup
+    1: "Conjugate left",
     2: "Conjugate right",
     3: "Miniature convergent",
     4: "Convergent",
@@ -62,12 +62,12 @@ SACCADE_CLASS_COLORS = {
     8: "#00bfc4",
 }
 
-# NOTE flipped for my dataset
-SACCADE_CLASS_DIRECTIONS = {
-    1: EventDirection.RIGHT,
-    2: EventDirection.LEFT,
-    7: EventDirection.LEFT,
-    8: EventDirection.RIGHT,
+# As named by Dowell et al. 2024; a rig's own left and right: preprocessing/rig.yaml
+SACCADE_REFERENCE_DIRECTIONS = {
+    1: EventDirection.LEFT,
+    2: EventDirection.RIGHT,
+    7: EventDirection.RIGHT,
+    8: EventDirection.LEFT,
 }
 
 

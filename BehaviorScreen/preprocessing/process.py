@@ -7,6 +7,7 @@ import pandas as pd
 from video_tools import OpenCV_VideoReader
 
 from BehaviorScreen.preprocessing.protocol import PROTOCOL_SPEC
+from BehaviorScreen.preprocessing.rig import RIG
 
 
 class WellDimensions(TypedDict):
@@ -14,10 +15,7 @@ class WellDimensions(TypedDict):
     distance_between_well_centers_mm: float
 
 
-AGAROSE_WELL_DIMENSIONS: WellDimensions = {
-    "well_radius_mm": 19.5 / 2,
-    "distance_between_well_centers_mm": 22,
-}
+AGAROSE_WELL_DIMENSIONS: WellDimensions = RIG["well"]
 
 
 def get_background_image_safe(

@@ -28,7 +28,7 @@ from megabouts.utils import bouts_category_name, bouts_category_name_short, bout
 from tqdm import tqdm
 from video_tools import FFMPEG_VideoWriter_CPU
 
-from BehaviorScreen.core import SACCADE_CLASS_COLORS, SACCADE_CLASS_NAMES, EventDirection, Stim
+from BehaviorScreen.core import SACCADE_CLASS_COLORS, EventDirection, Stim
 from BehaviorScreen.preprocessing.saccades.detect_saccades import extract_raw_eye_angles
 from BehaviorScreen.preprocessing.saccades.saccade_pipeline import DetectionConfig
 from BehaviorScreen.preprocessing.event_context import trial_indices
@@ -37,6 +37,7 @@ from BehaviorScreen.preprocessing.bouts import load_megabout
 from BehaviorScreen.preprocessing.pose_estimation import eye_crop_matrix, eye_crop_size
 from BehaviorScreen.preprocessing.process import compute_angle_between_vectors
 from BehaviorScreen.preprocessing.protocol import bout_laterality, saccade_laterality
+from BehaviorScreen.preprocessing.rig import SACCADE_NAMES, bout_direction
 from BehaviorScreen.preprocessing.qc import get_per_frame_tracking_error
 from BehaviorScreen.preprocessing.recording import Recording, nearest_indices
 
@@ -663,7 +664,7 @@ def load_tracks(rec: Recording, saccades: Optional[pd.DataFrame], eye_likelihood
     if megabout is not None:
         b = megabout.bouts
         k = min(len(b.onset), len(b.offset), len(b.category), len(b.sign), len(b.proba))
-        bouts = pd.DataFrame({"onset": b.onset[:k], "offset": b.offset[:k], "category": b.category[:k], "sign": b.sign[:k]}).astype(int)
+        bouts = pd.DataFrame({"onset": b.onset[:k], "offset": b.offset[:k], "category": b.category[:k], "sign": bout_direction(b.sign[:k])}).astype(int)
         bouts["proba"] = np.asarray(b.proba[:k], float)
         bouts = bouts[(bouts.onset >= 0) & (bouts.offset > bouts.onset) & (bouts.onset < n)]
         bouts["laterality"] = event_laterality(rec, rec.frame_time_ns[bouts.onset], bouts.sign.to_numpy(), bout_laterality)
@@ -891,7 +892,7 @@ class Scene:
         recent = t.saccades[(t.saccades.onset_s <= time_s) & (time_s < t.saccades.onset_s + SACCADE_LABEL_S)]
         if len(recent):
             cluster, laterality = int(recent.cluster.iloc[-1]), recent.laterality.iloc[-1]
-            text(panel, label(f"saccade: {SACCADE_CLASS_NAMES.get(cluster, cluster)}", laterality), (12, 84), SACCADE_BGR.get(cluster, WHITE), 0.7)
+            text(panel, label(f"saccade: {SACCADE_NAMES.get(cluster, cluster)}", laterality), (12, 84), SACCADE_BGR.get(cluster, WHITE), 0.7)
 
         scale_bar(panel, PANEL_PX / ZOOM_MM, 1, PANEL_PX - 20)
         return panel
@@ -956,7 +957,7 @@ class Scene:
         for s in t.saccades[(t.saccades.onset_s >= start) & (t.saccades.onset_s < stop)].itertuples():
             x_s, color = int(x_of(s.onset_s)), SACCADE_BGR.get(int(s.cluster), WHITE)
             cv2.line(strip, (x_s, top), (x_s, bottom), color, 2)
-            text(strip, label(SACCADE_CLASS_NAMES.get(int(s.cluster), str(s.cluster)), s.laterality), (x_s + 4, top - 6), color, 0.42)
+            text(strip, label(SACCADE_NAMES.get(int(s.cluster), str(s.cluster)), s.laterality), (x_s + 4, top - 6), color, 0.42)
 
         top, bottom = rows["QC"]  # one sample per pixel column, so the bar slides without flicker
         columns = np.arange(MARGIN_PX, MARGIN_PX + width)

@@ -10,13 +10,14 @@ import pandas as pd
 from BehaviorScreen.core import Stim
 from BehaviorScreen.preprocessing.load import fish_metadata
 from BehaviorScreen.preprocessing.recording import Recording, nearest_indices
+from BehaviorScreen.preprocessing.rig import RIG
 from BehaviorScreen.preprocessing.stimulus import (
     looming_constant_velocity_approach,
     prey_capture_arc_stimulus_cosine,
 )
 
 
-ROLLOVER_TIME_S: int = 3600  # ZebVR shader clock period
+ROLLOVER_TIME_S: int = RIG["shader_clock_period_s"]
 
 TRIAL_COLUMNS_TO_EXCLUDE = {
     "start_timestamp",

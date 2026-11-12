@@ -15,10 +15,10 @@ from BehaviorScreen.preprocessing.event_context import event_context, posthoc_po
 from BehaviorScreen.preprocessing.load import Directories, find_files
 from BehaviorScreen.preprocessing.recording import Recording
 from BehaviorScreen.preprocessing.protocol import saccade_laterality
+from BehaviorScreen.preprocessing.rig import SACCADE_CLASS_DIRECTIONS
 from BehaviorScreen.core import (
     SACCADE_CATEGORY_BY_CLUSTER,
     SACCADE_CATEGORY_NAMES,
-    SACCADE_CLASS_DIRECTIONS,
     SACCADE_NONDIRECTIONAL_CLASSES,
 )
 

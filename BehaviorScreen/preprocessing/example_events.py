@@ -12,11 +12,12 @@ import numpy as np
 import pandas as pd
 from megabouts.utils import bouts_category_color, bouts_category_name_short
 
-from BehaviorScreen.core import SACCADE_CLASS_COLORS, SACCADE_CLASS_NAMES
+from BehaviorScreen.core import SACCADE_CLASS_COLORS
 from BehaviorScreen.preprocessing.load import Directories, find_files, parse_fish
 from BehaviorScreen.preprocessing.bouts import MegaboutResults, load_megabout
 from BehaviorScreen.preprocessing.recording import Recording
 from BehaviorScreen.filters import apply_event_filters, exclude_qc_fish, load_yaml_config
+from BehaviorScreen.preprocessing.rig import SACCADE_NAMES
 
 TAIL_SEGMENT = 6  # 7th of 10 tail angles
 TAIL_WINDOW_S = (-0.04, 0.18)  # around the first half-beat
@@ -158,7 +159,7 @@ def plot_saccades(args: argparse.Namespace) -> plt.Figure:
             snippets = traces[rows] - np.nanmedian(traces[rows][:, baseline], axis=1, keepdims=True)
             ax.plot(time_ms, snippets.T, color=color, alpha=0.1, lw=0.5)
             ax.plot(time_ms, np.nanmean(snippets, axis=0), color=color, lw=2)
-        ax.set_title(f"{SACCADE_CLASS_NAMES[cluster]}\n(n={len(rows)})", color=SACCADE_CLASS_COLORS[cluster])
+        ax.set_title(f"{SACCADE_NAMES[cluster]}\n(n={len(rows)})", color=SACCADE_CLASS_COLORS[cluster])
         ax.spines[["top", "right"]].set_visible(False)
     axes[0].set(xlim=(-100, 300), ylim=(-50, 50), xlabel="time from onset (ms)", ylabel="eye position (°)")
     fig.tight_layout()

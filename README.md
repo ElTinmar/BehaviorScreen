@@ -22,6 +22,7 @@ python -m BehaviorScreen.preprocessing.download_model
 BehaviorScreen/
     core.py, filters.py, screen.yaml   shared by every layer: stimulus and laterality codes, saccade classes, filter rules
     preprocessing/                     recordings -> per-fish tables (bouts, saccades, valid trials, QC) and descriptive plots
+        rig.yaml                       the recording setup: left and right in the image, well and eye-crop sizes
     point_process/                     model library: datasets, Poisson / renewal / survival processes, fish gains, inference
     screen/                            the screen itself, built on the two above
         loader.py, merge_screen.py     screen-wide tables and how they are read
