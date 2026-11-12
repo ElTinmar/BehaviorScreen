@@ -1,0 +1,16 @@
+# Events kept for analysis, by the models and the plots alike, in the rule syntax of filters.py.
+
+bout:
+  distance_center: {"<=": 10}
+  centroid_mismatch_max: {"<=": 1000}  # this might inadvertently remove O-bends
+  # proba: {">=": 0.5}
+  distance: {"<=": 100}
+  peak_axial_speed: {"<=": 300}
+  heading_mismatch_max: {"<=": 180}  # this might inadvertently remove O-bends
+  within_trial: {"==": true}
+
+saccade:
+  distance_center: {"<=": 10}
+  features_valid: {"==": true}
+  assignment_rejected: {"==": false}
+  assignment_confidence: {">=": 0.5}

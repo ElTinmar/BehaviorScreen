@@ -158,7 +158,7 @@ def get_epoch_trial_presentation(trials: pd.DataFrame) -> pd.DataFrame:
                 trial[col] in allowed for col, allowed in (spec.parameters or {}).items()
             )
             # Stimulus parameters (colors, speeds, ...) are kept so that
-            # screen.yaml parameter rules can select trials, not only events.
+            # heatmaps.yaml parameter rules can select trials, not only events.
             rows.append(
                 trial.drop(["stim_select", "epoch_name", "trial_num"]).to_dict()
                 | row

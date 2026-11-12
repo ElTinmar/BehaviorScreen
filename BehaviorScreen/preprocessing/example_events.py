@@ -16,7 +16,7 @@ from BehaviorScreen.core import SACCADE_CLASS_COLORS
 from BehaviorScreen.preprocessing.load import Directories, find_files, parse_fish
 from BehaviorScreen.preprocessing.bouts import MegaboutResults, load_megabout
 from BehaviorScreen.preprocessing.recording import Recording
-from BehaviorScreen.filters import apply_event_filters, exclude_qc_fish, load_yaml_config
+from BehaviorScreen.filters import apply_event_filters, exclude_qc_fish
 from BehaviorScreen.preprocessing.rig import SACCADE_NAMES
 
 TAIL_SEGMENT = 6  # 7th of 10 tail angles
@@ -26,9 +26,9 @@ SACCADE_BASELINE_MS = (-200, 0)
 
 
 def select(events: pd.DataFrame, args: argparse.Namespace, kind: str) -> pd.DataFrame:
-    """Same fish and events as the heatmaps: QC exclusions and screen.yaml filters."""
+    """Same fish and events as the heatmaps: QC exclusions and the filters of filters.yaml."""
     events = exclude_qc_fish(events, args.root / args.qc_csv)
-    events = apply_event_filters(events, load_yaml_config(args.yaml), kind)
+    events = apply_event_filters(events, kind)
     if args.line:
         events = events[events.file.map(lambda f: parse_fish(f).line == args.line)]
     return events
@@ -175,7 +175,6 @@ if __name__ == "__main__":
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--line", default=None, help="keep only this line (from the file name), e.g. WT")
     parser.add_argument("--qc-csv", default="qc.csv")
-    parser.add_argument("--yaml", type=Path, default=Path("BehaviorScreen/screen.yaml"))
     parser.add_argument("--output-dir", type=Path, default=Path("plots"), help="relative to root")
     args = parser.parse_args()
 

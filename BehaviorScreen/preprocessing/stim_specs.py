@@ -1,4 +1,4 @@
-"""Stimulus specifications, valid trials and epochs of screen.yaml."""
+"""Stimulus specifications of heatmaps.yaml, valid trials and epochs."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from BehaviorScreen.core import Stim
-from BehaviorScreen.filters import RuleSet, apply_table_filters, parse_rules
+from BehaviorScreen.filters import RuleSet, parse_rules
 
 
 @dataclass(frozen=True)
@@ -239,17 +239,9 @@ def select_events(events: pd.DataFrame, specification: StimSpec) -> pd.DataFrame
     return events.loc[mask]
 
 
-def restrict_trials_to_analysed_fish(
-    valid_trials: pd.DataFrame,
-    events: pd.DataFrame,
-    config: dict,
-) -> pd.DataFrame:
-    """
-    Keep trials of fish that produced events and pass the recording-level
-    common_filters, so excluded or unprocessed fish don't count as zero-event fish.
-    """
-    trials = valid_trials.loc[valid_trials["file"].isin(events["file"].unique())]
-    return apply_table_filters(trials, config, ("common_filters",))
+def restrict_trials_to_analysed_fish(valid_trials: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
+    """Keep trials of fish that produced events, so unprocessed fish don't count as zero-event fish."""
+    return valid_trials.loc[valid_trials["file"].isin(events["file"].unique())]
 
 
 def exclude_unusable_trials(

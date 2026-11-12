@@ -1,23 +1,5 @@
-common_filters:
-  file: {'not_in': [
-    "02_07dpf_GR_Wed_18_Mar_2026_15h30min46sec_fish_1", # went out of arena
-    "02_07dpf_GR_Wed_18_Mar_2026_15h30min46sec_fish_3"  # went out of arena
-  ]}
-
-bout_filters:
-  distance_center: {"<=": 10}
-  proba: {'>=': 0.5}
-  distance: {'<=': 100}
-  peak_axial_speed: {'<=': 300}
-  heading_mismatch_max: {'<=': 180} # this might inadvertently remove O-bends
-  centroid_mismatch_max: {'<=': 1000} # this might inadvertently remove O-bends
-  within_trial: {"==": true}
-
-saccade_filters:
-  distance_center: {"<=": 10}
-  features_valid: {"==": true}
-  assignment_rejected: {"==": false}
-  assignment_confidence: {'>=': 0.5}
+# Layout of the heatmaps and PSTHs: the epochs of each row and their time bins.
+# Which events they show: BehaviorScreen/filters.yaml.
 
 # time bins can also be specified as [start, stop, step]
 time_bins:

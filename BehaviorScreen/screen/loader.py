@@ -22,7 +22,7 @@ class BehavioralDataLoader:
     Events (bouts or saccades) and the trial table (valid_trials.csv) they
     belong to. Fish listed in any qc.csv are dropped from both, and so are
     recordings failing `recording_filters`; events failing `event_filters` are
-    dropped (both in screen.yaml rule syntax, e.g. {"distance_center": {"<=": 10}}).
+    dropped (both in the rule syntax of filters.py, e.g. {"distance_center": {"<=": 10}}).
 
     A stream is one trial, (file, epoch_name, trial_num): epochs pooled into
     one condition (left/right, ipsi/contra) never share a stream. Their trial

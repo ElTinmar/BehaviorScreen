@@ -1,4 +1,4 @@
-"""screen.yaml rules and the table filters built from them."""
+"""The rule syntax of the YAML files, the filters of filters.yaml and the tables they are applied to."""
 
 from __future__ import annotations
 
@@ -9,12 +9,6 @@ from typing import Any
 
 import pandas as pd
 import yaml
-
-
-FILTER_SECTIONS = {
-    "bout": ("common_filters", "bout_filters"),
-    "saccade": ("common_filters", "saccade_filters"),
-}
 
 
 def series_in(series: pd.Series, values: Any) -> pd.Series:
@@ -132,6 +126,9 @@ def load_yaml_config(path: Path) -> dict:
     return config
 
 
+FILTERS = load_yaml_config(Path(__file__).with_name("filters.yaml"))
+
+
 def exclude_qc_fish(
     dataframe: pd.DataFrame,
     quality_control_path: Path,
@@ -230,34 +227,8 @@ def apply_table_filters(
     return filtered
 
 
-def apply_event_filters(
-    dataframe: pd.DataFrame,
-    config: dict,
-    event_type: str,
-) -> pd.DataFrame:
-    """
-    Apply common and event-specific filters.
-
-    Parameters
-    ----------
-    event_type
-        Either ``"bout"`` or ``"saccade"``.
-    """
-    if event_type not in FILTER_SECTIONS:
-        raise ValueError(
-            f"Unknown event type {event_type!r}. "
-            f"Expected one of {sorted(FILTER_SECTIONS)}."
-        )
-
-    if "filters" in config:
-        raise ValueError(
-            "The YAML configuration still contains the legacy "
-            "'filters' section. Split it into 'common_filters', "
-            "'bout_filters', and 'saccade_filters'."
-        )
-
-    return apply_table_filters(
-        dataframe=dataframe,
-        config=config,
-        sections=FILTER_SECTIONS[event_type],
-    )
+def apply_event_filters(dataframe: pd.DataFrame, event_type: str) -> pd.DataFrame:
+    """The filters of filters.yaml for "bout" or "saccade" events."""
+    if event_type not in FILTERS:
+        raise ValueError(f"Unknown event type {event_type!r}. Expected one of {sorted(FILTERS)}.")
+    return apply_table_filters(dataframe, FILTERS, (event_type,))

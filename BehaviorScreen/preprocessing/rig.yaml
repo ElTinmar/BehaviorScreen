@@ -1,4 +1,4 @@
-# The recording setup: what changes with the rig, not with the analysis (screen.yaml).
+# The recording setup: what changes with the rig, not with the analysis (filters.yaml).
 # Lateralities are written by preprocessing: after a change here, run its bouts and saccades steps again.
 # Only the agreement of the three orientations matters: python -m BehaviorScreen.screen.check_orientation tests it.
 

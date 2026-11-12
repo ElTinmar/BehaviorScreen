@@ -1,6 +1,6 @@
 """
-Fish per line and condition in the screen's data folder after quality control (qc_all.csv
-and screen.yaml's common_filters, as the screen's loaders apply them), and the recording
+Fish per line and condition in the screen's data folder after quality control (qc_all.csv,
+as the screen's loaders apply it), and the recording
 time they add up to. Recordings of the phototaxis protocol alone are re-runs, not more fish:
 they are counted apart.
 
@@ -19,20 +19,18 @@ from matplotlib.transforms import blended_transform_factory
 
 from BehaviorScreen.screen.line_names import line_name
 from BehaviorScreen.core import Stim
-from BehaviorScreen.filters import apply_table_filters, exclude_qc_fish, load_yaml_config
+from BehaviorScreen.filters import exclude_qc_fish
 
 RECORDING_S = 4490  # one fish's protocol
 WILD_TYPES = {"wt", "ab", "wik"}  # WT (TL) and the backgrounds
 COLORS = {"vehicle": "#2a78d6", "ronidazole": "#eb6834", "danieau": "#1baf7a"}  # in their order within a line
 INK = {"primary": "#0b0b0b", "secondary": "#52514e", "muted": "#898781", "grid": "#e1e0d9", "baseline": "#c3c2b7", "surface": "#fcfcfb"}
 RERUN_STIMULI = {int(Stim.PHOTOTAXIS), int(Stim.DARK), int(Stim.BRIGHT)}  # all a phototaxis re-run shows
-COMMON_FILTERS = load_yaml_config(Path(__file__).parents[2] / "screen.yaml")["common_filters"]
 
 
 def fish_per_arm(root: Path) -> pd.DataFrame:
     """Per (line, condition), its numbers of fish (full protocol) and of phototaxis re-runs that pass quality control."""
     trials = exclude_qc_fish(pd.read_csv(root / "valid_trials_all.csv", dtype={"line": str, "condition": str}), root / "qc_all.csv")
-    trials = apply_table_filters(trials, {"recording": COMMON_FILTERS}, ("recording",))
     presented = trials[trials["presented"].astype(bool)]  # valid_trials lists the whole protocol: what each recording showed
     recordings = presented.groupby(["line", "condition", "file"])["stim"].agg(lambda stim: set(stim) <= RERUN_STIMULI).rename("rerun").reset_index()
     counts = recordings.groupby(["line", "condition"])["rerun"].agg(fish=lambda rerun: int((~rerun).sum()), reruns="sum")

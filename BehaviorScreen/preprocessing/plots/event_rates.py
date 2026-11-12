@@ -102,11 +102,11 @@ def prepare_events(
 
     events = exclude_qc_fish(events, quality_control).astype({"file": str})
     trials = exclude_qc_fish(valid_trials, quality_control).astype({"file": str})
-    trials = restrict_trials_to_analysed_fish(trials, events, config)
+    trials = restrict_trials_to_analysed_fish(trials, events)
 
     # Before event filters, so that an epoch with no surviving event still counts.
     epoch_names = [get_matching_epoch_names(events, spec) for spec in specs]
-    events = apply_event_filters(events, config, kind.name)
+    events = apply_event_filters(events, kind.name)
     lateralities = [laterality_labels(events, spec) for spec in specs]
 
     if exclude_unusable:

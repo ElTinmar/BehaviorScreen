@@ -1,11 +1,12 @@
-"""screen.yaml rules and the filters built from them: what they keep, and what they refuse."""
+"""The rules of the YAML files and the filters built from them: what they keep, and what they refuse."""
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from BehaviorScreen.filters import apply_event_filters, apply_table_filters, exclude_qc_fish, parse_rules
+from BehaviorScreen import filters
+from BehaviorScreen.filters import FILTERS, apply_event_filters, apply_table_filters, exclude_qc_fish, parse_rules
 
 TABLE = pd.DataFrame({
     "file": ["a", "a", "b", "c", "d"],
@@ -46,12 +47,25 @@ def test_table_filters_apply_the_named_sections_only() -> None:
     assert list(apply_table_filters(TABLE, {"recording": None}, ("recording", "event")).index) == [0, 1, 2, 3, 4]
 
 
-def test_event_filters_are_the_common_ones_and_those_of_the_event_type() -> None:
-    config = {"common_filters": {"dpf": {"==": 7}}, "bout_filters": {"distance": {"<=": 5.0}}, "saccade_filters": {"category": {"in": [1, 2]}}}
-    assert list(apply_event_filters(TABLE, config, "bout").index) == [0, 4]
-    assert list(apply_event_filters(TABLE, config, "saccade").index) == [1, 2]
+def test_event_filters_are_those_of_the_event_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(filters, "FILTERS", {"bout": {"dpf": {"==": 7}, "distance": {"<=": 5.0}}, "saccade": {"category": {"in": [1, 2]}}})
+    assert list(apply_event_filters(TABLE, "bout").index) == [0, 4]
+    assert list(apply_event_filters(TABLE, "saccade").index) == [1, 2]
     with pytest.raises(ValueError, match="bout"):
-        apply_event_filters(TABLE, config, "blink")
+        apply_event_filters(TABLE, "blink")
+
+
+def test_filters_of_the_screen() -> None:
+    """filters.yaml: one list per event type, for the models and the plots; no threshold on the bout classifier."""
+    assert set(FILTERS["bout"]) == {"distance_center", "centroid_mismatch_max", "distance", "peak_axial_speed", "heading_mismatch_max", "within_trial"}
+    assert set(FILTERS["saccade"]) == {"distance_center", "features_valid", "assignment_rejected", "assignment_confidence"}
+    assert all(parse_rules(rules).rules for rules in FILTERS.values())
+
+
+def test_models_and_plots_apply_the_same_filters() -> None:
+    from BehaviorScreen.screen.control_models.model_config import EVENT_TABLES
+
+    assert EVENT_TABLES["bouts"]["event_filters"] is FILTERS["bout"] and EVENT_TABLES["saccades"]["event_filters"] is FILTERS["saccade"]
 
 
 def test_qc_fish_are_removed_and_a_missing_table_is_an_error(tmp_path: Path) -> None:

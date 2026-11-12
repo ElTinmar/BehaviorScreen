@@ -27,7 +27,7 @@ loaders = {
 }
 
 # Map columns in protocol order, labelled "stimulus · response" with the stimulus names
-# of screen.yaml and the bout or saccade categories each experiment counts.
+# of heatmaps.yaml and the bout or saccade categories each experiment counts.
 untested = set(get_model_config()) - set(MAP_COLUMNS)
 if untested:
     print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")

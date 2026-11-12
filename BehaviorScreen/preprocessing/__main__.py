@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--yaml",
         type=Path,
-        default=Path("BehaviorScreen/screen.yaml"),
+        default=Path("BehaviorScreen/preprocessing/plots/heatmaps.yaml"),
         help="Plot config file",
     )
 

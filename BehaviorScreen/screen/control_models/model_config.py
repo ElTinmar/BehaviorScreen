@@ -1,11 +1,10 @@
 """Experiments: the dataset each one is built from and the candidate models, in a fixed order."""
 
-from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence
 
 from megabouts.utils import bouts_category_name_short
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, Laterality, Stim
-from BehaviorScreen.filters import load_yaml_config
+from BehaviorScreen.filters import FILTERS
 from BehaviorScreen.point_process.frailty import (
     BaselineOnlyFrailtyHawkesProcess,
     GammaMixedEffectsProcess,
@@ -45,13 +44,6 @@ IPSI, CONTRA, NONDIRECTIONAL = (
 PHOTOTAXIS_FILTER = {"foreground_color": "[0.1, 0.1, 0.0, 1.0]"}
 PREY_STIM_FREQ = 90 / (2 * 70)  # stimulus speed (deg/s) / sweep range (deg)
 
-# Tracking-quality filters of screen.yaml applied to the models; classifier-confidence
-# filters are not (readouts merge neighbouring categories instead).
-SCREEN_CONFIG = load_yaml_config(Path(__file__).parents[2] / "screen.yaml")
-TRACKING_FILTERS = {
-    "bouts": ("bout_filters", ["distance_center", "centroid_mismatch_max"]),
-    "saccades": ("saccade_filters", ["distance_center", "features_valid"]),
-}
 
 
 # Straight mutants and other strains, each compared with its wild-type background (line: reference arm).
@@ -73,26 +65,19 @@ def control_loader(loader: BehavioralDataLoader) -> BehavioralDataLoader:
     return loader.subset(conditions=CONTROL_CONDITIONS, exclude_lines=tuple(MUTANT_REFERENCES))
 
 
-def _filters(events: str) -> dict:
-    section, columns = TRACKING_FILTERS[events]
-    return {column: SCREEN_CONFIG[section][column] for column in columns}
-
-
 # BehavioralDataLoader arguments of each event table; an experiment names its table.
 EVENT_TABLES = {
     "bouts": dict(
         category_column="category",
         category_names=bouts_category_name_short,
         tracking_column="tracking_ok",
-        event_filters=_filters("bouts"),
-        recording_filters=SCREEN_CONFIG["common_filters"],
+        event_filters=FILTERS["bout"],
     ),
     "saccades": dict(
         category_column="saccade_category",
         category_names=SACCADE_CATEGORY_NAMES,
         tracking_column="tracking_ok",  # body tracking: switch to an eye-tracking flag once qc writes one
-        event_filters=_filters("saccades"),
-        recording_filters=SCREEN_CONFIG["common_filters"],
+        event_filters=FILTERS["saccade"],
     ),
 }
 
