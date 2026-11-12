@@ -3,7 +3,7 @@ import numpy as np
 import pytest
 
 from BehaviorScreen.core import SACCADE_CLASS_NAMES, SACCADE_NONDIRECTIONAL_CLASSES, SACCADE_REFERENCE_DIRECTIONS, EventDirection, Laterality
-from BehaviorScreen.preprocessing.protocol import bout_laterality, saccade_laterality
+from BehaviorScreen.preprocessing.protocol import _REGISTRY, EPOCH_LATERALITY, _build_laterality_table, bout_laterality, saccade_laterality
 from BehaviorScreen.preprocessing.rig import RIG, SACCADE_CLASS_DIRECTIONS, SACCADE_NAMES, bout_direction, saccade_directions, saccade_names
 
 LEFT, RIGHT = EventDirection.LEFT, EventDirection.RIGHT
@@ -34,7 +34,7 @@ def test_bout_direction_follows_the_sign_of_a_leftward_bout() -> None:
 
 def test_this_rig() -> None:
     """The setup of the screen: a change of rig.yaml shows here."""
-    assert RIG["orientation"] == {"saccade_classes_mirrored": True, "bout_sign_left": -1}
+    assert RIG["orientation"] == {"saccade_classes_mirrored": True, "bout_sign_left": -1, "stimulus_mirrored": False}
     assert SACCADE_CLASS_DIRECTIONS == saccade_directions(mirrored=True)
     assert (SACCADE_NAMES[1], SACCADE_NAMES[2], SACCADE_NAMES[7]) == ("Conjugate right", "Conjugate left", "Biphasic convergent left")
     assert RIG["well"] == {"well_radius_mm": 9.75, "distance_between_well_centers_mm": 22}
@@ -50,6 +50,13 @@ def test_events_toward_the_side_of_the_stimulus_are_ipsilateral(epoch: str, towa
     for cluster, direction in SACCADE_CLASS_DIRECTIONS.items():
         assert saccade_laterality(epoch, cluster) == (IPSI if direction == toward else CONTRA)
     assert all(saccade_laterality(epoch, cluster) == NONE for cluster in SACCADE_NONDIRECTIONAL_CLASSES)
+
+
+def test_mirrored_stimulus_swaps_ipsi_and_contra() -> None:
+    swap = {IPSI: CONTRA, CONTRA: IPSI, NONE: NONE}
+    assert EPOCH_LATERALITY == _build_laterality_table(_REGISTRY, mirrored=False)
+    assert _build_laterality_table(_REGISTRY, mirrored=True) == {key: swap[side] for key, side in EPOCH_LATERALITY.items()}
+    assert set(EPOCH_LATERALITY.values()) == {IPSI, CONTRA, NONE}
 
 
 def test_events_without_a_side_have_no_laterality() -> None:

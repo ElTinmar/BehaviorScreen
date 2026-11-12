@@ -4,7 +4,7 @@ from BehaviorScreen.core import (
     Stim,
     SACCADE_NONDIRECTIONAL_CLASSES,
 )
-from BehaviorScreen.preprocessing.rig import SACCADE_CLASS_DIRECTIONS
+from BehaviorScreen.preprocessing.rig import RIG, SACCADE_CLASS_DIRECTIONS
 from typing import Dict, Tuple, List, Optional, Any
 from dataclasses import dataclass
 import numpy as np
@@ -144,28 +144,29 @@ protocol_ptx += 10 * [
 ### LATERALITY -------------------------------------------------------
 
 def _build_laterality_table(
-        registry: Dict[EpochName, Epoch]
+        registry: Dict[EpochName, Epoch], mirrored: bool
     ) -> Dict[Tuple[EpochName, EventDirection], Laterality]:
     """
     Derived directly from each epoch's declared ipsi_sign -- replaces a
     hand-written (epoch_name, EventDirection) -> Laterality dict and a separate
     non-directional-name list, both of which previously required retyping
     every epoch name a second/third time with nothing checking it matched
-    `protocol`.
+    `protocol`. mirrored: the sides declared are those of the stimulus software,
+    swapped in the rig's image (rig.yaml).
     """
     table: Dict[Tuple[EpochName, EventDirection], Laterality] = {}
     for name, ep in registry.items():
         for sign in EventDirection:
             if ep.ipsi_sign is None:
                 table[(name, sign)] = Laterality.NONDIRECTIONAL
-            elif sign == ep.ipsi_sign:
+            elif sign == (-ep.ipsi_sign if mirrored else ep.ipsi_sign):
                 table[(name, sign)] = Laterality.IPSILATERAL
             else:
                 table[(name, sign)] = Laterality.CONTRALATERAL
     return table
 
 
-EPOCH_LATERALITY: Dict[Tuple[EpochName, EventDirection], Laterality] = _build_laterality_table(_REGISTRY)
+EPOCH_LATERALITY: Dict[Tuple[EpochName, EventDirection], Laterality] = _build_laterality_table(_REGISTRY, RIG["orientation"]["stimulus_mirrored"])
 
 
 ### PRESENCE SPEC -----------------------------------------------------

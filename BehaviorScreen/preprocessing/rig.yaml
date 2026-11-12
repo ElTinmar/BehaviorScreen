@@ -1,11 +1,14 @@
 # The recording setup: what changes with the rig, not with the analysis (screen.yaml).
 # Lateralities are written by preprocessing: after a change here, run its bouts and saccades steps again.
+# Only the agreement of the three orientations matters: python -m BehaviorScreen.screen.check_orientation tests it.
 
 orientation:
   # Left and right of the saccade classes of Dowell et al. 2024 are swapped in this rig's image.
   saccade_classes_mirrored: true
   # Sign megabouts gives a leftward bout in this rig's image (-1 or 1).
   bout_sign_left: -1
+  # Left and right of the stimulus software are swapped in this rig's image.
+  stimulus_mirrored: false
 
 well:
   well_radius_mm: 9.75

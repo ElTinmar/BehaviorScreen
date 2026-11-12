@@ -92,6 +92,7 @@ python -m BehaviorScreen.screen.line_tests.count_readouts
 ### Checks
 
 ```
+python -m BehaviorScreen.screen.check_orientation /path/to/screen       # left and right of bouts, saccades and stimuli agree (rig.yaml)
 python -m BehaviorScreen.screen.line_tests.exclusions /path/to/screen    # what QC and the filters remove, per arm
 python -m BehaviorScreen.screen.line_tests.plate_variance                # plate effect on the count readouts
 python -m BehaviorScreen.screen.kernel_demo -o ./figures                 # then open screen/kernel_demo/index.html
