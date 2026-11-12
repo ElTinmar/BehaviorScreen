@@ -37,6 +37,22 @@ BehaviorScreen/
 
 `preprocessing` and `point_process` do not import each other; `screen` imports `point_process`, never `preprocessing`.
 
+## Configuration
+
+What a user edits lives in five files; nothing else is meant to be changed to adapt the screen.
+
+| File | Holds | Edit it when | Then run again |
+|---|---|---|---|
+| `preprocessing/rig.yaml` | left and right of bouts, saccade classes and stimuli in the camera image; well and eye-crop sizes; shader clock period | the setup changes | preprocessing from the bouts and saccades steps, `merge_screen`, `check_orientation` |
+| `filters.yaml` | the events kept, one list for bouts and one for saccades, applied by the models and the plots alike | an exclusion rule changes | the plots; the control models and everything after them |
+| `preprocessing/plots/heatmaps.yaml` | layout of the heatmaps and PSTHs: the epochs of each row and their time bins | a figure should look different | the plots |
+| `screen/screen_lines.csv`, `screen/facility_lines.csv` | one row per data folder (plot label, parents) and one per facility line (type, IDs) | a line is added or renamed | the figures |
+
+The rules of the two YAML filter files share one syntax, `column: {operator: value}` with `<`, `<=`, `>`, `>=`, `==`, `!=`, `in`
+and `not_in`; an event or trial with a missing value fails the rule. Fish are excluded by quality control (`qc.csv`), not here.
+
+The model ladders are code, not configuration: `screen/control_models/model_config.py`.
+
 ## Usage
 
 Run every command from the repository root.
