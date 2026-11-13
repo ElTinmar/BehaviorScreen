@@ -16,11 +16,11 @@ for EXP in "${EXPERIMENTS[@]}"; do
     INDEX=$(printf '%s\n' "${ALL[@]}" | grep -nx "$EXP" | cut -d: -f1)
     [ -z "$INDEX" ] && { echo "Not in $LIST: $EXP"; continue; }
     if [[ $HEAVY == *" $EXP "* ]]; then
-        RESOURCES=(--constraint=gpu --gres=gpu:a100:4 --cpus-per-task=72 --mem=500000); N_JOBS=48
+        RESOURCES=(--constraint=gpu --gres=gpu:a100:4 --cpus-per-task=72 --mem=500000); N_JOBS=72
     elif [[ $LIGHT == *" $EXP "* ]]; then
         RESOURCES=(--cpus-per-task=18 --mem=32G); N_JOBS=18
     else
-        RESOURCES=(--gres=gpu:a100:2 --cpus-per-task=36 --mem=160G); N_JOBS=32
+        RESOURCES=(--gres=gpu:a100:2 --cpus-per-task=36 --mem=160G); N_JOBS=36
     fi
     echo -n "$EXP: "
     sbatch --array="$INDEX" "${RESOURCES[@]}" --export=ALL,N_JOBS=$N_JOBS BehaviorScreen/screen/control_models/run.sbatch
