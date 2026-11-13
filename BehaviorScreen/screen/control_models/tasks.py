@@ -20,7 +20,8 @@ from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.diagnostics import ModelPlotter
 from BehaviorScreen.point_process.frailty_analysis import (
     collect_fish_gains,
-    plot_fish_gain_correlation,
+    gain_correlations,
+    plot_gain_correlations,
 )
 from BehaviorScreen.point_process.inference import ModelComparator
 from BehaviorScreen.point_process.io import save_csv, save_fig
@@ -385,7 +386,7 @@ def run_consolidation_task(
 
     gains = collect_fish_gains({name: (best_models[name], datasets[name]) for name in best_models})
     if gains["behavior"].nunique() >= 2:
-        fig, _, _ = plot_fish_gain_correlation(
-            gains, title="Pooled control population: cross-behavior frailty gain correlation"
-        )
-        save_fig(fig, output_root, "fish_gain_correlation_pooled_population")
+        correlations = gain_correlations(gains)
+        for name, table in correlations.items():
+            save_csv(table.reset_index(), output_root / "fish_gain_correlation", name)
+        save_fig(plot_gain_correlations(correlations, "Pooled controls: fish gains across behaviors"), output_root, "fish_gain_correlation_pooled_population")

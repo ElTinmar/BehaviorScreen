@@ -28,10 +28,6 @@ from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.inference import load_replicates, newton_step_matrix, refit_from_fit
 from BehaviorScreen.point_process.parallel import parallel_map, report_failures
 from BehaviorScreen.point_process.io import save_fig, slugify
-from BehaviorScreen.point_process.frailty_analysis import (
-    collect_fish_gains,
-    plot_fish_gain_correlation_dual,
-)
 
 from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric, recording_days
 from .gain_structure import GainStructure, fish_groups
@@ -913,31 +909,6 @@ def _label_top_hits(ax, sub: pd.DataFrame, effect_col: str, label_col: str, top_
             fontsize=6, xytext=(3, 3), textcoords="offset points",
             rotation=45, rotation_mode="anchor", ha="left", va="bottom"
         )
-
-def build_models_and_datasets_for_line(
-    line: str, condition: str, arms: Arms, behaviors: Optional[List[str]] = None,
-) -> Dict[str, Tuple[PointProcess, PointProcessDataset]]:
-    """Fitted model and dataset of every behavior of one (line, condition) arm that has both."""
-    result = {}
-    for behavior in behaviors or list(arms.dataset_configs):
-        if arms.dataset(line, condition, behavior) is None:
-            continue
-        try:
-            result[behavior] = (arms.model(line, condition, behavior), arms.dataset(line, condition, behavior))
-        except Exception as e:
-            tqdm.write(f"[{line}/{condition}/{behavior}] fit failed: {e}")
-    return result
-
-
-def plot_fish_gain_correlation_reference_vs_test(contrast: str, arms: Arms, min_behaviors: int = 2) -> Optional[plt.Figure]:
-    c = arms.contrasts[contrast]
-    return plot_fish_gain_correlation_dual(
-        collect_fish_gains(build_models_and_datasets_for_line(*c.reference, arms)),
-        collect_fish_gains(build_models_and_datasets_for_line(*c.test, arms)),
-        label_a="/".join(c.reference), label_b="/".join(c.test),
-        suptitle=f"{line_name(contrast)}: fish-level frailty gain correlation, {'/'.join(c.reference)} vs {'/'.join(c.test)}",
-        min_behaviors=min_behaviors,
-    )
 
 def _bootstrap_one_delta_iteration(
     seed_seq, ds_ref: PointProcessDataset, ds_test: PointProcessDataset, behavior: str,

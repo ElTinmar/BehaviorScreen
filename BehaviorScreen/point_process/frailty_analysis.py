@@ -1,7 +1,8 @@
 from typing import Dict, Optional, Tuple
 
-import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 from .dataset import PointProcessDataset
 from .point_process import PointProcess
@@ -11,13 +12,9 @@ def collect_fish_gains(
     models_and_datasets: Dict[str, Tuple[PointProcess, PointProcessDataset]],
 ) -> pd.DataFrame:
     """
-    models_and_datasets: {behavior_name: (fitted_model, dataset)}. Models
-    without fish gains (estimate_fish_gains not implemented) are skipped.
-
-    Returns long format: one row per (fish_id, behavior, estimated_gain).
-    fish_id comes from dataset.fish_ids -- the real, dataset-independent
-    identifier -- NOT dataset-local fish_idx, which only has meaning
-    within a single dataset.
+    models_and_datasets: {behavior: (fitted model, dataset)}; models without fish gains are skipped.
+    Long format: fish_id (dataset.fish_ids, the same fish across behaviors), behavior, estimated_gain
+    (posterior mean) and gain_variance (the gain distribution's variance, 1 / r).
     """
     records = []
     for behavior, (model, dataset) in models_and_datasets.items():
@@ -26,109 +23,62 @@ def collect_fish_gains(
         except NotImplementedError:
             print(f"[{behavior}] {model.name} has no fish gains; skipped")
             continue
-
-        gains["fish_id"] = dataset.fish_ids[gains["fish_idx"].values]
-        gains["behavior"] = behavior
-        records.append(gains[["fish_id", "behavior", "estimated_gain"]])
-
-    if not records:
-        return pd.DataFrame(columns=["fish_id", "behavior", "estimated_gain"])
-    return pd.concat(records, ignore_index=True)
+        records.append(pd.DataFrame({"fish_id": dataset.fish_ids[gains["fish_idx"].values], "behavior": behavior,
+                                     "estimated_gain": gains["estimated_gain"].values, "gain_variance": 1.0 / model.dispersion_r}))
+    return pd.concat(records, ignore_index=True) if records else pd.DataFrame(columns=["fish_id", "behavior", "estimated_gain", "gain_variance"])
 
 
-def fish_gain_correlation(
-    gain_long_df: pd.DataFrame,
-    min_fish_shared: int = 5,
-) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def gain_correlations(gains: pd.DataFrame, n_boot: int = 500, seed: int = 0, min_fish_shared: int = 5) -> Dict[str, pd.DataFrame]:
     """
-    Pivots to fish x behavior, returns (correlation matrix, pairwise
-    shared-fish-count matrix). Kept separate from plotting so both are
-    independently usable (e.g. compare_to_pooled_baseline).
-
-    n_pairs MUST be computed from an int-cast (not bool) notna() matrix --
-    DataFrame.dot() between two bool frames performs boolean matrix
-    multiplication (any-of-AND), silently returning True/False instead of
-    the intended pairwise count.
+    Correlation across fish of their posterior gains in each pair of behaviors, and the same corrected for
+    shrinkage: a posterior mean keeps a share of the gain's variance (its reliability, Var(E[g | data]) / Var(g),
+    lower with fewer events per fish), and a correlation of posterior means is the gains' correlation times
+    sqrt(reliability_a reliability_b). 95% intervals of the corrected values from resampling fish.
     """
-    wide = gain_long_df.pivot_table(
-        index="fish_id", columns="behavior", values="estimated_gain"
-    )
-    corr = wide.corr(min_periods=min_fish_shared)
-    notna_int = wide.notna().astype(int)
-    n_pairs = notna_int.T.dot(notna_int)
-    return corr, n_pairs
+    wide = gains.pivot_table(index="fish_id", columns="behavior", values="estimated_gain")[gains["behavior"].unique()]
+    prior = gains.groupby("behavior")["gain_variance"].first()[wide.columns]
+
+    def correct(w: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame]:
+        observed, reliability = w.corr(min_periods=min_fish_shared), (w.var() / prior).clip(upper=1.0)
+        return observed, reliability, observed / np.sqrt(np.outer(reliability, reliability))
+
+    observed, reliability, corrected = correct(wide)
+    rng = np.random.default_rng(seed)
+    boot = np.stack([correct(wide.iloc[rng.integers(0, len(wide), len(wide))])[2].to_numpy() for _ in range(n_boot)])
+    present = wide.notna().astype(int)
+    frame = lambda values: pd.DataFrame(values, index=wide.columns, columns=wide.columns)
+    return {
+        "observed": observed, "corrected": corrected,
+        "corrected_low": frame(np.nanpercentile(boot, 2.5, axis=0)), "corrected_high": frame(np.nanpercentile(boot, 97.5, axis=0)),
+        "reliability": reliability.rename("reliability").to_frame(), "n_fish": present.T.dot(present),
+    }
 
 
-def plot_fish_gain_correlation(
-    gain_long_df: pd.DataFrame,
-    min_fish_shared: int = 5,
-    cmap: str = "coolwarm",
-    figsize: Tuple[float, float] = (7, 6),
-    ax: Optional[plt.Axes] = None,
-    title: str = "Fish-level frailty gain correlation across behaviors",
-) -> Tuple[plt.Figure, plt.Axes, pd.DataFrame]:
-    """Draws into a caller-supplied `ax` if given, else creates its own figure."""
-    corr, n_pairs = fish_gain_correlation(gain_long_df, min_fish_shared=min_fish_shared)
-
-    if ax is None:
-        fig, ax = plt.subplots(figsize=figsize)
-    else:
-        fig = ax.figure
-
-    im = ax.imshow(corr, cmap=cmap, vmin=-1, vmax=1)
-    ax.set_xticks(range(len(corr.columns)))
-    ax.set_xticklabels(corr.columns, rotation=45, ha="right", fontsize=8)
-    ax.set_yticks(range(len(corr.index)))
-    ax.set_yticklabels(corr.index, fontsize=8)
-
+def plot_correlation_matrix(corr: pd.DataFrame, ax: plt.Axes, title: str, low: Optional[pd.DataFrame] = None,
+                            high: Optional[pd.DataFrame] = None, labels: Optional[list] = None, row_labels: bool = True) -> None:
+    """Heatmap of a behavior x behavior correlation matrix, each value written in its cell (with its interval if given)."""
+    ax.imshow(corr.clip(-1, 1), cmap="coolwarm", vmin=-1, vmax=1)
+    ticks = labels or list(corr.columns)
+    ax.set_xticks(range(len(ticks)), ticks, rotation=45, ha="right", fontsize=8)
+    ax.set_yticks(range(len(ticks)), ticks if row_labels else [], fontsize=8)
     for i in range(len(corr)):
         for j in range(len(corr)):
-            val = corr.iloc[i, j]
-            n = n_pairs.iloc[i, j]
-            if pd.notna(val):
-                ax.text(
-                    j,
-                    i,
-                    f"{val:.2f}\n(n={n})",
-                    ha="center",
-                    va="center",
-                    color="white" if abs(val) > 0.5 else "black",
-                    fontsize=6,
-                )
-
+            value = corr.iloc[i, j]
+            if pd.isna(value) or i == j:
+                continue
+            text = f"{value:.2f}" + ("" if low is None else f"\n[{low.iloc[i, j]:.2f}, {high.iloc[i, j]:.2f}]")
+            ax.text(j, i, text, ha="center", va="center", fontsize=5, color="white" if abs(value) > 0.5 else "black")
     ax.set_title(title, fontsize=10, fontweight="bold")
-    return fig, ax, corr
 
 
-def plot_fish_gain_correlation_dual(
-    gain_long_df_a: pd.DataFrame,
-    gain_long_df_b: pd.DataFrame,
-    label_a: str = "Group A",
-    label_b: str = "Group B",
-    suptitle: str = "",
-    min_fish_shared: int = 5,
-    min_behaviors: int = 2,
-) -> Optional[plt.Figure]:
-    """
-    Side-by-side fish-gain correlation heatmaps for two groups (e.g.
-    vehicle vs drug, or any two conditions), sharing a colorbar. Generic
-    over what "group A"/"group B" mean.
-    """
-    if (
-        gain_long_df_a["behavior"].nunique() < min_behaviors
-        or gain_long_df_b["behavior"].nunique() < min_behaviors
-    ):
-        return None
-
-    fig, axes = plt.subplots(1, 2, figsize=(13, 6))
-    plot_fish_gain_correlation(
-        gain_long_df_a, ax=axes[0], title=label_a, min_fish_shared=min_fish_shared
-    )
-    plot_fish_gain_correlation(
-        gain_long_df_b, ax=axes[1], title=label_b, min_fish_shared=min_fish_shared
-    )
-
+def plot_gain_correlations(results: Dict[str, pd.DataFrame], suptitle: str = "") -> plt.Figure:
+    """gain_correlations as two heatmaps: as observed, and corrected for shrinkage (reliability beside each behavior)."""
+    labels = [f"{b} ({r:.2f})" for b, r in results["reliability"]["reliability"].items()]
+    fig, axes = plt.subplots(1, 2, figsize=(18, 8.5), layout="constrained")
+    plot_correlation_matrix(results["observed"], axes[0], "Posterior gains, as observed", labels=labels)
+    plot_correlation_matrix(results["corrected"], axes[1], "Corrected for shrinkage (95% interval)",
+                            results["corrected_low"], results["corrected_high"], labels=labels, row_labels=False)
+    fig.colorbar(axes[1].images[0], ax=axes, shrink=0.6, label="Correlation across fish (behavior: reliability)")
     if suptitle:
-        fig.suptitle(suptitle, fontsize=13, fontweight="bold")
-    fig.colorbar(axes[1].images[0], ax=axes, shrink=0.7, label="Correlation")
+        fig.suptitle(suptitle, fontsize=12, fontweight="bold")
     return fig

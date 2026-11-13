@@ -34,7 +34,6 @@ from BehaviorScreen.screen.line_tests.tier1_omnibus import (
     generate_arm_surface_grids,
     build_bad_fit_triage,
     plot_volcano,
-    plot_fish_gain_correlation_reference_vs_test,
     bootstrap_parameter_deltas,
     plot_parameter_forest
 )
@@ -167,11 +166,6 @@ def combine(behaviors: list, arms: Arms, map_order: list, output_dir: Path) -> N
         save_fig(fig, output_dir, "tier2_map")
     fig, _ = plot_volcano(tier1_df[tier1_df["family"] == "ntr"])
     save_fig(fig, output_dir, "tier1_volcano_by_behavior")
-    for line in arms.contrasts:
-        fig = plot_fish_gain_correlation_reference_vs_test(line, arms)
-        if fig is not None:
-            save_fig(fig, output_dir / "fish_gain_correlations", line)
-            plt.close(fig)
 
 
 def main() -> None:
