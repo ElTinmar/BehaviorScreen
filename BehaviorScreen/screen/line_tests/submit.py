@@ -1,14 +1,15 @@
 """
-Tier 1, on Slurm or here (BehaviorScreen/machines.yaml): one job per behavior of experiments.txt (or of those named),
-then one that merges every behavior saved so far into the screen's tables and maps, once those jobs have all succeeded:
-    python -m BehaviorScreen.screen.line_tests.submit_tier1 [behavior ...] [--local]
-    python -m BehaviorScreen.screen.line_tests.submit_tier1 --combine-only
+Test each line against the controls (Tier 1), one job per behavior, then one merging their results.
+On Slurm or here (BehaviorScreen/machines.yaml); the merge runs once the behaviors' jobs have all succeeded and covers
+every behavior saved so far:
+    python -m BehaviorScreen test-lines [behavior ...] [--local]
+    python -m BehaviorScreen test-lines --combine-only
 A resubmitted behavior skips the cells it has already saved.
 """
 import argparse
 
 from BehaviorScreen.jobs import Jobs, add_local_argument
-from BehaviorScreen.screen.control_models.submit_fits import EXPERIMENTS
+from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
 
 RESOURCES = ["--cpus-per-task=24", "--mem=120000"]
 

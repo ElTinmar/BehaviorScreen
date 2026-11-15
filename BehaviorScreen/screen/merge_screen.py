@@ -1,8 +1,8 @@
 """
-The screen's merged tables, read by the models and the screen's tests: every <line>/<condition>/<table>.csv
-of the screen folder stacked into <table>_all.csv there, with line and condition columns.
+Merge the screen's per-arm tables into the <table>_all.csv tables the models and the screen's tests read:
+every <line>/<condition>/<table>.csv of the screen folder stacked there, with line and condition columns.
 
-    python -m BehaviorScreen.screen.merge_screen SCREEN_FOLDER
+    python -m BehaviorScreen merge [SCREEN_FOLDER]   (default: this machine's data_root in BehaviorScreen/machines.yaml)
 
 prints the fish of each arm, and warns about lines without a row in screen_lines.csv and arms lacking a table.
 """
@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from BehaviorScreen.jobs import this_machine
 from BehaviorScreen.screen.line_names import warn_unnamed
 from BehaviorScreen.screen.merge_csv import merge
 
@@ -33,7 +34,12 @@ def merge_screen(root: Path) -> pd.DataFrame:
     return table.groupby(["line", "condition"])["file"].nunique().unstack(fill_value=0)
 
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("root", type=Path, nargs="?", help="Screen folder: the one holding the <line>/<condition> folders.")
+    root = parser.parse_args().root or this_machine().data_root
+    print(merge_screen(root).to_string())
+
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Merge the screen's per-arm tables into its _all tables.")
-    parser.add_argument("root", type=Path, help="Screen folder: the one holding the <line>/<condition> folders.")
-    print(merge_screen(parser.parse_args().root).to_string())
+    main()

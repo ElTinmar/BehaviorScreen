@@ -1,6 +1,6 @@
 """
-Control models of every experiment in experiments.txt (or of those named), one job per experiment and mode, on Slurm or here (BehaviorScreen/machines.yaml):
-    python -m BehaviorScreen.screen.control_models.submit_fits [experiment ...] [--modes diagnostics fit] [--local]
+Fit the control models, one job per experiment and mode, on Slurm or here (BehaviorScreen/machines.yaml):
+    python -m BehaviorScreen fit-controls [experiment ...] [--modes diagnostics fit] [--local]
 On Slurm, GPU nodes throughout (the GPUs stay idle: easier to get than CPU nodes), at most 18 cores per GPU: renewal
 rungs on long trials or large grids get a full node, the other renewal ladders half of one, ladders without renewal
 rungs a quarter. One fit worker per core; each holds the data and its renewal grid (2 GB or more for phototaxis).
