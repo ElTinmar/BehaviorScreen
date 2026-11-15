@@ -20,6 +20,8 @@ python -m BehaviorScreen.preprocessing.download_model
 
 ```
 BehaviorScreen/
+    __main__.py                        the pipeline's stages: python -m BehaviorScreen STAGE
+    jobs.py, machines.yaml             where the stages run (Slurm or this computer) and where the data are, per machine
     core.py, filters.py, filters.yaml  shared by every layer: stimulus and laterality codes, saccade classes, the events kept by models and plots
     preprocessing/                     recordings -> per-fish tables (bouts, saccades, valid trials, QC) and descriptive plots
         rig.yaml                       the recording setup: left and right in the image, well and eye-crop sizes
@@ -39,13 +41,14 @@ BehaviorScreen/
 
 ## Configuration
 
-What a user edits lives in five files; nothing else is meant to be changed to adapt the screen.
+What a user edits lives in six files; nothing else is meant to be changed to adapt the screen.
 
 | File | Holds | Edit it when | Then run again |
 |---|---|---|---|
 | `preprocessing/rig.yaml` | left and right of bouts, saccade classes and stimuli in the camera image; well and eye-crop sizes; shader clock period | the setup changes | preprocessing from the bouts and saccades steps, `merge_screen`, `check_orientation` |
 | `filters.yaml` | the events kept, one list for bouts and one for saccades, applied by the models and the plots alike | an exclusion rule changes | the plots; the control models and everything after them |
 | `preprocessing/plots/heatmaps.yaml` | layout of the heatmaps and PSTHs: the epochs of each row and their time bins | a figure should look different | the plots |
+| `machines.yaml` | per machine (matched by the start of its host name): the folder of the merged tables, whether jobs go to Slurm (and their log folder) or run here, worker processes | the repository moves to a new computer or cluster | nothing |
 | `screen/screen_lines.csv`, `screen/facility_lines.csv` | one row per data folder (plot label, parents) and one per facility line (type, IDs) | a line is added or renamed | the figures |
 
 The rules of the two YAML filter files share one syntax, `column: {operator: value}` with `<`, `<=`, `>`, `>=`, `==`, `!=`, `in`
@@ -55,40 +58,51 @@ The model ladders are code, not configuration: `screen/control_models/model_conf
 
 ## Usage
 
-Run every command from the repository root.
+Run every command from the repository root, with the BehaviorScreen environment active. The pipeline has four stages:
+
+```
+python -m BehaviorScreen                  # the stages
+python -m BehaviorScreen STAGE -h         # the options of one
+```
+
+Each stage runs where `machines.yaml` says for this computer: submitted to Slurm, one job per folder or behavior with the
+resources it needs, or run here one job after another (`--local` forces that on a Slurm machine, for a quick test).
+A machine without an entry stops with a message saying to add one.
 
 ### 1. Preprocessing
 
-One line and condition (`<screen>/<line>/<condition>`) at a time:
-
 ```
-python -m BehaviorScreen.preprocessing /path/to/screen/line/condition
+python -m BehaviorScreen preprocess /path/to/screen/line/condition
 ```
 
-`--steps` selects among export, pose, eye_crop, eye_pose, qc, bouts, saccades and heatmaps (default: all, in that order).
-Every folder of a screen, on the cluster (one job per folder) or locally:
+One job per `<line>/<condition>` folder; the path can also be a line folder or the screen root, for every folder under it.
+`--steps` selects among export, pose, eye_crop, eye_pose, qc, bouts, saccades and heatmaps (default: all, in that order):
 
 ```
-bash BehaviorScreen/preprocessing/submit.sh /path/to/screen [--steps qc heatmaps]
-ls -d /path/to/screen/*/*/ | xargs -P 4 -I{} python -m BehaviorScreen.preprocessing {} --steps qc heatmaps
+python -m BehaviorScreen preprocess /path/to/screen --steps qc heatmaps
 ```
+
+On Slurm, jobs with pose, eye_pose or bouts get a GPU. `python -m BehaviorScreen.preprocessing FOLDER [--steps ...]`
+runs the pipeline on one folder directly.
 
 ### 2. Screen-wide tables
 
 ```
-python -m BehaviorScreen.screen.merge_screen /path/to/screen
+python -m BehaviorScreen merge [/path/to/screen]
 ```
 
-writes `bouts_all.csv`, `saccades_augmented_all.csv`, `valid_trials_all.csv` and `qc_all.csv` in the screen folder,
-with line and condition taken from the folder names.
+writes `bouts_all.csv`, `saccades_augmented_all.csv`, `valid_trials_all.csv` and `qc_all.csv` in the screen folder
+(default: this machine's `data_root`), with line and condition taken from the folder names. The merge needs every
+folder of the screen, so it runs where all the data are; copy the four tables to the cluster's `data_root` before
+fitting there.
 
 ### 3. Control models
 
 ```
-bash BehaviorScreen/screen/control_models/submit_fits.sh
+python -m BehaviorScreen fit-controls [experiment ...] [--modes diagnostics fit]
 ```
 
-submits one job per behavior of `experiments.txt` (`run_analysis --mode fit`), then
+one job per behavior of `experiments.txt` (or of those named) and mode (default: fit), then
 
 ```
 python -m BehaviorScreen.screen.control_models.run_analysis --mode consolidate -d /path/to/screen -o ./figures
@@ -97,14 +111,22 @@ python -m BehaviorScreen.screen.control_models.run_analysis --mode consolidate -
 ### 4. Line tests
 
 ```
-sbatch BehaviorScreen/screen/line_tests/tier1.sbatch              # one task per behavior
-sbatch --array=1 BehaviorScreen/screen/line_tests/tier1.sbatch --combine
+python -m BehaviorScreen test-lines [behavior ...]       # Tier 1: one job per behavior, then their merge once all succeed
+python -m BehaviorScreen test-lines --combine-only       # the merge alone, e.g. after rerunning a failed behavior
 python -m BehaviorScreen.screen.line_tests.clutch_variability ./tier1_results
 python -m BehaviorScreen.screen.line_tests.count_readouts
 ```
 
-`count_readouts`, `plate_variance` and `arm_absolute` take no data argument: they read the data folder from
-`SCREEN_DATA_ROOT` and the control fits from `SCREEN_FITS_ROOT` (default `./figures`).
+A resubmitted behavior skips the cells it has already saved. `count_readouts`, `plate_variance` and `arm_absolute`
+take no data argument: they read the data folder from `SCREEN_DATA_ROOT` and the control fits from `SCREEN_FITS_ROOT`
+(default `./figures`).
+
+### A new week of recordings
+
+1. `python -m BehaviorScreen preprocess /path/to/screen/line/condition` on the cluster, for each new folder.
+2. The folders' tables to the computer that holds the whole screen, then `python -m BehaviorScreen merge` there.
+3. The four `*_all.csv` tables to the cluster's `data_root`.
+4. `fit-controls` when the controls changed, then `test-lines`.
 
 ### Checks
 
