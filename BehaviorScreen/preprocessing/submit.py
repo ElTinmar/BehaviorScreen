@@ -1,14 +1,14 @@
 """
-The preprocessing pipeline on the cluster, one Slurm job per <line>/<condition> folder (the folders with results/ in them):
-    python -m BehaviorScreen.preprocessing.submit PATH [pipeline options, e.g. --steps qc heatmaps]
+The preprocessing pipeline, one job per <line>/<condition> folder (the folders with results/ in them), on Slurm or here (BehaviorScreen/machines.yaml):
+    python -m BehaviorScreen.preprocessing.submit PATH [--local] [pipeline options, e.g. --steps qc heatmaps]
 PATH: one such folder, a line folder or a screen root.
-A GPU when the steps include pose, eye_pose or bouts (all steps by default); 12 GB of memory for qc and heatmaps alone.
+On Slurm: a GPU when the steps include pose, eye_pose or bouts (all steps by default); 12 GB of memory for qc and heatmaps alone.
 """
 import argparse
 from pathlib import Path
 from typing import List
 
-from BehaviorScreen.cluster import GPU, submit
+from BehaviorScreen.jobs import GPU, Jobs, add_local_argument
 from BehaviorScreen.preprocessing.__main__ import build_parser
 
 
@@ -21,15 +21,18 @@ def resources(steps: List[str]) -> List[str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("path", type=Path)
-    path, options = parser.parse_known_args()
-    path = path.path.resolve()
+    add_local_argument(parser)
+    args, options = parser.parse_known_args()
+    path = args.path.resolve()
     folders = [d for d in (path, *sorted(path.glob("*")), *sorted(path.glob("*/*"))) if (d / "results").is_dir()]
     if not folders:
         raise SystemExit(f"no folder with results/ in it at or below {path}")
     steps = build_parser().parse_args([str(path), *options]).steps
+    jobs = Jobs(args.local)
     for folder in folders:
-        submit(["python", "-m", "BehaviorScreen.preprocessing", str(folder), *options],
-               f"preprocessing_{folder.parent.name}/{folder.name}", resources(steps))
+        jobs.submit(["python", "-m", "BehaviorScreen.preprocessing", str(folder), *options],
+                    f"preprocessing_{folder.parent.name}/{folder.name}", resources(steps))
+    jobs.finish()
 
 
 if __name__ == "__main__":
