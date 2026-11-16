@@ -9,11 +9,11 @@ conda env create -f BehaviorScreen.yml
 conda env create -f LightningPose.yml
 ```
 
-### Download pose estimation model
+### Download the pose and saccade models
 
 ```
 conda activate BehaviorScreen
-python -m BehaviorScreen.preprocessing.download_model
+python -m BehaviorScreen download-models
 ```
 
 ## Layout

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 
 STAGES = {
+    "download-models": "BehaviorScreen.preprocessing.download_model",
     "preprocess": "BehaviorScreen.preprocessing.submit",
     "merge": "BehaviorScreen.screen.merge_screen",
     "fit-controls": "BehaviorScreen.screen.control_models.submit",
@@ -23,7 +24,7 @@ def summary(module: str) -> str:
 
 def main() -> None:
     if len(sys.argv) < 2 or sys.argv[1] not in STAGES:
-        print(__doc__.strip() + "\n\n" + "\n".join(f"  {stage:<12}  {summary(module)}" for stage, module in STAGES.items()))
+        print(__doc__.strip() + "\n\n" + "\n".join(f"  {stage:<15}  {summary(module)}" for stage, module in STAGES.items()))
         raise SystemExit(0 if sys.argv[1:] in ([], ["-h"], ["--help"]) else 2)
     stage = sys.argv.pop(1)
     sys.argv[0] = f"python -m BehaviorScreen {stage}"

@@ -24,6 +24,8 @@ def main() -> None:
     add_local_argument(parser)
     args, options = parser.parse_known_args()
     path = args.path.resolve()
+    if not path.is_dir():
+        raise SystemExit(f"no folder {path}")
     folders = [d for d in (path, *sorted(path.glob("*")), *sorted(path.glob("*/*"))) if (d / "results").is_dir()]
     if not folders:
         raise SystemExit(f"no folder with results/ in it at or below {path}")

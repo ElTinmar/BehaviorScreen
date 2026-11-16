@@ -1,8 +1,7 @@
 """
-Download the models into a folder (default: here), where the pipeline's
-default model paths point:
+Download the pose and saccade models, by default here, where the pipeline's default model paths point:
 
-    python -m BehaviorScreen.preprocessing.download_model [full] [eyes] [saccades] [--destination FOLDER]
+    python -m BehaviorScreen download-models [full] [eyes] [saccades] [--destination FOLDER]
 
 Zip archives (the Lightning Pose models) are unpacked; any other file is saved
 under its target name.
@@ -46,13 +45,20 @@ def download(url: str, target: Path) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Download the pipeline's models.")
-    parser.add_argument("models", nargs="*", choices=list(MODELS), help="Models to download (default: all)")
+    parser.add_argument("models", nargs="*", help=f"Models to download, among {', '.join(MODELS)} (default: all)")
     parser.add_argument("--destination", type=Path, default=Path("."), help="Folder the models go in (default: here)")
     return parser
 
 
-if __name__ == "__main__":
-    args = build_parser().parse_args()
+def main() -> None:
+    parser = build_parser()
+    args = parser.parse_args()
+    if unknown := sorted(set(args.models) - set(MODELS)):
+        parser.error(f"unknown models: {unknown}")
     for name in args.models or MODELS:
         url, target = MODELS[name]
         download(url, args.destination / target)
+
+
+if __name__ == "__main__":
+    main()
