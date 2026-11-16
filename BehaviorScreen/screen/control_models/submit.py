@@ -19,10 +19,12 @@ MEMORY = {4: "500000", 2: "160G", 1: "32G"}  # by GPUs
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("experiments", nargs="*", choices=EXPERIMENTS, metavar="experiment", help="default: all")
+    parser.add_argument("experiments", nargs="*", metavar="experiment", help="of experiments.txt (default: all)")
     parser.add_argument("--modes", nargs="+", choices=["diagnostics", "fit"], default=["fit"], help="run_analysis modes, in this order")
     add_local_argument(parser)
     args = parser.parse_args()
+    if unknown := sorted(set(args.experiments) - set(EXPERIMENTS)):
+        parser.error(f"not in experiments.txt: {unknown}")
     jobs = Jobs(args.local)
     for experiment in args.experiments or EXPERIMENTS:
         gpus = 4 if experiment in HEAVY else 1 if experiment in LIGHT else 2

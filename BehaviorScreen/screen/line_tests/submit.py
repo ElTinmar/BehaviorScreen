@@ -16,10 +16,12 @@ RESOURCES = ["--cpus-per-task=24", "--mem=120000"]
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("behaviors", nargs="*", choices=EXPERIMENTS, metavar="behavior", help="default: all")
+    parser.add_argument("behaviors", nargs="*", metavar="behavior", help="of experiments.txt (default: all)")
     parser.add_argument("--combine-only", action="store_true", help="Only merge the behaviors already saved.")
     add_local_argument(parser)
     args = parser.parse_args()
+    if unknown := sorted(set(args.behaviors) - set(EXPERIMENTS)):
+        parser.error(f"not in experiments.txt: {unknown}")
     jobs = Jobs(args.local)
     run = ["python", "-m", "BehaviorScreen.screen.line_tests.run_screen", "--data-root", str(jobs.data_root),
            "--fits-root", "./figures", "--output-dir", "./tier1_results"]
