@@ -5,6 +5,6 @@ raven01:
   data_root: /ptmp/mapri
   slurm: true
   logs: /u/mapri/logs
-the-beast:
+TheBeast:
   data_root: /media/martin/DATA_18TB/Screen
   workers: 8
