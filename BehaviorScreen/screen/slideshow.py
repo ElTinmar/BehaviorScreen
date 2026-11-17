@@ -1,8 +1,8 @@
 """
 Browse the screen's plots as an HTML slideshow, a page per line.
 Each page holds the line's conditions (vehicle, then ronidazole, then any other), a straight mutant's reference arm
-first (MUTANT_REFERENCES, as in the screen's tests), each with its number of fish per epoch (with a usable trial in
-valid_trials.csv, not excluded by qc.csv).
+first (MUTANT_REFERENCES, as in the screen's tests), each with its number of fish per epoch the heatmaps show (with
+a usable trial in valid_trials.csv, not excluded by qc.csv).
 One view per plot (default: bouts_classic, bouts, saccades_classic, saccades), its arms stacked for the plots of STACKED (wide ones),
 side by side for the others: ← and → turn pages, ↑ and ↓ (or 1, 2, ...) switch views,
 the wheel zooms every plot of the page together (drag to pan, double-click to reset); the zoom carries over to the
@@ -17,11 +17,13 @@ import base64
 import html
 import json
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import List
 
 import pandas as pd
 
+from BehaviorScreen.filters import load_yaml_config
 from BehaviorScreen.jobs import this_machine
 from BehaviorScreen.screen.control_models.model_config import MUTANT_REFERENCES
 from BehaviorScreen.screen.line_names import PARENTS, SCREEN, is_italic
@@ -29,6 +31,18 @@ from BehaviorScreen.screen.line_names import PARENTS, SCREEN, is_italic
 CONDITION_ORDER = ["vehicle", "ronidazole"]
 PLOTS = ["bouts_classic.png", "bouts.png", "saccades_classic.png", "saccades.png"]
 STACKED = {"bouts_classic", "saccades_classic"}
+HEATMAPS = Path(__file__).parents[1] / "preprocessing" / "plots" / "heatmaps.yaml"
+
+
+@lru_cache
+def plotted_epochs() -> tuple:
+    """The epochs the heatmaps show: the epoch_name rules of heatmaps.yaml (no adaptation, ramps or breaks they skip)."""
+    epochs = []
+    for stimulus in load_yaml_config(HEATMAPS)["stimuli"]:
+        for rules in stimulus.get("parameters", []):
+            rule = rules.get("epoch_name", {})
+            epochs += [rule["=="]] if "==" in rule else rule.get("in", [])
+    return tuple(epochs)
 
 
 def label(folder: str) -> str:
@@ -51,14 +65,15 @@ def source(png: Path, page: Path, embed: bool) -> str:
     return Path(os.path.relpath(png, page.parent)).as_posix()
 
 
-def sample_size(folder: Path) -> dict:
+def sample_size(folder: Path, epochs: tuple) -> dict:
     """
-    Per epoch, in protocol order, the fish with a usable trial (presented and tracked) and not excluded by qc.csv,
-    and their range ('n = 12–40 fish'): the fish the plots and the models use; empty before qc has run.
+    Per epoch of `epochs`, in protocol order, the fish with a usable trial (presented and tracked) and not excluded by
+    qc.csv, and their range ('n = 12–40 fish'): the fish the plots and the models use; empty before qc has run.
     """
     if not (folder / "valid_trials.csv").exists():
         return {"text": "", "epochs": []}
     trials = pd.read_csv(folder / "valid_trials.csv", usecols=["file", "epoch_name", "presented", "tracking_ok"])
+    trials = trials[trials["epoch_name"].isin(epochs)]
     excluded = set(pd.read_csv(folder / "qc.csv", usecols=["file"])["file"])
     usable = trials[trials["presented"] & trials["tracking_ok"] & ~trials["file"].isin(excluded)]
     n = usable.groupby("epoch_name")["file"].nunique().reindex(trials["epoch_name"].unique(), fill_value=0)
@@ -70,7 +85,7 @@ def sample_size(folder: Path) -> dict:
 
 def panel(folder: Path, caption: str, plots: List[str], page: Path, embed: bool) -> dict:
     pngs = {Path(plot).stem: folder / "plots" / plot for plot in plots}
-    return {"caption": caption, "n": sample_size(folder), "src": {view: source(png, page, embed) if png.exists() else None for view, png in pngs.items()}}
+    return {"caption": caption, "n": sample_size(folder, plotted_epochs()), "src": {view: source(png, page, embed) if png.exists() else None for view, png in pngs.items()}}
 
 
 def pages(screen: Path, plots: List[str], page: Path, embed: bool) -> List[dict]:
