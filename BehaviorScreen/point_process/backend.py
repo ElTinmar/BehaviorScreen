@@ -4,7 +4,6 @@ any argument is a JAX array (inside a traced likelihood) and in NumPy otherwise
 (simulation, plots). Likelihoods are JAX functions of parameters and `Arrays`.
 """
 from functools import lru_cache
-from itertools import count
 from pathlib import Path
 from typing import Any, Callable, Dict, Hashable, Tuple
 
@@ -97,10 +96,18 @@ def pad(values: np.ndarray, size: int, fill: Any) -> np.ndarray:
 
 
 _COMPILED: Dict[Hashable, Tuple[Callable, Callable, Callable]] = {}
-# Every compiled executable keeps about 13 memory maps until JAX's caches are cleared, and Linux refuses new maps past
+# Every compiled executable keeps about 16 memory maps until JAX's caches are cleared, and Linux refuses new maps past
 # vm.max_map_count (65,530 by default): a long run that compiles for many datasets then dies in LLVM ("Cannot allocate memory").
 _MAPS, _MAP_LIMIT = Path("/proc/self/maps"), Path("/proc/sys/vm/max_map_count")
-_calls = count(1)
+_compilations = 0  # since the maps were last counted
+
+
+def _count_compilation(event: str, *_: Any, **__: Any) -> None:
+    global _compilations
+    _compilations += event == "/jax/core/compile/backend_compile_duration"
+
+
+jax.monitoring.register_event_duration_secs_listener(_count_compilation)
 
 
 def _hessian(nll: Callable) -> Callable:
@@ -111,7 +118,7 @@ def _hessian(nll: Callable) -> Callable:
 
 def compiled(key: Hashable, nll: Callable) -> Tuple[Callable, Callable, Callable]:
     """Jitted value, value and gradient, and Hessian of nll(params, arrays), one set per key (a model's structure)."""
-    if next(_calls) % 1000 == 0:
+    if _compilations >= 100:
         release_if_crowded()
     if key not in _COMPILED:
         _COMPILED[key] = (jax.jit(nll), jax.jit(jax.value_and_grad(nll)), jax.jit(_hessian(nll)))
@@ -120,5 +127,7 @@ def compiled(key: Hashable, nll: Callable) -> Tuple[Callable, Callable, Callable
 
 def release_if_crowded() -> None:
     """Clears JAX's compiled executables once they hold half the memory maps this process may have (Linux)."""
+    global _compilations
+    _compilations = 0
     if _MAPS.exists() and sum(1 for _ in _MAPS.open()) > int(_MAP_LIMIT.read_text()) // 2:
         jax.clear_caches()
