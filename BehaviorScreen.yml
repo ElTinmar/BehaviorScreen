@@ -21,6 +21,8 @@ dependencies:
 - pyside6
 - pytest
 - pip:
+  - czifile == 2019.7.2.3  # confocal_mip; the last release for Python 3.11 (newer ones need 3.12)
+  - imagecodecs
   - jax == 0.7.1  # CPU; the likelihoods' exact gradients
   - pyyaml
   - megabouts

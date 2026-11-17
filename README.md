@@ -145,7 +145,7 @@ python -m BehaviorScreen confocal-mip /path/to/ablation_confocal [--output DIR]
 ```
 
 projects every `.czi` stack along Z: `<stack>_mip.png` and a montage per line folder (controls over ablated fish,
-one intensity scale per folder), next to the stacks. Needs `czifile` (2026 or later) and `imagecodecs`.
+one intensity scale per folder), next to the stacks. Needs `czifile` (2019.7.2, the last release for Python 3.11) and `imagecodecs`.
 
 ### Checks
 

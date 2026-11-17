@@ -23,10 +23,10 @@ ROWS = {"control": re.compile(r"cont|cntr", re.I), "ablated": re.compile(r"abla"
 def projection(path: Path) -> np.ndarray:
     """Maximum along Z of the stack's first scene: (channel, y, x)."""
     with czifile.CziFile(path) as czi:
-        scenes = list(czi.scenes.values())
-        if len(scenes) > 1:
-            warnings.warn(f"{path.name}: {len(scenes)} scenes, only the first is projected")
-        data, dims = scenes[0].asarray(), list(scenes[0].dims)
+        data, dims = czi.asarray(), list(czi.axes)
+    if "S" in dims and data.shape[dims.index("S")] > 1:
+        warnings.warn(f"{path.name}: {data.shape[dims.index('S')]} scenes, only the first is projected")
+        data = data.take([0], axis=dims.index("S"))
     if extra := {d: n for d, n in zip(dims, data.shape) if d not in "CZYX" and n > 1}:
         raise ValueError(f"{path}: no projection for the axes {extra} (dimensions {dims})")
     data = data.squeeze(tuple(i for i, d in enumerate(dims) if d not in "CZYX"))
