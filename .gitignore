@@ -6,7 +6,8 @@
 !BehaviorScreen/screen/screen_lines.csv
 model/
 figures/
-tier1_results/
+/control_fits/
+/line_tests/
 fish_gain_variance/
 Martin_Apr2026_Full
 Martin_Jan2026_Full
