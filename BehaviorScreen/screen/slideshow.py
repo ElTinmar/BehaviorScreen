@@ -6,7 +6,7 @@ a usable trial in valid_trials.csv, not excluded by qc.csv). A first page holds 
 python -m BehaviorScreen.preprocessing.pooled_heatmaps has made their plots (SCREEN_FOLDER/pooled/vehicle/plots/).
 One view per plot (default: bouts_classic, bouts, saccades_classic, saccades), its arms stacked for the plots of STACKED (wide ones),
 side by side for the others: ← and → turn pages, ↑ and ↓ (or 1, 2, ...) switch views,
-the wheel zooms every plot of the page together (drag to pan, double-click to reset); the zoom carries over to the
+the wheel zooms every plot of the page together (drag to pan, double-click or Escape to reset); the zoom carries over to the
 next line, and a new view starts unzoomed.
     python -m BehaviorScreen slideshow [SCREEN_FOLDER] [--plots bouts_classic.png bouts.png ...] [--embed]
 SCREEN_FOLDER: by default, this machine's data_root in BehaviorScreen/machines.yaml.
@@ -149,9 +149,9 @@ PAGE = """<!DOCTYPE html>
              border-radius: 6px; padding: .3rem .6rem; border-spacing: 1rem 0; white-space: nowrap; color: var(--fg); }
   .n td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
   .n details { display: inline; }
-  .view { flex: 1; min-height: 0; overflow: hidden; touch-action: none; }
+  .view { flex: 1; min-height: 0; overflow: hidden; touch-action: none; user-select: none; }
   .view img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: left top; transform-origin: 0 0;
-              user-select: none; -webkit-user-drag: none; }
+              pointer-events: none; }
   main.zoomed .view { cursor: grab; }
   .missing { flex: 1; display: grid; place-items: center; border: 1px dashed var(--line); color: var(--muted); }
 </style>
@@ -222,10 +222,12 @@ $("panels").addEventListener("pointerdown", e => {
   box.setPointerCapture(e.pointerId);
 });
 $("panels").addEventListener("pointermove", e => { if (drag) { [x, y] = [e.clientX - drag[0], e.clientY - drag[1]]; place(); } });
-$("panels").addEventListener("pointerup", () => drag = null);
-$("panels").addEventListener("dblclick", e => { if (e.target.closest(".view")) { [scale, x, y] = [1, 0, 0]; place(); } });
+for (const end of ["pointerup", "pointercancel"]) $("panels").addEventListener(end, () => drag = null);
+const reset = () => { [scale, x, y] = [1, 0, 0]; place(); };
+$("panels").addEventListener("dblclick", e => { if (e.target.closest(".view")) reset(); });
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "SELECT") return;
+  if (e.key === "Escape") reset();
   if (e.key === "ArrowLeft") current = show(current - 1);
   if (e.key === "ArrowRight") current = show(current + 1);
   if (e.key === "ArrowUp") { e.preventDefault(); current = show(current, view - 1); }
