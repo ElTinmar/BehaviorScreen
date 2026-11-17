@@ -3,8 +3,9 @@ Maximum-intensity projections of confocal stacks (.czi) along Z, as 8-bit PNGs a
     python -m BehaviorScreen confocal-mip FOLDER [--output DIR] [--percentile 99.9]
 Each subfolder of FOLDER holding .czi files (one line's stacks) gets, in OUTPUT/<subfolder>/ (default: next to its stacks):
 <stack>_mip.png per stack and <subfolder>_mip_montage.png, a row of controls over a row of ablated fish (by file name:
-cont, cntr or control; abla), other stacks in a last row. All the projections of a subfolder share one intensity scale
-(0 to their PERCENTILE), so an ablation shows as a loss of signal; stacks with several channels give one image per
+cont, cntr or control; abla). A stack named neither is projected but left out of the montage and its scale, and listed.
+All the projections of a subfolder share one intensity scale (0 to the PERCENTILE of the montage's), so an ablation shows
+as a loss of signal; stacks with several channels give one image per
 channel (_c0, _c1, ...). Copy the montage into the screen's <line>/confocal/ for the slideshow.
 """
 import argparse
@@ -42,10 +43,8 @@ def to_8bit(image: np.ndarray, top: float) -> np.ndarray:
 
 
 def montage(images: Dict[str, np.ndarray]) -> Image.Image:
-    """Controls, then ablated fish, then the others, a row each, every image labelled with its stack's name."""
-    groups = [[name for name in images if pattern.search(name)] for pattern in ROWS.values()]
-    others = [name for name in images if not any(name in group for group in groups)]
-    rows = [group for group in groups + [others] if group]
+    """Controls, then ablated fish, a row each, every image labelled with its stack's name."""
+    rows = [row for row in ([name for name in images if pattern.search(name)] for pattern in ROWS.values()) if row]
     height, width = (max(image.shape[i] for image in images.values()) for i in (0, 1))
     sheet = Image.new("L", (width * max(map(len, rows)), height * len(rows)))
     draw, font = ImageDraw.Draw(sheet), ImageFont.load_default(size=max(12, height // 25))
@@ -59,16 +58,21 @@ def montage(images: Dict[str, np.ndarray]) -> Image.Image:
 def project_folder(folder: Path, output: Path, percentile: float) -> None:
     stacks = sorted(folder.glob("*.czi"), key=lambda p: p.name.lower())
     projections = {stack.stem: projection(stack) for stack in stacks}
+    shown = [name for name in projections if any(pattern.search(name) for pattern in ROWS.values())]
+    if flagged := [name for name in projections if name not in shown]:
+        print(f"{folder.name}: neither control nor ablated by name, left out of the montage: {', '.join(flagged)}")
     output.mkdir(parents=True, exist_ok=True)
     channels = max(p.shape[0] for p in projections.values())
     for channel in range(channels):
         suffix = f"_c{channel}" if channels > 1 else ""
         planes = {name: p[channel] for name, p in projections.items() if channel < p.shape[0]}
-        top = max(np.percentile(np.concatenate([plane.ravel() for plane in planes.values()]), percentile), 1)
+        scaled = [plane.ravel() for name, plane in planes.items() if name in shown] or [plane.ravel() for plane in planes.values()]
+        top = max(np.percentile(np.concatenate(scaled), percentile), 1)
         images = {name: to_8bit(plane, top) for name, plane in planes.items()}
         for name, image in images.items():
             Image.fromarray(image).save(output / f"{name}_mip{suffix}.png")
-        montage(images).save(output / f"{folder.name}_mip_montage{suffix}.png")
+        if montaged := {name: image for name, image in images.items() if name in shown}:
+            montage(montaged).save(output / f"{folder.name}_mip_montage{suffix}.png")
     print(f"{folder.name}: {len(stacks)} stacks -> {output}")
 
 
