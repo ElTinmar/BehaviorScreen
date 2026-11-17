@@ -19,6 +19,7 @@ import base64
 import html
 import json
 import os
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional
@@ -161,7 +162,7 @@ PAGE = """<!DOCTYPE html>
   <span class="spacer"></span>
   <span id="views" class="views" role="group" aria-label="View"></span>
   <button id="prev" aria-label="Previous line">←</button><select id="jump" aria-label="Line"></select><button id="next" aria-label="Next line">→</button>
-  <span id="count" class="muted"></span>
+  <span id="count" class="muted"></span><span class="muted">generated __GENERATED__</span>
 </header>
 <main id="panels"></main>
 <script>
@@ -248,7 +249,7 @@ def main() -> None:
     content = pages(screen, args.plots, page, args.embed)
     views = [Path(plot).stem for plot in args.plots]
     page.write_text(PAGE.replace("__PAGES__", json.dumps(content)).replace("__VIEWS__", json.dumps(views)).replace("__LABELS__", json.dumps(LABELS))
-                    .replace("__STACKED__", json.dumps(sorted(STACKED))), encoding="utf-8")
+                    .replace("__STACKED__", json.dumps(sorted(STACKED))).replace("__GENERATED__", f"{datetime.now():%Y-%m-%d %H:%M}"), encoding="utf-8")
     print(f"{len(content)} lines, views {', '.join(views)} -> {page}")
 
 
