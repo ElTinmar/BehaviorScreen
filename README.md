@@ -111,8 +111,8 @@ python -m BehaviorScreen.screen.control_models.run_analysis --mode consolidate -
 ### 4. Line tests
 
 ```
-python -m BehaviorScreen test-lines [behavior ...]       # Tier 1: one job per behavior, then their merge once all succeed
-python -m BehaviorScreen test-lines --combine-only       # the merge alone, e.g. after rerunning a failed behavior
+python -m BehaviorScreen test-lines [behavior ...]       # Tier 1: one job per behavior
+python -m BehaviorScreen test-lines --combine            # once they are done: merge the saved behaviors into tables and maps
 python -m BehaviorScreen.screen.line_tests.clutch_variability ./tier1_results
 python -m BehaviorScreen.screen.line_tests.count_readouts
 ```
