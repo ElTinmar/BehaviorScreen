@@ -85,8 +85,9 @@ stimuli:
     parameters:
       - epoch_name: {'in': ["looming left", "looming right"]}
     time_bins:
-      - [0, 4]
-      - [4, 6]
+      - [0, 4.6]
+      - [4.6, 5.2]
+      - [5.2, 6]
       - [6, 10]
     fine_time_bins: [0, 10, 0.2]
 
