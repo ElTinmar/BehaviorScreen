@@ -136,7 +136,9 @@ python -m BehaviorScreen slideshow [/path/to/screen]
 
 writes `slideshow.html` in the screen folder: a page per line, its arms (and a mutant's reference arm) with
 their number of fish per epoch, one view per plot (bouts_classic, bouts, saccades_classic, saccades). Arrow keys turn
-pages and switch views; the wheel zooms all the arms of a page together. `--embed` writes `slideshow_embedded.html` instead, with the images inside: one file to send.
+pages and switch views; the wheel zooms all the arms of a page together. A first page shows the vehicle arms of all
+lines pooled, once their plots are made from the merged tables (`python -m BehaviorScreen.preprocessing.pooled_heatmaps` after
+`merge`, into `pooled/vehicle/plots/`). `--embed` writes `slideshow_embedded.html` instead, with the images inside: one file to send.
 
 ### Checks
 

@@ -2,7 +2,8 @@
 Browse the screen's plots as an HTML slideshow, a page per line.
 Each page holds the line's conditions (vehicle, then ronidazole, then any other), a straight mutant's reference arm
 first (MUTANT_REFERENCES, as in the screen's tests), each with its number of fish per epoch the heatmaps show (with
-a usable trial in valid_trials.csv, not excluded by qc.csv).
+a usable trial in valid_trials.csv, not excluded by qc.csv). A first page holds the vehicle arms of all lines pooled, once
+python -m BehaviorScreen.preprocessing.pooled_heatmaps has made their plots (SCREEN_FOLDER/pooled/vehicle/plots/).
 One view per plot (default: bouts_classic, bouts, saccades_classic, saccades), its arms stacked for the plots of STACKED (wide ones),
 side by side for the others: ← and → turn pages, ↑ and ↓ (or 1, 2, ...) switch views,
 the wheel zooms every plot of the page together (drag to pan, double-click to reset); the zoom carries over to the
@@ -20,7 +21,7 @@ import json
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 import pandas as pd
 
@@ -67,16 +68,17 @@ def source(png: Path, page: Path, embed: bool) -> str:
     return Path(os.path.relpath(png, page.parent)).as_posix()
 
 
-def sample_size(folder: Path, epochs: tuple) -> dict:
+def sample_size(folders: List[Path], epochs: tuple) -> dict:
     """
-    Per epoch of `epochs`, in protocol order, the fish with a usable trial (presented and tracked) and not excluded by
-    qc.csv, and their range ('n = 12–40 fish'): the fish the plots and the models use; empty before qc has run.
+    Per epoch of `epochs`, in protocol order, the fish of `folders` with a usable trial (presented and tracked) and not
+    excluded by qc.csv, and their range ('n = 12–40 fish'): the fish the plots and the models use; empty before qc has run.
     """
-    if not (folder / "valid_trials.csv").exists():
+    folders = [f for f in folders if (f / "valid_trials.csv").exists()]
+    if not folders:
         return {"text": "", "epochs": []}
-    trials = pd.read_csv(folder / "valid_trials.csv", usecols=["file", "epoch_name", "presented", "tracking_ok"])
+    trials = pd.concat(pd.read_csv(f / "valid_trials.csv", usecols=["file", "epoch_name", "presented", "tracking_ok"]) for f in folders)
     trials = trials[trials["epoch_name"].isin(epochs)]
-    excluded = set(pd.read_csv(folder / "qc.csv", usecols=["file"])["file"])
+    excluded = set().union(*(pd.read_csv(f / "qc.csv", usecols=["file"])["file"] for f in folders))
     usable = trials[trials["presented"] & trials["tracking_ok"] & ~trials["file"].isin(excluded)]
     n = usable.groupby("epoch_name")["file"].nunique().reindex(trials["epoch_name"].unique(), fill_value=0)
     low, high = n.min(), n.max()
@@ -85,13 +87,19 @@ def sample_size(folder: Path, epochs: tuple) -> dict:
     return {"text": text, "epochs": [[epoch, int(count)] for epoch, count in n.items()]}
 
 
-def panel(folder: Path, caption: str, plots: List[str], page: Path, embed: bool) -> dict:
+def panel(folder: Path, caption: str, plots: List[str], page: Path, embed: bool, fish: Optional[List[Path]] = None) -> dict:
+    """The plots of `folder`, and the number of fish of `fish` (default: of `folder`)."""
     pngs = {Path(plot).stem: folder / "plots" / plot for plot in plots}
-    return {"caption": caption, "n": sample_size(folder, plotted_epochs()), "src": {view: source(png, page, embed) if png.exists() else None for view, png in pngs.items()}}
+    return {"caption": caption, "n": sample_size(fish or [folder], plotted_epochs()), "src": {view: source(png, page, embed) if png.exists() else None for view, png in pngs.items()}}
 
 
 def pages(screen: Path, plots: List[str], page: Path, embed: bool) -> List[dict]:
     result = []
+    pooled = screen / "pooled" / "vehicle"
+    if (pooled / "plots").is_dir():
+        vehicles = sorted(d for d in screen.glob("*/vehicle") if (d / "results").is_dir())
+        result.append({"title": "All vehicles", "folder": "All vehicles", "cross": f"{len(vehicles)} lines pooled",
+                       "panels": [panel(pooled, "Vehicle", plots, page, embed, fish=vehicles)]})
     for line in sorted((d for d in screen.iterdir() if d.is_dir()), key=lambda d: d.name.lower()):
         conditions = sorted((c for c in line.iterdir() if (c / "results").is_dir()),
                             key=lambda c: (CONDITION_ORDER.index(c.name) if c.name in CONDITION_ORDER else len(CONDITION_ORDER), c.name))
