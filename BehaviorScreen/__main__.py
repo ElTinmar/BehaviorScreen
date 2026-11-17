@@ -15,6 +15,7 @@ STAGES = {
     "fit-controls": "BehaviorScreen.screen.control_models.submit",
     "test-lines": "BehaviorScreen.screen.line_tests.submit",
     "slideshow": "BehaviorScreen.screen.slideshow",
+    "confocal-mip": "BehaviorScreen.screen.confocal_mip",
 }
 
 

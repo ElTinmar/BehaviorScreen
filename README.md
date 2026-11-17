@@ -140,6 +140,13 @@ pages and switch views; the wheel zooms all the arms of a page together. A first
 lines pooled, once their plots are made from the merged tables (`python -m BehaviorScreen.preprocessing.pooled_heatmaps` after
 `merge`, into `pooled/vehicle/plots/`). `--embed` writes `slideshow_embedded.html` instead, with the images inside: one file to send.
 
+```
+python -m BehaviorScreen confocal-mip /path/to/ablation_confocal [--output DIR]
+```
+
+projects every `.czi` stack along Z: `<stack>_mip.png` and a montage per line folder (controls over ablated fish,
+one intensity scale per folder), next to the stacks. Needs `czifile` (2026 or later) and `imagecodecs`.
+
 ### Checks
 
 ```
