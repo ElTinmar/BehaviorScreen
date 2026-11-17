@@ -32,6 +32,7 @@ from BehaviorScreen.screen.line_names import PARENTS, SCREEN, is_italic
 CONDITION_ORDER = ["vehicle", "ronidazole"]
 PLOTS = ["bouts_classic.png", "bouts.png", "saccades_classic.png", "saccades.png"]
 STACKED = {"bouts_classic", "saccades_classic"}
+LABELS = {"bouts_classic": "bouts (trial avg)", "saccades_classic": "saccades (trial avg)"}  # view buttons; others: the file name
 HEATMAPS = Path(__file__).parents[1] / "preprocessing" / "plots" / "heatmaps.yaml"
 
 
@@ -156,10 +157,11 @@ PAGE = """<!DOCTYPE html>
 </header>
 <main id="panels"></main>
 <script>
-const PAGES = __PAGES__, VIEWS = __VIEWS__, STACKED = __STACKED__;
+const PAGES = __PAGES__, VIEWS = __VIEWS__, STACKED = __STACKED__, LABELS = __LABELS__;
+const label = v => LABELS[v] || v;
 const $ = id => document.getElementById(id);
 PAGES.forEach((p, i) => $("jump").add(new Option(p.folder, i)));
-VIEWS.forEach((v, k) => { const b = document.createElement("button"); b.textContent = v; b.onclick = () => current = show(current, k); $("views").append(b); });
+VIEWS.forEach((v, k) => { const b = document.createElement("button"); b.textContent = label(v); b.onclick = () => current = show(current, k); $("views").append(b); });
 let view = 0, scale = 1, x = 0, y = 0, drag = null;
 function show(i, k = view) {
   i = (i + PAGES.length) % PAGES.length;
@@ -177,7 +179,7 @@ function show(i, k = view) {
     n.epochs.map(([epoch, count]) => `<tr><td>${epoch}</td><td>${count}</td></tr>`).join("") + `</table></details></span>` : "";
   $("panels").classList.toggle("side", !STACKED.includes(VIEWS[view]));
   $("panels").innerHTML = p.panels.map(c => `<figure><figcaption>${c.caption}${counts(c.n)}</figcaption>` +
-    (c.src[VIEWS[view]] ? `<div class="view"><img src="${c.src[VIEWS[view]]}" alt=""></div>` : `<div class="missing">no ${VIEWS[view]} plot</div>`) +
+    (c.src[VIEWS[view]] ? `<div class="view"><img src="${c.src[VIEWS[view]]}" alt=""></div>` : `<div class="missing">no ${label(VIEWS[view])} plot</div>`) +
     `</figure>`).join("");
   place();
   history.replaceState(null, "", "#" + encodeURIComponent(p.folder) + "/" + VIEWS[view]);
@@ -237,7 +239,7 @@ def main() -> None:
     page = screen / ("slideshow_embedded.html" if args.embed else "slideshow.html")
     content = pages(screen, args.plots, page, args.embed)
     views = [Path(plot).stem for plot in args.plots]
-    page.write_text(PAGE.replace("__PAGES__", json.dumps(content)).replace("__VIEWS__", json.dumps(views))
+    page.write_text(PAGE.replace("__PAGES__", json.dumps(content)).replace("__VIEWS__", json.dumps(views)).replace("__LABELS__", json.dumps(LABELS))
                     .replace("__STACKED__", json.dumps(sorted(STACKED))), encoding="utf-8")
     print(f"{len(content)} lines, views {', '.join(views)} -> {page}")
 
