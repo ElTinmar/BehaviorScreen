@@ -18,7 +18,7 @@ clutch variance, which cost both alike, are not simulated.
 Outputs (OUTPUT/): simulations.csv (one p per replicate and test),
 power.csv (rate at alpha and at 0.05 with its binomial SE), power.png.
 
-    python -m BehaviorScreen.screen.side_analysis.simulate_power OUTPUT
+    python -m BehaviorScreen.screen.side_analysis.simulate_power OUTPUT [--data-root DIR] [--fits-root DIR]
         [--behaviors looming okr] [--folds 0.5 0.67 1 1.5 2] [--reps 50]
         [--alpha 0.05/60] [--model-perm 0] [--jobs -1]
 """
@@ -42,6 +42,7 @@ from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.screen.line_tests.count_readouts import COUNT_READOUTS, count_test, fish_counts
 from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
 from BehaviorScreen.screen.line_tests.tier1_omnibus import fit_tier1, tier1_permutation_test
+from BehaviorScreen.screen.paths import CONTROL_FITS, add_data_root, data_root
 
 
 @dataclass
@@ -147,10 +148,11 @@ def plot_power(table: pd.DataFrame, alpha: float) -> plt.Figure:
 
 
 def main(args: argparse.Namespace) -> None:
-    from BehaviorScreen.screen.line_tests.screen_setup import BEHAVIOR_CONFIG, CONTRASTS, arms  # loads the event tables and control fits
+    from BehaviorScreen.screen.line_tests.screen_setup import load_screen
 
+    screen = load_screen(data_root(args.data_root), args.fits_root)
     args.output.mkdir(parents=True, exist_ok=True)
-    jobs = make_jobs(BEHAVIOR_CONFIG, arms, CONTRASTS, args.folds, args)
+    jobs = make_jobs(screen.behavior_config, screen.arms, screen.contrasts, args.folds, args)
     sims = pd.DataFrame([row for rows in parallel_map(run_job, jobs, n_jobs=args.jobs, desc="Simulate") for row in rows])
     sims.to_csv(args.output / "simulations.csv", index=False)
     table = power_table(sims, args.alpha)
@@ -163,6 +165,8 @@ def main(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Simulated power of the Tier 1 model test vs the count tests.")
     parser.add_argument("output", type=Path)
+    add_data_root(parser)
+    parser.add_argument("--fits-root", type=Path, default=CONTROL_FITS, help="run_analysis --mode fit output of the control screen.")
     parser.add_argument("--behaviors", nargs="*", help="Experiments to simulate (default: all Tier 1 behaviors)")
     parser.add_argument("--folds", type=float, nargs="+", default=[0.5, 0.67, 1.0, 1.5, 2.0])
     parser.add_argument("--reps", type=int, default=50)

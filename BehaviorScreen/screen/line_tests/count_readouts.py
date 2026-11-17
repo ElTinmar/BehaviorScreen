@@ -19,7 +19,7 @@ the days recorded in both and their fish are permuted within the day.
 Rates count each trial by what the control fish do on it (trial_weights): responses
 habituate over trials, so a fish missing late trials is not compared with the mean trial.
 
-    python -m BehaviorScreen.screen.line_tests.count_readouts [--output ./count_results]
+    python -m BehaviorScreen.screen.line_tests.count_readouts [--data-root DIR] [--output ./count_results]
 
 writes tier1_results.csv, tier1_parameters.csv, tier1_map.png, contrasts.csv,
 arm_bootstrap.csv and tier1_absolute/; then
@@ -39,6 +39,8 @@ from BehaviorScreen.screen.control_models.model_config import control_loader, ge
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.io import save_fig
+
+from BehaviorScreen.screen.paths import COUNT_RESULTS, add_data_root, data_root
 
 from .dataset_utils import Contrast, recording_days, safe_prepare_dataset
 from .tier1_config import MAP_COLUMNS
@@ -231,31 +233,34 @@ def run_count_screen(
 def main(args: argparse.Namespace) -> None:
     from .arm_absolute import plot_all, save_contrasts
     from .fdr import add_fdr_per_behavior
-    from .screen_setup import CONTRASTS, loaders  # loads the event tables
+    from .screen_setup import load_tables, screen_contrasts
     from .tier1_omnibus import add_testability, compute_parameter_deltas, map_rows, plot_tier1_map
 
     out = args.output
     out.mkdir(parents=True, exist_ok=True)
-    counts, days = arm_counts(loaders, CONTRASTS)
-    results, params = run_count_screen(counts, days, CONTRASTS, args.n_perm, args.n_boot)
+    loaders = load_tables(data_root(args.data_root))
+    contrasts = screen_contrasts(loaders)
+    counts, days = arm_counts(loaders, contrasts)
+    results, params = run_count_screen(counts, days, contrasts, args.n_perm, args.n_boot)
     param_df = compute_parameter_deltas(params)
     tier1_df = add_testability(add_fdr_per_behavior(results, alpha=0.05))
     tier1_df.to_csv(out / "tier1_results.csv", index=False)
     param_df.to_csv(out / "tier1_parameters.csv", index=False)
-    save_contrasts(list(CONTRASTS), out / "contrasts.csv")
+    save_contrasts(contrasts, out / "contrasts.csv")
     boot = arm_bootstrap(counts, args.n_boot, np.random.default_rng(1))
     boot.to_csv(out / "arm_bootstrap.csv", index=False)
 
-    rows = map_rows(tier1_df, CONTRASTS)
+    rows = map_rows(tier1_df, contrasts)
     fig, _ = plot_tier1_map(param_df, tier1_df, list(COUNT_READOUTS), rows, column_labels=COUNT_COLUMNS)
     save_fig(fig, out, "tier1_map")
-    plot_all(boot, list(CONTRASTS), tier1_df, out / "tier1_absolute", COUNT_COLUMNS)
+    plot_all(boot, contrasts, tier1_df, out / "tier1_absolute", COUNT_COLUMNS)
     print(tier1_df.groupby("behavior", sort=False)["significant"].sum().to_string())
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Model-free Tier 1: count readouts per arm, map, absolute values.")
-    parser.add_argument("--output", type=Path, default=Path("./count_results"))
+    add_data_root(parser)
+    parser.add_argument("--output", type=Path, default=COUNT_RESULTS)
     parser.add_argument("--n-perm", type=int, default=10000)
     parser.add_argument("--n-boot", type=int, default=1000)
     return parser

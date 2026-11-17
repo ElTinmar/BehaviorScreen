@@ -8,6 +8,9 @@ model/
 figures/
 /control_fits/
 /line_tests/
+/count_results/
+/plate_variance/
+/line_sample_sizes.png
 fish_gain_variance/
 Martin_Apr2026_Full
 Martin_Jan2026_Full

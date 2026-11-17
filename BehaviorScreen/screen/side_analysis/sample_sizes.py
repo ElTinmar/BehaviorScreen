@@ -20,6 +20,7 @@ from matplotlib.transforms import blended_transform_factory
 from BehaviorScreen.screen.line_names import line_name
 from BehaviorScreen.core import Stim
 from BehaviorScreen.filters import exclude_qc_fish
+from BehaviorScreen.screen.paths import SAMPLE_SIZES, add_data_root, data_root
 
 RECORDING_S = 4490  # one fish's protocol
 WILD_TYPES = {"wt", "ab", "wik"}  # WT (TL) and the backgrounds
@@ -127,10 +128,10 @@ def plot_sample_sizes(counts: pd.DataFrame, width: float = 0.36, gap: float = 0.
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--data-root", type=Path, default=Path("/media/martin/DATA_18TB/Screen"), help="Folder of the merged *_all.csv tables.")
-    parser.add_argument("-o", "--output", type=Path, default=Path("line_sample_sizes.png"))
+    add_data_root(parser)
+    parser.add_argument("-o", "--output", type=Path, default=SAMPLE_SIZES)
     args = parser.parse_args()
-    counts = fish_per_arm(args.data_root)
+    counts = fish_per_arm(data_root(args.data_root))
     print(counts.set_index(["line", "condition"]).to_string())
     print(lines_tested(counts))
     plot_sample_sizes(counts).savefig(args.output, dpi=300)

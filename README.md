@@ -117,9 +117,9 @@ python -m BehaviorScreen.screen.line_tests.clutch_variability ./line_tests
 python -m BehaviorScreen.screen.line_tests.count_readouts
 ```
 
-A resubmitted behavior skips the cells it has already saved. `count_readouts`, `plate_variance` and `arm_absolute`
-take no data argument: they read the data folder from `SCREEN_DATA_ROOT` and the control fits from `SCREEN_FITS_ROOT`
-(default `./control_fits`).
+A resubmitted behavior skips the cells it has already saved. The screen analyses read the merged tables from this
+machine's `data_root` (machines.yaml) unless given `--data-root`, and the control fits from `./control_fits` unless given
+`--fits-root`; they write their results in the folder they run in (`BehaviorScreen/screen/paths.py`).
 
 ### A new week of recordings
 
@@ -144,7 +144,7 @@ lines pooled, once their plots are made from the merged tables (`python -m Behav
 
 ```
 python -m BehaviorScreen.screen.check_orientation /path/to/screen       # left and right of bouts, saccades and stimuli agree (rig.yaml)
-python -m BehaviorScreen.screen.line_tests.exclusions /path/to/screen    # what QC and the filters remove, per arm
+python -m BehaviorScreen.screen.line_tests.exclusions                    # what QC and the filters remove, per arm
 python -m BehaviorScreen.screen.line_tests.plate_variance                # plate effect on the count readouts
 python -m BehaviorScreen.screen.kernel_demo -o ./figures                 # then open screen/kernel_demo/index.html
 ```

@@ -12,7 +12,7 @@ Per (line, condition), from the merged tables:
 
 and each one's share of its total; the same pooled per condition is printed.
 
-    python -m BehaviorScreen.screen.line_tests.exclusions DATA_ROOT [--output ./exclusions.csv]
+    python -m BehaviorScreen.screen.line_tests.exclusions [DATA_ROOT] [--output ./exclusions.csv]
 """
 import argparse
 from pathlib import Path
@@ -21,6 +21,7 @@ import pandas as pd
 
 from BehaviorScreen.screen.control_models.model_config import EVENT_TABLES
 from BehaviorScreen.filters import parse_rules
+from BehaviorScreen.screen.paths import EXCLUSIONS, data_root
 
 ARM = ["line", "condition"]
 FLAGS = ["not_moving", "centroid_issue", "heading_issue", "well_not_found", "frame_order_issue"]
@@ -58,15 +59,16 @@ def with_shares(table: pd.DataFrame) -> pd.DataFrame:
 
 
 def main(args: argparse.Namespace) -> None:
-    table = counts(args.root)
+    table = counts(data_root(args.root))
     with_shares(table).reset_index().to_csv(args.output, index=False)
     print(with_shares(table.groupby("condition").sum()).filter(like="share_").T.round(3).to_string())
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fish, trials and bouts removed by quality control and tracking filters, per arm.")
-    parser.add_argument("root", type=Path, help="Folder of the merged tables (bouts_all.csv, valid_trials_all.csv, qc_all.csv).")
-    parser.add_argument("--output", type=Path, default=Path("./exclusions.csv"))
+    parser.add_argument("root", type=Path, nargs="?",
+                        help="Folder of the merged tables (bouts_all.csv, valid_trials_all.csv, qc_all.csv; default: this machine's data_root).")
+    parser.add_argument("--output", type=Path, default=EXCLUSIONS)
     return parser
 
 

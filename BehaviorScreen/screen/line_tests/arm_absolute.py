@@ -4,7 +4,7 @@ bootstrap intervals, drawn as one dumbbell figure per behavior: each test arm
 next to its own control, rows in map order, the spread of the control arms
 behind them.
 
-    python -m BehaviorScreen.screen.line_tests.arm_absolute [--n-boot 200] [--resume] [--plot-only]
+    python -m BehaviorScreen.screen.line_tests.arm_absolute [--data-root DIR] [--fits-root DIR] [--n-boot 200] [--resume] [--plot-only]
 
 Run after run_screen (hits come from tier1_results.csv). By default an
 existing arm_bootstrap.csv is replaced; --resume keeps it and skips the arms
@@ -34,7 +34,7 @@ from .dataset_utils import Arms, Contrast
 from BehaviorScreen.screen.line_names import line_name
 from .tier1_config import MAP_COLUMNS
 from .tier1_omnibus import PARAMETER_LABELS, compute_parameter_deltas, map_rows
-from ..paths import LINE_TESTS
+from ..paths import CONTROL_FITS, LINE_TESTS, add_data_root, data_root
 
 ARM_KEYS = ["line", "condition", "behavior"]
 CONTROL, UP, DOWN, NEUTRAL, TEST = "#4d4d4d", "#b2182b", "#2166ac", "#bdbdbd", "#8c8c8c"
@@ -306,6 +306,8 @@ def plot_all(boot_df: pd.DataFrame, contrasts: List[Contrast], tier1_df: pd.Data
 def main() -> None:
     parser = argparse.ArgumentParser(description="Absolute Tier 1 parameters per arm with fish-bootstrap intervals.")
     parser.add_argument("--results", type=Path, default=LINE_TESTS, help="run_screen output folder")
+    add_data_root(parser)
+    parser.add_argument("--fits-root", type=Path, default=CONTROL_FITS, help="run_analysis --mode fit output of the control screen.")
     parser.add_argument("--n-boot", type=int, default=200)
     parser.add_argument("--n-jobs", type=int, default=-1)
     parser.add_argument("--resume", action="store_true", help="keep arm_bootstrap.csv and skip the arms already in it (default: overwrite)")
@@ -314,7 +316,8 @@ def main() -> None:
 
     tier1_df = pd.read_csv(args.results / "tier1_results.csv", dtype={"line": str})
     if not args.plot_only:
-        from .screen_setup import arms  # loads the event tables
+        from .screen_setup import load_screen
+        arms = load_screen(data_root(args.data_root), args.fits_root).arms
         save_contrasts(list(arms.contrasts.values()), args.results / "contrasts.csv")
         bootstrap_arms(arms, tier1_df, args.results / "arm_bootstrap.csv", args.n_boot, args.n_jobs, args.resume)
     plot_all(read_bootstrap(args.results / "arm_bootstrap.csv"), load_contrasts(args.results / "contrasts.csv"),

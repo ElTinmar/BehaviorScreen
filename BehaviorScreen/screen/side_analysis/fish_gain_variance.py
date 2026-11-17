@@ -43,7 +43,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from BehaviorScreen.screen.paths import CONTROL_FITS
+from BehaviorScreen.screen.paths import CONTROL_FITS, FISH_GAIN_VARIANCE
 
 RIG_SPLIT_PX_PER_MM = 39.0  # between the two setups (about 38 and 40)
 DAY_FORMAT = "%d.%b.%Y"
@@ -352,7 +352,7 @@ def main() -> None:
     parser.add_argument("--from-csv", type=Path, help="A fish.csv of an earlier run: no data or model needed.")
     parser.add_argument("--exps", nargs="+", help="Experiments (default: the Tier 1 columns, or every experiment of --from-csv).")
     parser.add_argument("--fits-root", type=Path, default=CONTROL_FITS)
-    parser.add_argument("-o", "--output", type=Path, default=Path("fish_gain_variance"))
+    parser.add_argument("-o", "--output", type=Path, default=FISH_GAIN_VARIANCE)
     parser.add_argument("--n-boot", type=int, default=N_BOOT)
     parser.add_argument("--seed", type=int, default=0)
     try:

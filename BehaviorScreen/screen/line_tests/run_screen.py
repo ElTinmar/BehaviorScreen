@@ -13,7 +13,6 @@ screen's tables and maps. Without either, every behavior and then the combinatio
 """
 import argparse
 import json
-import os
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -40,10 +39,12 @@ from BehaviorScreen.screen.line_tests.tier1_omnibus import (
 from BehaviorScreen.screen.line_tests.fdr import add_fdr_per_behavior
 from BehaviorScreen.screen.line_tests.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.screen.line_tests.dataset_utils import Arms
+from BehaviorScreen.screen.line_tests.screen_setup import load_screen
 from BehaviorScreen.screen.line_tests.gain_structure import GainStructure, calibrate, fish_groups
 # Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.screen.line_tests.count_readouts
 from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
 from BehaviorScreen.screen.line_tests.tier2_interaction import plot_tier2_map, run_tier2_screen
+from BehaviorScreen.screen.paths import CONTROL_FITS, LINE_TESTS, add_data_root, data_root
 
 TABLES = ("tier1_results", "tier1_parameters", "tier2_results", "bootstrap_parameter_deltas")
 
@@ -172,25 +173,22 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--behavior", help="Run this behavior only.")
     parser.add_argument("--combine", action="store_true", help="Merge the behaviors already run into the screen's tables and maps.")
-    parser.add_argument("--data-root", type=Path, help="Folder of the merged event, trial and QC tables (default: screen_setup's).")
-    parser.add_argument("--fits-root", type=Path, help="run_analysis --mode fit output of the control screen (default: control_fits).")
-    parser.add_argument("--output-dir", type=Path, help="Results (default: line_tests).")
+    add_data_root(parser)
+    parser.add_argument("--fits-root", type=Path, default=CONTROL_FITS, help="run_analysis --mode fit output of the control screen.")
+    parser.add_argument("--output-dir", type=Path, default=LINE_TESTS, help="Results.")
     parser.add_argument("--n-perm", type=int, default=1000, help="Permutations per Tier 1 cell.")
     parser.add_argument("--n-sim", type=int, default=1000, help="Simulated datasets per NTR cell for p_value_plate (0: none).")
     args = parser.parse_args()
-    for name, value in (("SCREEN_DATA_ROOT", args.data_root), ("SCREEN_FITS_ROOT", args.fits_root), ("SCREEN_OUTPUT_DIR", args.output_dir)):
-        if value is not None:
-            os.environ[name] = str(value)
-    from BehaviorScreen.screen.line_tests.screen_setup import BEHAVIORS, MAP_ORDER, NULL_PROCESS_FACTORY, OUTPUT_DIR, arms  # loads the tables
-
-    if args.behavior is not None and args.behavior not in BEHAVIORS:
-        raise SystemExit(f"--behavior must be one of {BEHAVIORS}")
+    screen = load_screen(data_root(args.data_root), args.fits_root)
+    if args.behavior is not None and args.behavior not in screen.behaviors:
+        raise SystemExit(f"--behavior must be one of {screen.behaviors}")
+    args.output_dir.mkdir(parents=True, exist_ok=True)
     if not args.combine:
-        for behavior in [args.behavior] if args.behavior else BEHAVIORS:
-            run_behavior(behavior, arms, NULL_PROCESS_FACTORY, OUTPUT_DIR, args.n_perm, args.n_sim)
+        for behavior in [args.behavior] if args.behavior else screen.behaviors:
+            run_behavior(behavior, screen.arms, screen.null_process_factory, args.output_dir, args.n_perm, args.n_sim)
     if args.combine or args.behavior is None:
-        combine(BEHAVIORS, arms, MAP_ORDER, OUTPUT_DIR)
-    print(f"\nDone. Inspect {OUTPUT_DIR}: tier1_results.csv, the p-value histograms and the negative controls.")
+        combine(screen.behaviors, screen.arms, screen.map_order, args.output_dir)
+    print(f"\nDone. Inspect {args.output_dir}: tier1_results.csv, the p-value histograms and the negative controls.")
 
 
 if __name__ == "__main__":

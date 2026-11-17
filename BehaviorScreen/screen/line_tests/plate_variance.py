@@ -12,7 +12,7 @@ different days also differ by clutch), for the control arms and the drug arms:
     false_positive_rate  of a fish-label test at alpha = 0.05 with that icc (and with icc_hi):
                          2 Phi(-1.96 / sqrt(design effect)), design effect = 1 + (fish per plate - 1) icc
 
-    python -m BehaviorScreen.screen.line_tests.plate_variance [--output ./plate_variance]
+    python -m BehaviorScreen.screen.line_tests.plate_variance [--data-root DIR] [--output ./plate_variance]
 
 writes fish_values.csv and plate_variance.csv.
 """
@@ -26,6 +26,7 @@ from scipy import stats
 
 from BehaviorScreen.screen.control_models.model_config import get_model_config
 from BehaviorScreen.screen.loader import BehavioralDataLoader
+from BehaviorScreen.screen.paths import PLATE_VARIANCE, add_data_root, data_root
 
 from .count_readouts import COUNT_READOUTS, fish_counts, log_value
 from .dataset_utils import CONTROL_CONDITIONS, RECORDING, safe_prepare_dataset
@@ -110,10 +111,10 @@ def plate_variance(values: pd.DataFrame, n_perm: int = 10000, n_boot: int = 2000
 
 
 def main(args: argparse.Namespace) -> None:
-    from .screen_setup import loaders  # loads the event tables
+    from .screen_setup import load_tables
 
     args.output.mkdir(parents=True, exist_ok=True)
-    values = fish_values(loaders)
+    values = fish_values(load_tables(data_root(args.data_root)))
     values.to_csv(args.output / "fish_values.csv", index=False)
     table = plate_variance(values, args.n_perm, args.n_boot)
     table.to_csv(args.output / "plate_variance.csv", index=False)
@@ -122,7 +123,8 @@ def main(args: argparse.Namespace) -> None:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Plate variance of the count readouts within arm and day.")
-    parser.add_argument("--output", type=Path, default=Path("./plate_variance"))
+    add_data_root(parser)
+    parser.add_argument("--output", type=Path, default=PLATE_VARIANCE)
     parser.add_argument("--n-perm", type=int, default=10000)
     parser.add_argument("--n-boot", type=int, default=2000)
     return parser
