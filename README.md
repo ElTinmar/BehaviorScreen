@@ -105,7 +105,7 @@ python -m BehaviorScreen fit-controls [experiment ...] [--modes diagnostics fit]
 one job per behavior of `experiments.txt` (or of those named) and mode (default: fit), then
 
 ```
-python -m BehaviorScreen.screen.control_models.run_analysis --mode consolidate -d /path/to/screen -o ./figures
+python -m BehaviorScreen.screen.control_models.run_analysis --mode consolidate -d /path/to/screen -o ./control_fits
 ```
 
 ### 4. Line tests
@@ -113,13 +113,13 @@ python -m BehaviorScreen.screen.control_models.run_analysis --mode consolidate -
 ```
 python -m BehaviorScreen test-lines [behavior ...]       # Tier 1: one job per behavior
 python -m BehaviorScreen test-lines --combine            # once they are done: merge the saved behaviors into tables and maps
-python -m BehaviorScreen.screen.line_tests.clutch_variability ./tier1_results
+python -m BehaviorScreen.screen.line_tests.clutch_variability ./line_tests
 python -m BehaviorScreen.screen.line_tests.count_readouts
 ```
 
 A resubmitted behavior skips the cells it has already saved. `count_readouts`, `plate_variance` and `arm_absolute`
 take no data argument: they read the data folder from `SCREEN_DATA_ROOT` and the control fits from `SCREEN_FITS_ROOT`
-(default `./figures`).
+(default `./control_fits`).
 
 ### A new week of recordings
 

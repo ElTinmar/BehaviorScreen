@@ -12,13 +12,14 @@ from BehaviorScreen.screen.control_models.model_config import EVENT_TABLES, MUTA
 from BehaviorScreen.screen.line_tests.dataset_utils import Arms, mutant_contrast, ntr_contrast
 from BehaviorScreen.screen.line_names import warn_unnamed
 from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS, PINNED_AMPLITUDES, tier1_behaviors
+from BehaviorScreen.screen.paths import CONTROL_FITS, LINE_TESTS
 
 # Paths: run_screen's arguments set them (or the environment does)
-OUTPUT_DIR = Path(os.environ.get("SCREEN_OUTPUT_DIR", "./tier1_results"))
+OUTPUT_DIR = Path(os.environ.get("SCREEN_OUTPUT_DIR", LINE_TESTS))
 OUTPUT_DIR.mkdir(exist_ok=True, parents=True)
 
 ROOT = Path(os.environ.get("SCREEN_DATA_ROOT", "/media/martin/DATA_18TB/Screen"))
-FITS_ROOT = Path(os.environ.get("SCREEN_FITS_ROOT", "./figures"))  # run_analysis --mode fit output on the control screen
+FITS_ROOT = Path(os.environ.get("SCREEN_FITS_ROOT", CONTROL_FITS))  # run_analysis --mode fit output on the control screen
 # Tables merged across screen folders with merge_csv (adds line/condition columns)
 EVENTS_CSV = {"bouts": "bouts_all.csv", "saccades": "saccades_augmented_all.csv"}
 loaders = {

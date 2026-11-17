@@ -16,6 +16,7 @@ from BehaviorScreen.screen.control_models.tasks import (
     run_plot_task,
 )
 from BehaviorScreen.screen.loader import BehavioralDataLoader
+from BehaviorScreen.screen.paths import CONTROL_FITS
 
 
 class Tee:
@@ -79,7 +80,7 @@ def parse_args() -> argparse.Namespace:
         help="plot: every rung's checks and plots from a finished fit run's parameters (in -o), without refitting it.",
     )
     add_data_arguments(parser, required=True)
-    parser.add_argument("-o", "--output-dir", type=Path, default=Path("./figures"), help="Output figures and CSVs.")
+    parser.add_argument("-o", "--output-dir", type=Path, default=CONTROL_FITS, help="Output figures and CSVs.")
     parser.add_argument(
         "--refit", nargs="+", default=["missing"],
         help="fit mode: 'missing' (default) fits the rungs without a saved fit or whose saved NLL no longer reproduces; "

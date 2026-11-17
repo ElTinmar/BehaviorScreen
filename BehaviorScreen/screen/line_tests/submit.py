@@ -9,6 +9,7 @@ import argparse
 
 from BehaviorScreen.jobs import Jobs, add_local_argument
 from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
+from BehaviorScreen.screen.paths import CONTROL_FITS, LINE_TESTS
 
 RESOURCES = ["--cpus-per-task=24", "--mem=120000"]
 
@@ -25,7 +26,7 @@ def main() -> None:
         parser.error("--combine runs no behavior: submit them first, then --combine once they are done")
     jobs = Jobs(args.local)
     run = ["python", "-m", "BehaviorScreen.screen.line_tests.run_screen", "--data-root", str(jobs.data_root),
-           "--fits-root", "./figures", "--output-dir", "./tier1_results"]
+           "--fits-root", str(CONTROL_FITS), "--output-dir", str(LINE_TESTS)]
     if args.combine:
         jobs.submit([*run, "--combine"], "tier1_combine", RESOURCES, one_thread=True)
     else:

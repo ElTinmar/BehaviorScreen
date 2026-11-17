@@ -34,6 +34,7 @@ from .dataset_utils import Arms, Contrast
 from BehaviorScreen.screen.line_names import line_name
 from .tier1_config import MAP_COLUMNS
 from .tier1_omnibus import PARAMETER_LABELS, compute_parameter_deltas, map_rows
+from ..paths import LINE_TESTS
 
 ARM_KEYS = ["line", "condition", "behavior"]
 CONTROL, UP, DOWN, NEUTRAL, TEST = "#4d4d4d", "#b2182b", "#2166ac", "#bdbdbd", "#8c8c8c"
@@ -304,7 +305,7 @@ def plot_all(boot_df: pd.DataFrame, contrasts: List[Contrast], tier1_df: pd.Data
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Absolute Tier 1 parameters per arm with fish-bootstrap intervals.")
-    parser.add_argument("--results", type=Path, default=Path("./tier1_results"), help="run_screen output folder")
+    parser.add_argument("--results", type=Path, default=LINE_TESTS, help="run_screen output folder")
     parser.add_argument("--n-boot", type=int, default=200)
     parser.add_argument("--n-jobs", type=int, default=-1)
     parser.add_argument("--resume", action="store_true", help="keep arm_bootstrap.csv and skip the arms already in it (default: overwrite)")

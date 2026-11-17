@@ -9,6 +9,7 @@ import argparse
 from pathlib import Path
 
 from BehaviorScreen.jobs import Jobs, add_local_argument
+from BehaviorScreen.screen.paths import CONTROL_FITS
 
 EXPERIMENTS = Path(__file__).with_name("experiments.txt").read_text().split()
 HEAVY = {"after_looming", "phototaxis"}
@@ -30,7 +31,7 @@ def main() -> None:
         gpus = 4 if experiment in HEAVY else 1 if experiment in LIGHT else 2
         for mode in args.modes:
             jobs.submit(["python", "-m", "BehaviorScreen.screen.control_models.run_analysis", "--exp", experiment, "--mode", mode,
-                         "--data-root", str(jobs.data_root), "--output-dir", "./figures", "--n-jobs", str(jobs.workers(18 * gpus))],
+                         "--data-root", str(jobs.data_root), "--output-dir", str(CONTROL_FITS), "--n-jobs", str(jobs.workers(18 * gpus))],
                         f"{experiment}_{mode}",
                         ["--constraint=gpu", f"--gres=gpu:a100:{gpus}", f"--cpus-per-task={18 * gpus}", f"--mem={MEMORY[gpus]}"],
                         one_thread=True)

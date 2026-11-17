@@ -28,7 +28,7 @@ model term. Sided models: the fish gain only, not the side preference. Without o
 rate.
 
 Run from the repo root with run_analysis's data options (writes <output>/fish.csv), or again on that table:
-    python -m BehaviorScreen.screen.side_analysis.fish_gain_variance -d <data root> [--exps prey_capture_ipsi spont_dark] [--fits-root figures]
+    python -m BehaviorScreen.screen.side_analysis.fish_gain_variance -d <data root> [--exps prey_capture_ipsi spont_dark] [--fits-root control_fits]
     python -m BehaviorScreen.screen.side_analysis.fish_gain_variance --from-csv fish_gain_variance/fish.csv [--exps ...] [-o fish_gain_variance] [--n-boot 500]
 Outputs (<output>/): fish.csv (every experiment), summary.csv and summary.png (one row per experiment), and per
 experiment (<output>/<experiment>/): one CSV per table, report.txt (every table) and fish_gain_variance.png.
@@ -42,6 +42,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from scipy import stats
+
+from BehaviorScreen.screen.paths import CONTROL_FITS
 
 RIG_SPLIT_PX_PER_MM = 39.0  # between the two setups (about 38 and 40)
 DAY_FORMAT = "%d.%b.%Y"
@@ -349,7 +351,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--from-csv", type=Path, help="A fish.csv of an earlier run: no data or model needed.")
     parser.add_argument("--exps", nargs="+", help="Experiments (default: the Tier 1 columns, or every experiment of --from-csv).")
-    parser.add_argument("--fits-root", type=Path, default=Path("figures"))
+    parser.add_argument("--fits-root", type=Path, default=CONTROL_FITS)
     parser.add_argument("-o", "--output", type=Path, default=Path("fish_gain_variance"))
     parser.add_argument("--n-boot", type=int, default=N_BOOT)
     parser.add_argument("--seed", type=int, default=0)

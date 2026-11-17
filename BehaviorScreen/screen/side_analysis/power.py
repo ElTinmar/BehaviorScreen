@@ -40,7 +40,7 @@ Output (power/):
 
 Run after run_screen, arm_absolute (optional: bootstrap SEs) and clutch_variability
 (optional: mutant design):
-    python -m BehaviorScreen.screen.side_analysis.power ./tier1_results [fold changes, default 1.5 2 3]
+    python -m BehaviorScreen.screen.side_analysis.power ./line_tests [fold changes, default 1.5 2 3]
 or, for the model-free readouts, after count_readouts:
     python -m BehaviorScreen.screen.side_analysis.power ./count_results --counts [fold changes]
 """
@@ -58,6 +58,7 @@ from BehaviorScreen.point_process.io import save_fig
 
 from BehaviorScreen.screen.line_tests.arm_absolute import with_bootstrap_se
 from BehaviorScreen.screen.line_tests.tier1_omnibus import PARAMETER_LABELS
+from BehaviorScreen.screen.paths import LINE_TESTS
 
 KEYS = ["behavior", "parameter"]
 FOLD_CHANGES = (1.5, 2.0, 3.0)
@@ -358,4 +359,4 @@ def main(results_dir: Path, fold_changes: Sequence[float] = FOLD_CHANGES, counts
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if a != "--counts"]
-    main(Path(args[0] if args else "./tier1_results"), tuple(float(f) for f in args[1:]) or FOLD_CHANGES, "--counts" in sys.argv)
+    main(Path(args[0]) if args else LINE_TESTS, tuple(float(f) for f in args[1:]) or FOLD_CHANGES, "--counts" in sys.argv)
