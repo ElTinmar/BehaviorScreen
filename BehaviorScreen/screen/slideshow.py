@@ -9,8 +9,9 @@ the wheel zooms every plot of the page together (drag to pan, double-click to re
 next line, and a new view starts unzoomed.
     python -m BehaviorScreen slideshow [SCREEN_FOLDER] [--plots bouts_classic.png bouts.png ...] [--embed]
 SCREEN_FOLDER: by default, this machine's data_root in BehaviorScreen/machines.yaml.
-Written to SCREEN_FOLDER/plots/slideshow.html, which links to the plots in each <line>/<condition>/plots/
-(with --embed it holds them: one file to send).
+Written to SCREEN_FOLDER/slideshow.html, which links to the plots in each <line>/<condition>/plots/ (by paths relative
+to the screen folder: it opens wherever the screen folder is copied, as long as it stays in it), or with --embed to
+SCREEN_FOLDER/slideshow_embedded.html, which holds them: one file to send.
 """
 import argparse
 import base64
@@ -233,8 +234,7 @@ def main() -> None:
     parser.add_argument("--embed", action="store_true", help="Put the images in the page instead of linking to them.")
     args = parser.parse_args()
     screen = args.screen or this_machine().data_root
-    page = screen / "plots" / "slideshow.html"
-    page.parent.mkdir(exist_ok=True)
+    page = screen / ("slideshow_embedded.html" if args.embed else "slideshow.html")
     content = pages(screen, args.plots, page, args.embed)
     views = [Path(plot).stem for plot in args.plots]
     page.write_text(PAGE.replace("__PAGES__", json.dumps(content)).replace("__VIEWS__", json.dumps(views))
