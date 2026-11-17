@@ -128,6 +128,16 @@ take no data argument: they read the data folder from `SCREEN_DATA_ROOT` and the
 3. The four `*_all.csv` tables to the cluster's `data_root`.
 4. `fit-controls` when the controls changed, then `test-lines`.
 
+### Browsing the plots
+
+```
+python -m BehaviorScreen slideshow [/path/to/screen]
+```
+
+writes `plots/slideshow.html` in the screen folder: a page per line, its arms (and a mutant's reference arm) with
+their number of fish per epoch, one view per plot (bouts_classic, bouts, saccades_classic, saccades). Arrow keys turn
+pages and switch views; the wheel zooms all the arms of a page together. `--embed` puts the images in the page.
+
 ### Checks
 
 ```

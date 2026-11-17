@@ -9,7 +9,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from BehaviorScreen.core import SACCADE_CATEGORY_NAMES
+from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, SACCADE_NONDIRECTIONAL_CLASSES, EventDirection
+from BehaviorScreen.preprocessing.plots.classic_heatmap import plot_classic_heatmap
 from BehaviorScreen.preprocessing.plots.event_rates import EventKind, load_events, prepare_events
 from BehaviorScreen.preprocessing.plots.plot_utils import plot_rate_heatmaps
 from BehaviorScreen.filters import load_yaml_config
@@ -24,9 +25,15 @@ DEFAULT_CLASS_ORDER = [
 ]
 
 
+SIDES = {int(EventDirection.LEFT): "LEFT", int(EventDirection.RIGHT): "RIGHT"}
+
+
 def assign_saccade_category(saccades: pd.DataFrame) -> pd.DataFrame:
+    """The category, and the side of directional saccades (sign_group LEFT or RIGHT, NONE otherwise)."""
+    direction = pd.to_numeric(saccades.get("event_direction", pd.Series(index=saccades.index, dtype=float)), errors="coerce")
     return saccades.assign(
-        saccade_category=pd.to_numeric(saccades["saccade_category"], errors="coerce")
+        saccade_category=pd.to_numeric(saccades["saccade_category"], errors="coerce"),
+        sign_group=direction.map(SIDES).fillna("NONE"),
     )
 
 
@@ -40,7 +47,14 @@ def saccade_kind(include_unassigned: bool = False) -> EventKind:
         assign_category=assign_saccade_category,
         required_columns=frozenset({"saccade_category", "laterality"}),
         category_names=SACCADE_CATEGORY_NAMES,
+        levels={"sign_group": ["LEFT", "RIGHT", "NONE"]},
     )
+
+
+def classic_rows(kind: EventKind) -> list:
+    """Directional categories (conjugate, biphasic convergent) split by side, the others in one row."""
+    nondirectional = SACCADE_NONDIRECTIONAL_CLASSES | {-1}
+    return [(c, s) for c in kind.categories for s in (["NONE"] if c in nondirectional else ["LEFT", "RIGHT"])]
 
 
 def make_saccade_heatmaps(
@@ -66,6 +80,10 @@ def make_saccade_heatmaps(
         exclude_unusable,
     )
     plot_rate_heatmaps(kind, prepared, config, output_png, maximum_frequency, interactive)
+    if "event_direction" in prepared.events.columns:
+        plot_classic_heatmap(kind, classic_rows(kind), prepared, config, output_png, maximum_frequency, interactive)
+    else:
+        print(f"no event_direction in {input_csv}: no classic heatmap (rerun the saccades step)")
     if interactive:
         plt.show()
 

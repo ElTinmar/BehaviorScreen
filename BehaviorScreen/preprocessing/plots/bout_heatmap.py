@@ -5,24 +5,16 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any
-
 import matplotlib.pyplot as plt
 import pandas as pd
 from megabouts.utils import bouts_category_name_short
 
 from BehaviorScreen.core import EventDirection
-from BehaviorScreen.preprocessing.plots.event_rates import (
-    EventKind,
-    PreparedEvents,
-    aggregate,
-    frequency_table,
-    load_events,
-    prepare_events,
-)
+from BehaviorScreen.preprocessing.plots.classic_heatmap import plot_classic_heatmap
+from BehaviorScreen.preprocessing.plots.event_rates import EventKind, load_events, prepare_events
 from BehaviorScreen.preprocessing.plots.plot_utils import plot_rate_heatmaps
 from BehaviorScreen.filters import load_yaml_config
-from BehaviorScreen.preprocessing.stim_specs import load_valid_trials, stimulus_name_order
+from BehaviorScreen.preprocessing.stim_specs import load_valid_trials
 
 MAX_COLORBAR = 0.6
 
@@ -51,145 +43,7 @@ BOUTS = EventKind(
     required_columns=frozenset({"category", "sign"}),
     levels={"sign_group": SIGN_LABELS},
 )
-CLASSIC_SPLIT = ("epoch_name", "sign_group")
-
-
-def build_classic_bout_heatmap_matrix(
-    averaged: pd.DataFrame,
-    category_order: list[str],
-    stimulus_order: list[str],
-) -> tuple[pd.DataFrame, list[str], list[str]]:
-    """Build the original direction-separated bout heatmap."""
-    if "trial_idx" in averaged.columns:
-        raise ValueError("The classic heatmap requires trial-averaged data.")
-
-    if "time_bin_start" not in averaged.columns:
-        raise ValueError("The classic heatmap requires retained time bins.")
-
-    signs = [s for s in SIGN_LABELS if s in set(averaged["sign_group"].dropna())]
-
-    row_index = pd.MultiIndex.from_product(
-        [
-            category_order,
-            signs,
-        ],
-        names=[
-            "bout_category",
-            "sign_group",
-        ],
-    )
-
-    column_tuples: list[tuple[Any, ...]] = []
-    column_labels: list[str] = []
-
-    for stimulus in stimulus_order:
-        stimulus_rows = averaged.loc[averaged["stim_name"] == stimulus]
-
-        if stimulus_rows.empty:
-            continue
-
-        bins = (
-            stimulus_rows[
-                [
-                    "time_bin_start",
-                    "time_bin_stop",
-                ]
-            ]
-            .drop_duplicates()
-            .sort_values("time_bin_start")
-        )
-
-        epoch_names = sorted(stimulus_rows["epoch_name"].dropna().unique())
-
-        for start, stop in bins.itertuples(index=False):
-            for epoch_name in epoch_names:
-                has_data = (
-                    (stimulus_rows["epoch_name"] == epoch_name)
-                    & (stimulus_rows["time_bin_start"] == start)
-                ).any()
-
-                if not has_data:
-                    continue
-
-                column_tuples.append(
-                    (
-                        epoch_name,
-                        start,
-                    )
-                )
-                column_labels.append(f"{epoch_name} | {start:g}-{stop:g}s")
-
-    column_index = pd.MultiIndex.from_tuples(
-        column_tuples,
-        names=[
-            "epoch_name",
-            "time_bin_start",
-        ],
-    )
-
-    pivot = averaged.pivot_table(
-        index=[
-            "bout_category",
-            "sign_group",
-        ],
-        columns=[
-            "epoch_name",
-            "time_bin_start",
-        ],
-        values="bout_frequency",
-        aggfunc="mean",
-        observed=True,
-    )
-
-    pivot = pivot.reindex(
-        index=row_index,
-        columns=column_index,
-    )
-
-    row_labels = [f"{category}_{sign}" for category, sign in pivot.index]
-
-    return pivot, column_labels, row_labels
-
-
-def plot_bout_heatmap_classic(
-    figure: plt.Figure,
-    axis: plt.Axes,
-    pivot: pd.DataFrame,
-    column_labels: list[str],
-    row_labels: list[str],
-    color_limit: tuple[float, float],
-) -> None:
-    """Draw the original flat bout-frequency heatmap."""
-    data = pivot.to_numpy(dtype=float)
-
-    image = axis.imshow(
-        data,
-        aspect="auto",
-        cmap="inferno",
-        vmin=color_limit[0],
-        vmax=color_limit[1],
-    )
-
-    figure.colorbar(
-        image,
-        ax=axis,
-        label="bout frequency (s⁻¹)",
-    )
-
-    axis.set_xticks(range(data.shape[1]))
-    axis.set_xticklabels(
-        column_labels,
-        rotation=90,
-        ha="center",
-        fontsize=8,
-    )
-    axis.set_yticks(range(data.shape[0]))
-    axis.set_yticklabels(
-        row_labels,
-        fontsize=8,
-    )
-    axis.set_xlabel("epoch")
-    axis.set_ylabel("bout category")
+BOUT_CLASSIC_ROWS = [(category, sign) for category in BOUT_CATEGORIES for sign in SIGN_LABELS]
 
 
 def compute_fish_count_table(trials: pd.DataFrame) -> tuple[pd.DataFrame, int]:
@@ -319,33 +173,6 @@ def plot_fish_count_heatmap(
     )
 
 
-def plot_classic_heatmap(
-    prepared: PreparedEvents, config: dict, output_png: Path, vmax: float, interactive: bool
-) -> None:
-    """Direction-separated heatmap: epochs and LEFT/RIGHT bouts kept apart."""
-    out = output_png.parent
-    per_fish = frequency_table(BOUTS, prepared, config, split=CLASSIC_SPLIT)
-    per_fish.to_csv(out / "bout_frequency_classic.csv", index=False)
-    if per_fish.empty:
-        return
-
-    averaged = aggregate(BOUTS, per_fish, True, False, split=CLASSIC_SPLIT)
-    averaged.to_csv(out / "bout_frequency_avg_classic.csv", index=False)
-    pivot, column_labels, row_labels = build_classic_bout_heatmap_matrix(
-        averaged, BOUT_CATEGORIES, stimulus_name_order(config)
-    )
-    figure, axis = plt.subplots(
-        figsize=(max(20, 0.35 * len(column_labels)), max(10, 0.32 * len(row_labels))),
-        layout="constrained",
-    )
-    plot_bout_heatmap_classic(figure, axis, pivot, column_labels, row_labels, (0.0, vmax))
-    path = out / f"{output_png.stem}_classic{output_png.suffix}"
-    figure.savefig(path, dpi=180, bbox_inches="tight")
-    if not interactive:
-        plt.close(figure)
-    print(f"Saved {path}")
-
-
 def plot_fish_count(trials: pd.DataFrame, output_png: Path, interactive: bool) -> None:
     counts, number_of_fish = compute_fish_count_table(trials)
     counts.to_csv(output_png.parent / "fish_count.csv", index=False)
@@ -390,7 +217,7 @@ def plot_heatmaps(
     per_fish = plot_rate_heatmaps(BOUTS, prepared, config, output_png, maximum_frequency, interactive)
     if not per_fish.empty:
         plot_fish_count(prepared.trials, output_png, interactive)
-        plot_classic_heatmap(prepared, config, output_png, maximum_frequency, interactive)
+        plot_classic_heatmap(BOUTS, BOUT_CLASSIC_ROWS, prepared, config, output_png, maximum_frequency, interactive)
     if interactive:
         plt.show()
 

@@ -14,6 +14,7 @@ STAGES = {
     "merge": "BehaviorScreen.screen.merge_screen",
     "fit-controls": "BehaviorScreen.screen.control_models.submit",
     "test-lines": "BehaviorScreen.screen.line_tests.submit",
+    "slideshow": "BehaviorScreen.screen.slideshow",
 }
 
 
