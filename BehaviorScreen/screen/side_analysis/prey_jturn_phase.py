@@ -3,16 +3,17 @@ Ipsilateral J-turns over one cycle of the prey arc: the dot's absolute angle fro
 J-turn rate at each phase (bottom), over every complete cycle and over the cycles after the first SKIP (the transient
 at the onset of the prey left out), both prey capture epochs pooled. The bouts are those the heatmaps and models count:
 quality control, usable trials and the bout filters of filters.yaml. The rate is per fish: J-turns in a phase bin over
-the fish x cycles observed and the bin's duration.
+the fish x cycles observed and the bin's duration. Bands: +-1 standard error, from resampling plates (fish of a plate
+share its day, time and handling: they are not independent) or fish, the rate recomputed on each resample.
     python -m BehaviorScreen.screen.side_analysis.prey_jturn_phase [--data-root DIR] [--condition vehicle] [--line ...]
-        [--skip 2] [--bins 36] [-o prey_jturn_phase.png]
+        [--skip 2] [--bins 36] [--boot 1000] [--resample plate|fish] [-o prey_jturn_phase.png]
 Default: the vehicle arms of all lines pooled, from the merged tables of this machine's data_root. The phase is
 stim_phase: 0 at the start of the arc, pi at its end (the arc's phase offset, prey_arc_phase_deg, is not recorded and
 taken as 0); cycle k of a trial spans [k, k + 1) / f of its time, f = speed / (2 x arc range).
 """
 import argparse
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,6 +23,7 @@ from megabouts.utils import bouts_category_name_short
 from BehaviorScreen.core import Laterality
 from BehaviorScreen.filters import FILTERS, apply_event_filters, exclude_qc_fish
 from BehaviorScreen.preprocessing.stim_specs import exclude_unusable_trials, load_valid_trials
+from BehaviorScreen.screen.line_tests.dataset_utils import RECORDING
 from BehaviorScreen.screen.paths import PREY_JTURN_PHASE, add_data_root, data_root
 
 EPOCHS = ["prey capture left", "prey capture right"]
@@ -35,13 +37,23 @@ def select(table: pd.DataFrame, lines: Optional[List[str]], conditions: Optional
     return table
 
 
-def phase_rate(jturns: pd.DataFrame, trials: pd.DataFrame, frequency: float, skip: int, edges: np.ndarray) -> np.ndarray:
-    """J-turns per fish and second in each phase bin, over the complete cycles from cycle `skip` on."""
-    cycles = np.floor(trials["trial_duration_s"].to_numpy() * frequency)
-    exposure = np.clip(cycles - skip, 0, None).sum()
+def phase_rate(jturns: pd.DataFrame, trials: pd.DataFrame, frequency: float, skip: int, edges: np.ndarray,
+               n_boot: int, rng: np.random.Generator) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    J-turns per fish and second in each phase bin, over the complete cycles from cycle `skip` on, and its standard
+    error over n_boot resamples of the units (column "unit" of both tables).
+    """
+    units = np.unique(trials["unit"])
+    cycles = np.clip(np.floor(trials["trial_duration_s"] * frequency) - skip, 0, None)
+    exposure = cycles.groupby(trials["unit"]).sum().reindex(units).to_numpy()
     kept = jturns[(jturns["cycle"] >= skip) & (jturns["cycle"] < jturns["complete_cycles"])]
-    counts, _ = np.histogram(np.mod(kept["stim_phase"], 2 * np.pi), edges)
-    return counts / (exposure * np.diff(edges) / (2 * np.pi * frequency))
+    bins = np.digitize(np.mod(kept["stim_phase"], 2 * np.pi), edges[1:-1])
+    counts = np.zeros((len(units), len(edges) - 1))
+    np.add.at(counts, (np.searchsorted(units, kept["unit"]), bins), 1)
+    weights = np.stack([np.bincount(draw, minlength=len(units)) for draw in rng.integers(0, len(units), (n_boot, len(units)))])
+    bin_s = np.diff(edges) / (2 * np.pi * frequency)
+    boot = (weights @ counts) / (weights @ exposure)[:, None] / bin_s
+    return counts.sum(axis=0) / exposure.sum() / bin_s, boot.std(axis=0)
 
 
 def main() -> None:
@@ -51,6 +63,8 @@ def main() -> None:
     parser.add_argument("--line", nargs="*", help="Lines pooled (default: all).")
     parser.add_argument("--skip", type=int, default=2, help="Cycles left out at the start of each trial, for the second curve.")
     parser.add_argument("--bins", type=int, default=36, help="Phase bins over the cycle.")
+    parser.add_argument("--boot", type=int, default=1000, help="Resamples for the standard errors.")
+    parser.add_argument("--resample", choices=["plate", "fish"], default="plate", help="Unit resampled for the standard errors.")
     parser.add_argument("-o", "--output", type=Path, default=PREY_JTURN_PHASE)
     args = parser.parse_args()
     root = data_root(args.data_root)
@@ -80,9 +94,11 @@ def main() -> None:
         complete_cycles=np.floor(durations.reindex(pd.MultiIndex.from_frame(jturns[["file", "epoch_name", "trial_num"]])).to_numpy() * frequency),
     ).dropna(subset=["stim_phase"])
 
-    edges = np.linspace(0, 2 * np.pi, args.bins + 1)
-    rates = {"all complete cycles": phase_rate(jturns, trials, frequency, 0, edges),
-             f"from cycle {args.skip + 1} on": phase_rate(jturns, trials, frequency, args.skip, edges)}
+    unit = (lambda files: files.str.extract(RECORDING)["plate"].fillna(files)) if args.resample == "plate" else (lambda files: files)
+    trials, jturns = trials.assign(unit=unit(trials["file"])), jturns.assign(unit=unit(jturns["file"]))
+    edges, rng = np.linspace(0, 2 * np.pi, args.bins + 1), np.random.default_rng(0)
+    rates = {"all complete cycles": phase_rate(jturns, trials, frequency, 0, edges, args.boot, rng),
+             f"from cycle {args.skip + 1} on": phase_rate(jturns, trials, frequency, args.skip, edges, args.boot, rng)}
 
     figure, (top, bottom) = plt.subplots(2, 1, sharex=True, figsize=(6, 5), gridspec_kw={"height_ratios": [1, 1.4]})
     grid = np.linspace(0, 2 * np.pi, 400)
@@ -91,9 +107,11 @@ def main() -> None:
     outward, inward = ("naso-temporal", "temporo-nasal") if stop > start else ("temporo-nasal", "naso-temporal")
     top.text(np.pi / 2, max(start, stop), outward, ha="center", va="top", fontsize=8)
     top.text(3 * np.pi / 2, max(start, stop), inward, ha="center", va="top", fontsize=8)
-    (label_all, all_cycles), (label_late, late) = rates.items()
-    bottom.bar(edges[:-1], all_cycles, width=np.diff(edges), align="edge", color="tab:blue", alpha=0.45, edgecolor="white", linewidth=0.5, label=label_all)
-    bottom.stairs(late, edges, color="black", linewidth=1.2, label=label_late)
+    for (label, (rate, se)), color in zip(rates.items(), ("tab:blue", "black")):
+        bottom.fill_between(edges, np.append(rate - se, rate[-1] - se[-1]), np.append(rate + se, rate[-1] + se[-1]),
+                            step="post", color=color, alpha=0.2, linewidth=0)
+        bottom.stairs(rate, edges, color=color, linewidth=1.2, label=label)
+    bottom.set_ylim(bottom=0)
     bottom.set_ylabel("ipsilateral J-turns\nper fish (s⁻¹)")
     bottom.legend(frameon=False, fontsize=8)
     for axis in (top, bottom):
@@ -103,7 +121,8 @@ def main() -> None:
     bottom.set_xticks([0, np.pi / 2, np.pi, 3 * np.pi / 2, 2 * np.pi], ["0", "π/2", "π", "3π/2", "2π"])
     bottom.set_xlabel(f"phase of the prey cycle ({1 / frequency:.2f} s)")
     selection = ", ".join(f"{c}: {' '.join(v)}" for c, v in (("line", args.line), ("condition", args.condition)) if v)
-    figure.suptitle(f"{len(jturns)} ipsilateral J-turns, {trials['file'].nunique()} fish ({selection or 'all arms'})", fontsize=9)
+    figure.suptitle(f"{len(jturns)} ipsilateral J-turns, {trials['file'].nunique()} fish ({selection or 'all arms'}); "
+                    f"bands: ±1 SE over {args.resample}s ({trials['unit'].nunique()})", fontsize=9)
     figure.tight_layout()
     figure.savefig(args.output, dpi=200)
     print(f"{len(jturns)} ipsilateral J-turns, {trials['file'].nunique()} fish, {len(trials)} trials -> {args.output}")
