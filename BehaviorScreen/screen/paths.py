@@ -15,6 +15,7 @@ PLATE_VARIANCE = Path("plate_variance")
 FISH_GAIN_VARIANCE = Path("fish_gain_variance")
 EXCLUSIONS = Path("exclusions.csv")
 SAMPLE_SIZES = Path("line_sample_sizes.png")
+PREY_JTURN_PHASE = Path("prey_jturn_phase.png")
 
 
 def add_data_root(parser: argparse.ArgumentParser) -> None:
