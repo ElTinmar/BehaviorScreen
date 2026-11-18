@@ -12,6 +12,7 @@ from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
 from BehaviorScreen.screen.paths import CONTROL_FITS, LINE_TESTS
 
 RESOURCES = ["--cpus-per-task=24", "--mem=120000"]
+COMBINE_RESOURCES = ["--cpus-per-task=4", "--mem=32000"]  # tables and plots: about 20 GB, minutes
 
 
 def main() -> None:
@@ -28,7 +29,7 @@ def main() -> None:
     run = ["python", "-m", "BehaviorScreen.screen.line_tests.run_screen", "--data-root", str(jobs.data_root),
            "--fits-root", str(CONTROL_FITS), "--output-dir", str(LINE_TESTS)]
     if args.combine:
-        jobs.submit([*run, "--combine"], "tier1_combine", RESOURCES, one_thread=True)
+        jobs.submit([*run, "--combine"], "tier1_combine", COMBINE_RESOURCES, one_thread=True)
     else:
         for behavior in args.behaviors or EXPERIMENTS:
             jobs.submit([*run, "--behavior", behavior], f"tier1_{behavior}", RESOURCES, one_thread=True)
