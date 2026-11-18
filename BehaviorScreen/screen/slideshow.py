@@ -5,7 +5,8 @@ first (MUTANT_REFERENCES, as in the screen's tests), each with its number of fis
 a usable trial in valid_trials.csv, not excluded by qc.csv). A first page holds the vehicle arms of all lines pooled, once
 python -m BehaviorScreen.preprocessing.pooled_heatmaps has made their plots (SCREEN_FOLDER/pooled/vehicle/plots/).
 One view per plot (default: bouts_classic, bouts, saccades_classic, saccades), its arms stacked for the plots of STACKED (wide ones),
-side by side for the others: ← and → turn pages, ↑ and ↓ (or 1, 2, ...) switch views,
+side by side for the others, and a last view of the line's confocal images (every .jpg and .png in <line>/confocal/, where
+python -m BehaviorScreen confocal-mip puts its montages): ← and → turn pages, ↑ and ↓ (or 1, 2, ...) switch views,
 the wheel zooms every plot of the page together (drag to pan, double-click or Escape to reset); the zoom carries over to the
 next line, and a new view starts unzoomed.
     python -m BehaviorScreen slideshow [SCREEN_FOLDER] [--plots bouts_classic.png bouts.png ...] [--embed]
@@ -18,6 +19,7 @@ import argparse
 import base64
 import html
 import json
+import mimetypes
 import os
 from datetime import datetime
 from functools import lru_cache
@@ -35,6 +37,8 @@ CONDITION_ORDER = ["vehicle", "ronidazole"]
 PLOTS = ["bouts_classic.png", "bouts.png", "saccades_classic.png", "saccades.png"]
 STACKED = {"bouts_classic", "saccades_classic"}
 LABELS = {"bouts_classic": "bouts (trial avg)", "saccades_classic": "saccades (trial avg)"}  # view buttons; others: the file name
+CONFOCAL = "confocal"  # <line>/confocal/: the images of the last view (confocal-mip copies its montages there)
+IMAGES = {".jpg", ".jpeg", ".png"}
 HEATMAPS = Path(__file__).parents[1] / "preprocessing" / "plots" / "heatmaps.yaml"
 
 
@@ -63,10 +67,15 @@ def label(folder: str) -> str:
     return " ∩ ".join(piece(part) for part in SCREEN.at[folder, "short"].split("&"))
 
 
-def source(png: Path, page: Path, embed: bool) -> str:
+def source(image: Path, page: Path, embed: bool) -> str:
     if embed:
-        return "data:image/png;base64," + base64.b64encode(png.read_bytes()).decode()
-    return Path(os.path.relpath(png, page.parent)).as_posix()
+        return f"data:{mimetypes.guess_type(image.name)[0]};base64," + base64.b64encode(image.read_bytes()).decode()
+    return Path(os.path.relpath(image, page.parent)).as_posix()
+
+
+def confocal(line: Path, page: Path, embed: bool) -> List[dict]:
+    images = sorted((f for f in (line / CONFOCAL).glob("*") if f.suffix.lower() in IMAGES), key=lambda f: f.name.lower())
+    return [{"caption": html.escape(f.stem.replace("_mip_montage", "")), "src": source(f, page, embed)} for f in images]
 
 
 def sample_size(folders: List[Path], epochs: tuple) -> dict:
@@ -100,7 +109,7 @@ def pages(screen: Path, plots: List[str], page: Path, embed: bool) -> List[dict]
     if (pooled / "plots").is_dir():
         vehicles = sorted(d for d in screen.glob("*/vehicle") if (d / "results").is_dir())
         result.append({"title": "All vehicles", "folder": "All vehicles", "cross": f"{len(vehicles)} lines pooled",
-                       "panels": [panel(pooled, "Vehicle", plots, page, embed, fish=vehicles)]})
+                       "panels": [panel(pooled, "Vehicle", plots, page, embed, fish=vehicles)], "confocal": []})
     for line in sorted((d for d in screen.iterdir() if d.is_dir()), key=lambda d: d.name.lower()):
         conditions = sorted((c for c in line.iterdir() if (c / "results").is_dir()),
                             key=lambda c: (CONDITION_ORDER.index(c.name) if c.name in CONDITION_ORDER else len(CONDITION_ORDER), c.name))
@@ -113,7 +122,8 @@ def pages(screen: Path, plots: List[str], page: Path, embed: bool) -> List[dict]
         else:
             panels = [panel(c, html.escape(c.name.capitalize()), plots, page, embed) for c in conditions]
         cross = " × ".join(p for p in SCREEN.loc[line.name, PARENTS] if p) if line.name in SCREEN.index else ""
-        result.append({"title": label(line.name), "folder": line.name, "cross": "" if cross == line.name else cross, "panels": panels})
+        result.append({"title": label(line.name), "folder": line.name, "cross": "" if cross == line.name else cross, "panels": panels,
+                       "confocal": confocal(line, page, embed)})
     return result
 
 
@@ -166,7 +176,7 @@ PAGE = """<!DOCTYPE html>
 </header>
 <main id="panels"></main>
 <script>
-const PAGES = __PAGES__, VIEWS = __VIEWS__, STACKED = __STACKED__, LABELS = __LABELS__;
+const PAGES = __PAGES__, VIEWS = __VIEWS__, STACKED = __STACKED__, LABELS = __LABELS__, CONFOCAL = __CONFOCAL__;
 const label = v => LABELS[v] || v;
 const $ = id => document.getElementById(id);
 PAGES.forEach((p, i) => $("jump").add(new Option(p.folder, i)));
@@ -186,10 +196,11 @@ function show(i, k = view) {
   $("jump").value = i;
   const counts = n => n.text ? ` <span class="muted n">· <details><summary>${n.text}</summary><table>` +
     n.epochs.map(([epoch, count]) => `<tr><td>${epoch}</td><td>${count}</td></tr>`).join("") + `</table></details></span>` : "";
+  const figure = (caption, src) => `<figure><figcaption>${caption}</figcaption>` + (src ? `<div class="view"><img src="${src}" alt=""></div>` :
+    `<div class="missing">no ${label(VIEWS[view])} ${VIEWS[view] === CONFOCAL ? "images" : "plot"}</div>`) + `</figure>`;
   $("panels").classList.toggle("side", !STACKED.includes(VIEWS[view]));
-  $("panels").innerHTML = p.panels.map(c => `<figure><figcaption>${c.caption}${counts(c.n)}</figcaption>` +
-    (c.src[VIEWS[view]] ? `<div class="view"><img src="${c.src[VIEWS[view]]}" alt=""></div>` : `<div class="missing">no ${label(VIEWS[view])} plot</div>`) +
-    `</figure>`).join("");
+  $("panels").innerHTML = (VIEWS[view] !== CONFOCAL ? p.panels.map(c => figure(c.caption + counts(c.n), c.src[VIEWS[view]]))
+    : p.confocal.length ? p.confocal.map(c => figure(c.caption, c.src)) : [figure("", null)]).join("");
   place();
   history.replaceState(null, "", "#" + encodeURIComponent(p.folder) + "/" + VIEWS[view]);
   return i;
@@ -249,8 +260,8 @@ def main() -> None:
     screen = args.screen or this_machine().data_root
     page = screen / ("slideshow_embedded.html" if args.embed else "slideshow.html")
     content = pages(screen, args.plots, page, args.embed)
-    views = [Path(plot).stem for plot in args.plots]
-    page.write_text(PAGE.replace("__PAGES__", json.dumps(content)).replace("__VIEWS__", json.dumps(views)).replace("__LABELS__", json.dumps(LABELS))
+    views = [Path(plot).stem for plot in args.plots] + [CONFOCAL]
+    page.write_text(PAGE.replace("__PAGES__", json.dumps(content)).replace("__VIEWS__", json.dumps(views)).replace("__LABELS__", json.dumps(LABELS)).replace("__CONFOCAL__", json.dumps(CONFOCAL))
                     .replace("__STACKED__", json.dumps(sorted(STACKED))).replace("__GENERATED__", f"{datetime.now():%Y-%m-%d %H:%M}"), encoding="utf-8")
     print(f"{len(content)} lines, views {', '.join(views)} -> {page}")
 

@@ -16,6 +16,7 @@ screen_lines.csv, one row per data folder:
     folder              the line's identifier everywhere in the code
     short               plot label; ^ starts the allele superscript (atoh7^th241), & joins intersected drivers
     parent_1, parent_2  the facility lines crossed to make the larvae (parent_2 empty for an in-cross)
+    confocal            its folders of confocal stacks (python -m BehaviorScreen confocal-mip), separated by ' / '
     notes
 
 A label is italic when its parents, effector and wild-type lines aside, all
@@ -48,7 +49,7 @@ def _read(name: str, columns: List[str], index: str) -> pd.DataFrame:
 
 
 FACILITY = _read("facility_lines.csv", ["line", "type", "facility_ids", "mpn", "zfin", "zfin_id", "mapzebrain"], "line")
-SCREEN = _read("screen_lines.csv", ["folder", "short"] + PARENTS, "folder")
+SCREEN = _read("screen_lines.csv", ["folder", "short", *PARENTS, "confocal"], "folder")
 if unknown := set(FACILITY["type"]) - TYPES - {""}:
     raise ValueError(f"facility_lines.csv: unknown type {sorted(unknown)}; use one of {sorted(TYPES)}")
 if undefined := sorted(set(SCREEN[PARENTS].to_numpy().ravel()) - set(FACILITY.index) - {""}):

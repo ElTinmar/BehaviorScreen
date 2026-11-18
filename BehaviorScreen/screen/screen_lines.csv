@@ -1,47 +1,47 @@
-folder;short;parent_1;parent_2;notes
-1010;s1010tEt;s1010t + UAS:NTR;s1149t;larvae sorted for s1149t too?
-1026;s1026tEt;s1026t;81C;
-1042;s1042tEt;s1042t;vglut2a + UAS:NTR;
-1146;s1146tEt;s1146t;vglut2a + UAS:NTR;
-242A;nk242AGt;gSAIzGFFM242A;81C;
-AB;AB;AB;;in-cross
-atf5b;atf5b:QF2;atf5b:NTR;TLN;
-blu;blu^tc257z;blu;;in-cross
-cart2;cart2:QF2;cart2:QF2;;cross not in the log
-ccka;ccka:QF2;ccka:NTR;TLN;
-chata;chata:Gal4;chata:Gal4;81C;
-cort;cort:QF2;cort:NTR;TLN;
-drd2a;drd2a:Gal4;drd2a:Gal4;vglut2a + UAS:NTR;
-gbx;gbx:QF2;gbx:QF2 + mpn1;QUAS:epNTR;
-gfra;gfra;gfra:QF2;;no NTR in this cross: which was recorded?
-gr;gr;gr;;in-cross
-id2b;id2b:Gal4;id2b:NTR;TLN;
-insm2;insm2 & ebf1b:Cre;mpn168 + insm2:QF2;mpn169 + mpn408 + ebf1b:Cre;
-isl1;isl1;isl1:Gal4 + m1230;vglut2a + UAS:NTR;
-itpr1b;itpr1b;itpr1b:NTR;TLN;
-lak;atoh7^th241;lak;;in-cross
-lhx2b;lhx2b;lhx2b;81C;
-lhx9;lhx9;lhx9:NTR;TLN;also Lhx9:NTR (7576) x TLN: pooled?
-mafaa;mafaa;mafaa:NTR;TLN;
-mafaa-switchNTR-ath5-Cre;mafaa & atoh7;mafaa:switchNTR;TLN;ath5:Cre in 7684?
-mafaa-switchNTR-Huc-Cre;mafaa & elavl3;mafaa:switchNTR;Huc:Cre;
-mecp2;mecp2^Q63*;mecp2;;in-cross
-meis2b-cre-mafaa-switchNTR;mafaa & meis2b;mafaa:switchNTR;meis2b:Cre;cross not in the log
-mpn206;mpn206;mpn206 + UAS:NTR-mCherry;TLN;
-mpn302;mpn302;mpn302 + Dendra;vglut2a + UAS:NTR;
-mpn304;mpn304;mpn304;;partner not in the log
-mpn310;mpn310;mpn310 + Dendra;vglut2a + UAS:NTR;
-mpn318;mpn318;mpn318;;not in the log
-opn4b;opn4b;opn4b;;in-cross
-pcbp3;pcbp3;pcbp3:QF2;QUAS:NTR;
-pmch2;pmch2;pmch2:Gal4;81C;
-pmchl;pmchl;pmchl:NTR;TLN;
-pth2;pth2;pth2:NTR;TLN;
-rspo1;rspo1;rspo1:NTR;TLN;
-tbr1b;tbr1b_failed;tbr1b:NTR;TLN;failed ablation
-tbr1b_run3;tbr1b;tbr1b:NTR;QUAS:NTR;
-th;th;th:Gal4 + m1233;vglut2a + UAS:NTR;
-wik;WIK;WIK;;in-cross
-WT;TL;TLN;;in-cross - label TL or TLN?
-y359;y359;y359:Gal4;81C;
-y532;y532;y532:NTR;TLN;
+folder;short;parent_1;parent_2;confocal;notes
+1010;s1010tEt;s1010t + UAS:NTR;s1149t;1010Gal4 / 1010_190626;larvae sorted for s1149t too?
+1026;s1026tEt;s1026t;81C;1026;
+1042;s1042tEt;s1042t;vglut2a + UAS:NTR;s1042;
+1146;s1146tEt;s1146t;vglut2a + UAS:NTR;s1146;
+242A;nk242AGt;gSAIzGFFM242A;81C;242A;
+AB;AB;AB;;;in-cross
+atf5b;atf5b:QF2;atf5b:NTR;TLN;atf5b / atf5b_trial2;
+blu;blu^tc257z;blu;;;in-cross
+cart2;cart2:QF2;cart2:QF2;;cart2;cross not in the log
+ccka;ccka:QF2;ccka:NTR;TLN;cckaqf2;
+chata;chata:Gal4;chata:Gal4;81C;chat;
+cort;cort:QF2;cort:NTR;TLN;cortqf2;
+drd2a;drd2a:Gal4;drd2a:Gal4;vglut2a + UAS:NTR;drd2a;
+gbx;gbx:QF2;gbx:QF2 + mpn1;QUAS:epNTR;gbx2;
+gfra;gfra;gfra:QF2;;gfra;no NTR in this cross: which was recorded?
+gr;gr;gr;;;in-cross
+id2b;id2b:Gal4;id2b:NTR;TLN;id2b;
+insm2;insm2 & ebf1b:Cre;mpn168 + insm2:QF2;mpn169 + mpn408 + ebf1b:Cre;insm2xebf1b;
+isl1;isl1;isl1:Gal4 + m1230;vglut2a + UAS:NTR;isl1b;
+itpr1b;itpr1b;itpr1b:NTR;TLN;itpr1b;
+lak;atoh7^th241;lak;;;in-cross
+lhx2b;lhx2b;lhx2b;81C;;
+lhx9;lhx9;lhx9:NTR;TLN;lhx9;also Lhx9:NTR (7576) x TLN: pooled?
+mafaa;mafaa;mafaa:NTR;TLN;mafaaqf2;
+mafaa-switchNTR-ath5-Cre;mafaa & atoh7;mafaa:switchNTR;TLN;mafaa-switchNTR-ath5cre;ath5:Cre in 7684?
+mafaa-switchNTR-Huc-Cre;mafaa & elavl3;mafaa:switchNTR;Huc:Cre;mafaa-switchNTR-HuCcre;
+mecp2;mecp2^Q63*;mecp2;;;in-cross
+meis2b-cre-mafaa-switchNTR;mafaa & meis2b;mafaa:switchNTR;meis2b:Cre;;cross not in the log
+mpn206;mpn206;mpn206 + UAS:NTR-mCherry;TLN;mpn206;
+mpn302;mpn302;mpn302 + Dendra;vglut2a + UAS:NTR;mpn302;
+mpn304;mpn304;mpn304;;mpn304;partner not in the log
+mpn310;mpn310;mpn310 + Dendra;vglut2a + UAS:NTR;mpn310;
+mpn318;mpn318;mpn318;;mpn318;not in the log
+opn4b;opn4b;opn4b;;opn4b;in-cross
+pcbp3;pcbp3;pcbp3:QF2;QUAS:NTR;pcbp3;
+pmch2;pmch2;pmch2:Gal4;81C;pmch2;
+pmchl;pmchl;pmchl:NTR;TLN;pmchl;
+pth2;pth2;pth2:NTR;TLN;pth2;
+rspo1;rspo1;rspo1:NTR;TLN;rspo1;
+tbr1b;tbr1b_failed;tbr1b:NTR;TLN;tbr1b / tbr1b_trial2;failed ablation
+tbr1b_run3;tbr1b;tbr1b:NTR;QUAS:NTR;tbr1b_trial3;
+th;th;th:Gal4 + m1233;vglut2a + UAS:NTR;th;
+wik;WIK;WIK;;;in-cross
+WT;TL;TLN;;;in-cross - label TL or TLN?
+y359;y359;y359:Gal4;81C;y359;
+y532;y532;y532:NTR;TLN;y532;

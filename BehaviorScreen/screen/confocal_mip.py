@@ -1,15 +1,18 @@
 """
 Maximum-intensity projections of confocal stacks (.czi) along Z, as 8-bit PNGs and a montage per folder.
-    python -m BehaviorScreen confocal-mip FOLDER [--output DIR] [--percentile 99.9]
+    python -m BehaviorScreen confocal-mip FOLDER [--output DIR] [--percentile 99.9] [--screen SCREEN_FOLDER]
 Each subfolder of FOLDER holding .czi files (one line's stacks) gets, in OUTPUT/<subfolder>/ (default: next to its stacks):
 <stack>_mip.png per stack and <subfolder>_mip_montage.png, a row of controls over a row of ablated fish (by file name:
 cont, cntr or control; abla). A stack named neither is projected but left out of the montage and its scale, and listed.
 All the projections of a subfolder share one intensity scale (0 to the PERCENTILE of the montage's), so an ablation shows
 as a loss of signal; stacks with several channels give one image per
-channel (_c0, _c1, ...). Copy the montage into the screen's <line>/confocal/ for the slideshow.
+channel (_c0, _c1, ...). The montages are copied to SCREEN_FOLDER/<line>/confocal/ for the slideshow, <line> being the
+screen folder whose confocal column in screen_lines.csv lists the subfolder (default SCREEN_FOLDER: this machine's
+data_root in machines.yaml).
 """
 import argparse
 import re
+import shutil
 import warnings
 from pathlib import Path
 from typing import Dict, List
@@ -17,6 +20,9 @@ from typing import Dict, List
 import czifile
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
+
+from BehaviorScreen.screen.line_names import SCREEN
+from BehaviorScreen.screen.paths import data_root
 
 ROWS = {"control": re.compile(r"cont|cntr", re.I), "ablated": re.compile(r"abla", re.I)}
 
@@ -55,13 +61,15 @@ def montage(images: Dict[str, np.ndarray]) -> Image.Image:
     return sheet
 
 
-def project_folder(folder: Path, output: Path, percentile: float) -> None:
+def project_folder(folder: Path, output: Path, percentile: float) -> List[Path]:
+    """Its projections and montages written in output; the montages."""
     stacks = sorted(folder.glob("*.czi"), key=lambda p: p.name.lower())
     projections = {stack.stem: projection(stack) for stack in stacks}
     shown = [name for name in projections if any(pattern.search(name) for pattern in ROWS.values())]
     if flagged := [name for name in projections if name not in shown]:
         print(f"{folder.name}: neither control nor ablated by name, left out of the montage: {', '.join(flagged)}")
     output.mkdir(parents=True, exist_ok=True)
+    montages = []
     channels = max(p.shape[0] for p in projections.values())
     for channel in range(channels):
         suffix = f"_c{channel}" if channels > 1 else ""
@@ -72,8 +80,24 @@ def project_folder(folder: Path, output: Path, percentile: float) -> None:
         for name, image in images.items():
             Image.fromarray(image).save(output / f"{name}_mip{suffix}.png")
         if montaged := {name: image for name, image in images.items() if name in shown}:
-            montage(montaged).save(output / f"{folder.name}_mip_montage{suffix}.png")
+            montages.append(output / f"{folder.name}_mip_montage{suffix}.png")
+            montage(montaged).save(montages[-1])
     print(f"{folder.name}: {len(stacks)} stacks -> {output}")
+    return montages
+
+
+def copy_to_screen(montages: List[Path], folder: str, screen: Path) -> None:
+    """Into screen/<line>/confocal/, <line> listing `folder` in screen_lines.csv's confocal column."""
+    lines = [line for line, names in SCREEN["confocal"].items() if folder in names.split(" / ")]
+    if not lines:
+        print(f"{folder}: in no confocal column of screen_lines.csv, not copied")
+    for line in lines:
+        if not (screen / line).is_dir():
+            print(f"{folder}: no folder {screen / line}, not copied")
+            continue
+        (screen / line / "confocal").mkdir(exist_ok=True)
+        for path in montages:
+            shutil.copy2(path, screen / line / "confocal")
 
 
 def main() -> None:
@@ -81,12 +105,15 @@ def main() -> None:
     parser.add_argument("folder", type=Path, help="Folder of one subfolder of .czi stacks per line.")
     parser.add_argument("--output", type=Path, help="Where the subfolders' images go (default: next to their stacks).")
     parser.add_argument("--percentile", type=float, default=99.9, help="Intensity shown white, as a percentile of a subfolder's projections.")
+    parser.add_argument("--screen", type=Path, help="Screen folder the montages are copied to (default: this machine's data_root).")
     args = parser.parse_args()
     folders: List[Path] = sorted({stack.parent for stack in args.folder.rglob("*.czi")})
     if not folders:
         parser.error(f"no .czi under {args.folder}")
+    screen = data_root(args.screen)
     for folder in folders:
-        project_folder(folder, (args.output or args.folder) / folder.relative_to(args.folder), args.percentile)
+        montages = project_folder(folder, (args.output or args.folder) / folder.relative_to(args.folder), args.percentile)
+        copy_to_screen(montages, folder.name, screen)
 
 
 if __name__ == "__main__":

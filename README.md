@@ -135,7 +135,8 @@ python -m BehaviorScreen slideshow [/path/to/screen]
 ```
 
 writes `slideshow.html` in the screen folder: a page per line, its arms (and a mutant's reference arm) with
-their number of fish per epoch, one view per plot (bouts_classic, bouts, saccades_classic, saccades). Arrow keys turn
+their number of fish per epoch, one view per plot (bouts_classic, bouts, saccades_classic, saccades), and a last view of the
+line's confocal images: every `.jpg` and `.png` in `<line>/confocal/`, where `confocal-mip` copies its montages. Arrow keys turn
 pages and switch views; the wheel zooms all the arms of a page together. A first page shows the vehicle arms of all
 lines pooled, once their plots are made from the merged tables (`python -m BehaviorScreen.preprocessing.pooled_heatmaps` after
 `merge`, into `pooled/vehicle/plots/`). `--embed` writes `slideshow_embedded.html` instead, with the images inside: one file to send.
@@ -145,7 +146,8 @@ python -m BehaviorScreen confocal-mip /path/to/ablation_confocal [--output DIR]
 ```
 
 projects every `.czi` stack along Z: `<stack>_mip.png` and a montage per line folder (controls over ablated fish,
-one intensity scale per folder), next to the stacks. Needs `czifile` (2019.7.2, the last release for Python 3.11) and `imagecodecs`.
+one intensity scale per folder), next to the stacks, and copies the montages to the screen folder of each line whose
+`confocal` column in `screen_lines.csv` lists that folder (into `<line>/confocal/`; `--screen` for another screen folder). Needs `czifile` (2019.7.2, the last release for Python 3.11) and `imagecodecs`.
 
 ### Checks
 
