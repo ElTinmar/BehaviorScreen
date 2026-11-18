@@ -96,8 +96,11 @@ def pad(values: np.ndarray, size: int, fill: Any) -> np.ndarray:
 
 
 _COMPILED: Dict[Hashable, Tuple[Callable, Callable, Callable]] = {}
-# Every compiled executable keeps about 16 memory maps until JAX's caches are cleared, and Linux refuses new maps past
-# vm.max_map_count (65,530 by default): a long run that compiles for many datasets then dies in LLVM ("Cannot allocate memory").
+# Every compiled executable keeps memory maps until JAX's caches are cleared: about 16 for a small function, several
+# thousand for a model's likelihood (one per kernel; jax 0.7, CPU). Linux refuses new maps past vm.max_map_count (65,530
+# by default), and a run that compiles for many datasets then dies in LLVM ("Cannot allocate memory"). So the maps are
+# counted (about 6 ms) after every compilation; clearing at a third of the limit leaves room for the few executables a
+# fit compiles before the next count.
 _MAPS, _MAP_LIMIT = Path("/proc/self/maps"), Path("/proc/sys/vm/max_map_count")
 _compilations = 0  # since the maps were last counted
 
@@ -118,7 +121,7 @@ def _hessian(nll: Callable) -> Callable:
 
 def compiled(key: Hashable, nll: Callable) -> Tuple[Callable, Callable, Callable]:
     """Jitted value, value and gradient, and Hessian of nll(params, arrays), one set per key (a model's structure)."""
-    if _compilations >= 100:
+    if _compilations:
         release_if_crowded()
     if key not in _COMPILED:
         _COMPILED[key] = (jax.jit(nll), jax.jit(jax.value_and_grad(nll)), jax.jit(_hessian(nll)))
@@ -126,8 +129,12 @@ def compiled(key: Hashable, nll: Callable) -> Tuple[Callable, Callable, Callable
 
 
 def release_if_crowded() -> None:
-    """Clears JAX's compiled executables once they hold half the memory maps this process may have (Linux)."""
+    """Clears JAX's compiled executables once the process holds a third of the memory maps it may have (Linux)."""
     global _compilations
     _compilations = 0
-    if _MAPS.exists() and sum(1 for _ in _MAPS.open()) > int(_MAP_LIMIT.read_text()) // 2:
+    if not _MAPS.exists():
+        return
+    maps, limit = sum(1 for _ in _MAPS.open()), int(_MAP_LIMIT.read_text())
+    if maps > limit // 3:
         jax.clear_caches()
+        print(f"JAX caches cleared: {maps} memory maps -> {sum(1 for _ in _MAPS.open())} (limit {limit})", flush=True)

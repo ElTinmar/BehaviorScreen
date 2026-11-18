@@ -24,16 +24,18 @@ def test_released_when_maps_run_short(tmp_path: Path, monkeypatch: pytest.Monkey
     assert float(value(jnp.ones(2), jnp.ones(2))) == 2.0  # compiled again on the next call
 
 
-def test_checked_after_100_compilations(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_checked_after_each_compilation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     limit = tmp_path / "max_map_count"
     limit.write_text("2")
     monkeypatch.setattr(backend, "_MAP_LIMIT", limit)
     backend.release_if_crowded()
-    value = backend.compiled("test_compiled_count", lambda params, arrays: jnp.sum(params * arrays))[0]
-    for n in range(1, 100):
-        value(np.ones(n), np.ones(n))
-    backend.compiled("test_compiled_count", value)
-    assert value._cache_size() == 99  # 99 compilations: not counted yet
-    value(np.ones(100), np.ones(100))
-    backend.compiled("test_compiled_count", value)
-    assert value._cache_size() == 0
+    nll = lambda params, arrays: jnp.sum(params * arrays)
+    value = backend.compiled("test_compiled_count", nll)[0]
+    value(np.ones(3), np.ones(3))
+    assert value._cache_size() == 1
+    backend.compiled("test_compiled_count", nll)
+    assert value._cache_size() == 0  # counted at the call after the compilation
+    checks = []
+    monkeypatch.setattr(backend, "release_if_crowded", lambda: checks.append(1))
+    backend.compiled("test_compiled_count", nll)
+    assert not checks  # nothing compiled since: not counted
