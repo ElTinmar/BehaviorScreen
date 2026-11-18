@@ -3,10 +3,10 @@ Maximum-intensity projections of confocal stacks (.czi) along Z, as 8-bit PNGs a
     python -m BehaviorScreen confocal-mip FOLDER [--output DIR] [--percentile 99.9] [--screen SCREEN_FOLDER]
 Each subfolder of FOLDER holding .czi files (one line's stacks) gets, in OUTPUT/<subfolder>/ (default: next to its stacks):
 <stack>_mip.png per stack and <subfolder>_mip_montage.png, a row of controls over a row of ablated fish (by file name:
-cont, cntr or control; abla). A stack named neither is projected but left out of the montage and its scale, and listed.
-All the projections of a subfolder share one intensity scale (0 to the PERCENTILE of the montage's), so an ablation shows
-as a loss of signal; stacks with several channels give one image per
-channel (_c0, _c1, ...). The montages are copied to SCREEN_FOLDER/<line>/confocal/ for the slideshow, <line> being the
+cont, cntr, control or overview; abla or RON, as in 4mM RON). A stack named neither is projected but left out of the
+montage and its scale, and listed. All the projections of a subfolder share one intensity scale (0 to the PERCENTILE of
+the montage's), so an ablation shows as a loss of signal; stacks with several channels give one image per channel
+(_c0, _c1, ...). The montages are copied to SCREEN_FOLDER/<line>/confocal/ for the slideshow, <line> being the
 screen folder whose confocal column in screen_lines.csv lists the subfolder (default SCREEN_FOLDER: this machine's
 data_root in machines.yaml).
 """
@@ -24,7 +24,7 @@ from PIL import Image, ImageDraw, ImageFont
 from BehaviorScreen.screen.line_names import SCREEN
 from BehaviorScreen.screen.paths import data_root
 
-ROWS = {"control": re.compile(r"cont|cntr", re.I), "ablated": re.compile(r"abla", re.I)}
+ROWS = {"control": re.compile(r"cont|cntr|overview", re.I), "ablated": re.compile(r"abla|\bron", re.I)}
 
 
 def projection(path: Path) -> np.ndarray:
