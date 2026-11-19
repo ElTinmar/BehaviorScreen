@@ -19,6 +19,7 @@ def test_steps_are_reused_until_their_inputs_change(tmp_path: Path) -> None:
         run(step)
     assert steps.finished(tmp_path, "okr") and run("tier1_parameters")["line"].tolist() == ["1010"]  # reused, a line name kept as text
     assert computed == list(steps.STEPS)
+    assert steps.running(tmp_path, "okr")[0] == list(steps.STEPS)[-1]  # the last step started
     for step in steps.STEPS:
         os.utime(steps.step_path(tmp_path, "okr", step), (2, 2))
     os.utime(steps.step_path(tmp_path, "okr", "tier1_parameters"), (3, 3))  # estimates recomputed after the bootstrap

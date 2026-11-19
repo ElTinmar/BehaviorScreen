@@ -1,6 +1,7 @@
 """
 Where the line tests stand, from their results folders: per model variant and behavior, the cells saved, those that
-failed, the steps after the cells saved so far (steps.STEPS), whether the merge has it and what is left.
+failed, the steps after the cells saved so far (steps.STEPS) and the one last started (for how long), whether the
+merge has it and what is left.
 "incomplete" is a behavior with work saved but not finished: its job is running or queued, or it stopped and needs
 resubmitting.
     python -m BehaviorScreen test-lines --status [--model best|best-poisson|base]
@@ -8,14 +9,23 @@ A cell that failed (status unexpected_error) is saved like the others and not tr
 --failed, before resubmitting the behavior to retry it.
 """
 import pickle
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 import pandas as pd
 
 from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
-from BehaviorScreen.screen.line_tests.steps import STEPS, finished, saved
+from BehaviorScreen.screen.line_tests.steps import STEPS, finished, running, saved
 from BehaviorScreen.screen.paths import LINE_TEST_TABLES, VARIANTS, line_tests_dir
+
+
+def progress(steps: List[str], current) -> str:
+    """'estimates+tier2, grids for 1h12m': the steps saved, then the one last started and for how long."""
+    if current is None or STEPS[current[0]] in steps:
+        return "+".join(steps) or "-"
+    minutes = int((datetime.now() - current[1]).total_seconds() // 60)
+    return f"{'+'.join(steps) + ', ' if steps else ''}{STEPS[current[0]]} for {minutes // 60}h{minutes % 60:02d}m"
 
 
 def contrasts() -> int:
@@ -47,7 +57,7 @@ def variant_status(variant: str, behaviors: List[str]) -> pd.DataFrame:
         in_merge = done and behavior in merged and merged_path.stat().st_mtime >= max(t.stat().st_mtime for t in tables)
         next_step = "nothing" if in_merge else "merge" if done else "incomplete" if saved_cells[behavior] else "submit"
         rows.append({"behavior": behavior, "cells": f"{len(saved_cells[behavior])}/{expected}", "failed": len(failed),
-                     "after cells": "done" if done else "+".join(steps) or "-", "merged": "yes" if in_merge else "-", "next": next_step})
+                     "after cells": "done" if done else progress(steps, running(root, behavior)), "merged": "yes" if in_merge else "-", "next": next_step})
     return pd.DataFrame(rows)
 
 
