@@ -272,6 +272,7 @@ def _tier1_one(
                                    observed_deviance=observed_deviance, n_perm=n_perm,
                                    pooled_log_likelihood=m_pooled.log_likelihood, strata=days)
     eff = tier1_effect_size(m_ref, ds_ref, m_test, ds_test)
+    estimates = {"reference": arm_estimates(m_ref, ds_ref), "test": arm_estimates(m_test, ds_test)}
     if structure is not None and contrast.family == "ntr":
         perm |= tier1_simulated_test(arms.process_factory(line, behavior), m_pooled, ds_ref, ds_test, observed_deviance, structure, n_sim)
 
@@ -290,7 +291,7 @@ def _tier1_one(
         "qc_delta_aic_test": qc_test.delta_aic,
         "qc_notes_reference": qc_ref.informational_notes,
         "qc_notes_test": qc_test.informational_notes,
-        **perm, **eff,
+        **perm, **eff, "arm_estimates": estimates,
     }
 
 def run_tier1_screen(
@@ -368,8 +369,16 @@ def _standard_errors(model: PointProcess, dataset: PointProcessDataset) -> Dict[
     return dict(zip(model.param_names, se))
 
 
+def arm_estimates(model: PointProcess, dataset: PointProcessDataset) -> Dict[str, Dict[str, float]]:
+    """An arm's fitted parameters and their standard errors, saved with its cell (extract_fitted_parameters)."""
+    return {"value": dict(model.param_dict_), "se": _standard_errors(model, dataset)}
+
+
 def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFrame:
-    """Free parameters of both arms of every 'ok' cell, with standard errors."""
+    """
+    Free parameters of both arms of every 'ok' cell, with standard errors: those its cell saved (arm_estimates), or
+    for a cell saved without them, refitted here.
+    """
     records, errors = [], {}
 
     def standard_errors(arm: Tuple[str, str], behavior: str, exclude: frozenset) -> Dict[str, float]:
@@ -381,18 +390,22 @@ def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFram
     for _, row in tier1_df[tier1_df["status"] == "ok"].iterrows():
         line, behavior = row["line"], row["behavior"]
         contrast = arms.contrasts[line]
-        try:
-            m_ref, m_test = arms.models(line, behavior)
-        except Exception as e:
-            tqdm.write(f"[{line}/{behavior}] refit failed during parameter extraction: {e}")
-            continue
-        exclude = arms.contrast_arms(line)
-        se_ref, se_test = standard_errors(contrast.reference, behavior, exclude), standard_errors(contrast.test, behavior, exclude)
-        for pname in m_ref.param_names:
+        if isinstance(estimates := row.get("arm_estimates"), dict):
+            ref, test = estimates["reference"], estimates["test"]
+        else:
+            try:
+                m_ref, m_test = arms.models(line, behavior)
+            except Exception as e:
+                tqdm.write(f"[{line}/{behavior}] refit failed during parameter extraction: {e}")
+                continue
+            exclude = arms.contrast_arms(line)
+            ref = {"value": m_ref.param_dict_, "se": standard_errors(contrast.reference, behavior, exclude)}
+            test = {"value": m_test.param_dict_, "se": standard_errors(contrast.test, behavior, exclude)}
+        for pname in ref["value"]:
             records.append({
                 "family": contrast.family, "line": line, "behavior": behavior, "parameter": pname,
-                "value_reference": m_ref.param_dict_[pname], "value_test": m_test.param_dict_[pname],
-                "se_reference": se_ref[pname], "se_test": se_test[pname],
+                "value_reference": ref["value"][pname], "value_test": test["value"][pname],
+                "se_reference": ref["se"][pname], "se_test": test["se"][pname],
                 "significant": bool(row.get("significant", False)),
             })
 

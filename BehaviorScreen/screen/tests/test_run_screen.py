@@ -36,3 +36,5 @@ def test_behavior_runs_and_combines(kept: float, tmp_path: Path, monkeypatch: py
     assert bool(tier1.set_index("line").loc["L1", "significant"]) == (kept < 1)
     assert tier1.set_index("line")["p_value_plate"].notna().to_dict() == {"WT": True, "L1": True, "mut": False}
     assert (tmp_path / "tier1_map.png").exists() and (tmp_path / "spont" / "gain_structure.json").exists()
+    cell = pd.read_pickle(next((tmp_path / "cells" / "spont").glob("*.pkl")))  # each arm's estimates kept with the cell
+    assert set(cell["arm_estimates"]) == {"reference", "test"} and "arm_estimates" not in tier1.columns

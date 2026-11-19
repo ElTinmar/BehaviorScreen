@@ -115,7 +115,7 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
         tier1_df = add_fdr_per_behavior(tier1_df, alpha=0.05, pval_col="p_value_plate", prefix="plate_")
     print(tier1_df["status"].value_counts())
     out.mkdir(parents=True, exist_ok=True)
-    tier1_df.to_csv(out / f"{LINE_TEST_TABLES[0]}.csv", index=False)
+    tier1_df.drop(columns="arm_estimates", errors="ignore").to_csv(out / f"{LINE_TEST_TABLES[0]}.csv", index=False)
     step = lambda name, compute: run_step(output_dir, behavior, name, compute)
     param_df = step("tier1_parameters", lambda: compute_parameter_deltas(extract_fitted_parameters(tier1_df, arms)))
     # Tier 2: is a hit's drug effect different from the drug's effect on WT?
