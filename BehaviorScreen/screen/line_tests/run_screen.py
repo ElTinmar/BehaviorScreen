@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 
 from BehaviorScreen.point_process.io import save_fig
+from BehaviorScreen.point_process.parallel import limit_workers
 from BehaviorScreen.screen.line_tests.tier1_omnibus import (
     run_tier1_screen,
     tier1_permutation_test,
@@ -172,7 +173,10 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, help="Results (default: line_tests/<variant>).")
     parser.add_argument("--n-perm", type=int, default=1000, help="Permutations per Tier 1 cell.")
     parser.add_argument("--n-sim", type=int, default=1000, help="Simulated datasets per NTR cell for p_value_plate (0: none).")
+    parser.add_argument("--n-jobs", type=int, help="Worker processes (default: one per allowed core).")
     args = parser.parse_args()
+    if args.n_jobs:
+        limit_workers(args.n_jobs)
     args.output_dir = args.output_dir or line_tests_dir(args.model)
     if args.behavior and not args.combine and finished(args.output_dir, args.behavior, merged_only=False):
         print(f"{args.behavior}: every step already saved in {args.output_dir}, nothing to run.")

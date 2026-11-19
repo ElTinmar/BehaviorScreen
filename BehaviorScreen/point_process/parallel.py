@@ -34,6 +34,15 @@ def pin_to_free_core() -> None:
         return
 
 
+def limit_workers(n: int) -> None:
+    """
+    At most n worker processes in every parallel_map of this process and its children (n_jobs=-1 counts the allowed
+    cores): this process keeps only its first n cores, as a Slurm job of n cores is given.
+    """
+    if hasattr(os, "sched_setaffinity"):
+        os.sched_setaffinity(0, sorted(os.sched_getaffinity(0))[:n])
+
+
 def _pinned(function: Callable[[Any], Any], item: Any) -> Any:
     pin_to_free_core()
     return function(item)

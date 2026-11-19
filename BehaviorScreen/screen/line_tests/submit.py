@@ -18,7 +18,8 @@ from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
 from BehaviorScreen.screen.line_tests import compare_variants, status
 from BehaviorScreen.screen.paths import CONTROL_FITS, VARIANTS, line_tests_dir
 
-RESOURCES = ["--cpus-per-task=24", "--mem=120000"]
+CORES = 24
+RESOURCES = [f"--cpus-per-task={CORES}", "--mem=120000"]
 COMBINE_RESOURCES = ["--cpus-per-task=4", "--mem=32000"]  # tables and plots: about 20 GB, minutes
 
 
@@ -46,7 +47,8 @@ def main() -> None:
     args.model = args.model or "best"
     jobs = Jobs(args.local)
     run = ["python", "-m", "BehaviorScreen.screen.line_tests.run_screen", "--data-root", str(jobs.data_root),
-           "--fits-root", str(CONTROL_FITS), "--model", args.model, "--output-dir", str(line_tests_dir(args.model))]
+           "--fits-root", str(CONTROL_FITS), "--model", args.model, "--output-dir", str(line_tests_dir(args.model)),
+           "--n-jobs", str(jobs.workers(CORES))]
     if args.model != "best":
         run += ["--n-sim", "0"]
     prefix = "tier1" if args.model == "best" else "tier1_" + args.model.replace("-", "_")
