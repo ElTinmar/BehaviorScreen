@@ -14,8 +14,7 @@ from typing import List, Optional
 import pandas as pd
 
 from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
-from BehaviorScreen.screen.line_tests.run_screen import TABLES
-from BehaviorScreen.screen.paths import LINE_TESTS, VARIANTS, line_tests_dir
+from BehaviorScreen.screen.paths import LINE_TEST_TABLES, LINE_TESTS, VARIANTS, line_tests_dir
 
 
 def contrasts() -> int:
@@ -40,7 +39,7 @@ def variant_status(variant: str, behaviors: List[str]) -> pd.DataFrame:
     expected = contrasts() or max((len(c) for c in saved.values()), default=0)
     rows = []
     for behavior in behaviors:
-        tables = [root / behavior / f"{t}.csv" for t in TABLES]
+        tables = [root / behavior / f"{t}.csv" for t in LINE_TEST_TABLES]
         finished = all(t.exists() for t in tables)
         failed = [c for c in saved[behavior] if str(c.get("status", "")).startswith("unexpected_error")]
         in_merge = finished and behavior in merged and merged_path.stat().st_mtime >= max(t.stat().st_mtime for t in tables)

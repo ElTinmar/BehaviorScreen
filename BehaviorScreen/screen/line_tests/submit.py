@@ -14,7 +14,7 @@ import argparse
 
 from BehaviorScreen.jobs import Jobs, add_local_argument
 from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
-from BehaviorScreen.screen.line_tests import compare_variants
+from BehaviorScreen.screen.line_tests import compare_variants, status
 from BehaviorScreen.screen.paths import CONTROL_FITS, VARIANTS, line_tests_dir
 
 RESOURCES = ["--cpus-per-task=24", "--mem=120000"]
@@ -39,7 +39,6 @@ def main() -> None:
         compare_variants.main()
         return
     if args.status:
-        from BehaviorScreen.screen.line_tests import status  # imports the models (JAX): only here
         status.main(args.model, args.behaviors, args.failed)
         return
     args.model = args.model or "best"

@@ -44,9 +44,7 @@ from BehaviorScreen.screen.line_tests.gain_structure import GainStructure, calib
 # Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.screen.line_tests.count_readouts
 from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
 from BehaviorScreen.screen.line_tests.tier2_interaction import plot_tier2_map, run_tier2_screen
-from BehaviorScreen.screen.paths import CONTROL_FITS, VARIANTS, add_data_root, data_root, line_tests_dir
-
-TABLES = ("tier1_results", "tier1_parameters", "tier2_results", "bootstrap_parameter_deltas")
+from BehaviorScreen.screen.paths import CONTROL_FITS, LINE_TEST_TABLES, VARIANTS, add_data_root, data_root, line_tests_dir
 
 
 def read_table(path: Path) -> pd.DataFrame:
@@ -127,7 +125,7 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
     generate_arm_surface_grids(tier1_df, arms, output_dir=output_dir / "arm_surface_grids")
     boot_delta_df = bootstrap_parameter_deltas(tier1_df, param_df, arms, n_boot=1000)
     out.mkdir(parents=True, exist_ok=True)
-    for name, df in zip(TABLES, (tier1_df, param_df, tier2_df, boot_delta_df)):
+    for name, df in zip(LINE_TEST_TABLES, (tier1_df, param_df, tier2_df, boot_delta_df)):
         df.to_csv(out / f"{name}.csv", index=False)
 
     fig = plot_parameter_forest(boot_delta_df, behavior) if len(boot_delta_df) else None
@@ -147,11 +145,11 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
 
 def combine(behaviors: list, arms: Arms, map_order: list, output_dir: Path) -> None:
     """The behaviors' tables merged (output_dir/<table>.csv), and the maps and plots across behaviors."""
-    missing = [b for b in behaviors if not (output_dir / b / f"{TABLES[0]}.csv").exists()]
+    missing = [b for b in behaviors if not (output_dir / b / f"{LINE_TEST_TABLES[0]}.csv").exists()]
     if missing:
         print(f"Not run yet (left out): {missing}")
     behaviors, map_order = [b for b in behaviors if b not in missing], [b for b in map_order if b not in missing]
-    tables = {name: pd.concat([read_table(output_dir / b / f"{name}.csv") for b in behaviors], ignore_index=True) for name in TABLES}
+    tables = {name: pd.concat([read_table(output_dir / b / f"{name}.csv") for b in behaviors], ignore_index=True) for name in LINE_TEST_TABLES}
     for name, df in tables.items():
         df.to_csv(output_dir / f"{name}.csv", index=False)
     tier1_df, param_df, tier2_df = tables["tier1_results"], tables["tier1_parameters"], tables["tier2_results"]

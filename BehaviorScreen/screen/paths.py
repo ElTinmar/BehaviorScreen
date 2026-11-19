@@ -21,6 +21,8 @@ PREY_JTURN_PHASE = Path("prey_jturn_phase.png")
 # The model of each behavior a Tier 1 run uses (tier1_config.variant_model): the best one (the screen's), the best one
 # without event history, or the ladder's first rung (a constant rate or hazard, no fish gain): how much hits depend on it.
 VARIANTS = ("best", "best-poisson", "base")
+# What a line-test run saves per behavior (<variant folder>/<behavior>/<table>.csv) and merges across them
+LINE_TEST_TABLES = ("tier1_results", "tier1_parameters", "tier2_results", "bootstrap_parameter_deltas")
 
 
 def line_tests_dir(variant: str) -> Path:
