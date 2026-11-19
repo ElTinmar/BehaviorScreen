@@ -17,7 +17,7 @@ The vehicle map shows each NTR line's untreated fish against the mean of all
 vehicle arms, framing atypical controls: a parameter offset beyond
 OUTLIER_Z x sqrt(tau^2 + SE^2), the spread expected of one more clutch.
 
-    python -m BehaviorScreen.screen.line_tests.clutch_variability ./line_tests
+    python -m BehaviorScreen.screen.line_tests.clutch_variability ./line_tests/best
 """
 import sys
 from pathlib import Path
@@ -33,7 +33,7 @@ from BehaviorScreen.point_process.io import save_fig
 from .arm_absolute import with_bootstrap_se
 from .fdr import add_fdr
 from .tier1_omnibus import MAP_COLORS, PARAMETER_LABELS, plot_tier1_map
-from ..paths import LINE_TESTS
+from ..paths import line_tests_dir
 
 KEYS = ["behavior", "parameter"]
 ABOLISHED_LOG2 = 4.0  # effects below -4 log2 (1/16): response abolished, its size not meaningful
@@ -215,4 +215,4 @@ def main(results_dir: Path) -> None:
 
 
 if __name__ == "__main__":
-    main(Path(sys.argv[1]) if len(sys.argv) > 1 else LINE_TESTS)
+    main(Path(sys.argv[1]) if len(sys.argv) > 1 else line_tests_dir("best"))

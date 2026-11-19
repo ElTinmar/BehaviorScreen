@@ -34,7 +34,7 @@ from .dataset_utils import Arms, Contrast
 from BehaviorScreen.screen.line_names import line_name
 from .tier1_config import MAP_COLUMNS
 from .tier1_omnibus import PARAMETER_LABELS, compute_parameter_deltas, map_rows
-from ..paths import CONTROL_FITS, LINE_TESTS, add_data_root, data_root
+from ..paths import CONTROL_FITS, add_data_root, data_root, line_tests_dir
 
 ARM_KEYS = ["line", "condition", "behavior"]
 CONTROL, UP, DOWN, NEUTRAL, TEST = "#4d4d4d", "#b2182b", "#2166ac", "#bdbdbd", "#8c8c8c"
@@ -305,7 +305,7 @@ def plot_all(boot_df: pd.DataFrame, contrasts: List[Contrast], tier1_df: pd.Data
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Absolute Tier 1 parameters per arm with fish-bootstrap intervals.")
-    parser.add_argument("--results", type=Path, default=LINE_TESTS, help="run_screen output folder")
+    parser.add_argument("--results", type=Path, default=line_tests_dir("best"), help="run_screen output folder")
     add_data_root(parser)
     parser.add_argument("--fits-root", type=Path, default=CONTROL_FITS, help="run_analysis --mode fit output of the control screen.")
     parser.add_argument("--n-boot", type=int, default=200)

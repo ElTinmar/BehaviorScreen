@@ -15,12 +15,12 @@ import pandas as pd
 
 from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
 from BehaviorScreen.screen.line_tests.steps import STEPS, finished, saved
-from BehaviorScreen.screen.paths import LINE_TEST_TABLES, LINE_TESTS, VARIANTS, line_tests_dir
+from BehaviorScreen.screen.paths import LINE_TEST_TABLES, VARIANTS, line_tests_dir
 
 
 def contrasts() -> int:
     """Contrasts each behavior tests: those of the best model's merge (0 before one), the same for every behavior and variant."""
-    path = LINE_TESTS / "tier1_results.csv"
+    path = line_tests_dir("best") / "tier1_results.csv"
     return pd.read_csv(path, usecols=["line"], dtype=str)["line"].nunique() if path.exists() else 0
 
 

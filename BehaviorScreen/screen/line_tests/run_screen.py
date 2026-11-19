@@ -169,7 +169,7 @@ def main() -> None:
     add_data_root(parser)
     parser.add_argument("--fits-root", type=Path, default=CONTROL_FITS, help="run_analysis --mode fit output of the control screen.")
     parser.add_argument("--model", choices=VARIANTS, default="best", help="Model of each behavior (paths.VARIANTS).")
-    parser.add_argument("--output-dir", type=Path, help="Results (default: line_tests, line_tests/<variant> for the others).")
+    parser.add_argument("--output-dir", type=Path, help="Results (default: line_tests/<variant>).")
     parser.add_argument("--n-perm", type=int, default=1000, help="Permutations per Tier 1 cell.")
     parser.add_argument("--n-sim", type=int, default=1000, help="Simulated datasets per NTR cell for p_value_plate (0: none).")
     args = parser.parse_args()

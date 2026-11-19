@@ -113,7 +113,7 @@ python -m BehaviorScreen.screen.control_models.run_analysis --mode consolidate -
 ```
 python -m BehaviorScreen test-lines [behavior ...]       # Tier 1: one job per behavior
 python -m BehaviorScreen test-lines --combine            # once they are done: merge the saved behaviors into tables and maps
-python -m BehaviorScreen.screen.line_tests.clutch_variability ./line_tests
+python -m BehaviorScreen.screen.line_tests.clutch_variability ./line_tests/best
 python -m BehaviorScreen.screen.line_tests.count_readouts
 python -m BehaviorScreen test-lines --model best-poisson      # the same with the best model without event history,
 python -m BehaviorScreen test-lines --model base              # or with each ladder's constant rate, into line_tests/<variant>/

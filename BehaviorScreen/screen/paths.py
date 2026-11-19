@@ -26,8 +26,8 @@ LINE_TEST_TABLES = ("tier1_results", "tier1_parameters", "tier2_results", "boots
 
 
 def line_tests_dir(variant: str) -> Path:
-    """Tier 1 results of a model variant: the best model's in LINE_TESTS, the others below it."""
-    return LINE_TESTS if variant == "best" else LINE_TESTS / variant.replace("-", "_")
+    """Tier 1 results of a model variant: LINE_TESTS/best, LINE_TESTS/best_poisson, LINE_TESTS/base."""
+    return LINE_TESTS / variant.replace("-", "_")
 
 
 def add_data_root(parser: argparse.ArgumentParser) -> None:
