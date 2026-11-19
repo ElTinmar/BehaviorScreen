@@ -115,9 +115,13 @@ python -m BehaviorScreen test-lines [behavior ...]       # Tier 1: one job per b
 python -m BehaviorScreen test-lines --combine            # once they are done: merge the saved behaviors into tables and maps
 python -m BehaviorScreen.screen.line_tests.clutch_variability ./line_tests
 python -m BehaviorScreen.screen.line_tests.count_readouts
+python -m BehaviorScreen test-lines --model best-poisson      # the same with the best model without event history,
+python -m BehaviorScreen test-lines --model base              # or with each ladder's constant rate, into line_tests/<variant>/
+python -m BehaviorScreen.screen.line_tests.compare_variants   # once merged (--combine --model ...): hits by variant
 ```
 
-A resubmitted behavior skips the cells it has already saved. The screen analyses read the merged tables from this
+A resubmitted behavior skips the cells it has already saved. The best model's run is the screen's; the variants run
+without the plate-simulated p-value, which simulates from the model, and say how much its hits depend on the model. The screen analyses read the merged tables from this
 machine's `data_root` (machines.yaml) unless given `--data-root`, and the control fits from `./control_fits` unless given
 `--fits-root`; they write their results in the folder they run in (`BehaviorScreen/screen/paths.py`).
 

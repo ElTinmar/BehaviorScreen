@@ -52,12 +52,15 @@ class Screen:
         return {b: cfg["null"] for b, cfg in self.behavior_config.items()}
 
 
-def load_screen(data_root: Path, fits_root: Path) -> Screen:
-    """The tables of data_root and the Tier 1 models built on the control fits in fits_root (run_analysis --mode fit)."""
+def load_screen(data_root: Path, fits_root: Path, variant: str = "best") -> Screen:
+    """
+    The tables of data_root and the Tier 1 models of `variant` (tier1_config.VARIANTS) built on the control fits in
+    fits_root (run_analysis --mode fit).
+    """
     loaders = load_tables(data_root)
     if untested := set(get_model_config()) - set(MAP_COLUMNS):
         print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")
-    config = tier1_behaviors(fits_root, PINNED_AMPLITUDES)
+    config = tier1_behaviors(fits_root, PINNED_AMPLITUDES, variant)
     print("Per-behavior model and free parameters (everything else pinned to the control fit):")
     for behavior, cfg in config.items():
         print(f"  {behavior}: {cfg['model_name']}, free={cfg['free']}")

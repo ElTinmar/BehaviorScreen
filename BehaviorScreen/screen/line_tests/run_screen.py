@@ -44,7 +44,7 @@ from BehaviorScreen.screen.line_tests.gain_structure import GainStructure, calib
 # Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.screen.line_tests.count_readouts
 from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
 from BehaviorScreen.screen.line_tests.tier2_interaction import plot_tier2_map, run_tier2_screen
-from BehaviorScreen.screen.paths import CONTROL_FITS, LINE_TESTS, add_data_root, data_root
+from BehaviorScreen.screen.paths import CONTROL_FITS, VARIANTS, add_data_root, data_root, line_tests_dir
 
 TABLES = ("tier1_results", "tier1_parameters", "tier2_results", "bootstrap_parameter_deltas")
 
@@ -175,11 +175,13 @@ def main() -> None:
     parser.add_argument("--combine", action="store_true", help="Merge the behaviors already run into the screen's tables and maps.")
     add_data_root(parser)
     parser.add_argument("--fits-root", type=Path, default=CONTROL_FITS, help="run_analysis --mode fit output of the control screen.")
-    parser.add_argument("--output-dir", type=Path, default=LINE_TESTS, help="Results.")
+    parser.add_argument("--model", choices=VARIANTS, default="best", help="Model of each behavior (paths.VARIANTS).")
+    parser.add_argument("--output-dir", type=Path, help="Results (default: line_tests, line_tests/<variant> for the others).")
     parser.add_argument("--n-perm", type=int, default=1000, help="Permutations per Tier 1 cell.")
     parser.add_argument("--n-sim", type=int, default=1000, help="Simulated datasets per NTR cell for p_value_plate (0: none).")
     args = parser.parse_args()
-    screen = load_screen(data_root(args.data_root), args.fits_root)
+    args.output_dir = args.output_dir or line_tests_dir(args.model)
+    screen = load_screen(data_root(args.data_root), args.fits_root, args.model)
     if args.behavior is not None and args.behavior not in screen.behaviors:
         raise SystemExit(f"--behavior must be one of {screen.behaviors}")
     args.output_dir.mkdir(parents=True, exist_ok=True)

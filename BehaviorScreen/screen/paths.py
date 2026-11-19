@@ -18,6 +18,16 @@ SAMPLE_SIZES = Path("line_sample_sizes.png")
 PREY_JTURN_PHASE = Path("prey_jturn_phase.png")
 
 
+# The model of each behavior a Tier 1 run uses (tier1_config.variant_model): the best one (the screen's), the best one
+# without event history, or the ladder's first rung (a constant rate or hazard, no fish gain): how much hits depend on it.
+VARIANTS = ("best", "best-poisson", "base")
+
+
+def line_tests_dir(variant: str) -> Path:
+    """Tier 1 results of a model variant: the best model's in LINE_TESTS, the others below it."""
+    return LINE_TESTS if variant == "best" else LINE_TESTS / variant.replace("-", "_")
+
+
 def add_data_root(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--data-root", type=Path, help="Folder of the merged tables (default: this machine's data_root in machines.yaml).")
 
