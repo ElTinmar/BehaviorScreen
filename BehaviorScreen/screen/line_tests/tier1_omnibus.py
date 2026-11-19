@@ -436,7 +436,7 @@ def plot_tier1_map(
     tier1_df: pd.DataFrame,
     behaviors: List[str],
     rows: List[str],
-    vmax: float = 6.0,
+    vmax: float = 4.0,
     se_half_size: float = 0.5,
     row_labels: Optional[Dict[str, str]] = None,
     colorbar_label: str = "log2(test / reference)",
