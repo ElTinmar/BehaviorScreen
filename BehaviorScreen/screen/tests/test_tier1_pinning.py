@@ -1,4 +1,5 @@
 """Tier 1's pinned values for a contrast: the control fit without the contrast's own arms, so they cannot depend on its labels."""
+from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -82,3 +83,16 @@ def test_control_fit_leaves_out_mutants_and_treated_fish() -> None:
     control, control_arms = Arms({"bouts": Loader(data, arms)}, {"spont": "bouts"}, {"spont": {}}, {}, []).control("spont")
     assert control_arms == [("WT", "danieau")] * 3 + [("L1", "vehicle")] * 2
     assert list(control.fish_ids) == ["f0", "f1", "f2", "f5", "f6"]
+
+
+def test_refits_are_saved_and_reused_while_the_control_fit_is_the_same(tmp_path: Path) -> None:
+    arms, _ = screen(0)
+    arms.refit_store = tmp_path
+    first = arms.architecture("spont", arms.contrast_arms("L1")).fixed
+    again, _ = screen(0)
+    again.refit_store = tmp_path
+    again.control = lambda behavior: pytest.fail("refitted although saved")
+    assert again.architecture("spont", again.contrast_arms("L1")).fixed == first
+    other, _ = screen(1)  # another control fit: the saved refit is not its own
+    other.refit_store = tmp_path
+    assert other.architecture("spont", other.contrast_arms("L1")).fixed != first

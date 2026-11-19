@@ -175,6 +175,7 @@ def main() -> None:
     args = parser.parse_args()
     args.output_dir = args.output_dir or line_tests_dir(args.model)
     screen = load_screen(data_root(args.data_root), args.fits_root, args.model)
+    screen.arms.refit_store = args.output_dir / "control_refits"
     if args.behavior is not None and args.behavior not in screen.behaviors:
         raise SystemExit(f"--behavior must be one of {screen.behaviors}")
     args.output_dir.mkdir(parents=True, exist_ok=True)

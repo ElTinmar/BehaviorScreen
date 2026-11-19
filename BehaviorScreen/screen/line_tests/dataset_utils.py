@@ -4,8 +4,10 @@ summary statistics used as a fallback when a parametric fit is flagged
 (see model_qc.py).
 """
 import copy
+import json
 import warnings
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Dict, FrozenSet, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
@@ -13,6 +15,7 @@ import pandas as pd
 
 from BehaviorScreen.screen.control_models.model_config import CONTROL_CONDITIONS, control_loader
 from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.io import slugify
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
@@ -80,7 +83,8 @@ class Arms:
     model_config.control_loader. A test of a contrast pins it instead to the
     control fit refitted without the contrast's own arms (architecture(behavior,
     exclude)): then the pinned values do not depend on which of its fish are
-    labelled reference or test, and its permutation test is exact.
+    labelled reference or test, and its permutation test is exact. With refit_store set, those refits are saved there
+    (<behavior>/<excluded arms>.json) and reused while the control fit is the same.
     """
 
     def __init__(
@@ -102,6 +106,7 @@ class Arms:
         self._models: Dict[Tuple[str, str, str, FrozenSet[Arm]], Union[PointProcess, Exception]] = {}
         self._architectures: Dict[Tuple[str, FrozenSet[Arm]], PinnedArchitecture] = {}
         self._controls: Dict[str, Tuple[PointProcessDataset, List[Arm]]] = {}
+        self.refit_store: Optional[Path] = None
 
     def control(self, behavior: str) -> Tuple[PointProcessDataset, List[Arm]]:
         """The control fish's dataset and each fish's arm."""
@@ -121,11 +126,19 @@ class Arms:
         if not exclude:
             return self.process_factories[behavior]
         if (behavior, exclude) not in self._architectures:
-            dataset, arms = self.control(behavior)
             control = self.process_factories[behavior]
             refit = copy.deepcopy(control.fitted)
-            refit.initial_guesses = [float(v) for v in control.fitted.params_]
-            refit.fit(dataset.fish([i for i, arm in enumerate(arms) if arm not in exclude]))
+            key = {"model": refit.name, "control": [float(v) for v in control.fitted.params_]}
+            path = self.refit_store / behavior / f"{slugify('+'.join('_'.join(arm) for arm in sorted(exclude)))}.json" if self.refit_store else None
+            if path is not None and path.exists() and (saved := json.loads(path.read_text()))["key"] == key:
+                refit.set_params(np.asarray(saved["params"], dtype=float))
+            else:
+                dataset, arms = self.control(behavior)
+                refit.initial_guesses = key["control"]
+                refit.fit(dataset.fish([i for i, arm in enumerate(arms) if arm not in exclude]))
+                if path is not None:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_text(json.dumps({"key": key, "params": [float(v) for v in refit.params_]}))
             self._architectures[behavior, exclude] = PinnedArchitecture(refit, control.pinned)
         return self._architectures[behavior, exclude]
 
