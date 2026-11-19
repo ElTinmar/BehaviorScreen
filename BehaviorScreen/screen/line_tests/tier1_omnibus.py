@@ -328,8 +328,10 @@ def run_tier1_screen(
         done[name, behavior] = {"family": c.family, "reference": "/".join(c.reference), "test": "/".join(c.test),
                                 **record, "n_fish_ref": n_fish[0], "n_fish_test": n_fish[1]}
         if store is not None:
-            with open(store / behavior / f"{slugify(name)}.pkl", "wb") as f:
+            path = store / behavior / f"{slugify(name)}.pkl"
+            with open(path.with_suffix(".tmp"), "wb") as f:
                 pickle.dump(done[name, behavior], f)
+            path.with_suffix(".tmp").replace(path)  # whole or absent, even when the job is stopped while writing
 
     return pd.DataFrame([done[job] for job in jobs])
 

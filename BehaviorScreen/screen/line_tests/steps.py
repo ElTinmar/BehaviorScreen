@@ -36,9 +36,9 @@ def saved(output_dir: Path, behavior: str, step: str) -> bool:
     return path.exists() and all(p.exists() and path.stat().st_mtime >= p.stat().st_mtime for p in inputs)
 
 
-def finished(output_dir: Path, behavior: str) -> bool:
-    """Whether the steps whose tables are merged are saved (the grids are figures, not needed for the merge)."""
-    return all(saved(output_dir, behavior, step) for step in STEPS if step in LINE_TEST_TABLES)
+def finished(output_dir: Path, behavior: str, merged_only: bool = True) -> bool:
+    """Whether the steps are saved: those whose tables are merged (the grids are figures, not needed for the merge), or all."""
+    return all(saved(output_dir, behavior, step) for step in STEPS if step in LINE_TEST_TABLES or not merged_only)
 
 
 def running(output_dir: Path, behavior: str) -> Optional[Tuple[str, datetime]]:
@@ -67,5 +67,6 @@ def run_step(output_dir: Path, behavior: str, step: str, compute: Callable[[], p
     path.parent.mkdir(parents=True, exist_ok=True)
     (path.parent / "running.txt").write_text(f"{step} {datetime.now().isoformat(timespec='seconds')}")
     table = compute()
-    table.to_csv(path, index=False)
+    table.to_csv(path.with_suffix(".tmp"), index=False)
+    path.with_suffix(".tmp").replace(path)  # whole or absent, even when the job is stopped while writing
     return table

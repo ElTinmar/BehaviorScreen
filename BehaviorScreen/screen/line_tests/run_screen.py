@@ -174,6 +174,9 @@ def main() -> None:
     parser.add_argument("--n-sim", type=int, default=1000, help="Simulated datasets per NTR cell for p_value_plate (0: none).")
     args = parser.parse_args()
     args.output_dir = args.output_dir or line_tests_dir(args.model)
+    if args.behavior and not args.combine and finished(args.output_dir, args.behavior, merged_only=False):
+        print(f"{args.behavior}: every step already saved in {args.output_dir}, nothing to run.")
+        return
     screen = load_screen(data_root(args.data_root), args.fits_root, args.model)
     screen.arms.refit_store = args.output_dir / "control_refits"
     if args.behavior is not None and args.behavior not in screen.behaviors:

@@ -16,7 +16,9 @@ def test_steps_are_reused_until_their_inputs_change(tmp_path: Path) -> None:
     computed = []
     run = lambda step: steps.run_step(tmp_path, "okr", step, lambda: computed.append(step) or pd.DataFrame({"line": ["1010"]}))
     for step in steps.STEPS:
+        assert not steps.finished(tmp_path, "okr", merged_only=False)
         run(step)
+    assert steps.finished(tmp_path, "okr", merged_only=False) and not list((tmp_path / "okr").glob("*.tmp"))
     assert steps.finished(tmp_path, "okr") and run("tier1_parameters")["line"].tolist() == ["1010"]  # reused, a line name kept as text
     assert computed == list(steps.STEPS)
     assert steps.running(tmp_path, "okr")[0] == list(steps.STEPS)[-1]  # the last step started

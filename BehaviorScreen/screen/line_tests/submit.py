@@ -5,7 +5,8 @@ so far into the screen's tables and maps. On Slurm or here (BehaviorScreen/machi
     python -m BehaviorScreen test-lines --combine [--model ...] [--local]
     python -m BehaviorScreen test-lines --compare
     python -m BehaviorScreen test-lines --status [behavior ...] [--model ...] [--failed]
-A resubmitted behavior skips the cells it has already saved. --model runs the screen with another model of each
+A resubmitted behavior skips the cells and steps it has already saved; --resubmit N queues N copies of each behavior's
+job, each starting when the one before ends (the 24 h limit), and a copy whose behavior is done exits at once. --model runs the screen with another model of each
 behavior (paths.VARIANTS) into its own folder, without the plate-simulated p-value (it simulates from the model);
 --compare then sets the merged variants' hits side by side, here (compare_variants: tables only, seconds); --status says
 what is saved, done and left, from the results folders (status).
@@ -29,6 +30,7 @@ def main() -> None:
     parser.add_argument("--status", action="store_true", help="What is saved, done and left (of --model, else every variant).")
     parser.add_argument("--failed", action="store_true", help="With --status: list the cells that failed.")
     parser.add_argument("--model", choices=VARIANTS, help="Model of each behavior (default: the best).")
+    parser.add_argument("--resubmit", type=int, default=0, metavar="N", help="Copies of each behavior's job to resume it after the time limit.")
     add_local_argument(parser)
     args = parser.parse_args()
     if unknown := sorted(set(args.behaviors) - set(EXPERIMENTS)):
@@ -52,7 +54,7 @@ def main() -> None:
         jobs.submit([*run, "--combine"], f"{prefix}_combine", COMBINE_RESOURCES, one_thread=True)
     else:
         for behavior in args.behaviors or EXPERIMENTS:
-            jobs.submit([*run, "--behavior", behavior], f"{prefix}_{behavior}", RESOURCES, one_thread=True)
+            jobs.submit([*run, "--behavior", behavior], f"{prefix}_{behavior}", RESOURCES, one_thread=True, resubmit=args.resubmit)
     jobs.finish()
 
 

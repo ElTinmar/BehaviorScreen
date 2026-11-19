@@ -61,12 +61,20 @@ class Jobs:
         """Worker processes of a job given cores on Slurm."""
         return cores if self.slurm else self.machine.workers or os.cpu_count()
 
-    def submit(self, command: List[str], name: str, resources: List[str], after: Optional[List[str]] = None, one_thread: bool = False) -> str:
+    def submit(self, command: List[str], name: str, resources: List[str], after: Optional[List[str]] = None, one_thread: bool = False,
+               resubmit: int = 0) -> str:
         """
         command run with the BehaviorScreen env from the repository root; the job's id (its name when run here).
         resources: sbatch options, ignored here. after: jobs that must all succeed first.
         one_thread: one BLAS and XLA thread per process (for jobs with their own worker processes).
+        resubmit: on Slurm, that many copies queued, each to start when the one before ends, however it ended (the time
+        limit): for commands that resume their own work. The id is the last copy's.
         """
+        if self.slurm and resubmit:
+            job = self.submit(command, name, resources, after, one_thread)
+            for _ in range(resubmit):
+                job = self.submit(command, name, resources + [f"--dependency=afterany:{job}"], one_thread=one_thread)
+            return job
         if self.slurm:
             dependency = [f"--dependency=afterok:{':'.join(after)}"] if after else []
             sbatch = ["sbatch", "--parsable", f"--job-name={name}", "-o", f"{self.machine.logs}/job.out.%j", "-e", f"{self.machine.logs}/job.err.%j",
