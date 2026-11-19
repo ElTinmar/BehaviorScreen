@@ -117,7 +117,7 @@ python -m BehaviorScreen.screen.line_tests.clutch_variability ./line_tests
 python -m BehaviorScreen.screen.line_tests.count_readouts
 python -m BehaviorScreen test-lines --model best-poisson      # the same with the best model without event history,
 python -m BehaviorScreen test-lines --model base              # or with each ladder's constant rate, into line_tests/<variant>/
-python -m BehaviorScreen.screen.line_tests.compare_variants   # once merged (--combine --model ...): hits by variant
+python -m BehaviorScreen test-lines --compare                 # once merged (--combine --model ...): hits by variant
 ```
 
 A resubmitted behavior skips the cells it has already saved. The best model's run is the screen's; the variants run
