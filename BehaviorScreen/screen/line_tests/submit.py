@@ -4,9 +4,11 @@ so far into the screen's tables and maps. On Slurm or here (BehaviorScreen/machi
     python -m BehaviorScreen test-lines [behavior ...] [--model best|best-poisson|base] [--local]
     python -m BehaviorScreen test-lines --combine [--model ...] [--local]
     python -m BehaviorScreen test-lines --compare
+    python -m BehaviorScreen test-lines --status [behavior ...] [--model ...] [--failed]
 A resubmitted behavior skips the cells it has already saved. --model runs the screen with another model of each
 behavior (paths.VARIANTS) into its own folder, without the plate-simulated p-value (it simulates from the model);
---compare then sets the merged variants' hits side by side, here (compare_variants: tables only, seconds).
+--compare then sets the merged variants' hits side by side, here (compare_variants: tables only, seconds); --status says
+what is saved, done and left, from the results folders (status).
 """
 import argparse
 
@@ -24,7 +26,9 @@ def main() -> None:
     parser.add_argument("behaviors", nargs="*", metavar="behavior", help="of experiments.txt (default: all)")
     parser.add_argument("--combine", action="store_true", help="Merge the behaviors already saved, instead of running any.")
     parser.add_argument("--compare", action="store_true", help="Set the merged variants' hits side by side (compare_variants), here.")
-    parser.add_argument("--model", choices=VARIANTS, default="best", help="Model of each behavior (default: the best).")
+    parser.add_argument("--status", action="store_true", help="What is saved, done and left (of --model, else every variant).")
+    parser.add_argument("--failed", action="store_true", help="With --status: list the cells that failed.")
+    parser.add_argument("--model", choices=VARIANTS, help="Model of each behavior (default: the best).")
     add_local_argument(parser)
     args = parser.parse_args()
     if unknown := sorted(set(args.behaviors) - set(EXPERIMENTS)):
@@ -34,6 +38,11 @@ def main() -> None:
     if args.compare:
         compare_variants.main()
         return
+    if args.status:
+        from BehaviorScreen.screen.line_tests import status  # imports the models (JAX): only here
+        status.main(args.model, args.behaviors, args.failed)
+        return
+    args.model = args.model or "best"
     jobs = Jobs(args.local)
     run = ["python", "-m", "BehaviorScreen.screen.line_tests.run_screen", "--data-root", str(jobs.data_root),
            "--fits-root", str(CONTROL_FITS), "--model", args.model, "--output-dir", str(line_tests_dir(args.model))]

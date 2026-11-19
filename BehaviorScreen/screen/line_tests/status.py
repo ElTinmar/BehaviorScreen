@@ -1,0 +1,61 @@
+"""
+Where the line tests stand, from their results folders: per model variant and behavior, the cells saved, those that
+failed, whether the steps after the cells have run (its tables are saved), whether the merge has it and what is left.
+"incomplete" is a behavior with work saved but not finished: its job is running or queued, or it stopped and needs
+resubmitting.
+    python -m BehaviorScreen test-lines --status [--model best|best-poisson|base]
+A cell that failed (status unexpected_error) is saved like the others and not tried again: delete its file, listed with
+--failed, before resubmitting the behavior to retry it.
+"""
+import pickle
+from pathlib import Path
+from typing import List, Optional
+
+import pandas as pd
+
+from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
+from BehaviorScreen.screen.line_tests.run_screen import TABLES
+from BehaviorScreen.screen.paths import LINE_TESTS, VARIANTS, line_tests_dir
+
+
+def contrasts() -> int:
+    """Contrasts each behavior tests: those of the best model's merge (0 before one), the same for every behavior and variant."""
+    path = LINE_TESTS / "tier1_results.csv"
+    return pd.read_csv(path, usecols=["line"], dtype=str)["line"].nunique() if path.exists() else 0
+
+
+def cells(store: Path) -> List[dict]:
+    records = []
+    for path in sorted(store.glob("*.pkl")):
+        with open(path, "rb") as f:
+            records.append({**pickle.load(f), "file": path})
+    return records
+
+
+def variant_status(variant: str, behaviors: List[str]) -> pd.DataFrame:
+    root = line_tests_dir(variant)
+    merged_path = root / "tier1_results.csv"
+    merged = set(pd.read_csv(merged_path, usecols=["behavior"])["behavior"]) if merged_path.exists() else set()
+    saved = {b: cells(root / "cells" / b) for b in behaviors}
+    expected = contrasts() or max((len(c) for c in saved.values()), default=0)
+    rows = []
+    for behavior in behaviors:
+        tables = [root / behavior / f"{t}.csv" for t in TABLES]
+        finished = all(t.exists() for t in tables)
+        failed = [c for c in saved[behavior] if str(c.get("status", "")).startswith("unexpected_error")]
+        in_merge = finished and behavior in merged and merged_path.stat().st_mtime >= max(t.stat().st_mtime for t in tables)
+        next_step = "nothing" if in_merge else "merge" if finished else "incomplete" if saved[behavior] else "submit"
+        rows.append({"behavior": behavior, "cells": f"{len(saved[behavior])}/{expected}", "failed": len(failed),
+                     "after cells": "done" if finished else "-", "merged": "yes" if in_merge else "-", "next": next_step})
+    return pd.DataFrame(rows)
+
+
+def main(variant: Optional[str] = None, behaviors: Optional[List[str]] = None, failed: bool = False) -> None:
+    for name in [variant] if variant else [v for v in VARIANTS if line_tests_dir(v).exists()]:
+        table = variant_status(name, behaviors or EXPERIMENTS)
+        print(f"\n{name} ({line_tests_dir(name)}/)\n{table.to_string(index=False)}")
+        if failed:
+            for behavior in table["behavior"]:
+                for c in cells(line_tests_dir(name) / "cells" / behavior):
+                    if str(c.get("status", "")).startswith("unexpected_error"):
+                        print(f"  {c['file']}: {c['status'][:150]}")
