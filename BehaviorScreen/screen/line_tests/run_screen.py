@@ -40,19 +40,12 @@ from BehaviorScreen.screen.line_tests.fdr import add_fdr_per_behavior
 from BehaviorScreen.screen.line_tests.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.screen.line_tests.dataset_utils import Arms
 from BehaviorScreen.screen.line_tests.screen_setup import load_screen
+from BehaviorScreen.screen.line_tests.steps import finished, read_table, run_step
 from BehaviorScreen.screen.line_tests.gain_structure import GainStructure, calibrate, fish_groups
 # Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.screen.line_tests.count_readouts
 from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
 from BehaviorScreen.screen.line_tests.tier2_interaction import plot_tier2_map, run_tier2_screen
 from BehaviorScreen.screen.paths import CONTROL_FITS, LINE_TEST_TABLES, VARIANTS, add_data_root, data_root, line_tests_dir
-
-
-def read_table(path: Path) -> pd.DataFrame:
-    """A saved table; empty if it had no columns (a behavior without hits has no bootstrap rows)."""
-    try:
-        return pd.read_csv(path)
-    except pd.errors.EmptyDataError:
-        return pd.DataFrame()
 
 
 def smoke_test(arms: Arms, behavior: str) -> None:
@@ -108,7 +101,10 @@ def gain_structure(behavior: str, arms: Arms, out: Path) -> GainStructure:
 
 
 def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output_dir: Path, n_perm: int, n_sim: int = 500) -> None:
-    """Everything done per behavior, into output_dir / behavior. n_sim: datasets of each NTR cell's simulated null (0: none)."""
+    """
+    Everything done per behavior, into output_dir / behavior, the steps after the cells saved as they are done (steps).
+    n_sim: datasets of each NTR cell's simulated null (0: none).
+    """
     out = output_dir / behavior
     smoke_test(arms, behavior)
     structures = {behavior: gain_structure(behavior, arms, out)} if n_sim else None
@@ -118,15 +114,14 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
     if "p_value_plate" in tier1_df:
         tier1_df = add_fdr_per_behavior(tier1_df, alpha=0.05, pval_col="p_value_plate", prefix="plate_")
     print(tier1_df["status"].value_counts())
-    param_df = compute_parameter_deltas(extract_fitted_parameters(tier1_df, arms))
-
-    # Tier 2: is a hit's drug effect different from the drug's effect on WT?
-    tier2_df = add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, reference="WT", n_boot=200))
-    generate_arm_surface_grids(tier1_df, arms, output_dir=output_dir / "arm_surface_grids")
-    boot_delta_df = bootstrap_parameter_deltas(tier1_df, param_df, arms, n_boot=1000)
     out.mkdir(parents=True, exist_ok=True)
-    for name, df in zip(LINE_TEST_TABLES, (tier1_df, param_df, tier2_df, boot_delta_df)):
-        df.to_csv(out / f"{name}.csv", index=False)
+    tier1_df.to_csv(out / f"{LINE_TEST_TABLES[0]}.csv", index=False)
+    step = lambda name, compute: run_step(output_dir, behavior, name, compute)
+    param_df = step("tier1_parameters", lambda: compute_parameter_deltas(extract_fitted_parameters(tier1_df, arms)))
+    # Tier 2: is a hit's drug effect different from the drug's effect on WT?
+    step("tier2_results", lambda: add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, reference="WT", n_boot=200)))
+    step("arm_surface_grids", lambda: generate_arm_surface_grids(tier1_df, arms, output_dir=output_dir / "arm_surface_grids"))
+    boot_delta_df = step("bootstrap_parameter_deltas", lambda: bootstrap_parameter_deltas(tier1_df, param_df, arms, n_boot=1000))
 
     fig = plot_parameter_forest(boot_delta_df, behavior) if len(boot_delta_df) else None
     if fig is not None:
@@ -145,7 +140,7 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
 
 def combine(behaviors: list, arms: Arms, map_order: list, output_dir: Path) -> None:
     """The behaviors' tables merged (output_dir/<table>.csv), and the maps and plots across behaviors."""
-    missing = [b for b in behaviors if not (output_dir / b / f"{LINE_TEST_TABLES[0]}.csv").exists()]
+    missing = [b for b in behaviors if not finished(output_dir, b)]
     if missing:
         print(f"Not run yet (left out): {missing}")
     behaviors, map_order = [b for b in behaviors if b not in missing], [b for b in map_order if b not in missing]

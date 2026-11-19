@@ -1,6 +1,6 @@
 """
 Where the line tests stand, from their results folders: per model variant and behavior, the cells saved, those that
-failed, whether the steps after the cells have run (its tables are saved), whether the merge has it and what is left.
+failed, the steps after the cells saved so far (steps.STEPS), whether the merge has it and what is left.
 "incomplete" is a behavior with work saved but not finished: its job is running or queued, or it stopped and needs
 resubmitting.
     python -m BehaviorScreen test-lines --status [--model best|best-poisson|base]
@@ -14,6 +14,7 @@ from typing import List, Optional
 import pandas as pd
 
 from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
+from BehaviorScreen.screen.line_tests.steps import STEPS, finished, saved
 from BehaviorScreen.screen.paths import LINE_TEST_TABLES, LINE_TESTS, VARIANTS, line_tests_dir
 
 
@@ -35,17 +36,18 @@ def variant_status(variant: str, behaviors: List[str]) -> pd.DataFrame:
     root = line_tests_dir(variant)
     merged_path = root / "tier1_results.csv"
     merged = set(pd.read_csv(merged_path, usecols=["behavior"])["behavior"]) if merged_path.exists() else set()
-    saved = {b: cells(root / "cells" / b) for b in behaviors}
-    expected = contrasts() or max((len(c) for c in saved.values()), default=0)
+    saved_cells = {b: cells(root / "cells" / b) for b in behaviors}
+    expected = contrasts() or max((len(c) for c in saved_cells.values()), default=0)
     rows = []
     for behavior in behaviors:
         tables = [root / behavior / f"{t}.csv" for t in LINE_TEST_TABLES]
-        finished = all(t.exists() for t in tables)
-        failed = [c for c in saved[behavior] if str(c.get("status", "")).startswith("unexpected_error")]
-        in_merge = finished and behavior in merged and merged_path.stat().st_mtime >= max(t.stat().st_mtime for t in tables)
-        next_step = "nothing" if in_merge else "merge" if finished else "incomplete" if saved[behavior] else "submit"
-        rows.append({"behavior": behavior, "cells": f"{len(saved[behavior])}/{expected}", "failed": len(failed),
-                     "after cells": "done" if finished else "-", "merged": "yes" if in_merge else "-", "next": next_step})
+        done = finished(root, behavior)
+        steps = [short for step, short in STEPS.items() if saved(root, behavior, step)]
+        failed = [c for c in saved_cells[behavior] if str(c.get("status", "")).startswith("unexpected_error")]
+        in_merge = done and behavior in merged and merged_path.stat().st_mtime >= max(t.stat().st_mtime for t in tables)
+        next_step = "nothing" if in_merge else "merge" if done else "incomplete" if saved_cells[behavior] else "submit"
+        rows.append({"behavior": behavior, "cells": f"{len(saved_cells[behavior])}/{expected}", "failed": len(failed),
+                     "after cells": "done" if done else "+".join(steps) or "-", "merged": "yes" if in_merge else "-", "next": next_step})
     return pd.DataFrame(rows)
 
 

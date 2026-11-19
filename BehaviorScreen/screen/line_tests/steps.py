@@ -1,0 +1,59 @@
+"""
+The steps of a line-test run after a behavior's cells, each saved as soon as it is done
+(<results folder>/<behavior>/<step>.csv): a resubmitted behavior reuses a step saved after its cells (and after the
+steps it uses), and recomputes it otherwise, as it reuses the cells themselves.
+"""
+from pathlib import Path
+from typing import Callable, Dict, List
+
+import pandas as pd
+
+from BehaviorScreen.screen.paths import LINE_TEST_TABLES
+
+STEPS = {  # in run order: step, short name
+    "tier1_parameters": "estimates",
+    "tier2_results": "tier2",
+    "arm_surface_grids": "grids",
+    "bootstrap_parameter_deltas": "bootstrap",
+}
+USES: Dict[str, List[str]] = {"bootstrap_parameter_deltas": ["tier1_parameters"]}  # steps whose results another step reads
+
+
+def cell_files(output_dir: Path, behavior: str) -> List[Path]:
+    return list((output_dir / "cells" / behavior).glob("*.pkl"))
+
+
+def step_path(output_dir: Path, behavior: str, step: str) -> Path:
+    return output_dir / behavior / f"{step}.csv"
+
+
+def saved(output_dir: Path, behavior: str, step: str) -> bool:
+    """Whether the step's table was saved after the behavior's cells and the steps it uses."""
+    path = step_path(output_dir, behavior, step)
+    inputs = cell_files(output_dir, behavior) + [step_path(output_dir, behavior, s) for s in USES.get(step, [])]
+    return path.exists() and all(p.exists() and path.stat().st_mtime >= p.stat().st_mtime for p in inputs)
+
+
+def finished(output_dir: Path, behavior: str) -> bool:
+    """Whether the steps whose tables are merged are saved (the grids are figures, not needed for the merge)."""
+    return all(saved(output_dir, behavior, step) for step in STEPS if step in LINE_TEST_TABLES)
+
+
+def read_table(path: Path) -> pd.DataFrame:
+    """A saved table; empty if it had no columns (a behavior without hits has no bootstrap rows)."""
+    try:
+        return pd.read_csv(path, dtype={"line": str})
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
+
+
+def run_step(output_dir: Path, behavior: str, step: str, compute: Callable[[], pd.DataFrame]) -> pd.DataFrame:
+    """The step's table: reused if saved (see saved), else computed and saved."""
+    path = step_path(output_dir, behavior, step)
+    if saved(output_dir, behavior, step):
+        print(f"[{behavior}] {step}: saved earlier, reused")
+        return read_table(path)
+    table = compute()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    table.to_csv(path, index=False)
+    return table
