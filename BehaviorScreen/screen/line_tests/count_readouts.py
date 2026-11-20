@@ -149,7 +149,7 @@ def count_test(
     observed = stat(test) - stat(ref)
     return {
         "p_value": float((np.sum(np.abs(null) >= abs(observed)) + 1) / (n_perm + 1)),
-        "p_value_floor": 1.0 / (splits + 1),
+        "p_value_floor": 1.0 / (min(splits, n_perm) + 1),
     }
 
 

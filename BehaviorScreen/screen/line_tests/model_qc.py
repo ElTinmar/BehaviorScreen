@@ -3,6 +3,7 @@ from typing import Callable, List, Optional, Tuple
 
 import numpy as np
 
+from BehaviorScreen.point_process.inference import correlation_from_covariance, covariance_from_hessian
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 
@@ -27,6 +28,7 @@ class GroupFitQC:
     params_near_bound: List[str] = field(default_factory=list)
     hessian_positive_definite: bool = True
     max_abs_param_correlation: float = np.nan
+    hessian: Optional[np.ndarray] = None  # of the architecture's fit, reused for its standard errors
 
     # Hard failures: fit is not trustworthy -- these exclude the cell from
     # the parametric comparison and trigger the Tier-0 fallback.
@@ -125,23 +127,19 @@ def assess_group_fit(
         if _near_bound(val, bound)
     ]
     if qc.params_near_bound:
-        # Boundary-pinning invalidates Wald-style SEs on that parameter
-        # (relevant for Tier 2 parameter inference) but does not by itself
-        # mean the log-likelihood/deviance used by Tier 1 is wrong -- still
-        # treated as a hard flag here since MultiGroupProcess's per-parameter
-        # contrasts downstream would be unreliable for this arm.
+        # Informational: a parameter at a bound has no Wald SE, but the deviance Tier 1 tests is unaffected.
         qc.informational_notes.append(f"params_near_bound: {qc.params_near_bound}")
 
     try:
         # Parameters at a bound have NaN rows: definiteness is checked on the others.
-        hessian = model_arch.estimate_hessian(dataset)
+        qc.hessian = hessian = model_arch.estimate_hessian(dataset)
         interior = np.isfinite(np.diag(hessian))
         eigvals = np.linalg.eigvalsh(hessian[np.ix_(interior, interior)])
         qc.hessian_positive_definite = bool(np.all(eigvals > 1e-8))
         if not qc.hessian_positive_definite:
             qc.informational_notes.append("hessian_not_positive_definite (flat/ridge likelihood)")
 
-        corr = model_arch.estimate_parameter_correlation(dataset)
+        corr = correlation_from_covariance(covariance_from_hessian(hessian))
         off_diag = np.where(np.eye(len(corr), dtype=bool), np.nan, corr)
         if np.isfinite(off_diag).any():
             i, j = np.unravel_index(np.nanargmax(np.abs(off_diag)), off_diag.shape)

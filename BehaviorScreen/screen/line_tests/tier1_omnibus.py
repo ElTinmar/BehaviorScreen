@@ -11,6 +11,7 @@ dimensionality and with no risk of the optimizer fragility seen in the
 originally-attempted joint fits.
 """
 import copy
+import json
 import math
 import pickle
 from functools import partial
@@ -43,6 +44,8 @@ from BehaviorScreen.screen.line_names import line_name
 DEFAULT_MIN_EVENTS = 40
 WEAK_QC_MARGIN_AIC = 5.0  # an arm's ΔAIC over the null below this: a weak margin (bad_fit_triage)
 MIN_BOOT_SUCCESS = 0.3  # share of a parameter's bootstrap draws that must refit to report its interval
+EXTEND_BELOW = 5  # permutations reaching the observed deviance, below which a cell not yet significant is permuted further
+MAX_FAILED_PERMUTATIONS = 0.05  # share of failed permutation refits flagged in bad_fit_triage
 MIN_EVENTS_BY_BEHAVIOR: Dict[str, int] = {
     "looming": 15, "dark_flash": 15,
 }
@@ -80,7 +83,7 @@ def tier1_permutation_test(
     process_factory: Callable[[], PointProcess],
     ds_ref: PointProcessDataset, ds_test: PointProcessDataset,
     observed_deviance: Optional[float] = None,
-    *, n_perm: int, seed: int = 0, n_jobs: int = -1,
+    *, n_perm: int, first: int = 0, seed: int = 0, n_jobs: int = -1,
     pooled_log_likelihood: Optional[float] = None,
     strata: Optional[np.ndarray] = None,
 ) -> Dict:
@@ -90,6 +93,8 @@ def tier1_permutation_test(
     (the same fish), so it is fitted once, or taken from the caller.
     strata: per fish (reference then test), e.g. its recording day: fish are
     shuffled within their stratum only, each keeping its arm sizes.
+    first: permutations [first, first + n_perm) of the seed's sequence, to extend an earlier run of `first`.
+    p_value_floor: the smallest p this run can give, set by the distinct splits or the permutations.
     """
     pooled = PointProcessDataset.concat(ds_ref, ds_test)
     if pooled_log_likelihood is None:
@@ -106,7 +111,7 @@ def tier1_permutation_test(
     n_ref = ds_ref.num_fish
     strata = np.zeros(pooled.num_fish, dtype=int) if strata is None else pd.factorize(strata)[0]
     n_distinct = math.prod(math.comb(int(np.sum(strata == s)), int(np.sum(strata[:n_ref] == s))) for s in np.unique(strata))
-    seeds = np.random.SeedSequence(seed).spawn(n_perm)
+    seeds = np.random.SeedSequence(seed).spawn(first + n_perm)[first:]
 
     def _one(s: np.random.SeedSequence) -> float | str:
         perm = permute_within(strata, np.random.default_rng(s))
@@ -118,19 +123,17 @@ def tier1_permutation_test(
     results = parallel_map(_one, seeds, n_jobs=n_jobs, desc="Permutation")
     report_failures("permutation", [r for r in results if isinstance(r, str)], n_perm)
     null_dist = np.array([v for v in results if not isinstance(v, str)])
-    n_failed = n_perm - len(null_dist)
+    exceeding = int(np.sum(null_dist >= observed_deviance))
+    unreliable = len(null_dist) < max(20, 0.3 * n_perm)
+    return {"observed_deviance": observed_deviance, "p_value": np.nan if unreliable else (exceeding + 1) / (len(null_dist) + 1),
+            "n_perm_success": len(null_dist), "n_perm_failed": n_perm - len(null_dist), "n_perm_exceeding": exceeding,
+            "n_distinct_permutations": n_distinct, "p_value_floor": 1.0 / (min(n_distinct, len(null_dist)) + 1),
+            "permutation_unreliable": unreliable}
 
-    if len(null_dist) < max(20, 0.3 * n_perm):
-        return {"observed_deviance": observed_deviance, "p_value": np.nan,
-                "n_perm_success": len(null_dist), "n_perm_failed": n_failed,
-                "n_distinct_permutations": n_distinct, "p_value_floor": 1.0 / (n_distinct + 1),
-                "permutation_unreliable": True}
 
-    p = (np.sum(null_dist >= observed_deviance) + 1) / (len(null_dist) + 1)
-    return {"observed_deviance": observed_deviance, "p_value": float(p),
-            "n_perm_success": len(null_dist), "n_perm_failed": n_failed,
-            "n_distinct_permutations": n_distinct, "p_value_floor": 1.0 / (n_distinct + 1),
-            "permutation_unreliable": False}
+def permutation_strata(contrast: Contrast, ds_ref: PointProcessDataset, ds_test: PointProcessDataset) -> Optional[np.ndarray]:
+    """The recording day of each fish (reference then test) of an NTR contrast, shuffled within day; None otherwise."""
+    return recording_days(np.concatenate([ds_ref.fish_ids, ds_test.fish_ids])) if contrast.family == "ntr" else None
 
 
 def tier1_simulated_test(
@@ -267,12 +270,11 @@ def _tier1_one(
         return {"line": line, "behavior": behavior, "status": f"fit_failed: {type(e).__name__}: {e}",
                 "p_value": np.nan}
 
-    days = recording_days(np.concatenate([ds_ref.fish_ids, ds_test.fish_ids])) if contrast.family == "ntr" else None
     perm = tier1_permutation_test(arms.process_factory(line, behavior), ds_ref, ds_test,
                                    observed_deviance=observed_deviance, n_perm=n_perm,
-                                   pooled_log_likelihood=m_pooled.log_likelihood, strata=days)
+                                   pooled_log_likelihood=m_pooled.log_likelihood, strata=permutation_strata(contrast, ds_ref, ds_test))
     eff = tier1_effect_size(m_ref, ds_ref, m_test, ds_test)
-    estimates = {"reference": arm_estimates(m_ref, ds_ref), "test": arm_estimates(m_test, ds_test)}
+    estimates = {"reference": arm_estimates(m_ref, qc_ref.hessian), "test": arm_estimates(m_test, qc_test.hessian)}
     if structure is not None and contrast.family == "ntr":
         perm |= tier1_simulated_test(arms.process_factory(line, behavior), m_pooled, ds_ref, ds_test, observed_deviance, structure, n_sim)
 
@@ -294,6 +296,65 @@ def _tier1_one(
         **perm, **eff, "arm_estimates": estimates,
     }
 
+def fish_ids(*datasets: Optional[PointProcessDataset]) -> List[List[str]]:
+    return [[] if ds is None else sorted(map(str, ds.fish_ids)) for ds in datasets]
+
+
+def same_fish(record: Dict, ds_ref: Optional[PointProcessDataset], ds_test: Optional[PointProcessDataset]) -> bool:
+    """Whether a saved cell was run on the arms' current fish: their ids, or their numbers for a cell saved without them."""
+    fish = fish_ids(ds_ref, ds_test)
+    if "fish_ids" in record:
+        return record["fish_ids"] == fish
+    return [record.get("n_fish_ref"), record.get("n_fish_test")] == [len(f) for f in fish]
+
+
+def cell_path(store: Path, line: str, behavior: str) -> Path:
+    return store / behavior / f"{slugify(line)}.pkl"
+
+
+def save_cell(store: Path, record: Dict) -> None:
+    path = cell_path(store, record["line"], record["behavior"])
+    with open(path.with_suffix(".tmp"), "wb") as f:
+        pickle.dump(record, f)
+    path.with_suffix(".tmp").replace(path)  # whole or absent, even when the job is stopped while writing
+
+
+def refuse_other_settings(folder: Path, key: Dict) -> None:
+    """Stops when the cells in folder were run with another n_perm or n_sim (a changed model or control fit replaces them)."""
+    settings = lambda k: {"n_perm": k["n_perm"], "n_sim": k["structure"][-1] if k["structure"] else 0}
+    path = folder / "key.json"
+    if path.exists() and (saved := settings(json.loads(path.read_text()))) != settings(key):
+        raise SystemExit(f"{folder}: its cells were run with {saved}, not {settings(key)}. Delete the folder to rerun them.")
+
+
+def extend_permutations(tier1_df: pd.DataFrame, arms: Arms, n_perm_max: int, store: Optional[Path] = None) -> pd.DataFrame:
+    """
+    The 'ok' cells not significant (add_fdr_per_behavior) whose observed deviance fewer than EXTEND_BELOW
+    permutations reached, so that the permutations rather than the fish limit their p: permuted further, up to
+    n_perm_max in all, continuing the same sequence of permutations, and saved with the cell. FDR is then to redo.
+    """
+    df = tier1_df.copy()
+    run = df["n_perm_success"] + df["n_perm_failed"]
+    estimated = (df["p_value"] * (df["n_perm_success"] + 1) - 1).round()  # cells saved without the count
+    exceeding = df["n_perm_exceeding"].fillna(estimated) if "n_perm_exceeding" in df else estimated
+    todo = (df["status"] == "ok") & ~df["significant"] & (exceeding < EXTEND_BELOW) & (run < n_perm_max) & (df["n_distinct_permutations"] > run)
+    for i in tqdm(df.index[todo], desc=f"Extending to {n_perm_max} permutations", unit="cell"):
+        row, contrast = df.loc[i], arms.contrasts[df.loc[i, "line"]]
+        ds_ref, ds_test = arms.datasets(row["line"], row["behavior"])
+        more = tier1_permutation_test(arms.process_factory(row["line"], row["behavior"]), ds_ref, ds_test, row["observed_deviance"],
+                                      n_perm=n_perm_max - int(run[i]), first=int(run[i]), strata=permutation_strata(contrast, ds_ref, ds_test))
+        if more["permutation_unreliable"]:
+            continue
+        success, k = int(row["n_perm_success"]) + more["n_perm_success"], int(exceeding[i]) + more["n_perm_exceeding"]
+        update = {"p_value": (k + 1) / (success + 1), "n_perm_success": success, "n_perm_exceeding": k,
+                  "n_perm_failed": int(row["n_perm_failed"]) + more["n_perm_failed"]}
+        for column, value in update.items():
+            df.loc[i, column] = value
+        if store is not None:
+            save_cell(store, {**pickle.loads(cell_path(store, row["line"], row["behavior"]).read_bytes()), **update})
+    return df
+
+
 def run_tier1_screen(
     arms: Arms, behaviors, null_process_factories,
     n_perm: int, n_sim: int, show_progress: bool = True, store: Optional[Path] = None,
@@ -304,7 +365,8 @@ def run_tier1_screen(
     structures: per behavior, the dependence between fish of a day and of a plate; NTR contrasts then
     also get p_value_plate, from n_sim datasets simulated with it (tier1_simulated_test).
     store: each row saved there as soon as it is done (store/<behavior>/), and
-    reused while the behavior's model, control fit and n_perm are the same.
+    reused while the behavior's model and control fit are the same, and the cell's fish (same_fish). Saved with
+    other n_perm or n_sim, they are kept and the run refuses: delete them to rerun.
     """
     jobs = [(name, behavior) for name in arms.contrasts for behavior in behaviors]
     done = {}
@@ -313,7 +375,11 @@ def run_tier1_screen(
         key = {"model": architecture.template.name, "fixed": architecture.fixed, "n_perm": n_perm, "pinning": "control without the contrast's arms",
                "permutation": "NTR arms: days recorded in both, fish shuffled within day",
                "structure": None if not structures else [structures[behavior].line, structures[behavior].day, structures[behavior].plate, n_sim]}
-        done.update({(r["line"], behavior): r for r in load_replicates(store / behavior, key).values()})
+        refuse_other_settings(store / behavior, key)
+        saved = {(r["line"], behavior): r for r in load_replicates(store / behavior, key).values()}
+        done.update({job: r for job, r in saved.items() if same_fish(r, *arms.datasets(*job))})
+        if changed := len(saved) - len(done):
+            print(f"[{behavior}] {changed} saved cells recomputed: their fish changed")
     todo = [job for job in jobs if job not in done]
     cell_iter = tqdm(todo, desc="Tier 1 cells", position=0, unit="cell") if show_progress else todo
     for name, behavior in cell_iter:
@@ -324,14 +390,11 @@ def run_tier1_screen(
             record = {"line": name, "behavior": behavior,
                       "status": f"unexpected_error: {type(e).__name__}: {e}", "p_value": np.nan}
         c = arms.contrasts[name]
-        n_fish = [0 if ds is None else ds.num_fish for ds in arms.datasets(name, behavior)]
+        fish = fish_ids(*arms.datasets(name, behavior))
         done[name, behavior] = {"family": c.family, "reference": "/".join(c.reference), "test": "/".join(c.test),
-                                **record, "n_fish_ref": n_fish[0], "n_fish_test": n_fish[1]}
+                                **record, "n_fish_ref": len(fish[0]), "n_fish_test": len(fish[1]), "fish_ids": fish}
         if store is not None:
-            path = store / behavior / f"{slugify(name)}.pkl"
-            with open(path.with_suffix(".tmp"), "wb") as f:
-                pickle.dump(done[name, behavior], f)
-            path.with_suffix(".tmp").replace(path)  # whole or absent, even when the job is stopped while writing
+            save_cell(store, done[name, behavior])
 
     return pd.DataFrame([done[job] for job in jobs])
 
@@ -358,22 +421,22 @@ def compute_parameter_deltas(param_df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def _standard_errors(model: PointProcess, dataset: PointProcessDataset) -> Dict[str, float]:
-    """From the inverse Hessian; NaN for parameters at a bound or a singular Hessian."""
-    try:
-        hessian = model.estimate_hessian(dataset)
+def standard_errors(model: PointProcess, hessian: Optional[np.ndarray]) -> Dict[str, float]:
+    """From the inverse of the fit's Hessian; NaN for parameters at a bound, and for all if it is singular or missing."""
+    se = np.full(len(model.param_names), np.nan)
+    if hessian is not None:
         interior = np.isfinite(np.diag(hessian))
-        cov = np.linalg.inv(hessian[np.ix_(interior, interior)])
-        se = np.full(len(model.param_names), np.nan)
-        se[interior] = np.sqrt(np.where(np.diag(cov) > 0, np.diag(cov), np.nan))
-    except (np.linalg.LinAlgError, ValueError):
-        se = np.full(len(model.param_names), np.nan)
+        try:
+            cov = np.linalg.inv(hessian[np.ix_(interior, interior)])
+            se[interior] = np.sqrt(np.where(np.diag(cov) > 0, np.diag(cov), np.nan))
+        except np.linalg.LinAlgError:
+            pass
     return dict(zip(model.param_names, se))
 
 
-def arm_estimates(model: PointProcess, dataset: PointProcessDataset) -> Dict[str, Dict[str, float]]:
+def arm_estimates(model: PointProcess, hessian: Optional[np.ndarray]) -> Dict[str, Dict[str, float]]:
     """An arm's fitted parameters and their standard errors, saved with its cell (extract_fitted_parameters)."""
-    return {"value": dict(model.param_dict_), "se": _standard_errors(model, dataset)}
+    return {"value": dict(model.param_dict_), "se": standard_errors(model, hessian)}
 
 
 def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFrame:
@@ -386,7 +449,8 @@ def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFram
     def standard_errors(arm: Tuple[str, str], behavior: str, exclude: frozenset) -> Dict[str, float]:
         key = (*arm, behavior, exclude)
         if key not in errors:
-            errors[key] = _standard_errors(arms.model(*key), arms.dataset(*arm, behavior))
+            model = arms.model(*key)
+            errors[key] = standard_errors(model, model.estimate_hessian(arms.dataset(*arm, behavior)))
         return errors[key]
 
     for _, row in tier1_df[tier1_df["status"] == "ok"].iterrows():
@@ -425,13 +489,17 @@ MAP_COLORS = LinearSegmentedColormap.from_list("blue_grey_red", ["#2166ac", "#d9
 MISSING = "#9e9e9e"
 
 
-def add_testability(tier1_df: pd.DataFrame) -> pd.DataFrame:
+def add_testability(tier1_df: pd.DataFrame, n_perm_max: Optional[int] = None) -> pd.DataFrame:
     """
     'testable': the cell could reach q < ALPHA. Its best possible q is its
-    design floor (1 / number of distinct fish splits) times the number of
-    tests in its FDR family (family x behavior), whatever the permutations.
+    floor ('p_value_floor') times the number of tests in its FDR family
+    (family x behavior). n_perm_max: the most permutations a cell gets
+    (extend_permutations); the floor is then 1 / (that or its number of
+    distinct fish splits, whichever is smaller, + 1).
     """
     df = tier1_df.copy()
+    if n_perm_max is not None:
+        df["p_value_floor"] = 1.0 / (np.minimum(df["n_distinct_permutations"], n_perm_max) + 1)
     keys = ["family", "behavior"] if "family" in df.columns else ["behavior"]
     n_tests = df.groupby(keys)["p_value"].transform("count")
     df["testable"] = (df["p_value_floor"] * n_tests < ALPHA).fillna(False)
@@ -751,11 +819,15 @@ def build_bad_fit_triage(tier1_df: pd.DataFrame) -> pd.DataFrame:
 
     is_ok = df["cause"] == "ok"
 
-    at_floor = is_ok & (df["p_value"] <= df["p_value_floor"] * 1.5)
+    run_floor = 1.0 / (np.minimum(df["n_distinct_permutations"], df["n_perm_success"]) + 1)  # of the permutations run
+    at_floor = is_ok & (df["p_value"] <= run_floor * 1.5)
     df.loc[at_floor, "cause"] = "p_value_near_floor"
 
     unreliable = is_ok & df["permutation_unreliable"].fillna(False)
     df.loc[unreliable, "cause"] = "permutation_unreliable"
+
+    failed = is_ok & (df["n_perm_failed"] > MAX_FAILED_PERMUTATIONS * (df["n_perm_success"] + df["n_perm_failed"]))
+    df.loc[failed, "cause"] = "permutations_failed"
 
     no_signal_arm = is_ok & (
         (df["qc_verdict_reference"] == "reliable_no_signal") |
@@ -816,6 +888,7 @@ def plot_volcano(
         "significant": dict(color="crimson", marker="o", alpha=0.85, label="significant"),
         "p_value_near_floor": dict(color="darkorange", marker="^", alpha=0.85, label="p near permutation floor"),
         "permutation_unreliable": dict(color="gray", marker="x", alpha=0.7, label="permutation unreliable"),
+        "permutations_failed": dict(color="dimgray", marker="v", alpha=0.7, label=f"> {MAX_FAILED_PERMUTATIONS:.0%} permutations failed"),
         "one_arm_no_signal": dict(color="purple", marker="s", alpha=0.7, label="one arm no signal vs null"),
         "weak_qc_margin": dict(color="goldenrod", marker="D", alpha=0.6, label=f"weak QC margin (ΔAIC<{WEAK_QC_MARGIN_AIC:g})"),
         "response_abolished": dict(color="black", marker="*", alpha=0.9, label="response abolished (Fisher test)"),

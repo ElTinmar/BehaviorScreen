@@ -5,7 +5,7 @@ import numpy as np
 
 from BehaviorScreen.screen.line_tests.dataset_utils import Arms, mutant_contrast, ntr_contrast, recording_days
 from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
-from BehaviorScreen.screen.line_tests.tier1_omnibus import permute_within, tier1_permutation_test
+from BehaviorScreen.screen.line_tests.tier1_omnibus import permute_within, same_fish, tier1_permutation_test
 from BehaviorScreen.screen.control_models.model_config import gamma, poisson
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.poisson_process import RateKernelFactory
@@ -63,3 +63,22 @@ def test_permutation_test_counts_the_splits_within_days() -> None:
     result = tier1_permutation_test(architecture, reference, test, n_perm=30, n_jobs=1, strata=days)
     assert result["n_distinct_permutations"] == 10 * 10  # C(5, 2) x C(5, 3)
     assert 0 < result["p_value"] <= 1
+    assert result["p_value_floor"] == 1 / (30 + 1)  # fewer permutations than splits: they set the floor
+
+
+def test_extended_permutations_continue_the_same_sequence() -> None:
+    arms, architecture = simulated_screen()
+    reference, test = arms.datasets("L1", "spont")
+    run = lambda n, first=0: tier1_permutation_test(architecture, reference, test, 0.5, n_perm=n, first=first, n_jobs=1)
+    whole, start, rest = run(40), run(20), run(20, first=20)
+    assert whole["n_perm_exceeding"] == start["n_perm_exceeding"] + rest["n_perm_exceeding"]
+
+
+def test_saved_cells_are_kept_only_for_the_same_fish() -> None:
+    arms, _ = simulated_screen()
+    reference, test = arms.datasets("L1", "spont")
+    ids = [sorted(map(str, ds.fish_ids)) for ds in (reference, test)]
+    assert same_fish({"fish_ids": ids}, reference, test)
+    assert not same_fish({"fish_ids": [ids[0][1:], ids[1]]}, reference, test)
+    assert same_fish({"n_fish_ref": 4, "n_fish_test": 6}, reference, test)  # saved without ids: their numbers
+    assert not same_fish({"n_fish_ref": 5, "n_fish_test": 6}, reference, test)

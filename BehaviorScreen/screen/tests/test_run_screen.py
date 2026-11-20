@@ -28,7 +28,7 @@ def test_behavior_runs_and_combines(kept: float, tmp_path: Path, monkeypatch: py
     monkeypatch.setattr(run_screen, "run_tier2_screen", lambda *args, **kwargs: tier2(*args, **{**kwargs, "n_boot": 20}))
     monkeypatch.setattr(run_screen, "bootstrap_parameter_deltas", lambda *args, n_boot: pd.DataFrame())
 
-    run_screen.run_behavior("spont", arms, {"spont": Fresh(poisson(flat()))}, tmp_path, n_perm=99, n_sim=30)
+    run_screen.run_behavior("spont", arms, {"spont": Fresh(poisson(flat()))}, tmp_path, n_perm=99, n_sim=30, n_perm_max=150)
     run_screen.combine(["spont"], arms, ["spont"], tmp_path)
 
     tier1 = pd.read_csv(tmp_path / "tier1_results.csv")
@@ -38,3 +38,8 @@ def test_behavior_runs_and_combines(kept: float, tmp_path: Path, monkeypatch: py
     assert (tmp_path / "tier1_map.png").exists() and (tmp_path / "spont" / "gain_structure.json").exists()
     cell = pd.read_pickle(next((tmp_path / "cells" / "spont").glob("*.pkl")))  # each arm's estimates kept with the cell
     assert set(cell["arm_estimates"]) == {"reference", "test"} and "arm_estimates" not in tier1.columns
+    run = tier1["n_perm_success"] + tier1["n_perm_failed"]  # a cell few permutations reached unless significant: extended
+    assert ((tier1["significant"] | (tier1["n_perm_exceeding"] >= 5)) == (run == 99)).all() and set(run) <= {99, 150}
+    with pytest.raises(SystemExit, match="Delete the folder"):  # cells run with other settings: kept, the run refuses
+        run_screen.run_behavior("spont", arms, {"spont": Fresh(poisson(flat()))}, tmp_path, n_perm=50, n_sim=30, n_perm_max=150)
+    assert len(list((tmp_path / "cells" / "spont").glob("*.pkl"))) == 3

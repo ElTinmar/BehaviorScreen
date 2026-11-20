@@ -31,6 +31,7 @@ from BehaviorScreen.screen.line_tests.tier1_omnibus import (
     plot_tier1_map,
     map_rows,
     add_testability,
+    extend_permutations,
     generate_arm_surface_grids,
     build_bad_fit_triage,
     plot_volcano,
@@ -49,6 +50,7 @@ from BehaviorScreen.screen.line_tests.tier2_interaction import plot_tier2_map, r
 from BehaviorScreen.screen.paths import CONTROL_FITS, LINE_TEST_TABLES, VARIANTS, add_data_root, data_root, line_tests_dir
 
 N_PERM = 1000  # permutations per Tier 1 cell
+N_PERM_MAX = 10_000  # for a cell not significant whose deviance few of them reached (extend_permutations)
 N_SIM = 1000  # simulated datasets per NTR cell (p_value_plate)
 N_BOOT_TIER2 = 200  # parametric bootstrap of each hit's interaction test
 N_BOOT_DELTAS = 1000  # fish bootstrap of each hit's parameter deltas
@@ -107,22 +109,23 @@ def gain_structure(behavior: str, arms: Arms, out: Path) -> GainStructure:
     return structure
 
 
-def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output_dir: Path, n_perm: int, n_sim: int) -> None:
+def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output_dir: Path, n_perm: int, n_sim: int, n_perm_max: int) -> None:
     """
     Everything done per behavior, into output_dir / behavior, the steps after the cells saved as they are done (steps).
-    n_sim: datasets of each NTR cell's simulated null (0: none).
+    n_sim: datasets of each NTR cell's simulated null (0: none). n_perm_max: permutations of a cell extended (extend_permutations).
     """
     out = output_dir / behavior
     smoke_test(arms, behavior)
     structures = {behavior: gain_structure(behavior, arms, out)} if n_sim else None
     tier1_df = run_tier1_screen(arms, behaviors=[behavior], null_process_factories=null_process_factories, n_perm=n_perm,
                                 store=output_dir / "cells", structures=structures, n_sim=n_sim)
-    tier1_df = add_testability(add_fdr_per_behavior(tier1_df))
+    tier1_df = extend_permutations(add_fdr_per_behavior(tier1_df), arms, n_perm_max, store=output_dir / "cells")
+    tier1_df = add_testability(add_fdr_per_behavior(tier1_df), n_perm_max)
     if "p_value_plate" in tier1_df:
         tier1_df = add_fdr_per_behavior(tier1_df, pval_col="p_value_plate", prefix="plate_")
     print(tier1_df["status"].value_counts())
     out.mkdir(parents=True, exist_ok=True)
-    tier1_df.drop(columns="arm_estimates", errors="ignore").to_csv(out / f"{LINE_TEST_TABLES[0]}.csv", index=False)
+    tier1_df.drop(columns=["arm_estimates", "fish_ids"], errors="ignore").to_csv(out / f"{LINE_TEST_TABLES[0]}.csv", index=False)
     step = lambda name, compute: run_step(output_dir, behavior, name, compute)
     param_df = step("tier1_parameters", lambda: compute_parameter_deltas(extract_fitted_parameters(tier1_df, arms)))
     # Tier 2: is a hit's drug effect different from the drug's effect on WT?
@@ -178,6 +181,7 @@ def main() -> None:
     parser.add_argument("--model", choices=VARIANTS, default="best", help="Model of each behavior (paths.VARIANTS).")
     parser.add_argument("--output-dir", type=Path, help="Results (default: line_tests/<variant>).")
     parser.add_argument("--n-perm", type=int, default=N_PERM, help="Permutations per Tier 1 cell.")
+    parser.add_argument("--n-perm-max", type=int, default=N_PERM_MAX, help="Permutations a cell near the floor is extended to.")
     parser.add_argument("--n-sim", type=int, default=N_SIM, help="Simulated datasets per NTR cell for p_value_plate (0: none).")
     parser.add_argument("--n-jobs", type=int, help="Worker processes (default: one per allowed core).")
     args = parser.parse_args()
@@ -194,7 +198,7 @@ def main() -> None:
     args.output_dir.mkdir(parents=True, exist_ok=True)
     if not args.combine:
         for behavior in [args.behavior] if args.behavior else screen.behaviors:
-            run_behavior(behavior, screen.arms, screen.null_process_factory, args.output_dir, args.n_perm, args.n_sim)
+            run_behavior(behavior, screen.arms, screen.null_process_factory, args.output_dir, args.n_perm, args.n_sim, args.n_perm_max)
     if args.combine or args.behavior is None:
         combine(screen.behaviors, screen.arms, screen.map_order, args.output_dir)
     print(f"\nDone. Inspect {args.output_dir}: tier1_results.csv, the p-value histograms and the negative controls.")
