@@ -24,6 +24,16 @@ def benjamini_hochberg(pvals: np.ndarray) -> np.ndarray:
     return q
 
 
+def holm(pvals: np.ndarray) -> np.ndarray:
+    """Holm step-down adjusted p-values. NaNs pass through as NaN, excluded from the family."""
+    pvals = np.asarray(pvals, dtype=float)
+    adjusted = np.full(len(pvals), np.nan)
+    valid = np.flatnonzero(~np.isnan(pvals))
+    order = valid[np.argsort(pvals[valid])]
+    adjusted[order] = np.minimum(1.0, np.maximum.accumulate(pvals[order] * np.arange(len(order), 0, -1)))
+    return adjusted
+
+
 def add_fdr(df: pd.DataFrame, pval_col: str = "p_value", prefix: str = "") -> pd.DataFrame:
     df = df.copy()
     if pval_col not in df.columns:

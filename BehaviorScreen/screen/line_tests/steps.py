@@ -15,6 +15,7 @@ from BehaviorScreen.screen.paths import LINE_TEST_TABLES
 STEPS = {  # in run order: step, short name
     "tier1_parameters": "estimates",
     "tier2_results": "tier2",
+    "parameter_tests": "posthoc",
     "arm_surface_grids": "grids",
     "bootstrap_parameter_deltas": "bootstrap",
 }

@@ -7,7 +7,7 @@ without its own arms (Arms.architecture). Contrasts: drug against vehicle within
 line, and each straight mutant against its wild-type background. The
 configuration lives in screen_setup.
 
---behavior runs one behavior (its cells, FDR, Tier 2, bootstraps and checks) into
+--behavior runs one behavior (its cells, FDR, Tier 2, parameter tests, bootstraps and checks) into
 <output>/<behavior>/, each cell saved as it is done; --combine merges those into the
 screen's tables and maps. Without either, every behavior and then the combination.
 """
@@ -44,6 +44,7 @@ from BehaviorScreen.screen.line_tests.dataset_utils import Arms
 from BehaviorScreen.screen.line_tests.screen_setup import load_screen
 from BehaviorScreen.screen.line_tests.steps import finished, read_table, run_step
 from BehaviorScreen.screen.line_tests.gain_structure import GainStructure, calibrate, fish_groups
+from BehaviorScreen.screen.line_tests.parameter_tests import run_parameter_tests
 # Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.screen.line_tests.count_readouts
 from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
 from BehaviorScreen.screen.line_tests.tier2_interaction import plot_tier2_map, run_tier2_screen
@@ -53,6 +54,7 @@ N_PERM = 1000  # permutations per Tier 1 cell
 N_PERM_MAX = 10_000  # for a cell not significant whose deviance few of them reached (extend_permutations)
 N_SIM = 1000  # simulated datasets per NTR cell (p_value_plate)
 N_BOOT_TIER2 = 200  # parametric bootstrap of each hit's interaction test
+N_BOOT_PARAMETERS = 200  # parametric bootstrap of each of a hit's parameter tests
 N_BOOT_DELTAS = 1000  # fish bootstrap of each hit's parameter deltas
 NEGATIVE_CONTROL_SPLITS, NEGATIVE_CONTROL_PERM = 20, 200  # random halves of the WT fish, permutations of each
 
@@ -130,6 +132,8 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
     param_df = step("tier1_parameters", lambda: compute_parameter_deltas(extract_fitted_parameters(tier1_df)))
     # Tier 2: is a hit's drug effect different from the drug's effect on WT?
     step("tier2_results", lambda: add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, n_boot=N_BOOT_TIER2, reference="WT")))
+    # Post hoc: which of a hit's amplitudes differ between its arms?
+    step("parameter_tests", lambda: run_parameter_tests(tier1_df, arms, N_BOOT_PARAMETERS, (structures or {}).get(behavior)))
     step("arm_surface_grids", lambda: generate_arm_surface_grids(tier1_df, arms, output_dir=output_dir / "arm_surface_grids"))
     boot_delta_df = step("bootstrap_parameter_deltas", lambda: bootstrap_parameter_deltas(tier1_df, param_df, arms, n_boot=N_BOOT_DELTAS))
 
