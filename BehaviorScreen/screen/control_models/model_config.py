@@ -6,16 +6,10 @@ from megabouts.utils import bouts_category_name_short
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, Laterality, Stim
 from BehaviorScreen.filters import FILTERS
 from BehaviorScreen.point_process.frailty import (
-    BaselineOnlyFrailtyHawkesProcess,
     GammaMixedEffectsProcess,
     SideFrailty,
     ZeroInflatedFamily,
-    ZeroInflatedBaselineOnlyFrailtyHawkesProcess,
     ZeroInflatedGammaMixedEffectsProcess,
-)
-from BehaviorScreen.point_process.hawkes_process import (
-    HawkesProcess,
-    HistoryKernelFactory,
 )
 from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.point_process.point_process import PointProcess
@@ -128,10 +122,6 @@ def stimulus_burst(shape_k: float = 1.0) -> RenewalKernel:
     trial gains. k = 1 (an alpha function) from the profile of k on prey_capture controls.
     """
     return RenewalKernelFactory.burst_excitation(shape_k, rate_init=2.0, relative=True)
-
-
-def hawkes(kernel: RateKernel) -> HawkesProcess:
-    return HawkesProcess(kernel, HistoryKernelFactory.exponential())
 
 
 def prey(variant: str) -> RateKernel:
@@ -307,12 +297,6 @@ def get_model_config() -> Dict[str, dict]:
                 gamma(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple")), fit_c=True),
-                # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-                    # hawkes(prey("Peak_Baseline_Ripple"))
-                # ),
-                # hawkes(prey("Peak_Baseline_Ripple")),
-                # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
-                # renewal(prey("Peak_Baseline_Ripple")),
                 gamma(poisson(prey("Peak_Baseline_Ripple")), trial_gain=True),
                 gamma(refractory_renewal(prey("Peak_Baseline_Ripple"))),
                 gamma(refractory_renewal(prey("Peak_Baseline_Ripple")), trial_gain=True),
@@ -326,10 +310,7 @@ def get_model_config() -> Dict[str, dict]:
             [
                 poisson(flat()),
                 gamma(poisson(flat())),
-                # hawkes(flat()),
-                # BaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
                 zero_inflated(poisson(flat())),
-                # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(hawkes(flat())),
                 gamma(poisson(flat()), trial_gain=True),
                 gamma(refractory_renewal(flat())),
                 gamma(refractory_renewal(flat()), trial_gain=True),
@@ -357,13 +338,6 @@ def get_model_config() -> Dict[str, dict]:
                 gamma(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple")), fit_c=True),
-                # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-                    # hawkes(prey("Peak_Baseline_Ripple"))
-                # ),
-                # hawkes(prey("Peak_Baseline_Ripple")),
-                # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
-                # renewal(prey("Peak_Baseline_Ripple")),
-                # gamma(renewal(prey("Peak_Baseline_Ripple"))),
                 poisson(decay()),
                 gamma(poisson(decay())),
                 gamma(poisson(prey("Peak_Baseline_Ripple")), time_of_day=True),
@@ -392,13 +366,6 @@ def get_model_config() -> Dict[str, dict]:
                 gamma(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple"))),
                 zero_inflated(poisson(prey("Peak_Baseline_Ripple")), fit_c=True),
-                # ZeroInflatedBaselineOnlyFrailtyHawkesProcess(
-                    # hawkes(prey("Peak_Baseline_Ripple"))
-                # ),
-                # hawkes(prey("Peak_Baseline_Ripple")),
-                # BaselineOnlyFrailtyHawkesProcess(hawkes(prey("Peak_Baseline_Ripple"))),
-                # renewal(prey("Peak_Baseline_Ripple")),
-                # gamma(renewal(prey("Peak_Baseline_Ripple"))),
                 poisson(decay()),
                 gamma(poisson(decay())),
                 gamma(poisson(prey("Baseline_Ripple")), time_of_day=True),
@@ -521,8 +488,6 @@ def get_model_config() -> Dict[str, dict]:
                 poisson(flat()),
                 gamma(poisson(flat())),
                 zero_inflated(poisson(flat())),
-                # hawkes(flat()),
-                # zero_inflated(renewal(flat())),
             ],
             events="saccades",
         ),
@@ -532,8 +497,6 @@ def get_model_config() -> Dict[str, dict]:
                 poisson(flat()),
                 gamma(poisson(flat())),
                 zero_inflated(poisson(flat())),
-                # hawkes(flat()),
-                # zero_inflated(renewal(flat())),
             ],
             events="saccades",
         ),

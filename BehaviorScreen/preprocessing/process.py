@@ -175,12 +175,3 @@ def compute_angle_between_vectors(v1: np.ndarray, v2: np.ndarray) -> np.ndarray:
     return np.arctan2(sin_angle, cos_angle)
 
 
-def get_target_time(trial_duration: float, target_fps: float) -> np.ndarray:
-    num_points = int(target_fps * trial_duration)
-    return np.linspace(0, trial_duration, num_points, endpoint=False)
-
-
-def interpolate_ts(
-    target_time: np.ndarray, time: np.ndarray, values: np.ndarray
-) -> np.ndarray:
-    return np.interp(target_time, time, values)

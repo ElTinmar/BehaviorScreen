@@ -37,7 +37,7 @@ from BehaviorScreen.screen.line_tests.tier1_omnibus import (
     bootstrap_parameter_deltas,
     plot_parameter_forest
 )
-from BehaviorScreen.screen.line_tests.fdr import add_fdr_per_behavior
+from BehaviorScreen.screen.line_tests.fdr import ALPHA, add_fdr_per_behavior
 from BehaviorScreen.screen.line_tests.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.screen.line_tests.dataset_utils import Arms
 from BehaviorScreen.screen.line_tests.screen_setup import load_screen
@@ -47,6 +47,12 @@ from BehaviorScreen.screen.line_tests.gain_structure import GainStructure, calib
 from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
 from BehaviorScreen.screen.line_tests.tier2_interaction import plot_tier2_map, run_tier2_screen
 from BehaviorScreen.screen.paths import CONTROL_FITS, LINE_TEST_TABLES, VARIANTS, add_data_root, data_root, line_tests_dir
+
+N_PERM = 1000  # permutations per Tier 1 cell
+N_SIM = 1000  # simulated datasets per NTR cell (p_value_plate)
+N_BOOT_TIER2 = 200  # parametric bootstrap of each hit's interaction test
+N_BOOT_DELTAS = 1000  # fish bootstrap of each hit's parameter deltas
+NEGATIVE_CONTROL_SPLITS, NEGATIVE_CONTROL_PERM = 20, 200  # random halves of the WT fish, permutations of each
 
 
 def smoke_test(arms: Arms, behavior: str) -> None:
@@ -67,11 +73,11 @@ def negative_control(arms: Arms, behavior: str, out: Path) -> None:
     if ds_wt is None or ds_wt.num_fish < 10:
         return
     null_ps = []
-    for seed in tqdm(range(20), desc=f"Negative control {behavior}"):
+    for seed in tqdm(range(NEGATIVE_CONTROL_SPLITS), desc=f"Negative control {behavior}"):
         perm = np.random.default_rng(seed).permutation(ds_wt.num_fish)
         half = ds_wt.num_fish // 2
         try:
-            result = tier1_permutation_test(arms.architecture(behavior, frozenset({("WT", "danieau")})), ds_wt.fish(perm[:half]), ds_wt.fish(perm[half:]), n_perm=200)
+            result = tier1_permutation_test(arms.architecture(behavior, frozenset({("WT", "danieau")})), ds_wt.fish(perm[:half]), ds_wt.fish(perm[half:]), n_perm=NEGATIVE_CONTROL_PERM)
             if not result["permutation_unreliable"]:
                 null_ps.append(result["p_value"])
         except Exception:
@@ -101,7 +107,7 @@ def gain_structure(behavior: str, arms: Arms, out: Path) -> GainStructure:
     return structure
 
 
-def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output_dir: Path, n_perm: int, n_sim: int = 500) -> None:
+def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output_dir: Path, n_perm: int, n_sim: int) -> None:
     """
     Everything done per behavior, into output_dir / behavior, the steps after the cells saved as they are done (steps).
     n_sim: datasets of each NTR cell's simulated null (0: none).
@@ -111,18 +117,18 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
     structures = {behavior: gain_structure(behavior, arms, out)} if n_sim else None
     tier1_df = run_tier1_screen(arms, behaviors=[behavior], null_process_factories=null_process_factories, n_perm=n_perm,
                                 store=output_dir / "cells", structures=structures, n_sim=n_sim)
-    tier1_df = add_testability(add_fdr_per_behavior(tier1_df, alpha=0.05))
+    tier1_df = add_testability(add_fdr_per_behavior(tier1_df))
     if "p_value_plate" in tier1_df:
-        tier1_df = add_fdr_per_behavior(tier1_df, alpha=0.05, pval_col="p_value_plate", prefix="plate_")
+        tier1_df = add_fdr_per_behavior(tier1_df, pval_col="p_value_plate", prefix="plate_")
     print(tier1_df["status"].value_counts())
     out.mkdir(parents=True, exist_ok=True)
     tier1_df.drop(columns="arm_estimates", errors="ignore").to_csv(out / f"{LINE_TEST_TABLES[0]}.csv", index=False)
     step = lambda name, compute: run_step(output_dir, behavior, name, compute)
     param_df = step("tier1_parameters", lambda: compute_parameter_deltas(extract_fitted_parameters(tier1_df, arms)))
     # Tier 2: is a hit's drug effect different from the drug's effect on WT?
-    step("tier2_results", lambda: add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, reference="WT", n_boot=200)))
+    step("tier2_results", lambda: add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, n_boot=N_BOOT_TIER2, reference="WT")))
     step("arm_surface_grids", lambda: generate_arm_surface_grids(tier1_df, arms, output_dir=output_dir / "arm_surface_grids"))
-    boot_delta_df = step("bootstrap_parameter_deltas", lambda: bootstrap_parameter_deltas(tier1_df, param_df, arms, n_boot=1000))
+    boot_delta_df = step("bootstrap_parameter_deltas", lambda: bootstrap_parameter_deltas(tier1_df, param_df, arms, n_boot=N_BOOT_DELTAS))
 
     fig = plot_parameter_forest(boot_delta_df, behavior) if len(boot_delta_df) else None
     if fig is not None:
@@ -154,7 +160,7 @@ def combine(behaviors: list, arms: Arms, map_order: list, output_dir: Path) -> N
     rows = map_rows(tier1_df, arms.contrasts.values())
     # A mutant and its reference are two clutches: its fish-label test is not framed (clutch_variability frames it).
     siblings = tier1_df.assign(significant=tier1_df["significant"] & (tier1_df["family"] == "ntr"))
-    fig, _ = plot_tier1_map(param_df, siblings, map_order, rows, column_labels=MAP_COLUMNS, frame_label="significant (q < 0.05; NTR lines)")
+    fig, _ = plot_tier1_map(param_df, siblings, map_order, rows, column_labels=MAP_COLUMNS, frame_label=f"significant (q < {ALPHA:g}; NTR lines)")
     save_fig(fig, output_dir, "tier1_map")
     if (tier2_df["status"] == "ok").any():
         fig, _ = plot_tier2_map(param_df, tier2_df, map_order)
@@ -171,8 +177,8 @@ def main() -> None:
     parser.add_argument("--fits-root", type=Path, default=CONTROL_FITS, help="run_analysis --mode fit output of the control screen.")
     parser.add_argument("--model", choices=VARIANTS, default="best", help="Model of each behavior (paths.VARIANTS).")
     parser.add_argument("--output-dir", type=Path, help="Results (default: line_tests/<variant>).")
-    parser.add_argument("--n-perm", type=int, default=1000, help="Permutations per Tier 1 cell.")
-    parser.add_argument("--n-sim", type=int, default=1000, help="Simulated datasets per NTR cell for p_value_plate (0: none).")
+    parser.add_argument("--n-perm", type=int, default=N_PERM, help="Permutations per Tier 1 cell.")
+    parser.add_argument("--n-sim", type=int, default=N_SIM, help="Simulated datasets per NTR cell for p_value_plate (0: none).")
     parser.add_argument("--n-jobs", type=int, help="Worker processes (default: one per allowed core).")
     args = parser.parse_args()
     if args.n_jobs:

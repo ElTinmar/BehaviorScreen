@@ -11,7 +11,6 @@ from pathlib import Path
 from urllib.request import urlretrieve
 from zipfile import ZipFile, is_zipfile
 
-TAIL_MODEL_URL_JAN_26 = "https://neuro.files.academiccloud.de/s/y4cWSirbkRpmBg5/download"
 TAIL_MODEL_URL_APRIL_26 = "https://neuro.files.academiccloud.de/s/N664qP3k73sxStc/download"
 EYES_MODEL_URL = "https://neuro.files.academiccloud.de/s/rsH2nBrsoC7qxkE/download"
 SACCADE_MODEL_URL = "https://neuro.files.academiccloud.de/s/ogBDNd4njLynHRw/download"  

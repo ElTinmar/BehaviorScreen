@@ -70,18 +70,6 @@ DETECTABLE_COLORS = LinearSegmentedColormap.from_list("detectable", ["#cde2fb", 
 DESIGNS = {"NTR screen": ("#2a78d6", "-"), "mutant screen": ("#eb6834", "--")}
 
 
-def per_fish_sd(param_df: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
-    """sigma per (behavior, parameter): MAD across NTR lines of the per-fish-scaled log2 effects (all noise, lumped)."""
-    df = param_df[(param_df["family"] == "ntr") & param_df["parameter"].isin(PARAMETER_LABELS)].merge(
-        tier1_df[["line", "behavior", "n_fish_ref", "n_fish_test"]], on=["line", "behavior"]
-    )
-    df["scaled"] = df["delta"] / np.sqrt(1 / df["n_fish_ref"] + 1 / df["n_fish_test"])
-    df = df[np.isfinite(df["scaled"])]
-    return df.groupby(KEYS).agg(
-        sigma=("scaled", lambda x: stats.median_abs_deviation(x, scale="normal")), n_lines=("line", "nunique")
-    ).reset_index()
-
-
 def fish_needed(
     sigma: np.ndarray, effect_log2: float, alpha: np.ndarray, power: float = 0.8, tau: np.ndarray = 0.0, whole: bool = True
 ) -> np.ndarray:

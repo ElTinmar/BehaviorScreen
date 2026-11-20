@@ -76,7 +76,7 @@ def _replicate(
 def tier2_interaction_test(
     factory: Callable[[], PointProcess],
     datasets: Sequence[PointProcessDataset],
-    n_boot: int = 200,
+    n_boot: int,
     seed: int = 0,
     n_jobs: int = -1,
 ) -> Dict:
@@ -93,7 +93,7 @@ def tier2_interaction_test(
 
 
 def run_tier2_screen(
-    tier1_df: pd.DataFrame, arms: Arms, reference: str = "WT", n_boot: int = 200, n_jobs: int = -1
+    tier1_df: pd.DataFrame, arms: Arms, n_boot: int, reference: str = "WT", n_jobs: int = -1
 ) -> pd.DataFrame:
     """
     Interaction test for every significant Tier 1 cell of an NTR line;

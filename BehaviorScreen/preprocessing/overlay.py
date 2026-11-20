@@ -13,7 +13,6 @@ With --jobs > 1, consecutive chunks are rendered in parallel and joined with ffm
 """
 import argparse
 import multiprocessing
-import os
 import subprocess
 from dataclasses import dataclass, field
 from functools import partial
@@ -161,30 +160,11 @@ def hash1(x):
     return np.mod(np.sin(x * 127.1) * 43758.5453, 1.0)
 
 
-def alpha_blend(bg, fg, alpha=128):
-    bg16 = bg.astype(np.uint16)
-    fg16 = fg.astype(np.uint16)
-    alpha16 = np.uint16(alpha)
-    out16 = bg16 + ((fg16 - bg16) * alpha16 >> 8)
-    return out16.astype(np.uint8)
-
-
 def sum_blend(bg, fg, gain=1.0):
     return cv2.addWeighted(bg, 1.0, fg, gain, 0.0)
 
 
-def egocentric_coords_mm(coords, centroid, pc1, pc2, mm_per_pixel):
-    transform = np.stack([pc2, pc1], axis=1) * mm_per_pixel
-    return (coords - centroid) @ transform
-
-
 # TODO handle different coordinate system
-def fish_centered():
-    pass
-
-
-def bbox_centered():
-    pass
 
 
 def image_coord_grid(height_px, width_px, downsample: int = 1):
@@ -403,17 +383,6 @@ def prey_capture_overlay(X, Y, p):
     #         result |= dist <= p.u_prey_radius_mm
 
     return np.where(result[..., None], p.u_foreground_color, p.u_background_color)
-
-
-def get_active_stimulus(stimuli, timestamp):
-    stimuli_sorted = sorted(stimuli, key=lambda s: s["timestamp"])
-    active_stim = None
-    for stim in stimuli_sorted:
-        if stim["timestamp"] <= timestamp:
-            active_stim = stim
-        else:
-            break
-    return active_stim
 
 
 overlay_funcs = {

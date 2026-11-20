@@ -79,7 +79,7 @@ def run_job(job: Job) -> List[dict]:
     try:
         deviance, *_, pooled = fit_tier1(job.architecture, ref, test)
         df = len(job.architecture().param_names)
-        p = (tier1_permutation_test(job.architecture, ref, test, deviance, job.model_perm, job.rep, n_jobs=1,
+        p = (tier1_permutation_test(job.architecture, ref, test, deviance, n_perm=job.model_perm, seed=job.rep, n_jobs=1,
                                     pooled_log_likelihood=pooled.log_likelihood)["p_value"]
              if job.model_perm else stats.chi2.sf(deviance, df))
     except Exception:

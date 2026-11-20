@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 
+ALPHA = 0.05  # FDR level of every line test (q < ALPHA: significant)
+
 
 def benjamini_hochberg(pvals: np.ndarray) -> np.ndarray:
     """Standard BH step-up procedure. NaNs pass through as NaN, excluded from
@@ -22,7 +24,7 @@ def benjamini_hochberg(pvals: np.ndarray) -> np.ndarray:
     return q
 
 
-def add_fdr(df: pd.DataFrame, pval_col: str = "p_value", alpha: float = 0.05, prefix: str = "") -> pd.DataFrame:
+def add_fdr(df: pd.DataFrame, pval_col: str = "p_value", prefix: str = "") -> pd.DataFrame:
     df = df.copy()
     if pval_col not in df.columns:
         raise KeyError(
@@ -30,13 +32,13 @@ def add_fdr(df: pd.DataFrame, pval_col: str = "p_value", alpha: float = 0.05, pr
             f"columns {list(df.columns)} -- did the upstream tier actually produce rows?"
         )
     df[f"{prefix}q_value"] = benjamini_hochberg(df[pval_col].values)
-    df[f"{prefix}significant"] = df[f"{prefix}q_value"] < alpha
+    df[f"{prefix}significant"] = df[f"{prefix}q_value"] < ALPHA
     return df
 
-def add_fdr_per_behavior(df: pd.DataFrame, alpha: float = 0.05, pval_col: str = "p_value", prefix: str = "") -> pd.DataFrame:
+def add_fdr_per_behavior(df: pd.DataFrame, pval_col: str = "p_value", prefix: str = "") -> pd.DataFrame:
     """One FDR family per behavior, and per contrast family when there is a 'family' column."""
     keys = ["family", "behavior"] if "family" in df.columns else ["behavior"]
     if df.empty:
-        return add_fdr(df, pval_col, alpha, prefix)
-    parts = [add_fdr(group.copy(), pval_col, alpha, prefix) for _, group in df.groupby(keys, dropna=False)]
+        return add_fdr(df, pval_col, prefix)
+    parts = [add_fdr(group.copy(), pval_col, prefix) for _, group in df.groupby(keys, dropna=False)]
     return pd.concat(parts, ignore_index=True)

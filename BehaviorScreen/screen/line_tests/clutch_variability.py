@@ -31,7 +31,7 @@ from scipy import stats
 from BehaviorScreen.point_process.io import save_fig
 
 from .arm_absolute import with_bootstrap_se
-from .fdr import add_fdr
+from .fdr import ALPHA, add_fdr
 from .tier1_omnibus import MAP_COLORS, PARAMETER_LABELS, plot_tier1_map
 from ..paths import line_tests_dir
 
@@ -74,7 +74,7 @@ def clutch_variability(param_df: pd.DataFrame, min_clutches: int = 5) -> pd.Data
     return pd.DataFrame(records)
 
 
-def line_report(param_df: pd.DataFrame, clutch_df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
+def line_report(param_df: pd.DataFrame, clutch_df: pd.DataFrame) -> pd.DataFrame:
     """
     Per (line, behavior, parameter): the effect (delta, log2) in clutch SDs,
     how atypical the line's reference clutch is ('reference_offset_sd', NTR
@@ -91,7 +91,7 @@ def line_report(param_df: pd.DataFrame, clutch_df: pd.DataFrame, alpha: float = 
     df["reference_offset_sd"] = df["reference_offset"] / tau
     df["z_clutch"] = df["delta"] / np.sqrt(df["delta_se"] ** 2 + np.where(ntr, 0, 2) * df["tau"] ** 2)
     df["p_clutch"] = np.where(ntr, np.nan, 2 * stats.norm.sf(np.abs(df["z_clutch"])))
-    mutants = [add_fdr(g, "p_clutch", alpha, prefix="clutch_") for _, g in df[~ntr].groupby("behavior")]
+    mutants = [add_fdr(g, "p_clutch", prefix="clutch_") for _, g in df[~ntr].groupby("behavior")]
     return pd.concat([df[ntr], *mutants], ignore_index=True).rename(
         columns={"clutch_q_value": "q_clutch", "clutch_significant": "significant_clutch"}
     )
@@ -167,7 +167,7 @@ def plot_effect_sd_map(report: pd.DataFrame, tier1_df: pd.DataFrame, behaviors: 
         for line, b, family, sig in zip(tier1_df["line"], tier1_df["behavior"], tier1_df["family"], tier1_df["significant"])
     ])
     fig, ax = plot_tier1_map(effects, status, behaviors, rows, vmax=3.0, colorbar_label="effect / between-clutch SD")
-    fig.suptitle("Effects in between-clutch SDs (mutant frames: q < 0.05 with clutch variance)", fontsize=9, y=1.0)
+    fig.suptitle(f"Effects in between-clutch SDs (mutant frames: q < {ALPHA:g} with clutch variance)", fontsize=9, y=1.0)
     return fig, ax
 
 

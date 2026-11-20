@@ -18,13 +18,11 @@ GammaMixedEffectsProcess, since all of them expose the same
 `_nll(self, params, dataset)` contract already.
 
 Comparing two MultiGroupProcess instances that share the same `groups` but
-differ by one covariate column is a valid nested-model comparison for
-ModelComparator.likelihood_ratio_test (Δk = len(covariate) * n_kernel_params).
+differ by one covariate column is a valid nested-model comparison (likelihood ratio, Δk = len(covariate) * n_kernel_params).
 """
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 import numpy as np
-import joblib
 
 from BehaviorScreen.point_process.backend import Arrays, jnp
 from BehaviorScreen.point_process.point_process import PointProcess
@@ -83,11 +81,6 @@ class MultiGroupProcess(PointProcess):
         linear = baseline_linear + (x @ betas_linear if len(self.covariate_names) else 0.0)
         return [self.links[i].to_natural(linear[i]) for i in range(self.k)]
 
-    def beta_index_range(self, covariate_name: str) -> slice:
-        idx = self.covariate_names.index(covariate_name)
-        start = self.k * (1 + idx)
-        return slice(start, start + self.k)
-
     # -- likelihood -----------------------------------------------------------
 
     def _nll(self, params: List[float], dataset: Optional[PointProcessDataset] = None) -> float:
@@ -138,23 +131,3 @@ class MultiGroupProcess(PointProcess):
         ]
         return MultiGroupProcess(self.base_process, boot_groups, self.covariate_names, self.integration_dt, self.links)
 
-    def bootstrap_params(self, n_boot: int = 200, seed: int = 0, n_jobs: int = -1) -> np.ndarray:
-        if self.params_ is None:
-            raise ValueError("Model must be fitted first.")
-        seeds = np.random.SeedSequence(seed).spawn(n_boot)
-
-        def _one(s):
-            rng = np.random.default_rng(s)
-            model_copy = self._resample_copy(rng)
-            try:
-                model_copy.fit()
-                return model_copy.params_
-            except RuntimeError:
-                return None
-
-        results = joblib.Parallel(n_jobs=n_jobs)(joblib.delayed(_one)(s) for s in seeds)
-        valid = [r for r in results if r is not None]
-        if not valid:
-            raise RuntimeError("All bootstrap fits failed.")
-        print(f"[MultiGroupProcess.bootstrap_params] {len(valid)}/{n_boot} succeeded")
-        return np.array(valid)

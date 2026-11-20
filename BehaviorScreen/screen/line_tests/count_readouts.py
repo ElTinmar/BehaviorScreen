@@ -43,6 +43,7 @@ from BehaviorScreen.point_process.io import save_fig
 from BehaviorScreen.screen.paths import COUNT_RESULTS, add_data_root, data_root
 
 from .dataset_utils import Contrast, recording_days, safe_prepare_dataset
+from .model_qc import MIN_FISH
 from .tier1_config import MAP_COLUMNS
 
 IPSI, CONTRA = Laterality.IPSILATERAL, Laterality.CONTRALATERAL
@@ -202,7 +203,7 @@ def arm_bootstrap(counts: Dict[Tuple[str, str, str], Optional[np.ndarray]], n_bo
 
 def run_count_screen(
     counts: Counts, days: Counts, contrasts: Sequence[Contrast],
-    n_perm: int = 10000, n_boot: int = 1000, min_fish: int = 6, min_events: int = 20, seed: int = 0,
+    n_perm: int = 10000, n_boot: int = 1000, min_events: int = 20, seed: int = 0,
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """(Tier 1-style results, parameter rows) for every contrast and count readout; NTR fish are permuted within their day."""
     rng = np.random.default_rng(seed)
@@ -217,7 +218,7 @@ def run_count_screen(
                 continue
             row |= {"n_fish_ref": len(ref), "n_fish_test": len(test),
                    "total_events": int(sum(a[:, EVENT_COLUMNS[r.parameter]].sum() for a in (ref, test)))}
-            if min(len(ref), len(test)) < min_fish or row["total_events"] < min_events:
+            if min(len(ref), len(test)) < MIN_FISH or row["total_events"] < min_events:
                 results.append({**row, "status": "skipped_insufficient_data", "p_value": np.nan})
                 continue
             strata = np.concatenate([days[(*c.reference, name)], days[(*c.test, name)]]) if c.family == "ntr" else None
@@ -243,7 +244,7 @@ def main(args: argparse.Namespace) -> None:
     counts, days = arm_counts(loaders, contrasts)
     results, params = run_count_screen(counts, days, contrasts, args.n_perm, args.n_boot)
     param_df = compute_parameter_deltas(params)
-    tier1_df = add_testability(add_fdr_per_behavior(results, alpha=0.05))
+    tier1_df = add_testability(add_fdr_per_behavior(results))
     tier1_df.to_csv(out / "tier1_results.csv", index=False)
     param_df.to_csv(out / "tier1_parameters.csv", index=False)
     save_contrasts(contrasts, out / "contrasts.csv")

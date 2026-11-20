@@ -23,10 +23,6 @@ import numpy as np
 from BehaviorScreen.point_process.backend import xp
 
 
-def _softplus(x: np.ndarray) -> np.ndarray:
-    return np.logaddexp(0.0, x)
-
-
 def _inv_softplus(y: np.ndarray, eps: float = 1e-9) -> np.ndarray:
     y = np.maximum(y, eps)
     # numerically stable inverse of log(1+exp(x))

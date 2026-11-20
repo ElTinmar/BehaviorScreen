@@ -14,7 +14,6 @@ import re
 import numpy as np
 import pandas as pd
 from scipy.optimize import OptimizeResult, minimize
-from scipy.stats import chi2
 
 from .parallel import parallel_map, report_failures
 from .dataset import PointProcessDataset
@@ -574,34 +573,6 @@ class InferenceMixin:
 
 
 class ModelComparator:
-
-    @staticmethod
-    def likelihood_ratio_test(
-        model_null: PointProcess, model_alt: PointProcess
-    ) -> Dict[str, Union[str, int, float, bool]]:
-        """Assumes models are nested"""
-
-        k_null = len(model_null.params_)
-        k_alt = len(model_alt.params_)
-        df = k_alt - k_null
-
-        ll_null = model_null.log_likelihood
-        ll_alt = model_alt.log_likelihood
-        lr_stat = 2.0 * (ll_alt - ll_null)
-        lr_stat_clamped = max(0.0, lr_stat)
-
-        p_val = float(chi2.sf(lr_stat_clamped, df))
-
-        return {
-            "Null Model": model_null.name,
-            "Alt Model": model_alt.name,
-            "LL Null": ll_null,
-            "LL Alt": ll_alt,
-            "Deviance (2*ΔLL)": lr_stat,
-            "Δk (df)": df,
-            "p-value": p_val,
-            "Significant (α=0.05)": p_val < 0.05,
-        }
 
     @staticmethod
     def compare(

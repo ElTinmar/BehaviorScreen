@@ -6,6 +6,10 @@ import numpy as np
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 
+MIN_FISH = 6  # per arm, for any test of a line
+BEATS_NULL_AIC = 2.0  # ΔAIC of the architecture over the null model for an arm to show signal
+COLLINEAR_CORRELATION = 0.95  # |correlation| of two parameters flagged as near collinear
+
 
 @dataclass
 class GroupFitQC:
@@ -77,9 +81,6 @@ def assess_group_fit(
     line: str,
     behavior: str,
     group_name: str,
-    delta_aic_threshold: float = 2.0,
-    corr_threshold: float = 0.95,
-    min_fish: int = 6,
 ) -> GroupFitQC:
 
     n_fish = dataset.num_fish
@@ -90,7 +91,7 @@ def assess_group_fit(
         is_low_power=dataset.is_low_power_for_dispersion,
     )
 
-    if n_fish < min_fish:
+    if n_fish < MIN_FISH:
         qc.reasons_flagged.append(f"too_few_fish (n={n_fish})")
         return qc
 
@@ -106,7 +107,7 @@ def assess_group_fit(
     qc.aic_architecture = model_arch.aic
     qc.aic_null = model_null.aic
     qc.delta_aic = qc.aic_null - qc.aic_architecture
-    qc.beats_null = qc.delta_aic > delta_aic_threshold
+    qc.beats_null = qc.delta_aic > BEATS_NULL_AIC
 
     if not qc.beats_null:
         # Informational only -- see verdict docstring. Do NOT add to
@@ -145,7 +146,7 @@ def assess_group_fit(
         if np.isfinite(off_diag).any():
             i, j = np.unravel_index(np.nanargmax(np.abs(off_diag)), off_diag.shape)
             qc.max_abs_param_correlation = float(abs(off_diag[i, j]))
-            if qc.max_abs_param_correlation > corr_threshold:
+            if qc.max_abs_param_correlation > COLLINEAR_CORRELATION:
                 qc.informational_notes.append(
                     f"near_collinear_parameters: {model_arch.param_names[i]}~{model_arch.param_names[j]} "
                     f"(r={off_diag[i, j]:.2f})"

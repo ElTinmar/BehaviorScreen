@@ -90,7 +90,7 @@ def gamma_gain_evidence_by_fish(
     with hundreds of events whatever share of them the history rates explain (exact when h = 0);
     within about 1e-3 for a few events mostly explained by h, whose integrand keeps a tail at g = 0.
     """
-    n_fish, total_rate = len(exposure), exposure + rate
+    total_rate = exposure + rate
     mode, a = _log_gain_posterior_mode(base_rates, history_rates, fish, exposure, shape, rate)
     beta = a * np.exp(-mode)
     x, log_w = gauss_laguerre(n_nodes, a - 1)
@@ -400,10 +400,6 @@ class _GainWrapper(Wrapper):
             self._require_fitted()
             params = self.params_
         return self.gains(params[self._n_base :])
-
-    @property
-    def gain_distribution(self) -> Union[GammaGain, ZeroInflatedGain]:
-        return self._gain()
 
     def mixed_effects_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
         raise NotImplementedError(f"{self.name} already integrates a fish gain.")

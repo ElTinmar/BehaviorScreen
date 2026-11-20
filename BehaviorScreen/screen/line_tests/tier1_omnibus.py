@@ -32,7 +32,8 @@ from BehaviorScreen.point_process.io import save_fig, slugify
 from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric, recording_days
 from .gain_structure import GainStructure, fish_groups
 from .arm_contrast import output_metric
-from .model_qc import assess_group_fit
+from .fdr import ALPHA
+from .model_qc import MIN_FISH, assess_group_fit
 from BehaviorScreen.screen.line_names import line_name
 
 # Behavior-specific minimum total-event floor. Fish count is the WRONG
@@ -40,6 +41,8 @@ from BehaviorScreen.screen.line_names import line_name
 # (or uncensored first-responses) is what actually matters. Survival-style,
 # low-base-rate behaviors need a much stricter floor.
 DEFAULT_MIN_EVENTS = 40
+WEAK_QC_MARGIN_AIC = 5.0  # an arm's ΔAIC over the null below this: a weak margin (bad_fit_triage)
+MIN_BOOT_SUCCESS = 0.3  # share of a parameter's bootstrap draws that must refit to report its interval
 MIN_EVENTS_BY_BEHAVIOR: Dict[str, int] = {
     "looming": 15, "dark_flash": 15,
 }
@@ -77,7 +80,7 @@ def tier1_permutation_test(
     process_factory: Callable[[], PointProcess],
     ds_ref: PointProcessDataset, ds_test: PointProcessDataset,
     observed_deviance: Optional[float] = None,
-    n_perm: int = 500, seed: int = 0, n_jobs: int = -1,
+    *, n_perm: int, seed: int = 0, n_jobs: int = -1,
     pooled_log_likelihood: Optional[float] = None,
     strata: Optional[np.ndarray] = None,
 ) -> Dict:
@@ -133,7 +136,7 @@ def tier1_permutation_test(
 def tier1_simulated_test(
     process_factory: Callable[[], PointProcess], m_pooled: PointProcess,
     ds_ref: PointProcessDataset, ds_test: PointProcessDataset, observed_deviance: float,
-    structure: GainStructure, n_sim: int = 500, seed: int = 0, n_jobs: int = -1,
+    structure: GainStructure, n_sim: int, seed: int = 0, n_jobs: int = -1,
 ) -> Dict:
     """
     The deviance's null distribution from datasets simulated from the pooled fit (no difference between
@@ -178,10 +181,7 @@ def tier1_effect_size(m_ref: PointProcess, ds_ref: PointProcessDataset,
                        m_test: PointProcess, ds_test: PointProcessDataset,
                        eps: float = 1e-9) -> Dict:
 
-    # Single-free-parameter architectures: use the parameter directly as
-    # the effect size (see conversation notes -- more informative here
-    # than the aggregate output_metric, since there's no other dimension
-    # for the effect to hide in, and no saturation risk).
+    # One free parameter: it is the effect size (nothing else for the effect to hide in, no saturation).
     if len(m_ref.param_names) == 1:
         return single_param_effect_size(m_ref, m_test, m_ref.param_names[0], eps=eps)
     
@@ -214,14 +214,14 @@ def tier1_effect_size(m_ref: PointProcess, ds_ref: PointProcessDataset,
 def _tier1_one(
     line: str, behavior: str, arms: Arms,
     null_process_factory: Callable[[], PointProcess],
-    min_fish: int = 6, n_perm: int = 500, structure: Optional[GainStructure] = None, n_sim: int = 500,
+    n_perm: int, structure: Optional[GainStructure], n_sim: int,
 ) -> Dict:
     contrast = arms.contrasts[line]
     ds_ref, ds_test = arms.datasets(line, behavior)
 
     if ds_ref is None or ds_test is None:
         return {"line": line, "behavior": behavior, "status": "skipped_insufficient_data", "p_value": np.nan}
-    if ds_ref.num_fish < min_fish or ds_test.num_fish < min_fish:
+    if ds_ref.num_fish < MIN_FISH or ds_test.num_fish < MIN_FISH:
         return {"line": line, "behavior": behavior, "status": "skipped_insufficient_data", "p_value": np.nan}
     if ds_ref.num_trials != ds_test.num_trials:
         return {"line": line, "behavior": behavior, "status": "skipped_trial_count_mismatch", "p_value": np.nan}
@@ -235,9 +235,9 @@ def _tier1_one(
     # --- Model QC gate on each arm before trusting any comparison ---
     exclude = arms.contrast_arms(line)
     qc_ref = assess_group_fit(partial(arms.model, *contrast.reference, behavior, exclude), null_process_factory, ds_ref, line, behavior,
-                               "reference", min_fish=min_fish)
+                               "reference")
     qc_test = assess_group_fit(partial(arms.model, *contrast.test, behavior, exclude), null_process_factory, ds_test, line, behavior,
-                                "test", min_fish=min_fish)
+                                "test")
 
     # Only a HARD flag on either arm excludes the cell. "reliable_no_signal"
     # (architecture didn't beat null, but fit is otherwise trustworthy)
@@ -296,8 +296,8 @@ def _tier1_one(
 
 def run_tier1_screen(
     arms: Arms, behaviors, null_process_factories,
-    n_perm=500, show_progress=True, store: Optional[Path] = None,
-    structures: Optional[Dict[str, GainStructure]] = None, n_sim: int = 500,
+    n_perm: int, n_sim: int, show_progress: bool = True, store: Optional[Path] = None,
+    structures: Optional[Dict[str, GainStructure]] = None,
 ) -> pd.DataFrame:
     """
     One row per (contrast, behavior); the contrast name is in column 'line'.
@@ -425,16 +425,16 @@ MAP_COLORS = LinearSegmentedColormap.from_list("blue_grey_red", ["#2166ac", "#d9
 MISSING = "#9e9e9e"
 
 
-def add_testability(tier1_df: pd.DataFrame, alpha: float = 0.05) -> pd.DataFrame:
+def add_testability(tier1_df: pd.DataFrame) -> pd.DataFrame:
     """
-    'testable': the cell could reach q < alpha. Its best possible q is its
+    'testable': the cell could reach q < ALPHA. Its best possible q is its
     design floor (1 / number of distinct fish splits) times the number of
     tests in its FDR family (family x behavior), whatever the permutations.
     """
     df = tier1_df.copy()
     keys = ["family", "behavior"] if "family" in df.columns else ["behavior"]
     n_tests = df.groupby(keys)["p_value"].transform("count")
-    df["testable"] = (df["p_value_floor"] * n_tests < alpha).fillna(False)
+    df["testable"] = (df["p_value_floor"] * n_tests < ALPHA).fillna(False)
     return df
 
 
@@ -456,7 +456,7 @@ def plot_tier1_map(
     row_labels: Optional[Dict[str, str]] = None,
     colorbar_label: str = "log2(test / reference)",
     column_labels: Optional[Dict[str, str]] = None,
-    frame_label: str = "significant (q < 0.05)",
+    frame_label: str = f"significant (q < {ALPHA:g})",
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Dot matrix of the screen: rows are contrasts (in the given order, a gap
@@ -540,7 +540,7 @@ def plot_tier1_map(
     handles += [
         plt.Line2D([], [], marker="s", markersize=11, markerfacecolor="none", markeredgecolor="black", linestyle="", label=frame_label),
         plt.Line2D([], [], marker="o", markersize=8, markerfacecolor="white", markeredgecolor=MISSING, markeredgewidth=2.4,
-                   linestyle="", label="too few fish to reach q < 0.05"),
+                   linestyle="", label=f"too few fish to reach q < {ALPHA:g}"),
         plt.Line2D([], [], marker="x", color=MISSING, linestyle="", label="not tested"),
     ]
     fig.legend(handles=handles, loc="lower left", bbox_to_anchor=(left / fig_w, 0.1 / fig_h), ncol=3, frameon=False, fontsize=7)
@@ -764,21 +764,12 @@ def build_bad_fit_triage(tier1_df: pd.DataFrame) -> pd.DataFrame:
     df.loc[no_signal_arm, "cause"] = "one_arm_no_signal"
 
     weak_margin = is_ok & (
-        (df["qc_delta_aic_reference"].fillna(np.inf) < 5) |
-        (df["qc_delta_aic_test"].fillna(np.inf) < 5)
+        (df["qc_delta_aic_reference"].fillna(np.inf) < WEAK_QC_MARGIN_AIC) |
+        (df["qc_delta_aic_test"].fillna(np.inf) < WEAK_QC_MARGIN_AIC)
     )
     df.loc[weak_margin, "cause"] = "weak_qc_margin"
 
     return df
-
-
-def summarize_bad_fits(triage_df: pd.DataFrame) -> pd.DataFrame:
-    """Cause counts, sorted descending -- the quick top-level view."""
-    return (
-        triage_df["cause"].value_counts()
-        .rename_axis("cause").reset_index(name="n_cells")
-        .sort_values("n_cells", ascending=False)
-    )
 
 
 def plot_volcano(
@@ -826,7 +817,7 @@ def plot_volcano(
         "p_value_near_floor": dict(color="darkorange", marker="^", alpha=0.85, label="p near permutation floor"),
         "permutation_unreliable": dict(color="gray", marker="x", alpha=0.7, label="permutation unreliable"),
         "one_arm_no_signal": dict(color="purple", marker="s", alpha=0.7, label="one arm no signal vs null"),
-        "weak_qc_margin": dict(color="goldenrod", marker="D", alpha=0.6, label="weak QC margin (ΔAIC<5)"),
+        "weak_qc_margin": dict(color="goldenrod", marker="D", alpha=0.6, label=f"weak QC margin (ΔAIC<{WEAK_QC_MARGIN_AIC:g})"),
         "response_abolished": dict(color="black", marker="*", alpha=0.9, label="response abolished (Fisher test)"),
     }
     default_style = dict(color="gray", marker="o", alpha=0.4, label="other")
@@ -970,17 +961,12 @@ def bootstrap_parameter_deltas(
     param_df: pd.DataFrame,
     arms: Arms,
     cells: Optional[pd.DataFrame] = None,
-    n_boot: int = 200, ci: float = 95.0, seed: int = 0, n_jobs: int = -1,
+    *, n_boot: int, ci: float = 95.0, seed: int = 0, n_jobs: int = -1,
 ) -> pd.DataFrame:
     """
     Bootstrap CI on the test-vs-reference DELTA of each free parameter, for a
-    subset of (line, behavior) cells. Parallelized at the BOOTSTRAP-
-    ITERATION level within each cell (via joblib), not across cells --
-    matches the existing PointProcess.bootstrap/tier1_permutation_test
-    pattern and avoids the nested-parallelism/oversubscription risk of
-    also parallelizing the outer cells loop (see conversation notes on
-    Tier 1's own nested joblib.Parallel discussion). A single bounded
-    worker pool is active at any time, reused across cells sequentially.
+    subset of (line, behavior) cells: the cells in turn, each one's draws over the workers.
+    A parameter is reported when at least MIN_BOOT_SUCCESS of its draws refitted.
     """
     if cells is None:
         cells = tier1_df[tier1_df["significant"] == True][["line", "behavior"]]
@@ -1035,7 +1021,7 @@ def bootstrap_parameter_deltas(
                     boot_deltas[pname].append(val)
 
         alpha = (100.0 - ci) / 2.0
-        min_success = max(1, int(0.3 * n_boot))   # fixed: scaled to n_boot, not an unreachable absolute floor
+        min_success = max(1, int(MIN_BOOT_SUCCESS * n_boot))
         for pname in param_names:
             arr = np.array(boot_deltas[pname])
             if len(arr) < min_success:
