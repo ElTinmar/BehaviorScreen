@@ -12,6 +12,7 @@ the stage diagrams, is at the end.
 | cylinder, green | a file or folder it writes |
 | parallelogram, amber | a configuration or model it reads |
 
+`python docs/export_pipeline.py` writes every diagram as a standalone SVG into `docs/svg/` (it needs Node.js).
 Edit a stage diagram, then run `python docs/stitch_pipeline.py` to update the whole-pipeline diagram
 (`BehaviorScreen/tests/test_pipeline_docs.py` fails while it is out of date). A stage diagram starts with
 `%% stage: TITLE` and `%% shared: NODE ...`; declare each node on its own line and write one edge per line
