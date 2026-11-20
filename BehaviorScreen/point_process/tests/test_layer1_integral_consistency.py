@@ -1,4 +1,3 @@
-# tests/test_layer1_integral_consistency.py
 """
 LAYER 1: closed-form integral vs. numerical integration of the SAME
 pointwise function.
@@ -40,7 +39,7 @@ class TestHistoryKernelIntegralConsistency:
             ),  # slow decay relative to T -- stresses the closed form differently
         ],
     )
-    def test_exponential_history_kernel(self, alpha, beta, T):
+    def test_exponential_history_kernel(self, alpha: float, beta: float, T: float) -> None:
         hk = HistoryKernelFactory.exponential()
         closed_form = hk.integrate(T, [alpha, beta])
         quad_result, _ = scipy_integrate.quad(
@@ -49,7 +48,7 @@ class TestHistoryKernelIntegralConsistency:
         assert closed_form == pytest.approx(quad_result, rel=1e-6)
 
     @pytest.mark.parametrize("T", [0.001, 1.0, 50.0])
-    def test_exponential_history_kernel_boundary_durations(self, T):
+    def test_exponential_history_kernel_boundary_durations(self, T: float) -> None:
         """Very short and very long durations -- catches edge-case bugs in
         the closed form (e.g. an unhandled T->0 or T->inf limit)."""
         alpha, beta = 0.8, 1.5
@@ -60,7 +59,7 @@ class TestHistoryKernelIntegralConsistency:
         )
         assert closed_form == pytest.approx(quad_result, rel=1e-5, abs=1e-8)
 
-    def test_exponential_history_kernel_event_history_matches_generic_oN2(self):
+    def test_exponential_history_kernel_event_history_matches_generic_oN2(self) -> None:
         """
         HistoryKernelFactory.exponential() ships a fast O(N) recursive
         event_history_func -- this checks it agrees with HistoryKernel's
@@ -92,7 +91,7 @@ class TestHistoryKernelIntegralConsistency:
 
 class TestRateKernelIntegralConsistency:
 
-    def test_homogeneous_poisson(self):
+    def test_homogeneous_poisson(self) -> None:
         rk = RateKernelFactory.homogeneous_poisson()
         B, T, trial = 0.7, 8.0, 3
         numeric = rk.integrate(T, trial, [B], integration_dt=0.001)
@@ -101,7 +100,7 @@ class TestRateKernelIntegralConsistency:
         )
         assert numeric == pytest.approx(quad_result, rel=1e-4)
 
-    def test_omr_forward_no_closed_form_integral_grid_convergence(self):
+    def test_omr_forward_no_closed_form_integral_grid_convergence(self) -> None:
         """
         RateKernelFactory.omr_forward() has NO integral_func, so
         RateKernel.integrate falls back to trapezoid-on-a-grid. This checks
@@ -134,7 +133,7 @@ class TestRateKernelIntegralConsistency:
             errors[-1] < 1e-4
         ), f"finest grid still off from quad reference: {errors[-1]}"
 
-    def test_cumulative_integrate_matches_integrate_at_endpoint(self):
+    def test_cumulative_integrate_matches_integrate_at_endpoint(self) -> None:
         """cumulative_integrate(t_events, ...)'s LAST value (if t_events'
         max equals T) should match integrate(T, ...) -- both are supposed to
         compute the same total integral, via different code paths
@@ -155,7 +154,7 @@ class TestRateKernelIntegralConsistency:
 
 class TestRenewalKernelIntegralConsistency:
 
-    def test_weibull_recovery(self):
+    def test_weibull_recovery(self) -> None:
         rk = RenewalKernelFactory.weibull_recovery()
         params, T = [0.15, 2.5], 2.0
         numeric = rk.integrate(T, params)
@@ -164,7 +163,7 @@ class TestRenewalKernelIntegralConsistency:
         )
         assert numeric == pytest.approx(quad_result, rel=1e-3)
 
-    def test_hard_absorption_integral_is_identically_zero(self):
+    def test_hard_absorption_integral_is_identically_zero(self) -> None:
         rk = RenewalKernelFactory.hard_absorption()
         result = rk.integrate(np.array([0.0, 1.0, 100.0]), [])
         np.testing.assert_allclose(result, 0.0)
@@ -172,7 +171,7 @@ class TestRenewalKernelIntegralConsistency:
 
 class TestRefractoryDelayedExcitationKernel:
 
-    def test_boundary_and_long_lag_behavior(self):
+    def test_boundary_and_long_lag_behavior(self) -> None:
         kernel = RenewalKernelFactory.refractory_delayed_excitation(shape_k=2.0)
         params = [0.1, 1.0, 0.25]
 
@@ -182,7 +181,7 @@ class TestRefractoryDelayedExcitationKernel:
         assert rho_zero == pytest.approx(0.0, abs=1e-12)
         assert rho_long == pytest.approx(1.0, abs=1e-6)
 
-    def test_kernel_is_nonnegative(self):
+    def test_kernel_is_nonnegative(self) -> None:
         kernel = RenewalKernelFactory.refractory_delayed_excitation(shape_k=2.0)
         params = [0.1, 1.0, 0.25]
 
@@ -191,7 +190,7 @@ class TestRefractoryDelayedExcitationKernel:
 
         assert np.all(rho >= 0.0)
 
-    def test_zero_excitation_reduces_to_refractory_recovery(self):
+    def test_zero_excitation_reduces_to_refractory_recovery(self) -> None:
         kernel = RenewalKernelFactory.refractory_delayed_excitation(shape_k=2.0)
         params = [0.1, 0.0, 0.25]
 

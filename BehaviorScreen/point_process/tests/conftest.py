@@ -34,12 +34,13 @@ hypothesis tests.
 """
 
 from dataclasses import replace
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
 import pytest
 
 from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.sided_process import CONTRA, IPSI
 
 # =============================================================================
@@ -95,7 +96,7 @@ def reference_dataset(num_fish: int = 40, num_trials: int = 10, duration_s: floa
 
 
 def simulate_dataset_from_model(
-    model,
+    model: PointProcess,
     scaffold: PointProcessDataset,
     rng: np.random.Generator,
     fish_gains: Optional[np.ndarray] = None,
@@ -178,7 +179,7 @@ def dataset_from_streams(
 
 def assert_recovered(
     name: str, fitted: float, true: float, rtol: float = 0.15, atol: float = 0.02
-):
+) -> None:
     """
     Generic |fitted - true| <= atol + rtol*|true| check with a readable
     failure message. NOTE: this combines relative and absolute tolerance
@@ -193,7 +194,7 @@ def assert_recovered(
     )
 
 
-def params_dict(model) -> Dict[str, float]:
+def params_dict(model: PointProcess) -> Dict[str, float]:
     return dict(zip(model.param_names, model.params_))
 
 
@@ -216,8 +217,11 @@ class DummyFitResult:
 # =============================================================================
 
 
+RngFactory = Callable[[int], np.random.Generator]
+
+
 @pytest.fixture
-def rng_factory():
+def rng_factory() -> RngFactory:
     """Returns a function that builds a fresh, seeded np.random.Generator --
     use rng_factory(seed) rather than a single shared fixture so each test
     can pick its own seed inline and stay independently reproducible/

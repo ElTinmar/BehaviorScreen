@@ -17,6 +17,7 @@ from scipy.optimize import OptimizeResult, minimize
 
 from .parallel import parallel_map, report_failures
 from .dataset import PointProcessDataset
+from .io import save_pickle
 
 if TYPE_CHECKING:
     from .point_process import PointProcess
@@ -165,13 +166,12 @@ def _replicate(
         return None, repr(exc), ""
 
 
-def _stored_replicate(job: Tuple[int, np.random.SeedSequence], store: Optional[Path], **kwargs) -> Tuple[Any, Optional[str], str]:
+def _stored_replicate(job: Tuple[int, np.random.SeedSequence], store: Optional[Path], **kwargs: Any) -> Tuple[Any, Optional[str], str]:
     """_replicate, its successful result written to store/<index>.pkl as soon as it is done."""
     index, seed_seq = job
     result = _replicate(seed_seq, **kwargs)
     if store is not None and result[1] is None:
-        with open(store / f"{index:05d}.pkl", "wb") as f:
-            pickle.dump(result, f)
+        save_pickle(result, store / f"{index:05d}.pkl")
     return result
 
 
@@ -270,7 +270,7 @@ class InferenceMixin:
     )
 
     def _minimize(
-        self, x0: Union[List[float], np.ndarray], dataset: PointProcessDataset, method: str, max_restarts: int = 5, precise: bool = True, **kwargs,
+        self, x0: Union[List[float], np.ndarray], dataset: PointProcessDataset, method: str, max_restarts: int = 5, precise: bool = True, **kwargs: Any,
     ) -> Any:
         """
         minimize, restarted from its own result while that improves the NLL: L-BFGS-B
@@ -301,7 +301,7 @@ class InferenceMixin:
                 res = OptimizeResult({**tight, "success": True, "nfev": res.nfev + tight.nfev})
         return res
 
-    def fit(self, dataset: PointProcessDataset, method: str = "L-BFGS-B", **kwargs):
+    def fit(self, dataset: PointProcessDataset, method: str = "L-BFGS-B", **kwargs: Any) -> PointProcess:
         res = self._minimize(self.initial_guesses, dataset, method, **kwargs)
 
         valid = res.success and np.isfinite(res.fun) and np.all(np.isfinite(res.x))
@@ -320,7 +320,7 @@ class InferenceMixin:
 
     def _sampling_bounds(
         self, i: int, default: np.ndarray, fallback_scale: float = 10.0
-    ):
+    ) -> Tuple[float, float]:
         lo, hi = self.bounds[i]
         d = default[i]
         if lo is None:
@@ -391,7 +391,7 @@ class InferenceMixin:
         tol_same_optimum: float = 0.5,
         screen_dt: Optional[float] = SCREEN_DT,
         n_refine: int = 3,
-        **kwargs,
+        **kwargs: Any,
     ) -> pd.DataFrame:
         """
         Refit from n_starts different initializations, keep the best
@@ -583,10 +583,9 @@ class ModelComparator:
         models: List[PointProcess],
         dataset: PointProcessDataset,
         method: str = "L-BFGS-B",
-        null_model: Optional[PointProcess] = None,
         on_fitted: Optional[Callable[[int, PointProcess], None]] = None,
         is_cached: Optional[Callable[[int, PointProcess], bool]] = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> Tuple[pd.DataFrame, List[PointProcess]]:
         """
         on_fitted(index, model): called after each successful fit, before the next model's.
@@ -597,18 +596,6 @@ class ModelComparator:
         duplicated = sorted({n for n in names if names.count(n) > 1})
         if duplicated:
             raise ValueError(f"Model names must be unique: {duplicated}")
-
-        if null_model is not None and not any(m is null_model for m in models):
-            null_fitted, null_error = _fit_one_model(
-                null_model, dataset, method, kwargs
-            )
-            if null_error is not None:
-                print(f"[ModelComparator] WARNING: null model fit failed: {null_error}")
-                ll_null = np.nan
-            else:
-                ll_null = null_fitted.log_likelihood
-        else:
-            ll_null = np.nan
 
         results = []
         fitted_values: Dict[str, float] = {}  # parameters already fitted, by name: where the next models start
@@ -633,25 +620,15 @@ class ModelComparator:
                     on_fitted(index, m)
         fitted_models: List[PointProcess] = []
         records = []
-        for model, error in results:  # a null among the models: fitted with them
-            if model is null_model:
-                ll_null = model.log_likelihood if error is None else np.nan
-
         for model, error in results:
             if error is None:
                 fitted_models.append(model)
-                mcfadden_r2 = (
-                    1.0 - model.log_likelihood / ll_null
-                    if not np.isnan(ll_null)
-                    else np.nan
-                )
                 records.append(
                     {
                         "Model Name": model.name,
                         "Params (k)": len(model.param_names),
                         "Log-Likelihood": model.log_likelihood,
                         "AIC": model.aic,
-                        "McFadden R2": mcfadden_r2,
                         "r_dispersion": model.dispersion_r,
                         "Overdispersion (1/r)": model.overdispersion_index,
                         "Converged": True,
@@ -667,7 +644,6 @@ class ModelComparator:
                         "Params (k)": len(model.param_names),
                         "Log-Likelihood": np.nan,
                         "AIC": np.nan,
-                        "McFadden R2": np.nan,
                         "r_dispersion": np.nan,
                         "Overdispersion (1/r)": np.nan,
                         "Converged": False,

@@ -1,4 +1,3 @@
-# point_process/survival_process.py
 from typing import Callable, List, Optional, Tuple, Union
 
 import numpy as np
@@ -15,7 +14,7 @@ def exact(antiderivative: Callable) -> Callable:
     return lambda t0, t1, trial, params: antiderivative(t1, trial, params) - antiderivative(t0, trial, params)
 
 
-def gaussian_area(t, mu, sigma):
+def gaussian_area(t: np.ndarray, mu: float, sigma: float) -> np.ndarray:
     """Integral of exp(-(s - mu)^2 / 2 sigma^2) from -inf to t."""
     return sigma * np.sqrt(2 * np.pi) * special.ndtr((t - mu) / sigma)
 
@@ -29,7 +28,7 @@ class SurvivalKernelFactory:
         comparisons: fits ONLY overall response propensity, no latency
         structure at all."""
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             (B,) = params
             return B * xp.ones_like(t + 0.0 * trial)
 
@@ -47,12 +46,12 @@ class SurvivalKernelFactory:
     def gaussian_bump_baseline(
         t_init: float = 1, t_bounds: Tuple[float, float] = (0.001, 2)
     ) -> RateKernel:
-        """h(t) = H*exp(-(t-mu)^2/2sigma^2) + B. Add ONLY if LR test against
-        the no-baseline bump is significant -- KM plateau not being flat
-        (slow decline continuing well past the burst) is the empirical
-        trigger for trying this."""
+        """
+        h(t) = H*exp(-(t-mu)^2/2sigma^2) + B: a bump over a constant hazard B, which
+        takes the slow decline of the Kaplan-Meier curve well past the burst.
+        """
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             H, mu, sigma, B = params
             return H * xp.exp(-0.5 * ((t - mu) / sigma) ** 2) + B
 
@@ -73,23 +72,18 @@ class SurvivalKernelFactory:
         """
         h(t,m) = H * exp(alpha*m) * exp(-(t-mu)^2/2sigma^2) + B
 
-        Combines gaussian_bump_baseline (B absorbs the slow KM tail past
-        the burst) with gaussian_bump_habituating (H declines across the
-        session) -- habituation acts on the bump amplitude H only, B is
-        trial-constant, same asymmetry as looming_bump_habituating's
-        alpha_H-only design (see plot_response_by_trial: if P(respond)
-        declines across trials while nothing suggests LATENCY itself
-        shifts, that decline is better attributed to a shrinking bump than
-        a shrinking/growing floor).
+        gaussian_bump_baseline whose bump height H changes across trials
+        (habituation); B is the same in every trial (see plot_response_by_trial:
+        if P(respond) declines across trials while nothing suggests LATENCY
+        itself shifts, that decline is better attributed to a shrinking bump
+        than to a changing floor).
 
-        Nest this against gaussian_bump_baseline (LR test on alpha) before
-        keeping it, and against dark_flash_pulse-style shapes if the
-        symmetric bump is still visibly mismatched in Panel D even with
-        baseline+habituation added (shape mismatch and missing habituation
-        are separate problems -- fixing one does not fix the other).
+        Nested in it: gaussian_bump_baseline (alpha = 0). A symmetric bump still
+        mismatched with the habituation added is a shape problem: try
+        gamma_pulse_baseline_habituating or exgaussian_bump_baseline_habituating.
         """
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             H, mu, sigma, B, alpha = params
             height = H * xp.exp(alpha * trial)
             return height * xp.exp(-0.5 * ((t - mu) / sigma) ** 2) + B
@@ -127,7 +121,7 @@ class SurvivalKernelFactory:
         trade off, especially with sparse per-trial event counts.
         """
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             H, mu, sigma0, B, alpha, beta_sigma = params
             height = H * xp.exp(alpha * trial)
             width = sigma0 * bounded_trial_scale(trial, beta_sigma)
@@ -181,7 +175,7 @@ class SurvivalKernelFactory:
         an LR test.
         """
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             H, tau, B, alpha = params
             height = H * xp.exp(alpha * trial)
             pulse = (t / tau) * xp.exp(-t / tau)
@@ -200,11 +194,11 @@ class SurvivalKernelFactory:
     @staticmethod
     def exgaussian_bump_baseline_habituating(
         mu_init: float = 1.0,
-        mu_bounds=(0.001, 2.0),
+        mu_bounds: Tuple[float, float] = (0.001, 2.0),
         sigma_init: float = 0.1,
-        sigma_bounds=(0.005, 1.0),
+        sigma_bounds: Tuple[float, float] = (0.005, 1.0),
         tau_init: float = 0.3,
-        tau_bounds=(0.01, 3.0),
+        tau_bounds: Tuple[float, float] = (0.01, 3.0),
     ) -> RateKernel:
         """
         h(t,m) = H*exp(alpha*m) * exGaussian(t; mu, sigma, tau) + B
@@ -224,7 +218,7 @@ class SurvivalKernelFactory:
         unless this one is clearly better.
         """
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             H, mu, sigma, tau, B, alpha = params
             height = H * xp.exp(alpha * trial)
             peak_shape = exgaussian_shape(t, mu, sigma, tau)
@@ -277,9 +271,9 @@ class SurvivalProcess(PointProcess):
     discards real structure; cross-check against a
     RenewalProcess(kernel, RenewalKernelFactory.hard_absorption()) fit on
     the FULL dataset before trusting this class's AIC for that condition
-    (that comparison is scoped identically to HawkesProcess/RenewalProcess;
-    this class's own AIC is NOT directly comparable to theirs -- see
-    class discussion elsewhere).
+    (that fit describes every event, as HawkesProcess/RenewalProcess do;
+    this class describes first events only, so its AIC is NOT comparable
+    to theirs).
 
     COMPATIBLE WITH GammaMixedEffectsProcess via ordinary polymorphism --
     the only thing this class teaches the rest of the codebase is
@@ -287,7 +281,7 @@ class SurvivalProcess(PointProcess):
     needs to know this class exists.
     """
 
-    def __init__(self, kernel: RateKernel, integration_dt: float = 0.02):
+    def __init__(self, kernel: RateKernel, integration_dt: float = 0.02) -> None:
         super().__init__(integration_dt)
         self.name = f"Survival {kernel.name}"
         self.latex_formula = kernel.latex_formula

@@ -94,7 +94,7 @@ def test_trial_listed_twice_is_refused(tmp_path: Path) -> None:
         BehavioralDataLoader(paths["events"], [paths["trials"]])
 
 
-def test_loader_reads_recording_times():
+def test_loader_reads_recording_times() -> None:
     loader = object.__new__(BehavioralDataLoader)
     hours = {"a": 9.25, "b": 17.5}
     angle = lambda h: 2 * np.pi * h / 24

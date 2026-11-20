@@ -26,6 +26,7 @@ class RateKernel:
     integral_func: Optional[
         Callable[[float, float, np.ndarray, List[float]], np.ndarray]
     ] = None
+    constants: Tuple[float, ...] = ()  # what func depends on besides its arguments and the name does not tell
 
     def evaluate(
         self, t: np.ndarray, trial: np.ndarray, params: List[float]
@@ -180,6 +181,7 @@ class PreyCapture:
         return RateKernel(
             name=f"PreyCapture({variant})",
             func=_func,
+            constants=(stim_freq,),
             param_names=names,
             initial_guesses=[cls._GUESSES[i] for i in kept] + [0.0 if p == "alpha_ripple" else cls._ALPHA_GUESS for p in alphas],
             bounds=[cls._BOUNDS[i] for i in kept] + [cls._ALPHA_RIPPLE_BOUNDS if p == "alpha_ripple" else cls._ALPHA_BOUNDS for p in alphas],
@@ -208,7 +210,7 @@ class RateKernelFactory:
 
     @staticmethod
     def homogeneous_poisson() -> RateKernel:
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             B = params[0]
             return B * xp.ones_like(t + 0.0 * trial)
 
@@ -225,7 +227,7 @@ class RateKernelFactory:
     def exponential_decay() -> RateKernel:
         """lambda(t) = A e^(-t/tau) + B: an onset transient over a tonic rate, the same in every trial."""
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             A, tau, B = params
             return A * xp.exp(-t / tau) + B + 0.0 * trial
 
@@ -251,13 +253,10 @@ class RateKernelFactory:
             suppression AS A FRACTION OF B, at trial m=0. Structurally
             guarantees rate(t=0, m=0) = B*(1-f_dip) > 0 for ANY B > 0 -- no
             runtime clamping needed, unlike an independently-fit Hz depth.
-            For a Hz-comparable "dip depth" (e.g. to compare against other
-            kernels' amplitude terms), compute the DERIVED quantity
-            dip_depth_hz = f_dip * B post-fit (see dip_depth_hz() below) --
-            do not fit this product directly.
+            The depth in Hz (comparable with other kernels' amplitudes) is
+            f_dip * B.
         tau : seconds. Shared time constant for dip recovery AND peak-bump
-            dynamics -- not comparable across kernels; coupled, see caveat
-            in earlier discussion.
+            dynamics -- not comparable across kernels.
         A_peak : Hz. Literal peak height of the delayed excitatory bump above
             the dip-recovery curve, at t=tau, trial m=0 (peak-normalized).
         alpha_B : 1/trial (log-scale). Trial-modulation of B (dip term scales
@@ -265,7 +264,7 @@ class RateKernelFactory:
         alpha_peak : 1/trial (log-scale). Trial-modulation of A_peak.
         """
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             B, f_dip, tau, A_peak, alpha_B, alpha_peak = params
 
             mod_B = B * xp.exp(alpha_B * trial)
@@ -318,6 +317,7 @@ class RateKernelFactory:
         return RateKernel(
             name=name,
             func=_func,
+            constants=(f_dip_upper,),
             param_names=["B", "z0_dip", "tau_dip", "alpha_B", "alpha_dip"],
             initial_guesses=[0.4, float(logit_bounded(0.5, f_dip_upper)), 0.5, 0.0, 0.0],
             bounds=[(0.01, 10.0), z0_dip_bounds, tau_dip_bounds, (-0.1, 0.1), alpha_dip_bounds],
@@ -346,7 +346,7 @@ class RateKernelFactory:
         h(t,m) = B*exp(alpha_B*m)
         """
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             B, alpha_B = params
             return B * xp.exp(alpha_B * trial)
 
@@ -389,7 +389,7 @@ class RateKernelFactory:
         bootstrap spread on the z-scale, not a clipped point mass at 0.99.
         """
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             B, z_dip, tau_dip = params
             f_dip = sigmoid_bounded(z_dip, f_dip_upper)
             return B * (1.0 - f_dip * xp.exp(-t / tau_dip))
@@ -399,6 +399,7 @@ class RateKernelFactory:
         return RateKernel(
             name="OMR forward λ(t)",
             func=_func,
+            constants=(f_dip_upper,),
             param_names=["B", "z_dip", "tau_dip"],
             initial_guesses=[0.4, z_dip_init, 0.5],
             bounds=[(0.01, 5.0), (-15.0, 15.0), (0.01, 5.0)],
@@ -412,7 +413,7 @@ class RateKernelFactory:
     def omr_lateral_contra() -> RateKernel:
         """h(t) = B*(1 - f_dip*exp(-t/tau_dip)), f_dip box-bounded in [0, 0.99]."""
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             B, f_dip, tau_dip = params
             return B * (1.0 - f_dip * xp.exp(-t / tau_dip))
 
@@ -447,7 +448,7 @@ class RateKernelFactory:
         exponential decay from t=mu. tau_dip is independent of tau_decay.
         """
 
-        def _func(t, trial, params):
+        def _func(t: np.ndarray, trial: np.ndarray, params: List[float]) -> np.ndarray:
             B, f_dip, tau_dip, A_peak, alpha_B, alpha_peak, mu, sigma, tau_decay = (
                 params
             )
@@ -525,7 +526,7 @@ def trial_integrals(kernel: RateKernel, params: jnp.ndarray, a: Arrays) -> jnp.n
 
 class PoissonProcess(PointProcess):
 
-    def __init__(self, kernel: RateKernel, integration_dt: float = 0.02):
+    def __init__(self, kernel: RateKernel, integration_dt: float = 0.02) -> None:
 
         super().__init__(integration_dt)
 

@@ -43,20 +43,11 @@ def epoch(
         parameters: Optional[Dict[str, List[Any]]] = None,
     ) -> Epoch:
     """
-    Declare (or re-fetch) one epoch, for use inside `protocol`/`protocol_ptx`.
-
-    This is the ONLY place a given epoch_name's stim/laterality
-    side/parameter constraints are declared -- everything derived below
-    (EPOCH_LATERALITY, PROTOCOL_SPEC) is built from this registry, instead
-    of being hand-written a second/third time with nothing checking it
-    stayed in sync with `protocol`.
-
-    Re-declaring the SAME name (protocol_ptx reuses several names already
-    declared while building `protocol`) is fine as long as
-    stim/ipsi_sign/parameters all agree; if they don't, that's a genuine
-    inconsistency and raises immediately here, instead of silently
-    producing a wrong/missing laterality or presence entry discovered only
-    later, deep in bouts.py or plots/bout_heatmap.py.
+    Declare (or re-fetch) one epoch, for use inside `protocol`/`protocol_ptx`:
+    the only place its stim, laterality side and parameter constraints are
+    declared (EPOCH_LATERALITY and PROTOCOL_SPEC are built from this registry).
+    Declaring a name again (protocol_ptx reuses names of `protocol`) is fine
+    if stim, ipsi_sign and parameters agree, and raises if they don't.
     """
     existing = _REGISTRY.get(name)
     if existing is not None:
@@ -147,12 +138,8 @@ def _build_laterality_table(
         registry: Dict[EpochName, Epoch], mirrored: bool
     ) -> Dict[Tuple[EpochName, EventDirection], Laterality]:
     """
-    Derived directly from each epoch's declared ipsi_sign -- replaces a
-    hand-written (epoch_name, EventDirection) -> Laterality dict and a separate
-    non-directional-name list, both of which previously required retyping
-    every epoch name a second/third time with nothing checking it matched
-    `protocol`. mirrored: the sides declared are those of the stimulus software,
-    swapped in the rig's image (rig.yaml).
+    From each epoch's declared ipsi_sign. mirrored: the sides declared are those
+    of the stimulus software, swapped in the rig's image (rig.yaml).
     """
     table: Dict[Tuple[EpochName, EventDirection], Laterality] = {}
     for name, ep in registry.items():

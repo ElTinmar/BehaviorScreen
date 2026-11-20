@@ -1,5 +1,6 @@
 """Model selection: the multistart fit keeps its best start, and AIC counts every parameter twice."""
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pytest
@@ -14,7 +15,7 @@ def test_multistart_keeps_the_start_with_the_lowest_nll(monkeypatch: pytest.Monk
     """Each start 'converges' where it began, to an NLL that grows with its distance from B = 0.7."""
     model, reached = PoissonProcess(RateKernelFactory.spont()), []
 
-    def minimize(x0: np.ndarray, *args, **kwargs) -> SimpleNamespace:
+    def minimize(x0: np.ndarray, *args: Any, **kwargs: Any) -> SimpleNamespace:
         reached.append(SimpleNamespace(success=True, message="", x=np.array(x0, float), fun=100.0 + (x0[0] - 0.7) ** 2))
         return reached[-1]
 

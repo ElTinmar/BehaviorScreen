@@ -17,7 +17,7 @@ This is the same family of trick already used ad hoc in this codebase
 alpha_B/alpha_peak are already fit in an unconstrained log-linear space).
 """
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 import numpy as np
 
 from BehaviorScreen.point_process.backend import xp
@@ -63,7 +63,7 @@ class BoundedLink:
             return y
 
     @classmethod
-    def from_bounds(cls, bounds) -> "BoundedLink":
+    def from_bounds(cls, bounds: Tuple[Optional[float], Optional[float]]) -> "BoundedLink":
         lo, hi = bounds
         return cls(lo=lo, hi=hi)
 

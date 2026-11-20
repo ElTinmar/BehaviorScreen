@@ -19,7 +19,7 @@ from pathlib import Path
 import cv2
 
 
-def keep_user_labeled_only(input_slp, output_slp):
+def keep_user_labeled_only(input_slp: Path, output_slp: Path) -> None:
 
     labels = sio.load_file(input_slp)
     labels.labeled_frames = [

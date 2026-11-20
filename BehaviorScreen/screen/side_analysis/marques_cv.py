@@ -70,6 +70,7 @@ approximated from the first bout of each presentation) is matched to the closest
 column of its panel and compared with the column the mapping predicts.
 """
 import argparse
+import http.client
 import itertools
 import io
 import json
@@ -266,7 +267,7 @@ BROWSER_HEADERS = {
 }
 
 
-def open_url(url: str, referer: str = "https://data.mendeley.com/", start: int = 0):
+def open_url(url: str, referer: str = "https://data.mendeley.com/", start: int = 0) -> http.client.HTTPResponse:
     headers = {**BROWSER_HEADERS, "Referer": referer} | ({"Range": f"bytes={start}-"} if start else {})
     return urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=60)
 

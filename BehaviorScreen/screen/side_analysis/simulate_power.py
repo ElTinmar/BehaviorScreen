@@ -39,6 +39,7 @@ from BehaviorScreen.point_process.io import save_fig
 from BehaviorScreen.point_process.parallel import parallel_map
 from BehaviorScreen.point_process.point_process import PointProcess
 
+from BehaviorScreen.screen.line_tests.dataset_utils import Arms
 from BehaviorScreen.screen.line_tests.count_readouts import COUNT_READOUTS, count_test, fish_counts
 from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
 from BehaviorScreen.screen.line_tests.tier1_omnibus import fit_tier1, tier1_permutation_test
@@ -92,14 +93,14 @@ def run_job(job: Job) -> List[dict]:
     return rows
 
 
-def design(arms, contrasts: Sequence, behavior: str) -> tuple[PointProcessDataset, PointProcessDataset]:
+def design(arms: Arms, contrasts: Sequence, behavior: str) -> tuple[PointProcessDataset, PointProcessDataset]:
     """(reference, test) datasets of the contrast with the median reference size."""
     pairs = [arms.datasets(c.name, behavior) for c in contrasts]
     pairs = sorted((p for p in pairs if p[0] is not None and p[1] is not None), key=lambda p: p[0].num_fish)
     return pairs[len(pairs) // 2]
 
 
-def make_jobs(behavior_config: Dict[str, dict], arms, contrasts: Sequence, folds: Sequence[float], args: argparse.Namespace) -> List[Job]:
+def make_jobs(behavior_config: Dict[str, dict], arms: Arms, contrasts: Sequence, folds: Sequence[float], args: argparse.Namespace) -> List[Job]:
     jobs = []
     for behavior in args.behaviors or list(behavior_config):
         cfg = behavior_config[behavior]

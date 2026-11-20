@@ -16,7 +16,7 @@ from BehaviorScreen.preprocessing.recording import Recording
 def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
-        description="Run megabout pipeline on tracking data from Lightning Pose"
+        description="Fish-level exclusions (qc.csv) and the per-trial record (valid_trials.csv) of one <line>/<condition> folder"
     )
 
     parser.add_argument(
@@ -75,19 +75,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--metadata",
         default="results",
-        help="Subfolder containing metadata files (default: data)",
+        help="Subfolder containing metadata files (default: %(default)s)",
     )
 
     parser.add_argument(
         "--stimuli",
         default="results",
-        help="Subfolder containing stimulus log files (default: data)",
+        help="Subfolder containing stimulus log files (default: %(default)s)",
     )
 
     parser.add_argument(
         "--tracking",
         default="results",
-        help="Subfolder containing tracking CSV files (default: data)",
+        help="Subfolder containing tracking CSV files (default: %(default)s)",
     )
 
     parser.add_argument(
@@ -99,19 +99,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--temperature",
         default="results",
-        help="Subfolder containing temperature logs (default: data)",
+        help="Subfolder containing temperature logs (default: %(default)s)",
     )
 
     parser.add_argument(
         "--video",
         default="results",
-        help="Subfolder containing raw video files (default: video)",
+        help="Subfolder containing the per-animal video files (default: %(default)s)",
     )
 
     parser.add_argument(
         "--video-timestamp",
         default="results",
-        help="Subfolder containing video timestamp files (default: video)",
+        help="Subfolder containing video timestamp files (default: %(default)s)",
     )
 
     parser.add_argument(

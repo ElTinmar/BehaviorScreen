@@ -67,7 +67,10 @@ This needs to be run only once to create the reference UMAP space
 using data from the Dowell paper
 
 ```
-./make_ref.sh
+python -m BehaviorScreen.preprocessing.saccades.paper_reference download --output-dir paper_data
+python -m BehaviorScreen.preprocessing.saccades.paper_reference extract --data-dir paper_data --output paper_data/paper_reference.csv
+python -m BehaviorScreen.preprocessing.saccades.paper_reference build --reference-csv paper_data/paper_reference.csv --output paper_data/paper_reference.joblib
+python -m BehaviorScreen.preprocessing.saccades.paper_reference plot --reference-csv paper_data/paper_reference.csv --model paper_data/paper_reference.joblib --output paper_data/reference_umap.png
 ```
 
 To detect saccades, run

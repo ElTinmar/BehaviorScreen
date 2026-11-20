@@ -94,6 +94,13 @@ def test_numpy_and_jax_agree(kind: str, complete: PointProcessDataset, mask: np.
     assert model.jax_value(np.array(model.initial_guesses, float), data) == pytest.approx(nll(model, data), rel=1e-8)
 
 
+def test_numpy_and_jax_agree_before_the_first_bout_of_a_stream(complete: PointProcessDataset) -> None:
+    """A recovery slower than the longest gap between bouts, and no bout before the trials: no recovery applies there."""
+    model, data = RenewalProcess(shaped(), recovery()), replace(complete, history=None)
+    params = np.array([*shaped().initial_guesses, 30.0, 0.5])
+    assert model.jax_value(params, data) == pytest.approx(model._nll(list(params), data), rel=1e-8)
+
+
 @pytest.mark.parametrize("kind", MODELS)
 def test_fish_without_observed_trial_counts_for_nothing(kind: str, complete: PointProcessDataset, mask: np.ndarray) -> None:
     model, data = MODELS[kind](), observed(complete, mask)

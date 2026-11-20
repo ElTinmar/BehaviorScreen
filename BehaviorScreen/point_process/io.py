@@ -1,4 +1,6 @@
+import pickle
 import re
+from typing import Any
 import matplotlib.pyplot as plt
 from pathlib import Path
 import pandas as pd
@@ -17,6 +19,13 @@ def save_fig(fig: plt.Figure, out_dir: Path, filename: str, dpi: int = 150) -> P
     path = out_dir / f"{slugify(filename)}.png"
     fig.savefig(path, dpi=dpi, bbox_inches="tight")
     return path
+
+
+def save_pickle(value: Any, path: Path) -> None:
+    """Pickle value at path: whole or absent, even when the job is stopped while writing."""
+    partial = path.with_suffix(".tmp")
+    partial.write_bytes(pickle.dumps(value))
+    partial.replace(path)
 
 
 def save_csv(df: pd.DataFrame, out_dir: Path, filename: str) -> Path:

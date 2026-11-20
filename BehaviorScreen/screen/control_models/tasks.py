@@ -128,7 +128,7 @@ def run_fit_task(
         save_comparison_table(exp_name, models, records, model_dir)
 
     _, fitted_models = ModelComparator.compare(
-        models=models, dataset=dataset, null_model=config["null_model"], on_fitted=on_fitted, is_cached=is_cached, n_starts=20, n_jobs=n_jobs
+        models=models, dataset=dataset, on_fitted=on_fitted, is_cached=is_cached, n_starts=20, n_jobs=n_jobs
     )
     best = fitted_models[0]
     save_best_model(config, best, model_dir)
@@ -195,7 +195,6 @@ def save_fit_records(records: Dict[str, dict], model_dir: Path) -> None:
 
 def save_comparison_table(exp_name: str, models: list, records: Dict[str, dict], model_dir: Path) -> None:
     """model_comparison_table.csv, one row per rung of the ladder (fitted so far), best AIC first."""
-    null = models[0].log_likelihood if models[0].params_ is not None else np.nan
     rows = []
     for index, m in enumerate(models):
         fitted = m.params_ is not None and m.fit_result is not None
@@ -203,7 +202,7 @@ def save_comparison_table(exp_name: str, models: list, records: Dict[str, dict],
         rows.append({
             "Condition": exp_name, "Rung": index, "Folder": rung_folder(index, m), "Model Name": m.name,
             "Params (k)": len(m.param_names), "Log-Likelihood": m.log_likelihood if fitted else np.nan,
-            "AIC": m.aic if fitted else np.nan, "McFadden R2": 1.0 - m.log_likelihood / null if fitted else np.nan,
+            "AIC": m.aic if fitted else np.nan,
             "r_dispersion": m.dispersion_r if fitted else np.nan, "Overdispersion (1/r)": m.overdispersion_index if fitted else np.nan,
             "Converged": fitted, "Starts": ms.get("starts"), "Starts converged": ms.get("converged"), "Starts at best": ms.get("at_best"),
             "Nearest other optimum": ms.get("nearest_gap"), "Farthest other optimum": ms.get("farthest_gap"),

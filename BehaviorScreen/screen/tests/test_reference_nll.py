@@ -14,6 +14,7 @@ import pytest
 
 from BehaviorScreen.screen.control_models.model_config import get_model_config
 from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.tests.conftest import reference_dataset
 
 REFERENCE = Path(__file__).with_name("reference_nll.json")
@@ -25,7 +26,7 @@ def reference_data() -> PointProcessDataset:
     return reference_dataset()
 
 
-def points(model) -> Dict[str, np.ndarray]:
+def points(model: PointProcess) -> Dict[str, np.ndarray]:
     """The initial guesses, and a point moved 5% (or 0.05) toward the middle of the bounds."""
     x = np.array(model.initial_guesses, dtype=float)
     lower = np.array([-np.inf if lo is None else lo for lo, _ in model.bounds])

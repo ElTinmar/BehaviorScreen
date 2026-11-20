@@ -1,5 +1,5 @@
 """PointProcess: parameters, likelihood interface, compensator and simulation."""
-from typing import Callable, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, Callable, ClassVar, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -90,7 +90,12 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
 
     def _jax_key(self) -> Tuple:
         """What jax_nll depends on besides its arguments: one compiled likelihood per key."""
-        return type(self).__name__, self.name, self.integration_dt
+        return type(self).__name__, self.name, self.integration_dt, self._constants()
+
+    def _constants(self) -> Tuple:
+        """The `constants` of the kernels and gain family, and those of the processes under this one."""
+        return tuple(c for part in vars(self).values()
+                     for c in (part._constants() if isinstance(part, PointProcess) else getattr(part, "constants", ())))
 
     def _arrays(self, dataset: PointProcessDataset) -> Arrays:
         return dataset.cached(("jax",) + self._jax_key(), lambda: self.jax_arrays(dataset))
@@ -148,7 +153,7 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
     def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
         raise NotImplementedError
 
-    def predict(self, t: np.ndarray, trial: np.ndarray, **kwargs) -> np.ndarray:
+    def predict(self, t: np.ndarray, trial: np.ndarray, **kwargs: Any) -> np.ndarray:
         raise NotImplementedError
 
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:

@@ -48,7 +48,7 @@ def add_local_argument(parser: argparse.ArgumentParser) -> None:
 class Jobs:
     """Jobs on this machine: submit them in order (a job's dependencies first), then finish."""
 
-    def __init__(self, local: bool = False):
+    def __init__(self, local: bool = False) -> None:
         self.machine = this_machine()
         self.slurm = self.machine.slurm and not local
         self.failed: List[str] = []

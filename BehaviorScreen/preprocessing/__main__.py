@@ -8,7 +8,7 @@ from BehaviorScreen.preprocessing.status import SACCADES_CSV
 def build_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
-        description="Export per-animal behavior data (tracking, metadata, stimuli, videos)"
+        description="Preprocess one <line>/<condition> folder: the steps of --steps, in pipeline order"
     )
 
     parser.add_argument(

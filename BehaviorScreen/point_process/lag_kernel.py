@@ -17,6 +17,7 @@ class LagKernel:
     bounds: List[Tuple[Optional[float], Optional[float]]]
     integral_func: Optional[Callable[[np.ndarray, List[float]], np.ndarray]] = None
     latex_formula: str = ""
+    constants: Tuple[float, ...] = ()  # what func depends on besides its arguments and the name does not tell
 
     def evaluate(self, lag: np.ndarray, params: List[float]) -> np.ndarray:
         if not is_jax(lag) and np.any(lag < 0):

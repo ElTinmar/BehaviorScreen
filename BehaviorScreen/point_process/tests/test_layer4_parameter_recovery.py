@@ -1,4 +1,3 @@
-# tests/test_layer4_parameter_recovery.py
 """
 LAYER 4: end-to-end parameter recovery.
 
@@ -31,6 +30,7 @@ import numpy as np
 import pytest
 
 from .conftest import (
+    RngFactory,
     make_scaffold_dataset,
     simulate_dataset_from_model,
     assert_recovered,
@@ -69,7 +69,7 @@ from BehaviorScreen.point_process.kernel_shapes import logit_bounded, sigmoid_bo
 
 class TestPoissonProcessRecovery:
 
-    def test_homogeneous_rate(self, rng_factory):
+    def test_homogeneous_rate(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(0)
         true_B = 0.8
 
@@ -87,8 +87,8 @@ class TestPoissonProcessRecovery:
 
     def test_shaped_kernel_omr_forward(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         """
         Recovery for a transient dip kernel.
 
@@ -170,7 +170,7 @@ class TestPoissonProcessRecovery:
 
 class TestHawkesProcessRecovery:
 
-    def test_homogeneous_baseline_exponential_history(self, rng_factory):
+    def test_homogeneous_baseline_exponential_history(self, rng_factory: RngFactory) -> None:
         """
         Deliberately a FLAT baseline kernel -- no competing deterministic
         ramp, i.e. the unconfounded regime from the identifiability
@@ -217,7 +217,7 @@ class TestHawkesProcessRecovery:
 
 class TestRenewalProcessRecovery:
 
-    def test_homogeneous_baseline_exponential_excitation(self, rng_factory):
+    def test_homogeneous_baseline_exponential_excitation(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(3)
         true_B, true_A_exc, true_tau_exc = 0.5, 1.0, 0.3
 
@@ -252,7 +252,7 @@ class TestRenewalProcessRecovery:
 
 class TestSurvivalProcessRecovery:
 
-    def test_gaussian_bump_baseline(self, rng_factory):
+    def test_gaussian_bump_baseline(self, rng_factory: RngFactory) -> None:
         """Survival models discard everything but each stream's first event,
         so this needs MANY (fish, trial) streams -- not long individual
         trials -- to get enough exact (uncensored) observations."""
@@ -292,7 +292,7 @@ class TestSurvivalProcessRecovery:
 
 class TestGammaMixedEffectsProcessRecovery:
 
-    def test_poisson_homogeneous_base(self, rng_factory):
+    def test_poisson_homogeneous_base(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(5)
         true_B, true_r = 0.6, 3.0
 
@@ -323,7 +323,7 @@ class TestGammaMixedEffectsProcessRecovery:
 
 class TestZeroInflatedGammaMixedEffectsProcessRecovery:
 
-    def test_poisson_homogeneous_base_hard_nonresponders(self, rng_factory):
+    def test_poisson_homogeneous_base_hard_nonresponders(self, rng_factory: RngFactory) -> None:
         """pi/r tolerances are the loosest in this suite -- mixture-weight
         recovery needs a LOT of fish to be reliable (Self & Liang
         boundary-of-parameter-space concern near pi=0)."""
@@ -373,7 +373,7 @@ class TestZeroInflatedGammaMixedEffectsProcessRecovery:
 
 class TestBaselineOnlyFrailtyHawkesProcessRecovery:
 
-    def test_homogeneous_baseline_exponential_history(self, rng_factory):
+    def test_homogeneous_baseline_exponential_history(self, rng_factory: RngFactory) -> None:
         """
         Gains are drawn manually here. n_quad_nodes is reduced from the
         default (30) to keep runtime reasonable.
@@ -416,8 +416,8 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
     @pytest.mark.slow
     def test_homogeneous_baseline_exponential_history_hard_nonresponders(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         """
         Recovery of a zero-inflated baseline-only frailty Hawkes model.
 
@@ -562,7 +562,7 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
             atol=0.03,
         )
 
-    def test_pi_zero_collapses_to_baseline_only_frailty(self, rng_factory):
+    def test_pi_zero_collapses_to_baseline_only_frailty(self, rng_factory: RngFactory) -> None:
         """
         Structural consistency check (not a recovery check): pi -> 0 should
         make this class's likelihood numerically match
@@ -621,7 +621,7 @@ class TestZeroInflatedBaselineOnlyFrailtyHawkesProcessRecovery:
 
 class TestPartiallyFixedProcessRecovery:
 
-    def test_fixing_a_true_parameter_recovers_the_rest(self, rng_factory):
+    def test_fixing_a_true_parameter_recovers_the_rest(self, rng_factory: RngFactory) -> None:
         """Pin tau_dip at its TRUE value and check B, z_dip are still
         recoverable -- exercises the expand/contract parameter-vector
         plumbing, not the underlying kernel's own identifiability."""

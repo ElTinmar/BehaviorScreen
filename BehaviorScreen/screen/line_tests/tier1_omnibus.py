@@ -7,8 +7,7 @@ at typical line_reference/line_test arm sizes).
 
 No MultiGroupProcess needed for this saturated 2-group comparison --
 reference-only + test-only IS the saturated joint model, at lower
-dimensionality and with no risk of the optimizer fragility seen in the
-originally-attempted joint fits.
+dimensionality.
 """
 import copy
 import json
@@ -22,13 +21,14 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+from matplotlib.collections import QuadMesh
 from matplotlib.colors import LinearSegmentedColormap
 
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.inference import load_replicates, newton_step_matrix, refit_from_fit
 from BehaviorScreen.point_process.parallel import parallel_map, report_failures
-from BehaviorScreen.point_process.io import save_fig, slugify
+from BehaviorScreen.point_process.io import save_fig, save_pickle, slugify
 
 from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric, recording_days
 from .gain_structure import GainStructure, fish_groups
@@ -313,10 +313,7 @@ def cell_path(store: Path, line: str, behavior: str) -> Path:
 
 
 def save_cell(store: Path, record: Dict) -> None:
-    path = cell_path(store, record["line"], record["behavior"])
-    with open(path.with_suffix(".tmp"), "wb") as f:
-        pickle.dump(record, f)
-    path.with_suffix(".tmp").replace(path)  # whole or absent, even when the job is stopped while writing
+    save_pickle(record, cell_path(store, record["line"], record["behavior"]))
 
 
 def refuse_other_settings(folder: Path, key: Dict) -> None:
@@ -356,7 +353,7 @@ def extend_permutations(tier1_df: pd.DataFrame, arms: Arms, n_perm_max: int, sto
 
 
 def run_tier1_screen(
-    arms: Arms, behaviors, null_process_factories,
+    arms: Arms, behaviors: List[str], null_process_factories: Dict[str, Callable[[], PointProcess]],
     n_perm: int, n_sim: int, show_progress: bool = True, store: Optional[Path] = None,
     structures: Optional[Dict[str, GainStructure]] = None,
 ) -> pd.DataFrame:
@@ -439,37 +436,14 @@ def arm_estimates(model: PointProcess, hessian: Optional[np.ndarray]) -> Dict[st
     return {"value": dict(model.param_dict_), "se": standard_errors(model, hessian)}
 
 
-def extract_fitted_parameters(tier1_df: pd.DataFrame, arms: Arms) -> pd.DataFrame:
-    """
-    Free parameters of both arms of every 'ok' cell, with standard errors: those its cell saved (arm_estimates), or
-    for a cell saved without them, refitted here.
-    """
-    records, errors = [], {}
-
-    def standard_errors(arm: Tuple[str, str], behavior: str, exclude: frozenset) -> Dict[str, float]:
-        key = (*arm, behavior, exclude)
-        if key not in errors:
-            model = arms.model(*key)
-            errors[key] = standard_errors(model, model.estimate_hessian(arms.dataset(*arm, behavior)))
-        return errors[key]
-
+def extract_fitted_parameters(tier1_df: pd.DataFrame) -> pd.DataFrame:
+    """Free parameters of both arms of every 'ok' cell, with the standard errors saved with it (arm_estimates)."""
+    records = []
     for _, row in tier1_df[tier1_df["status"] == "ok"].iterrows():
-        line, behavior = row["line"], row["behavior"]
-        contrast = arms.contrasts[line]
-        if isinstance(estimates := row.get("arm_estimates"), dict):
-            ref, test = estimates["reference"], estimates["test"]
-        else:
-            try:
-                m_ref, m_test = arms.models(line, behavior)
-            except Exception as e:
-                tqdm.write(f"[{line}/{behavior}] refit failed during parameter extraction: {e}")
-                continue
-            exclude = arms.contrast_arms(line)
-            ref = {"value": m_ref.param_dict_, "se": standard_errors(contrast.reference, behavior, exclude)}
-            test = {"value": m_test.param_dict_, "se": standard_errors(contrast.test, behavior, exclude)}
+        ref, test = row["arm_estimates"]["reference"], row["arm_estimates"]["test"]
         for pname in ref["value"]:
             records.append({
-                "family": contrast.family, "line": line, "behavior": behavior, "parameter": pname,
+                "family": row["family"], "line": row["line"], "behavior": row["behavior"], "parameter": pname,
                 "value_reference": ref["value"][pname], "value_test": test["value"][pname],
                 "se_reference": ref["se"][pname], "se_test": test["se"][pname],
                 "significant": bool(row.get("significant", False)),
@@ -724,8 +698,8 @@ def plot_arm_surface_grid_with_marginals(
         left=0.07, right=0.86, top=0.90, bottom=0.07,
     )
 
-    def _draw_arm(row0: int, ds, surf_emp, surf_model, tm_emp, tm_model, trm_emp, trm_model, row_label: str,
-                  show_legend: bool):
+    def _draw_arm(row0: int, ds: PointProcessDataset, surf_emp: np.ndarray, surf_model: np.ndarray, tm_emp: np.ndarray, tm_model: np.ndarray,
+                  trm_emp: np.ndarray, trm_model: np.ndarray, row_label: str, show_legend: bool) -> QuadMesh:
         ax_time = fig.add_subplot(gs[row0, 0:2])
         ax_emp = fig.add_subplot(gs[row0 + 1, 0], sharex=ax_time)
         ax_model = fig.add_subplot(gs[row0 + 1, 1], sharex=ax_time, sharey=ax_emp)
@@ -863,13 +837,9 @@ def plot_volcano(
     q-value alone while still deserving a discount. If triage_df isn't
     supplied, falls back to a plain significant/not-significant coloring.
 
-    effect_col is now METRIC-AWARE at the axis-label level: depending on
-    which effect-size path produced a given behavior's cells (aggregate
-    response_probability -> logit_diff, aggregate rate ->
-    log2_fold_change, or a single free parameter -> log2_fold_change on
-    that PARAMETER specifically, e.g. param_H/param_B), the x-axis label
-    is built to describe the actual quantity plotted rather than assuming
-    only the first two cases exist.
+    The x-axis label names the effect size of the behavior's cells
+    (tier1_effect_size): the logit difference of a response probability,
+    or the log2 fold change of a rate or of the single free parameter.
     """
     plot_df = df[df["status"].isin(["ok", "ok_response_abolished"])].copy()
     plot_df = plot_df.dropna(subset=[effect_col, "p_value"])
@@ -899,7 +869,7 @@ def plot_volcano(
         sig_rows = sub[sub.get("significant", False)]
         return sig_rows["p_value"].max() if len(sig_rows) else None
 
-    def _scatter_by_cause(ax, sub):
+    def _scatter_by_cause(ax: plt.Axes, sub: pd.DataFrame) -> None:
         for cause, group in sub.groupby("cause"):
             style = cause_style.get(cause, default_style)
             ax.scatter(group[effect_col], group["neg_log10_p"], s=22, edgecolors="none", **style)
@@ -978,7 +948,7 @@ def plot_volcano(
     plt.tight_layout(rect=[0, 0.05, 1, 0.97])
     return fig, axes
 
-def _label_top_hits(ax, sub: pd.DataFrame, effect_col: str, label_col: str, top_n: int):
+def _label_top_hits(ax: plt.Axes, sub: pd.DataFrame, effect_col: str, label_col: str, top_n: int) -> None:
     if top_n <= 0 or "p_value" not in sub.columns:
         return
     top = sub.nsmallest(top_n, "p_value")
@@ -990,7 +960,7 @@ def _label_top_hits(ax, sub: pd.DataFrame, effect_col: str, label_col: str, top_
         )
 
 def _bootstrap_one_delta_iteration(
-    seed_seq, ds_ref: PointProcessDataset, ds_test: PointProcessDataset, behavior: str,
+    seed_seq: np.random.SeedSequence, ds_ref: PointProcessDataset, ds_test: PointProcessDataset, behavior: str,
     fits: Tuple[PointProcess, PointProcess], steps: Tuple[Optional[np.ndarray], Optional[np.ndarray]], transform_lookup: dict,
 ) -> Optional[Dict[str, float]]:
     """
@@ -1049,7 +1019,7 @@ def bootstrap_parameter_deltas(
         vals = pd.concat([group["value_reference"], group["value_test"]]).dropna()
         transform_lookup[(behavior, pname)] = "log2_ratio" if len(vals) > 0 and (vals > 0).all() else "difference"
 
-    def _point_delta(v_ref, v_test, transform):
+    def _point_delta(v_ref: float, v_test: float, transform: str) -> float:
         if transform == "log2_ratio":
             return np.log2(max(v_test, 1e-9) / max(v_ref, 1e-9))
         return v_test - v_ref

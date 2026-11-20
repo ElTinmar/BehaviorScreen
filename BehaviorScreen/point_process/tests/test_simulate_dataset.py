@@ -14,7 +14,7 @@ goodness-of-fit tests. They verify that full-dataset simulation:
 
 import numpy as np
 
-from .conftest import make_scaffold_dataset
+from .conftest import RngFactory, make_scaffold_dataset
 
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.poisson_process import (
@@ -38,7 +38,7 @@ class GainRecordingPoisson(PoissonProcess):
     whether simulate_dataset() reuses one gain across each fish's trials.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(RateKernelFactory.homogeneous_poisson())
         self.recorded_calls = []
         self.draw_call_arguments = []
@@ -47,7 +47,7 @@ class GainRecordingPoisson(PoissonProcess):
         self,
         num_fish: int,
         n_sims: int,
-        rng,
+        rng: np.random.Generator,
     ) -> np.ndarray:
         self.draw_call_arguments.append((int(num_fish), int(n_sims)))
 
@@ -68,7 +68,7 @@ class GainRecordingPoisson(PoissonProcess):
         dataset: PointProcessDataset,
         t_idx: int,
         gain: float,
-        rng,
+        rng: np.random.Generator,
     ) -> np.ndarray:
         self.recorded_calls.append(
             {
@@ -84,8 +84,8 @@ class TestSimulateDataset:
 
     def test_preserves_design_metadata_and_event_bounds(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         """
         The simulated dataset must retain the original observation design
         and metadata. Every generated event must belong to an active
@@ -166,8 +166,8 @@ class TestSimulateDataset:
 
     def test_inactive_streams_are_not_simulated(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         """
         simulate_stream() should be called exactly once for every active
         fish x trial cell and never for an inactive cell.
@@ -221,8 +221,8 @@ class TestSimulateDataset:
 
     def test_one_gain_is_reused_across_each_fish_trials(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         """
         A fish-level frailty draw must be shared across all of that fish's
         trials, rather than redrawn independently for every stream.
@@ -269,8 +269,8 @@ class TestSimulateDataset:
 
     def test_simulation_is_reproducible_for_fixed_seed(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         """
         Two simulations from the same model, scaffold, and random seed
         should generate identical event arrays.
@@ -313,8 +313,8 @@ class TestSimulateDataset:
 
     def test_empty_simulation_returns_correct_array_types(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         """
         A dataset with no generated events must still contain correctly
         typed empty arrays and preserve the complete observation design.

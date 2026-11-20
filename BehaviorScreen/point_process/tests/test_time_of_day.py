@@ -1,5 +1,6 @@
 """The time-of-day factor on the fish gain: g_f mu_f, mu_f = exp(beta_hour (t_f - HOUR_REFERENCE))."""
 from dataclasses import replace
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ from .conftest import DummyFitResult, make_scaffold_dataset, reference_dataset
 from .test_layer3_simulation_compensator_consistency import _km_exp1_sup_distance
 
 from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.frailty import (
     HOUR_REFERENCE, GammaMixedEffectsProcess, SideFrailty, ZeroInflatedGammaMixedEffectsProcess,
 )
@@ -36,7 +38,7 @@ def with_hours(dataset: PointProcessDataset, rng: np.random.Generator) -> PointP
     return replace(dataset, fish_hours=hours, history=history)
 
 
-def with_beta(model, beta: float) -> np.ndarray:
+def with_beta(model: PointProcess, beta: float) -> np.ndarray:
     params = list(model.initial_guesses)
     params[model._hour_idx] = beta
     return np.asarray(params, dtype=float)
@@ -48,7 +50,7 @@ def data() -> PointProcessDataset:
 
 
 @pytest.mark.parametrize("kind", FACTORIES)
-def test_beta_zero_is_the_model_without_it(kind, data):
+def test_beta_zero_is_the_model_without_it(kind: str, data: PointProcessDataset) -> None:
     plain, hour = FACTORIES[kind](), FACTORIES[kind](time_of_day=True)
     assert hour.param_names[hour._hour_idx] == "beta_hour" and "+Hour" in hour.name
     assert hour.param_names[: hour._hour_idx] + hour.param_names[hour._hour_idx + 1:] == plain.param_names
@@ -59,7 +61,7 @@ def test_beta_zero_is_the_model_without_it(kind, data):
 
 
 @pytest.mark.parametrize("kind", [k for k in FACTORIES if FACTORIES[k]().supports_jax()])
-def test_numpy_and_jax_agree(kind, data):
+def test_numpy_and_jax_agree(kind: str, data: PointProcessDataset) -> None:
     hour = FACTORIES[kind](time_of_day=True)
     params = with_beta(hour, -0.08)
     assert hour.jax_value(params, data) == pytest.approx(hour._nll(list(params), data), rel=1e-8)
@@ -71,7 +73,7 @@ def test_numpy_and_jax_agree(kind, data):
 
 
 @pytest.mark.parametrize("kind", ["whole", "whole + trial", "survival"])
-def test_factor_scales_the_rate(kind, data):
+def test_factor_scales_the_rate(kind: str, data: PointProcessDataset) -> None:
     """A gain on the whole rate: hours shifted by c equal the rate amplitude times exp(beta c)."""
     hour, beta, c = FACTORIES[kind](time_of_day=True), -0.07, 2.5
     params = with_beta(hour, beta)
@@ -82,7 +84,7 @@ def test_factor_scales_the_rate(kind, data):
     assert hour._nll(list(params), shifted) == pytest.approx(hour._nll(list(scaled), data), rel=1e-9)
 
 
-def test_needs_every_fish_hour(data):
+def test_needs_every_fish_hour(data: PointProcessDataset) -> None:
     hour = FACTORIES["whole"](time_of_day=True)
     with pytest.raises(ValueError, match="recording time"):
         hour._nll(list(with_beta(hour, 0.0)), replace(data, fish_hours=None))
@@ -92,7 +94,7 @@ def test_needs_every_fish_hour(data):
         hour._nll(list(with_beta(hour, 0.0)), replace(data, fish_hours=missing))
 
 
-def test_datasets_keep_fish_hours(data):
+def test_datasets_keep_fish_hours(data: PointProcessDataset) -> None:
     picked = data.fish([3, 1, 3])
     assert np.array_equal(picked.fish_hours, data.fish_hours[[3, 1, 3]])
     assert np.array_equal(picked.history.fish_hours, data.fish_hours[[3, 1, 3]])
@@ -104,14 +106,16 @@ def test_datasets_keep_fish_hours(data):
     assert np.array_equal(simulated.fish_hours, data.fish_hours) and np.array_equal(simulated.history.fish_hours, data.fish_hours)
 
 
-def simulated(model, params: np.ndarray, num_fish: int, num_trials: int, duration_s: float, seed: int, template=None) -> PointProcessDataset:
+def simulated(
+    model: PointProcess, params: np.ndarray, num_fish: int, num_trials: int, duration_s: float, seed: int, template: Optional[PointProcessDataset] = None,
+) -> PointProcessDataset:
     rng = np.random.default_rng(seed)
     model.set_params(params)
     template = template or make_scaffold_dataset(num_fish, num_trials, duration_s)
     return model.simulate_dataset(with_hours(template, rng), rng)
 
 
-def test_beta_recovered_whole_rate():
+def test_beta_recovered_whole_rate() -> None:
     true = FACTORIES["whole"](time_of_day=True)
     data = simulated(true, np.array([0.6, 3.0, -0.06]), 500, 8, 10.0, seed=11)
     model = FACTORIES["whole"](time_of_day=True)
@@ -121,7 +125,7 @@ def test_beta_recovered_whole_rate():
 
 
 @pytest.mark.slow
-def test_beta_recovered_renewal_with_trial_gain():
+def test_beta_recovered_renewal_with_trial_gain() -> None:
     true = FACTORIES["drive + trial"](time_of_day=True)
     params = with_beta(true, -0.06)
     data = simulated(true, params, 300, 8, 24.0, seed=12, template=reference_dataset(num_fish=300))
@@ -132,7 +136,7 @@ def test_beta_recovered_renewal_with_trial_gain():
 
 
 @pytest.mark.parametrize("kind", ["whole", "drive + trial"])
-def test_time_rescaling_calibrated(kind):
+def test_time_rescaling_calibrated(kind: str) -> None:
     """Simulated with mu_f, rescaled with mu_f: Exp(1) residuals."""
     model = FACTORIES[kind](time_of_day=True)
     params = with_beta(model, -0.1)
@@ -144,7 +148,7 @@ def test_time_rescaling_calibrated(kind):
     assert _km_exp1_sup_distance(model, residuals, censored) <= 0.03
 
 
-def test_estimated_gains_exclude_the_factor():
+def test_estimated_gains_exclude_the_factor() -> None:
     """Fish far from the reference hour: their posterior g_f stays near 1 when mu_f explains their rate."""
     model = FACTORIES["whole"](time_of_day=True)
     data = simulated(model, np.array([0.8, 50.0, -0.15]), 400, 8, 10.0, seed=5)  # r = 50: gains near 1
@@ -155,7 +159,7 @@ def test_estimated_gains_exclude_the_factor():
     assert HOUR_REFERENCE == 13.5
 
 
-def test_ladder_starts_it_from_the_model_without_it():
+def test_ladder_starts_it_from_the_model_without_it() -> None:
     """In a ladder, the time-of-day rung starts at its counterpart's fit with beta_hour = 0, wherever it sits: never a worse fit."""
     from BehaviorScreen.point_process.inference import ModelComparator
 

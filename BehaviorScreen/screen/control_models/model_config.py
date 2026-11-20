@@ -1,6 +1,6 @@
 """Experiments: the dataset each one is built from and the candidate models, in a fixed order."""
 
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
 from megabouts.utils import bouts_category_name_short
 from BehaviorScreen.core import SACCADE_CATEGORY_NAMES, Laterality, Stim
@@ -179,7 +179,10 @@ def sided_hour_rungs(
             side_gamma(sided(ipsi(), contra()), time_of_day=True)]
 
 
-def dataset(category, laterality, t_end: float, binning_dt: float = 0.05, **selection) -> dict:
+def dataset(
+    category: Optional[Union[str, Sequence[str]]], laterality: Optional[Union[Laterality, Sequence[Laterality]]], t_end: float,
+    binning_dt: float = 0.05, **selection: Any,
+) -> dict:
     """prepare_dataset arguments; category and laterality may be lists (pooled) or None (all)."""
     return dict(
         selection,
@@ -254,8 +257,9 @@ def experiment(
 
 def get_model_config() -> Dict[str, dict]:
     """
-    Fresh (unfitted) models every call. Keep the model order: best_model.json
-    stores an index (new models go at the end of a list).
+    Fresh (unfitted) models every call. The order of a ladder matters: a rung starts
+    from the values fitted before it, the first one is the 'base' variant of the line
+    tests, and a rung's folder carries its number (new models go at the end of a list).
     """
     looming_bump = lambda: SurvivalKernelFactory.gaussian_bump_baseline(
         t_init=5, t_bounds=(4, 6)

@@ -361,6 +361,7 @@ class ZeroInflatedFamily:
         r_floor: float = 1e-3,
     ) -> None:
         self.fit_c, self.c_init, self.c_upper = fit_c, c_init, c_upper
+        self.constants = (c_upper,) if fit_c else (c_init,)
         self.suffix = " (fit c)" if fit_c else ""
         self.param_names = ["z_pi_nonresponder", "r_dispersion"]
         self.initial_guesses = [float(logit_bounded(pi_init, 1.0)), r_init]
@@ -401,10 +402,10 @@ class _GainWrapper(Wrapper):
             params = self.params_
         return self.gains(params[self._n_base :])
 
-    def mixed_effects_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
+    def mixed_effects_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]) -> Tuple[float, np.ndarray, np.ndarray]:
         raise NotImplementedError(f"{self.name} already integrates a fish gain.")
 
-    def stream_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
+    def stream_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]) -> Tuple[float, np.ndarray, np.ndarray]:
         raise NotImplementedError(f"{self.name} already integrates a fish gain.")
 
     def _draw_fish_gains(self, num_fish: int, n_sims: int, rng: np.random.Generator) -> np.ndarray:
@@ -490,14 +491,14 @@ class Frailty(_GainWrapper):
         """mu_f per fish (ones without time_of_day)."""
         return np.exp(params[self._hour_idx] * self._hour_offsets(dataset)) if self.time_of_day else np.ones(dataset.num_fish)
 
-    def _scale_drive(self, params: List[float], dataset: PointProcessDataset, drive_rates: np.ndarray, stream: np.ndarray, drive_exposure: np.ndarray):
+    def _scale_drive(self, params: List[float], dataset: PointProcessDataset, drive_rates: np.ndarray, stream: np.ndarray, drive_exposure: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """A gain on the driven rate: each event's driven rate and each stream's driven exposure times mu_f."""
         if not self.time_of_day:
             return drive_rates, drive_exposure
         mu = self._hour_factor(params, dataset)
         return drive_rates * mu[stream // dataset.num_trials], drive_exposure * mu[:, None]
 
-    def _scale_whole(self, params: List[float], dataset: PointProcessDataset, base_ll: float, n: np.ndarray, S: np.ndarray):
+    def _scale_whole(self, params: List[float], dataset: PointProcessDataset, base_ll: float, n: np.ndarray, S: np.ndarray) -> Tuple[float, np.ndarray]:
         """A gain on the whole intensity: every event's log rate gains log mu_f, the expected events times mu_f (per fish or stream)."""
         if not self.time_of_day:
             return base_ll, S
@@ -665,7 +666,7 @@ class Frailty(_GainWrapper):
         a = self._r_trial()
         return gain * rng.gamma(a, 1.0 / a)
 
-    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator, **history):
+    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator, **history: np.ndarray) -> Union[np.ndarray, Tuple[np.ndarray, dict]]:
         return self.base_process.simulate_stream(dataset, t_idx, self._stream_gain(gain, rng), rng, **history)
 
     def _fish_draws(
@@ -989,6 +990,9 @@ class SideFrailty(Frailty):
             + self._hour_latex + "$"
         )
 
+    def _constants(self) -> Tuple:
+        return len(self._nodes), *super()._constants()
+
     def _nll(self, params: List[float], dataset: PointProcessDataset) -> float:
         fish, log_odds, preferred = self.base_process.side_terms(dataset, self._base_params(params))
         to_fish = dataset.cached(("side_events_to_fish", len(fish)), lambda: csr_matrix(
@@ -1056,7 +1060,7 @@ class SideFrailty(Frailty):
         gains = gains * self._hour_factor(self.params_, dataset) if self.time_of_day else gains
         return list(zip(gains, rng.normal(0.0, self.params_[-1], num_fish)))
 
-    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, draw: Tuple[float, float], rng: np.random.Generator, **history):
+    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, draw: Tuple[float, float], rng: np.random.Generator, **history: np.ndarray) -> Union[np.ndarray, Tuple[np.ndarray, dict]]:
         gain, u = draw
         return self.base_process.simulate_stream(dataset, t_idx, self._stream_gain(gain, rng), rng, side_shift=u, **history)
 

@@ -19,7 +19,7 @@ MEAN_BOUTS = 5.5  # J-turns per trial
 CONTROL, TREATMENT, OTHER, INK, MUTED = "#2a78d6", "#eb6834", "#1baf7a", "#262625", "#5f5e58"
 
 
-def style(ax, title: str) -> None:
+def style(ax: plt.Axes, title: str) -> None:
     ax.set_title(title, loc="left", fontsize=11, fontweight="bold", color=INK)
     for side in ("top", "right"):
         ax.spines[side].set_visible(False)
@@ -27,12 +27,12 @@ def style(ax, title: str) -> None:
         ax.spines[side].set_color("#c3c2b7")
 
 
-def headline(fig, title: str, subtitle: str) -> None:
+def headline(fig: plt.Figure, title: str, subtitle: str) -> None:
     fig.text(0.01, 0.98, title, fontsize=15, fontweight="bold", va="top", color=INK)
     fig.text(0.01, 0.915, subtitle, fontsize=11, va="top", color=MUTED)
 
 
-def bars(ax, labels: list, values: list, colors: list, ylabel: str, fmt: str = "{:.0f}%") -> None:
+def bars(ax: plt.Axes, labels: list, values: list, colors: list, ylabel: str, fmt: str = "{:.0f}%") -> None:
     ax.bar(labels, values, color=colors, width=0.6)
     top = max(max(values), 1)
     for i, v in enumerate(values):
@@ -40,7 +40,7 @@ def bars(ax, labels: list, values: list, colors: list, ylabel: str, fmt: str = "
     ax.set_ylabel(ylabel)
 
 
-def save(fig, name: str) -> None:
+def save(fig: plt.Figure, name: str) -> None:
     fig.tight_layout(rect=(0, 0, 1, 0.84))
     fig.savefig(name, dpi=200)
     plt.close(fig)

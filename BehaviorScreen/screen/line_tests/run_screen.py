@@ -127,7 +127,7 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
     out.mkdir(parents=True, exist_ok=True)
     tier1_df.drop(columns=["arm_estimates", "fish_ids"], errors="ignore").to_csv(out / f"{LINE_TEST_TABLES[0]}.csv", index=False)
     step = lambda name, compute: run_step(output_dir, behavior, name, compute)
-    param_df = step("tier1_parameters", lambda: compute_parameter_deltas(extract_fitted_parameters(tier1_df, arms)))
+    param_df = step("tier1_parameters", lambda: compute_parameter_deltas(extract_fitted_parameters(tier1_df)))
     # Tier 2: is a hit's drug effect different from the drug's effect on WT?
     step("tier2_results", lambda: add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, n_boot=N_BOOT_TIER2, reference="WT")))
     step("arm_surface_grids", lambda: generate_arm_surface_grids(tier1_df, arms, output_dir=output_dir / "arm_surface_grids"))

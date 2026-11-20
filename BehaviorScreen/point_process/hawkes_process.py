@@ -53,15 +53,15 @@ class HistoryKernelFactory:
         beta_bounds: Tuple[Optional[float], Optional[float]] = (1e-3, None),
     ) -> HistoryKernel:
 
-        def _func(lag, params):
+        def _func(lag: np.ndarray, params: List[float]) -> np.ndarray:
             alpha, beta = params
             return alpha * xp.exp(-beta * lag)
 
-        def _integral(duration, params):
+        def _integral(duration: np.ndarray, params: List[float]) -> np.ndarray:
             alpha, beta = params
             return alpha / beta * (1.0 - xp.exp(-beta * duration))
 
-        def _event_history(t_events, params):
+        def _event_history(t_events: np.ndarray, params: List[float]) -> np.ndarray:
             """Fast O(N) recursive implementation"""
             alpha, beta = params
 
@@ -98,8 +98,8 @@ class HawkesProcess(PointProcess):
         self,
         kernel: RateKernel,
         history_kernel: HistoryKernel,
-        integration_dt=0.02,
-    ):
+        integration_dt: float = 0.02,
+    ) -> None:
         super().__init__(integration_dt)
 
         self.name = f"Hawkes rate: {kernel.name}, history: {history_kernel.name}"

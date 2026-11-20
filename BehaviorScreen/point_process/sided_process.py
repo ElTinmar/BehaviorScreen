@@ -202,6 +202,9 @@ class SidedSurvivalProcess(SurvivalProcess):
         self.name = f"SidedSurvival {kernel.name}"
         self.latex_formula = rf"${kernel.latex_formula.strip('$')},\ h_{{preferred}} = h\,D/(1+D)$"
 
+    def _constants(self) -> Tuple:
+        return self.preferred, *super()._constants()
+
     def _first_event_sides(self, dataset: PointProcessDataset) -> Tuple[int, int]:
         """First events of all streams: (number on the preferred side, number on the other)."""
         def count() -> Tuple[int, int]:
@@ -375,7 +378,7 @@ class SidedRenewalProcess(PointProcess):
     def gain_scales_drive_only(self) -> bool:
         return self.ground.gain_scales_drive_only
 
-    def drive_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
+    def drive_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         constant, *terms = self.ground.drive_likelihood_terms(dataset, params)
         return (constant + self._side_log_likelihood(dataset, params), *terms)
 
@@ -396,7 +399,7 @@ class SidedRenewalProcess(PointProcess):
     def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float, history: Optional[np.ndarray] = None) -> np.ndarray:
         return self.ground.cumulative_integrated_intensity(t_events, trial, history=history)
 
-    def stream_compensator_profile(self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None):
+    def stream_compensator_profile(self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray, bool, float]:
         return self.ground.stream_compensator_profile(t_ev, trial, duration_s, history=history)
 
     @property

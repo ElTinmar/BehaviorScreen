@@ -117,7 +117,7 @@ def draw_stimulus(axis: plt.Axes, panel: Panel, n_trials: int) -> None:
             return
 
 
-def draw_rates(axis: plt.Axes, x: np.ndarray, per_trial: dict, average: dict, category, offset: float, n_trials: int) -> None:
+def draw_rates(axis: plt.Axes, x: np.ndarray, per_trial: dict, average: dict, category: int, offset: float, n_trials: int) -> None:
     for (cat, side), rates in per_trial.items():
         if cat != category:
             continue

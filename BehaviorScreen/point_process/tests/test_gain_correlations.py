@@ -26,7 +26,7 @@ def simulated_gains(n_fish: int, rho: float, seed: int) -> tuple:
     return true, pd.concat(rows, ignore_index=True)
 
 
-def test_correction_recovers_the_gains_correlation():
+def test_correction_recovers_the_gains_correlation() -> None:
     true, gains = simulated_gains(3000, 0.6, seed=1)
     result = gain_correlations(gains, n_boot=200)
     target = true.corr()
@@ -38,13 +38,13 @@ def test_correction_recovers_the_gains_correlation():
         assert result["corrected_low"].loc[a, b] < target.loc[a, b] < result["corrected_high"].loc[a, b], (a, b)
 
 
-def test_independent_gains_stay_uncorrelated():
+def test_independent_gains_stay_uncorrelated() -> None:
     _, gains = simulated_gains(3000, 0.0, seed=2)
     corrected = gain_correlations(gains, n_boot=50)["corrected"]
     assert np.abs(corrected.to_numpy()[np.triu_indices(3, 1)]).max() < 0.1
 
 
-def test_from_fitted_models():
+def test_from_fitted_models() -> None:
     """collect_fish_gains on fitted models feeds gain_correlations and its figure."""
     data = reference_dataset(num_fish=60)
     models = {}

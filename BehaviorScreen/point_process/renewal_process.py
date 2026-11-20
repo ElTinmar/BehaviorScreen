@@ -35,7 +35,7 @@ class RenewalKernelFactory:
         larger k (exponential at k = 1), so intervals between bouts are more regular.
         """
 
-        def _func(lag, params):
+        def _func(lag: np.ndarray, params: List[float]) -> np.ndarray:
             tau_r, k = params
             positive = lag > 0
             return xp.where(positive, 1.0 - xp.exp(-xp.power(xp.where(positive, lag, 1.0) / tau_r, k)), 0.0)
@@ -56,7 +56,7 @@ class RenewalKernelFactory:
         so it can only facilitate: a test of excitation by the previous event.
         """
 
-        def _func(lag, params):
+        def _func(lag: np.ndarray, params: List[float]) -> np.ndarray:
             A_exc, tau_exc = params
             return 1.0 + A_exc * xp.exp(-lag / tau_exc)
 
@@ -72,27 +72,15 @@ class RenewalKernelFactory:
     @staticmethod
     def hard_absorption() -> RenewalKernel:
         """
-        rho(lag) = 0 for all lag > 0 -- an infinite, non-recovering refractory
-        period. This is the "absorbing"/survival hypothesis expressed as a
-        RenewalKernel, fit on the FULL (unreduced) event stream -- unlike
-        SurvivalProcess, which achieves the same assumption via a differently-
-        scoped likelihood over manually-reduced data and is therefore NOT
-        directly AIC-comparable to this module's other process families.
-
-        RenewalProcess(kernel, hard_absorption) reproduces SurvivalProcess(kernel)
-        EXACTLY for any stream with 0 or 1 events (verify: _stream_integral_and_ll
-        reduces to integral_0^t_obs h - log(h(t_obs)) for n=1, integral_0^T h for
-        n=0 -- identical to SurvivalProcess's NLL terms). The difference is that
-        it also correctly penalizes (rather than silently discarding) any stream
-        with >=2 events, via the existing 1e-12 floor in
-        RenewalProcess._stream_integral_and_ll's per-event log-intensity clamp --
-        so fitting THIS, nested against ordinary RenewalProcess/HawkesProcess
-        kernels, is the statistically valid way to test whether the absorbing
-        assumption holds, rather than assuming it via SurvivalProcess's data
-        reduction.
+        rho(lag) = 0 for all lag > 0: nothing after a stream's first bout, the survival
+        hypothesis as a RenewalKernel, fitted on every event. For streams of at most one
+        bout, RenewalProcess(kernel, hard_absorption) has SurvivalProcess(kernel)'s
+        likelihood; a later event costs log(1e-300), the floor of RenewalProcess's log
+        intensities, where SurvivalProcess drops it. Against the other renewal kernels
+        (same events, so AIC compares them), it tests the absorbing assumption.
         """
 
-        def _func(lag, params):
+        def _func(lag: np.ndarray, params: List[float]) -> np.ndarray:
             return xp.zeros_like(lag)
 
         return RenewalKernel(
@@ -141,7 +129,7 @@ class RenewalKernelFactory:
         if shape_k <= 0:
             raise ValueError("shape_k must be positive.")
 
-        def _func(lag, params):
+        def _func(lag: np.ndarray, params: List[float]) -> np.ndarray:
             tau_refractory, A_excitation, pulse_peak_lag = params
 
             recovery = 1.0 - xp.exp(-lag / tau_refractory)
@@ -153,6 +141,7 @@ class RenewalKernelFactory:
         return RenewalKernel(
             name="RefractoryDelayedExcitation",
             func=_func,
+            constants=(shape_k,),
             param_names=[
                 "tau_refractory",
                 "A_delayed_excitation",
@@ -208,7 +197,7 @@ class RenewalKernelFactory:
         if shape_k <= 0:
             raise ValueError("shape_k must be positive.")
 
-        def _func(lag, params):
+        def _func(lag: np.ndarray, params: List[float]) -> np.ndarray:
             A_excitation, pulse_peak_lag = params
 
             pulse = peak_normalized_pulse(lag, pulse_peak_lag, shape_k)
@@ -252,7 +241,7 @@ class RenewalKernelFactory:
         (the bursts follow the stimulus). Either way a fish's gain scales what the
         stimulus drives, not its bursts, so no fish can run away into endless bursts.
         """
-        def _func(lag, params):
+        def _func(lag: np.ndarray, params: List[float]) -> np.ndarray:
             A_burst, burst_peak_lag = params
             return A_burst * peak_normalized_pulse(lag, burst_peak_lag, shape_k)
 
@@ -292,6 +281,7 @@ class RenewalKernelFactory:
         return RenewalKernel(
             name=f"DeadTime({dead_time_s:g}s)+{excitation.name}",
             func=lambda lag, params: xp.where(lag < dead_time_s, floor, excitation.func(lag, params)),
+            constants=(floor,),
             param_names=excitation.param_names,
             initial_guesses=excitation.initial_guesses,
             bounds=excitation.bounds,
@@ -330,7 +320,7 @@ class RenewalProcess(PointProcess):
         renewal_kernel: RenewalKernel,
         excitation: Optional[RenewalKernel] = None,
         integration_dt: float = 0.02,
-    ):
+    ) -> None:
         super().__init__(integration_dt)
         self.kernel, self.renewal_kernel, self.excitation = kernel, renewal_kernel, excitation
         parts = [kernel, renewal_kernel] + ([excitation] if excitation is not None else [])
@@ -603,13 +593,14 @@ class RenewalProcess(PointProcess):
         n_points, columns = len(grid["weights"]), self._table_columns(dataset)
         n_lattice = int(np.ceil(dataset.duration_s / self.integration_dt)) + 1  # every age a trial allows
         step = grid["lattice_step"]
-        beyond = np.flatnonzero((step >= n_lattice) & (step != grid["n_lattice"]))  # clocks started before the window: off the lattice
+        no_bout = step == grid["n_lattice"]
+        beyond = np.flatnonzero((step >= n_lattice) & ~no_bout)  # clocks started before the window: off the lattice
         off_points = np.concatenate([grid["off_lattice"], beyond])
         order = np.argsort(off_points)
         grid["off_lattice"], grid["off_ages"] = off_points[order], np.concatenate([grid["off_ages"], step[beyond] * self.integration_dt])[order]
         points = -(-padded(n_points + 1) // self._JAX_CHUNK) * self._JAX_CHUNK  # whole chunks for jax_drive_terms' scan
         events, off = padded(len(grid["event_times"])), padded(len(grid["off_lattice"]))
-        lattice_step = np.where(grid["lattice_step"] >= n_lattice, n_lattice, grid["lattice_step"])  # no previous bout: the 1 past the lattice
+        lattice_step = np.where(no_bout | (step >= n_lattice), n_lattice, step)  # no previous bout: the 1 past the lattice
         fills = {
             "weights": (points, 0.0), "stream": (points, 0), "lattice_step": (points, n_lattice), "table_index": (points, 0),
             "table_fraction": (points, 0.0), "excitation_index": (points, columns), "excitation_fraction": (points, 0.0),

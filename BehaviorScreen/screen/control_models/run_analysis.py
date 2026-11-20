@@ -4,7 +4,7 @@ import sys
 from datetime import datetime
 from functools import cache
 from pathlib import Path
-from typing import Callable, TextIO
+from typing import Any, Callable, TextIO
 
 from BehaviorScreen.screen.control_models.model_config import EVENT_TABLES, control_loader, get_model_config
 from BehaviorScreen.screen.control_models.tasks import (
@@ -33,7 +33,7 @@ class Tee:
         self.log.flush()
         self.stream.flush()
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> Any:
         return getattr(self.stream, name)
 
 

@@ -12,7 +12,7 @@ N, k = sp.symbols("N k", positive=True, integer=True)
 Phi = lambda z: (1 + sp.erf(z / sp.sqrt(2))) / 2
 
 
-def assert_zero(expression) -> None:
+def assert_zero(expression: "sp.Expr") -> None:
     assert sp.simplify(sp.expand(sp.unpolarify(expression))) == 0
 
 

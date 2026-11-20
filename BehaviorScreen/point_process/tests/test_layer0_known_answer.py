@@ -1,4 +1,3 @@
-# tests/test_layer0_known_answer.py
 """
 LAYER 0: Known-answer tests (KAT).
 
@@ -36,7 +35,7 @@ from BehaviorScreen.point_process.frailty import GammaGain, ZeroInflatedGain
 
 class TestHomogeneousPoissonKnownAnswer:
 
-    def test_nll_closed_form(self):
+    def test_nll_closed_form(self) -> None:
         """
         For a constant-rate kernel, NLL has an exact closed form:
         -(N*log(B) - B*T*n_streams). Trapezoid integration of a CONSTANT
@@ -63,7 +62,7 @@ class TestHomogeneousPoissonKnownAnswer:
 
         assert computed_nll == pytest.approx(expected_nll, rel=1e-10)
 
-    def test_mle_matches_closed_form_estimator(self):
+    def test_mle_matches_closed_form_estimator(self) -> None:
         """The exact MLE for a homogeneous rate is N / (total exposure).
         No stochastic noise in this dataset, so we can use a tight
         tolerance -- unlike the Layer 4 recovery tests."""
@@ -86,7 +85,7 @@ class TestHomogeneousPoissonKnownAnswer:
 
 class TestHawkesKnownAnswer:
 
-    def test_nll_two_events_hand_computed(self):
+    def test_nll_two_events_hand_computed(self) -> None:
         """
         Two fixed events in a single stream. The expected NLL is derived
         HERE, independently, using np.exp(-beta*dt) written out directly --
@@ -125,7 +124,7 @@ class TestHawkesKnownAnswer:
         expected_nll = -(sum_log_intensity - total_integral)
         assert computed_nll == pytest.approx(expected_nll, rel=1e-9)
 
-    def test_nll_single_event_no_history_contribution(self):
+    def test_nll_single_event_no_history_contribution(self) -> None:
         """Degenerate case: a single event has NO prior history, so its
         log-intensity should reduce to log(B) exactly -- catches an
         off-by-one in event_history's loop (e.g. history[0] not
@@ -156,7 +155,7 @@ class TestHawkesKnownAnswer:
 
 class TestSurvivalKnownAnswer:
 
-    def test_nll_censored_stream_is_just_cumulative_hazard(self):
+    def test_nll_censored_stream_is_just_cumulative_hazard(self) -> None:
         """
         A stream with NO event (fully censored) contributes exactly H(T) =
         integral_0^T hazard -- no log-intensity term at all. Uses
@@ -176,7 +175,7 @@ class TestSurvivalKnownAnswer:
         expected_nll = B * T  # -( -H ) = H, no log-hazard term (censored)
         assert computed_nll == pytest.approx(expected_nll, rel=1e-9)
 
-    def test_nll_uncensored_stream_hand_computed(self):
+    def test_nll_uncensored_stream_hand_computed(self) -> None:
         """One event at t_obs: NLL = H(t_obs) - log(hazard(t_obs))."""
         B, T, t_obs = 0.3, 4.0, 1.5
         dataset = PointProcessDataset(
@@ -192,7 +191,7 @@ class TestSurvivalKnownAnswer:
         expected_nll = B * t_obs - np.log(B)
         assert computed_nll == pytest.approx(expected_nll, rel=1e-9)
 
-    def test_second_event_in_stream_is_discarded(self):
+    def test_second_event_in_stream_is_discarded(self) -> None:
         """SurvivalProcess reduces a stream to its FIRST event only -- a
         second event at a later time must not change the NLL at all."""
         B, T, t_obs = 0.3, 4.0, 1.5
@@ -220,14 +219,14 @@ class TestSurvivalKnownAnswer:
 
 class TestGammaFrailtyCompensatorKnownAnswer:
 
-    def test_predictive_increment_matches_gamma_laplace_transform(self):
+    def test_predictive_increment_matches_gamma_laplace_transform(self) -> None:
         """-log P(no event on the next exposure), the gain's posterior after 4 events being Gamma(r + 4, r + s)."""
         r, n_previous, s_previous, delta_s = 3.0, 4, 2.5, 0.7
         no_event_probability = ((r + s_previous) / (r + s_previous + delta_s)) ** (r + n_previous)
         computed = GammaGain(r, r).tau(n_previous, s_previous, s_previous + delta_s)
         assert computed == pytest.approx(-np.log(no_event_probability), rel=1e-12)
 
-    def test_marginal_matches_quadrature(self):
+    def test_marginal_matches_quadrature(self) -> None:
         """log of the integral of p(g) g^N exp(-g S) over the gain, shape and rate not equal."""
         from scipy.integrate import quad
         from scipy.stats import gamma
@@ -239,7 +238,7 @@ class TestGammaFrailtyCompensatorKnownAnswer:
 
 class TestZeroInflatedFrailtyCompensatorKnownAnswer:
 
-    def test_pi_zero_reduces_to_gamma_frailty(self):
+    def test_pi_zero_reduces_to_gamma_frailty(self) -> None:
         pi = 0.0
         r = 3.0
         c = 0.0
@@ -262,7 +261,7 @@ class TestZeroInflatedFrailtyCompensatorKnownAnswer:
 
 class TestRenewalKnownAnswer:
 
-    def test_exponential_excitation_two_events(self):
+    def test_exponential_excitation_two_events(self) -> None:
         """
         Direct known-answer test of RenewalProcess._stream_integral_and_ll()
         for a homogeneous baseline and two events.
@@ -294,7 +293,7 @@ class TestRenewalKnownAnswer:
         lambda_2 = B * (1.0 + A_exc * np.exp(-(t2 - t1) / tau_exc))
         expected_log_intensity = np.log(lambda_1) + np.log(lambda_2)
 
-        def modulated_segment_integral(length):
+        def modulated_segment_integral(length: float) -> float:
             return B * (length + A_exc * tau_exc * (1.0 - np.exp(-length / tau_exc)))
 
         # Before t1: unmodulated baseline.
@@ -315,7 +314,7 @@ class TestRenewalKnownAnswer:
             rel=1e-5,
         )
 
-    def test_empty_stream_is_unmodulated_baseline(self):
+    def test_empty_stream_is_unmodulated_baseline(self) -> None:
         B = 0.5
         duration_s = 3.0
 

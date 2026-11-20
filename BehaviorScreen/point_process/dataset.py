@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field, replace
 from itertools import groupby
 from functools import cached_property
-from typing import Any, Callable, ClassVar, Dict, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Callable, ClassVar, Dict, Iterator, List, Mapping, Optional, Sequence, Tuple, Union
 import numpy as np
 from .kaplan_meier import km_table
 from scipy.special import gammaln
@@ -93,7 +93,7 @@ class PointProcessDataset:
     def __getstate__(self) -> Dict[str, Any]:
         return {key: value for key, value in self.__dict__.items() if key != "_cache"}
 
-    def iter_streams(self, active_only: bool = True):
+    def iter_streams(self, active_only: bool = True) -> Iterator[Tuple[int, int, np.ndarray]]:
         """
         Yields (fish_idx, trial_idx, sorted_event_times) for every (fish, trial)
         pair in the dataset. If active_only=True (default), skips (fish, trial)
@@ -421,9 +421,9 @@ class DatasetPlotter:
 
         - Poisson(mean): null hypothesis of no extra-Poisson variability.
         - NegBinom(mean, var): method-of-moments fit -- the count-level analog
-        of GammaPoissonProcess's marginal distribution. If this tracks the
+        of GammaMixedEffectsProcess's marginal distribution. If this tracks the
         histogram much better than Poisson, that's an early, fit-free signal
-        that GammaPoissonProcess-style heterogeneity is worth trying (see
+        that a fish gain (GammaMixedEffectsProcess) is worth trying (see
         PointProcessDataset.dispersion_fano_ratio for the matching numeric
         diagnostic).
 
@@ -431,9 +431,9 @@ class DatasetPlotter:
         fish contribute totals summed over DIFFERENT numbers of trials
         (fish_trial_mask occupancy is not uniform -- some fish have far fewer
         observed trials than others). This overlay's moment-matched r does NOT
-        account for that unequal exposure, unlike GammaPoissonProcess's actual
-        fitted r (which uses per-fish exposure S_f explicitly, see
-        GammaPoissonProcess._fish_sufficient_stats). Some of the apparent
+        account for that unequal exposure, unlike GammaMixedEffectsProcess's
+        fitted r (which uses each fish's exposure S_f, see
+        mixed_effects_likelihood_terms). Some of the apparent
         overdispersion in the fish-total-count histogram may therefore reflect
         unequal trial counts across fish rather than true rate heterogeneity --
         treat this overlay as a rough visual guide, not a substitute for the
@@ -1101,7 +1101,7 @@ class DatasetPlotter:
         stimulus onset (fish reacting in near-lockstep) looks very different
         from uniformly-elevated dispersion throughout, and calls for a
         different fix (a stimulus-locked synchrony term vs. a fish-level
-        gain/random-effect, i.e. GammaPoissonProcess).
+        gain/random-effect, i.e. GammaMixedEffectsProcess).
         """
         edges = np.arange(0, dataset.duration_s + bin_width_s, bin_width_s)
         centers = 0.5 * (edges[:-1] + edges[1:])

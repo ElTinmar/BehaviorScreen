@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from .conftest import (
+    RngFactory,
     make_scaffold_dataset,
     simulate_dataset_from_model,
 )
@@ -24,8 +25,8 @@ class TestParametricGOFIntegrity:
 
     def test_homogeneous_poisson_bootstrap_outputs_are_consistent(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         rng = rng_factory(300)
 
         true_model = PoissonProcess(RateKernelFactory.homogeneous_poisson())
@@ -78,7 +79,7 @@ class TestParametricGOFIntegrity:
         ]:
             assert len(result[name]) == n_grid
 
-    def test_bootstrap_envelope_ordering(self, rng_factory):
+    def test_bootstrap_envelope_ordering(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(302)
 
         generating = PoissonProcess(RateKernelFactory.homogeneous_poisson())
@@ -117,8 +118,8 @@ class TestParametricGOFIntegrity:
 
     def test_simultaneous_envelope_matches_bootstrap_suprema(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         rng = rng_factory(304)
 
         generating = PoissonProcess(RateKernelFactory.homogeneous_poisson())
@@ -171,8 +172,8 @@ class TestParametricGOFSurvival:
 
     def test_censored_bootstrap_uses_km_support(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         rng = rng_factory(306)
 
         generating = SurvivalProcess(SurvivalKernelFactory.constant_hazard())
@@ -230,8 +231,8 @@ class TestParametricGOFPower:
 
     def test_poisson_rejects_strong_hawkes_data(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         """
         A homogeneous Poisson model should fail residual-distribution
         calibration when fitted to strongly self-exciting Hawkes data.
@@ -302,8 +303,8 @@ class TestParametricGOFNullBehavior:
 
     def test_correct_poisson_is_not_extremely_rejected(
         self,
-        rng_factory,
-    ):
+        rng_factory: RngFactory,
+    ) -> None:
         rng = rng_factory(310)
 
         generating = PoissonProcess(RateKernelFactory.homogeneous_poisson())

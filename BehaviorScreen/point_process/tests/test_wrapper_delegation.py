@@ -38,7 +38,7 @@ from BehaviorScreen.point_process.wrappers import (
 
 class TestPartiallyFixedParameterSynchronization:
 
-    def test_set_params_expands_and_synchronizes_base_model(self):
+    def test_set_params_expands_and_synchronizes_base_model(self) -> None:
         """
         Setting the free wrapper parameters should construct the complete
         parameter vector and write it onto the wrapped base process.
@@ -81,7 +81,7 @@ class TestPartiallyFixedParameterSynchronization:
 
 class TestPartiallyFixedGainDelegation:
 
-    def test_draw_fish_gains_matches_base_process(self):
+    def test_draw_fish_gains_matches_base_process(self) -> None:
         """
         PartiallyFixedProcess._draw_fish_gains() must delegate to the
         frailty model. Falling back to PointProcess would return all ones
@@ -130,7 +130,7 @@ class TestPartiallyFixedGainDelegation:
 
     def test_simulate_dataset_through_wrapper_uses_frailty(
         self,
-    ):
+    ) -> None:
         """
         Full-dataset simulation through the wrapper should be reproducible
         with direct simulation through the synchronized base process when
@@ -189,7 +189,7 @@ class TestPartiallyFixedTimeRescalingDelegation:
 
     def test_stream_tau_values_match_frailty_base_process(
         self,
-    ):
+    ) -> None:
         """
         The wrapper must use GammaMixedEffectsProcess's predictable
         frailty-adjusted compensator rather than PointProcess's generic
@@ -261,7 +261,7 @@ class TestPartiallyFixedTimeRescalingDelegation:
 
     def test_complete_time_rescaling_matches_base_process(
         self,
-    ):
+    ) -> None:
         """
         Public time_rescaling() output should agree with the synchronized
         wrapped frailty process.
@@ -333,7 +333,7 @@ class TestPartiallyFixedCompensatorProfileDelegation:
 
     def test_survival_compensator_profile_matches_base_process(
         self,
-    ):
+    ) -> None:
         """
         A partially fixed survival model must preserve the terminating,
         right-censored stream convention implemented by SurvivalProcess.
@@ -402,7 +402,7 @@ class TestPartiallyFixedCompensatorProfileDelegation:
             assert wrapped_last_censored == base_last_censored
             assert wrapped_exposure == base_exposure
 
-    def test_is_survival_delegates_to_base_process(self):
+    def test_is_survival_delegates_to_base_process(self) -> None:
         """
         Wrapper identity should preserve whether the underlying model is a
         terminating survival process.

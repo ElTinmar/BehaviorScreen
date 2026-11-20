@@ -6,6 +6,10 @@ import numpy as np
 import pytest
 
 from BehaviorScreen.point_process import backend
+from BehaviorScreen.point_process.frailty import GammaMixedEffectsProcess
+from BehaviorScreen.point_process.poisson_process import PoissonProcess, PreyCapture
+from BehaviorScreen.point_process.sided_process import CONTRA, IPSI, SidedSurvivalProcess
+from BehaviorScreen.point_process.survival_process import SurvivalKernelFactory
 
 
 def test_released_when_maps_run_short(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -22,6 +26,13 @@ def test_released_when_maps_run_short(tmp_path: Path, monkeypatch: pytest.Monkey
     backend.release_if_crowded()
     assert value._cache_size() == 0
     assert float(value(jnp.ones(2), jnp.ones(2))) == 2.0  # compiled again on the next call
+
+
+def test_models_differing_outside_their_name_do_not_share_a_likelihood() -> None:
+    prey = lambda stim_freq: GammaMixedEffectsProcess(PoissonProcess(PreyCapture.variant("Peak", stim_freq)))
+    assert prey(0.5).name == prey(1.0).name and prey(0.5)._jax_key() == prey(0.5)._jax_key() != prey(1.0)._jax_key()
+    escape = lambda preferred: SidedSurvivalProcess(SurvivalKernelFactory.constant_hazard(), preferred)
+    assert escape(IPSI)._jax_key() != escape(CONTRA)._jax_key()
 
 
 def test_checked_after_each_compilation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

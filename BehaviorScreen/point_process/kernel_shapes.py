@@ -30,34 +30,27 @@ def bounded_trial_scale(trial: np.ndarray, alpha: float) -> np.ndarray:
     return 2.0 / (1.0 + xp.exp(-alpha * trial))
 
 
-def exgaussian_shape(t, mu, sigma, tau):
+def exgaussian_shape(t: np.ndarray, mu: float, sigma: float, tau: float) -> np.ndarray:
     """scipy.stats.exponnorm.pdf(t, tau / sigma, loc=mu, scale=sigma), as scipy computes it (log space)."""
     inv_k, z = sigma / tau, (t - mu) / sigma
     return xp.exp(inv_k * (0.5 * inv_k - z) + special.log_ndtr(z - inv_k) - xp.log(tau / sigma) - xp.log(sigma))
 
 
-def exgaussian_cdf(t, mu, sigma, tau):
+def exgaussian_cdf(t: np.ndarray, mu: float, sigma: float, tau: float) -> np.ndarray:
     """Integral of exgaussian_shape from -inf to t: Phi(z) - tau * exgaussian_shape(t)."""
     return special.ndtr((t - mu) / sigma) - tau * exgaussian_shape(t, mu, sigma, tau)
 
 
 def sigmoid_bounded(z: np.ndarray, upper: float) -> np.ndarray:
     """
-    Squash an unconstrained real z into (0, upper) via a logistic.
-
-    Strictly bounded away from both 0 and `upper` for any FINITE z, and only
-    approaches 0/upper asymptotically as z -> -inf/+inf. This means "the true
-    MLE wants near-total suppression/enhancement" shows up as a LARGE z with a
-    correspondingly wide bootstrap spread, rather than as a hard box-bound
-    saturation (z_param pinned at a wall, CI collapsed to a point, or right-
-    censored against the bound) -- see the A_ripple/f_dip boundary-pinning
-    issue this replaces.
+    z squashed into (0, upper) by a logistic. No finite z reaches 0 or upper: a fit that
+    wants near-total suppression shows a large z with a wide bootstrap spread, not a
+    parameter pinned at a box bound with its interval collapsed.
     """
     return upper / (1.0 + xp.exp(-z))
 
 
 def logit_bounded(p: np.ndarray, upper: float) -> np.ndarray:
-    """Inverse of sigmoid_bounded. Used only to convert an old-style directly-
-    bounded point estimate/initial guess into the equivalent unconstrained z."""
+    """Inverse of sigmoid_bounded, p kept inside (0, upper): the z of an initial guess given as p."""
     p = xp.clip(xp.asarray(p, dtype=float), 1e-6, upper - 1e-6)
     return xp.log(p / (upper - p))

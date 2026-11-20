@@ -1,6 +1,6 @@
 """Tier 1's pinned values for a contrast: the control fit without the contrast's own arms, so they cannot depend on its labels."""
 from pathlib import Path
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -27,7 +27,7 @@ class Loader:
                 if (line is None or l == line) and (conditions is None or c in conditions) and l not in exclude_lines]
         return Loader(self.dataset.fish(keep), [self.arms[i] for i in keep])
 
-    def prepare_dataset(self, **config) -> PointProcessDataset:
+    def prepare_dataset(self, **config: Any) -> PointProcessDataset:
         return self.dataset
 
 

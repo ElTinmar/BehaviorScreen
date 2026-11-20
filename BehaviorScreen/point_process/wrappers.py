@@ -1,11 +1,12 @@
 """Processes defined on top of another process's parameters."""
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+import pandas as pd
 
 from .backend import Arrays, jnp
 from .dataset import PointProcessDataset
-from .point_process import PointProcess
+from .point_process import PointProcess, StreamTaus
 
 
 class Wrapper(PointProcess):
@@ -25,10 +26,10 @@ class Wrapper(PointProcess):
         super().set_params(params)
         self.base_process.set_params(self._base_params(list(self.params_)))
 
-    def predict(self, *args, **kwargs) -> np.ndarray:
+    def predict(self, *args: Any, **kwargs: Any) -> np.ndarray:
         return self.base_process.predict(*args, **kwargs)
 
-    def compute_expected_rate(self, dataset: PointProcessDataset, **side) -> np.ndarray:
+    def compute_expected_rate(self, dataset: PointProcessDataset, **side: Optional[int]) -> np.ndarray:
         """With bout history, the simulated rate (gains integrated out); else the base process's."""
         if self.uses_history:
             return self.simulated_rate(dataset, **side)
@@ -40,16 +41,16 @@ class Wrapper(PointProcess):
     def cumulative_integrated_intensity(self, t_events: np.ndarray, trial: float) -> np.ndarray:
         return self.base_process.cumulative_integrated_intensity(t_events, trial)
 
-    def stream_compensator_profile(self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None):
+    def stream_compensator_profile(self, t_ev: np.ndarray, trial: float, duration_s: float, history: Optional[np.ndarray] = None) -> Tuple[np.ndarray, np.ndarray, bool, float]:
         return self.base_process.stream_compensator_profile(t_ev, trial, duration_s, history=history)
 
-    def mixed_effects_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
+    def mixed_effects_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]) -> Tuple[float, np.ndarray, np.ndarray]:
         return self.base_process.mixed_effects_likelihood_terms(dataset, self._base_params(params))
 
-    def stream_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
+    def stream_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]) -> Tuple[float, np.ndarray, np.ndarray]:
         return self.base_process.stream_likelihood_terms(dataset, self._base_params(params))
 
-    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator, **history) -> np.ndarray:
+    def simulate_stream(self, dataset: PointProcessDataset, t_idx: int, gain: float, rng: np.random.Generator, **history: np.ndarray) -> np.ndarray:
         return self.base_process.simulate_stream(dataset, t_idx, gain, rng, **history)
 
     def _intensity_upper_bound(self, dataset: PointProcessDataset, t_idx: int) -> float:
@@ -63,13 +64,13 @@ class Wrapper(PointProcess):
     ) -> list:
         return self.base_process._fish_draws(num_fish, rng, dataset, latent)
 
-    def _stream_tau_values(self, dataset: PointProcessDataset):
+    def _stream_tau_values(self, dataset: PointProcessDataset) -> StreamTaus:
         return self.base_process._stream_tau_values(dataset)
 
-    def estimate_fish_gains(self, dataset: PointProcessDataset):
+    def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         return self.base_process.estimate_fish_gains(dataset)
 
-    def population_survival_curve(self, dataset: PointProcessDataset, trial=None):
+    def population_survival_curve(self, dataset: PointProcessDataset, trial: Optional[int] = None) -> Tuple[np.ndarray, np.ndarray]:
         return self.base_process.population_survival_curve(dataset, trial=trial)
 
     @property
@@ -92,7 +93,7 @@ class Wrapper(PointProcess):
     def gain_scales_drive_only(self) -> bool:
         return self.base_process.gain_scales_drive_only
 
-    def drive_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]):
+    def drive_likelihood_terms(self, dataset: PointProcessDataset, params: List[float]) -> Tuple[float, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         return self.base_process.drive_likelihood_terms(dataset, self._base_params(params))
 
     def interval_drive_terms(self, dataset: PointProcessDataset) -> Tuple[np.ndarray, ...]:

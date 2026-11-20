@@ -1,7 +1,7 @@
 """
-Core engine for Tier 1 (omnibus: does anything change) and Tier 2 (interaction:
-is the change specific to this genotype, over and above any generic drug
-effect). Both are the SAME model class with a different design matrix.
+The joint fits of Tier 2 (interaction: is the change specific to this genotype,
+over and above any generic drug effect): one model class, the null and the
+alternative differing by a column of the design matrix.
 
 MultiGroupProcess wraps an existing, already-instantiated PointProcess
 (e.g. PoissonProcess(RateKernelFactory.phototaxis_contra())) and fits it
@@ -21,7 +21,7 @@ Comparing two MultiGroupProcess instances that share the same `groups` but
 differ by one covariate column is a valid nested-model comparison (likelihood ratio, Δk = len(covariate) * n_kernel_params).
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence
 import numpy as np
 
 from BehaviorScreen.point_process.backend import Arrays, jnp
@@ -46,7 +46,7 @@ class MultiGroupProcess(PointProcess):
         covariate_names: List[str],
         integration_dt: float = 0.02,
         links: Optional[Sequence[BoundedLink | LogLink]] = None,
-    ):
+    ) -> None:
         super().__init__(integration_dt)
         self.base_process = base_process
         self.groups = groups
@@ -109,7 +109,7 @@ class MultiGroupProcess(PointProcess):
             total = total + self.base_process.jax_nll(jnp.stack([link.to_natural(linear[i]) for i, link in enumerate(self.links)]), arrays)
         return total
 
-    def fit(self, method: str = "L-BFGS-B", options: Optional[dict] = None, **kwargs):
+    def fit(self, method: str = "L-BFGS-B", options: Optional[dict] = None, **kwargs: Any) -> "MultiGroupProcess":
         # dataset is irrelevant here -- each group carries its own; pass None
         options = dict(options or {})
         options.setdefault("maxfun", 50000)

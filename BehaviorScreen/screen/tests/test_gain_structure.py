@@ -1,5 +1,5 @@
 """Dependence between the gains of fish of a line, a day and a plate, and the null simulated with it."""
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pytest
@@ -9,6 +9,7 @@ from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
 from BehaviorScreen.screen.line_tests.tier1_omnibus import fit_tier1, tier1_simulated_test
 from BehaviorScreen.screen.control_models.model_config import gamma, poisson, zero_inflated
 from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.poisson_process import RateKernelFactory
 
 
@@ -45,7 +46,7 @@ def test_latent_values_share_what_the_structure_says() -> None:
     (gamma(poisson(RateKernelFactory.spont())), [0.4, -0.02, 4.0]),
     (zero_inflated(poisson(RateKernelFactory.spont()), fit_c=True, c_init=0.1), None),
 ])
-def test_dependent_gains_keep_their_distribution(model, params) -> None:
+def test_dependent_gains_keep_their_distribution(model: PointProcess, params: Optional[List[float]]) -> None:
     model.set_params(np.array(model.initial_guesses if params is None else params))
     rng = np.random.default_rng(0)
     independent = model._fish_gains(20000, rng)

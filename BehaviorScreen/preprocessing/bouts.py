@@ -32,7 +32,7 @@ from megabouts.tracking_data import (
 )
 
 from BehaviorScreen.preprocessing.event_context import event_context, trial_indices
-from BehaviorScreen.preprocessing.load import Directories, file_younger_than, find_files
+from BehaviorScreen.preprocessing.load import Directories, file_younger_than, find_files, write_complete
 from BehaviorScreen.preprocessing.protocol import bout_laterality
 from BehaviorScreen.preprocessing.rig import bout_direction
 from BehaviorScreen.preprocessing.recording import Recording
@@ -293,8 +293,7 @@ def megabout_path(rec: Recording) -> Path:
 def detect_bouts(rec: Recording) -> MegaboutResults:
     """Run Megabouts (segmentation + classification) and save the result next to the metadata."""
     megabout = megabout_fulltracking_pipeline(rec)
-    with megabout_path(rec).open("wb") as output_file:
-        pickle.dump(megabout, output_file)
+    write_complete(megabout_path(rec), lambda partial: partial.write_bytes(pickle.dumps(megabout)))
     return megabout
 
 

@@ -1,4 +1,3 @@
-# tests/test_layer3_simulation_compensator_consistency.py
 """
 LAYER 3: self-consistency between simulate_stream (uses RateKernel/
 HistoryKernel .evaluate, pointwise) and cumulative_integrated_intensity
@@ -21,9 +20,10 @@ import numpy as np
 import pytest
 from scipy.stats import kstest
 
-from .conftest import make_scaffold_dataset, simulate_dataset_from_model, DummyFitResult
+from .conftest import RngFactory, make_scaffold_dataset, simulate_dataset_from_model, DummyFitResult
 
 from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.poisson_process import (
     PoissonProcess,
     RateKernelFactory,
@@ -50,7 +50,7 @@ from BehaviorScreen.point_process.kernel_shapes import logit_bounded
 
 
 def _km_exp1_sup_distance(
-    model,
+    model: PointProcess,
     residuals: np.ndarray,
     censored: np.ndarray,
     min_at_risk: int = 20,
@@ -84,12 +84,12 @@ def _km_exp1_sup_distance(
 
 
 def _assert_residuals_exp1_calibrated(
-    model,
+    model: PointProcess,
     dataset: PointProcessDataset,
     max_sup_distance: float = 0.03,
     min_at_risk: int = 20,
     min_exact: int = 100,
-):
+) -> None:
     """
     Censoring-aware known-parameter simulator/compensator consistency check.
 
@@ -126,7 +126,7 @@ def _assert_residuals_exp1_calibrated(
 
 class TestPoissonSimulationCompensatorConsistency:
 
-    def test_homogeneous(self, rng_factory):
+    def test_homogeneous(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(200)
         model = PoissonProcess(RateKernelFactory.homogeneous_poisson())
         model.set_params(np.array([0.5]))
@@ -136,7 +136,7 @@ class TestPoissonSimulationCompensatorConsistency:
 
         _assert_residuals_exp1_calibrated(model, dataset)
 
-    def test_shaped_kernel_omr_forward(self, rng_factory):
+    def test_shaped_kernel_omr_forward(self, rng_factory: RngFactory) -> None:
         """Checks a kernel with NO closed-form integral_func (falls back to
         trapezoid-on-a-grid in RateKernel.integrate) -- if that fallback
         grid construction were subtly biased, this would show up here as
@@ -157,7 +157,7 @@ class TestPoissonSimulationCompensatorConsistency:
 
 class TestHawkesSimulationCompensatorConsistency:
 
-    def test_homogeneous_baseline_exponential_history(self, rng_factory):
+    def test_homogeneous_baseline_exponential_history(self, rng_factory: RngFactory) -> None:
         """
         This is the specific check discussed in conversation: simulate_stream
         uses history_kernel.evaluate/decay_envelope (pointwise, thinning
@@ -183,7 +183,7 @@ class TestHawkesSimulationCompensatorConsistency:
 
 class TestRenewalSimulationCompensatorConsistency:
 
-    def test_homogeneous_baseline_exponential_excitation(self, rng_factory):
+    def test_homogeneous_baseline_exponential_excitation(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(203)
         model = RenewalProcess(
             RateKernelFactory.homogeneous_poisson(),
@@ -200,7 +200,7 @@ class TestRenewalSimulationCompensatorConsistency:
 
 class TestSurvivalSimulationCompensatorConsistency:
 
-    def test_gaussian_bump_baseline(self, rng_factory):
+    def test_gaussian_bump_baseline(self, rng_factory: RngFactory) -> None:
         """
         SurvivalProcess produces AT MOST one residual per stream (its own
         stream_compensator_profile override), so this checks
@@ -227,7 +227,7 @@ class TestSurvivalSimulationCompensatorConsistency:
 
 class TestGammaFrailtySimulationCompensatorConsistency:
 
-    def test_homogeneous_poisson_base(self, rng_factory):
+    def test_homogeneous_poisson_base(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(205)
 
         true_B = 0.5
@@ -263,7 +263,7 @@ class TestGammaFrailtySimulationCompensatorConsistency:
 
 class TestZeroInflatedGammaFrailtySimulationCompensatorConsistency:
 
-    def test_homogeneous_poisson_hard_nonresponders(self, rng_factory):
+    def test_homogeneous_poisson_hard_nonresponders(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(206)
 
         true_B = 0.5
@@ -306,7 +306,7 @@ class TestZeroInflatedGammaFrailtySimulationCompensatorConsistency:
 
 class TestBaselineOnlyFrailtyHawkesCompensatorConsistency:
 
-    def test_homogeneous_baseline_exponential_history(self, rng_factory):
+    def test_homogeneous_baseline_exponential_history(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(207)
 
         true_B = 0.4
@@ -357,7 +357,7 @@ class TestBaselineOnlyFrailtyHawkesCompensatorConsistency:
 
 class TestZeroInflatedBaselineOnlyFrailtyHawkesCompensatorConsistency:
 
-    def test_hard_nonresponders(self, rng_factory):
+    def test_hard_nonresponders(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(208)
 
         true_B = 0.4

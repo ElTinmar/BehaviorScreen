@@ -11,7 +11,7 @@ A cell that failed (status unexpected_error) is saved like the others and not tr
 import pickle
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import pandas as pd
 
@@ -20,7 +20,7 @@ from BehaviorScreen.screen.line_tests.steps import STEPS, finished, running, sav
 from BehaviorScreen.screen.paths import LINE_TEST_TABLES, VARIANTS, line_tests_dir
 
 
-def progress(steps: List[str], current) -> str:
+def progress(steps: List[str], current: Optional[Tuple[str, datetime]]) -> str:
     """'estimates+tier2, grids for 1h12m': the steps saved, then the one last started and for how long."""
     if current is None or STEPS[current[0]] in steps:
         return "+".join(steps) or "-"

@@ -17,7 +17,7 @@ import subprocess
 from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple, Union
 
 import cv2
 import matplotlib
@@ -148,26 +148,26 @@ class Param:
     u_ramp_type: int = 0
 
 
-def mod(a, b):
+def mod(a: Union[float, np.ndarray], b: float) -> Union[float, np.ndarray]:
     return a - b * np.floor(a / b)
 
 
-def mix(a, b, t):
+def mix(a: np.ndarray, b: np.ndarray, t: np.ndarray) -> np.ndarray:
     return a * (1 - t)[..., None] + b * t[..., None]
 
 
-def hash1(x):
+def hash1(x: float) -> float:
     return np.mod(np.sin(x * 127.1) * 43758.5453, 1.0)
 
 
-def sum_blend(bg, fg, gain=1.0):
+def sum_blend(bg: np.ndarray, fg: np.ndarray, gain: float = 1.0) -> np.ndarray:
     return cv2.addWeighted(bg, 1.0, fg, gain, 0.0)
 
 
 # TODO handle different coordinate system
 
 
-def image_coord_grid(height_px, width_px, downsample: int = 1):
+def image_coord_grid(height_px: int, width_px: int, downsample: int = 1) -> np.ndarray:
     xs = np.arange(0, width_px, downsample)
     ys = np.arange(0, height_px, downsample)
     X, Y = np.meshgrid(xs, ys)
@@ -175,22 +175,22 @@ def image_coord_grid(height_px, width_px, downsample: int = 1):
     return coords
 
 
-def dark_overlay(X, Y, p):
+def dark_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     H, W = X.shape
     return np.broadcast_to(p.u_background_color, (H, W, 3))
 
 
-def bright_overlay(X, Y, p):
+def bright_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     H, W = X.shape
     return np.broadcast_to(p.u_foreground_color, (H, W, 3))
 
 
-def phototaxis_overlay(X, Y, p):
+def phototaxis_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     mask = (p.u_phototaxis_polarity * X) > 0
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
 
-def omr_overlay(X, Y, p):
+def omr_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     angle_rad = np.deg2rad(p.u_omr_angle_deg)
     orientation_vector = np.array([-np.sin(angle_rad), np.cos(angle_rad)])
     position = X * orientation_vector[0] + Y * orientation_vector[1]
@@ -204,13 +204,13 @@ def omr_overlay(X, Y, p):
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
 
-def dot_overlay(X, Y, p):
+def dot_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     dist = np.sqrt((X - p.u_dot_center_mm[0]) ** 2 + (Y - p.u_dot_center_mm[1]) ** 2)
     mask = dist <= p.u_dot_radius_mm
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
 
-def concentric_grating_overlay(X, Y, p):
+def concentric_grating_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     spatial_freq = 1.0 / p.u_concentric_spatial_period_mm
     temporal_freq = p.u_concentric_speed_mm_per_sec / p.u_concentric_spatial_period_mm
     distance = np.sqrt(X**2 + Y**2)
@@ -221,7 +221,7 @@ def concentric_grating_overlay(X, Y, p):
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
 
-def looming_overlay(X, Y, p):
+def looming_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     relative_time = mod(p.u_time_s - p.u_start_time_sec, p.u_looming_period_sec)
     looming_on = float(relative_time <= p.u_looming_expansion_time_sec)
 
@@ -260,7 +260,7 @@ def looming_overlay(X, Y, p):
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
 
-def ramp_overlay(X, Y, p):
+def ramp_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     relative_time = np.mod(p.u_time_s - p.u_start_time_sec, p.u_ramp_duration_sec)
     frac = np.clip(relative_time / p.u_ramp_duration_sec, 0.0, 1.0)
 
@@ -275,7 +275,7 @@ def ramp_overlay(X, Y, p):
     return mix(p.u_background_color, p.u_foreground_color, ramp_value)
 
 
-def turing_overlay(X, Y, p):
+def turing_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     angle_rad = np.deg2rad(p.u_turing_angle_deg)
     velocity = p.u_turing_speed_mm_per_sec * np.array(
         [-np.sin(angle_rad), np.cos(angle_rad)]
@@ -296,7 +296,7 @@ def turing_overlay(X, Y, p):
     return np.where(mask[..., None], p.u_foreground_color, p.u_background_color)
 
 
-def okr_overlay(X, Y, p):
+def okr_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     angular_spatial_freq = np.deg2rad(p.u_okr_spatial_frequency_deg)
     angular_temporal_freq = np.deg2rad(p.u_okr_speed_deg_per_sec)
     angle = np.arctan2(Y, X)
@@ -306,7 +306,7 @@ def okr_overlay(X, Y, p):
 
 
 # TODO fix this
-def image_overlay(X, Y, p):
+def image_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     H, W = X.shape
     overlay = np.broadcast_to(p.u_background_color, (H, W, 3)).copy()
 
@@ -331,7 +331,7 @@ def image_overlay(X, Y, p):
 
 
 # TODO fix that (bbox argument should not be here)
-def prey_capture_overlay(X, Y, p):
+def prey_capture_overlay(X: np.ndarray, Y: np.ndarray, p: Param) -> np.ndarray:
     H, W = X.shape
     result = np.zeros((H, W), dtype=bool)
 
@@ -536,7 +536,7 @@ def stim_to_param(stim: dict, time_sec: float) -> Param:
     return p
 
 
-def overlay_stimulus(X, Y, p):
+def overlay_stimulus(X: np.ndarray, Y: np.ndarray, p: Param) -> Optional[np.ndarray]:
 
     fn = overlay_funcs.get(p.u_stim_select, None)
     if fn is not None:

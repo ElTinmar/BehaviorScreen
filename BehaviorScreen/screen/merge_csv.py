@@ -5,7 +5,7 @@ from typing import Iterable
 import pandas as pd
 
 
-def create_parser():
+def create_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Concatenate multiple CSV files.")
     parser.add_argument("root", type=Path, help="Root directory containing the files")
     parser.add_argument("inputs", nargs="+", help="Input CSV files (relative to root)")
@@ -41,7 +41,7 @@ def merge(root: Path, files: Iterable[Path], check_headers: bool = True) -> pd.D
     return pd.concat(tables, ignore_index=True)
 
 
-def main(args):
+def main(args: argparse.Namespace) -> None:
     output = Path(args.output)
     if not output.is_absolute():
         output = args.root / output

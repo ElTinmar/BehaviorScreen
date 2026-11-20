@@ -1,4 +1,3 @@
-# tests/test_layer2_independent_simulator.py
 """
 LAYER 2: recovery from a FROM-SCRATCH, independent reference simulator.
 
@@ -20,7 +19,7 @@ plug in.
 import numpy as np
 import pytest
 
-from .conftest import dataset_from_streams, assert_recovered, params_dict
+from .conftest import RngFactory, dataset_from_streams, assert_recovered, params_dict
 
 from BehaviorScreen.point_process.poisson_process import (
     PoissonProcess,
@@ -45,7 +44,7 @@ from BehaviorScreen.point_process.survival_process import (
 
 
 def reference_simulate_homogeneous_poisson(
-    B: float, duration_s: float, rng
+    B: float, duration_s: float, rng: np.random.Generator
 ) -> np.ndarray:
     """Textbook exact simulation via exponential inter-arrival times."""
     events = []
@@ -59,7 +58,7 @@ def reference_simulate_homogeneous_poisson(
 
 
 def reference_simulate_exponential_hawkes(
-    B, alpha, beta, duration_s, rng
+    B: float, alpha: float, beta: float, duration_s: float, rng: np.random.Generator
 ) -> np.ndarray:
     """
     From-scratch Ogata thinning for an exponential-kernel Hawkes process.
@@ -92,7 +91,7 @@ def reference_simulate_exponential_hawkes(
 
 
 def reference_simulate_exponential_renewal_excitation(
-    B, A_exc, tau_exc, duration_s, rng
+    B: float, A_exc: float, tau_exc: float, duration_s: float, rng: np.random.Generator
 ) -> np.ndarray:
     """
     From-scratch thinning for RenewalProcess(homogeneous, exponential_excitation):
@@ -120,7 +119,7 @@ def reference_simulate_exponential_renewal_excitation(
     return np.array(events)
 
 
-def reference_simulate_survival_constant_hazard(B: float, duration_s: float, rng):
+def reference_simulate_survival_constant_hazard(B: float, duration_s: float, rng: np.random.Generator) -> np.ndarray:
     """First-passage time under a constant hazard is just Exp(B), censored
     at duration_s -- exact inverse-CDF sampling, no thinning needed."""
     t_event = rng.exponential(1.0 / B)
@@ -136,7 +135,7 @@ def reference_simulate_survival_constant_hazard(B: float, duration_s: float, rng
 
 class TestPoissonIndependentSimulatorRecovery:
 
-    def test_homogeneous_rate(self, rng_factory):
+    def test_homogeneous_rate(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(100)
         true_B, T, n_fish, n_trials = 0.5, 15.0, 60, 4
 
@@ -156,7 +155,7 @@ class TestPoissonIndependentSimulatorRecovery:
 
 class TestHawkesIndependentSimulatorRecovery:
 
-    def test_homogeneous_baseline_exponential_history(self, rng_factory):
+    def test_homogeneous_baseline_exponential_history(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(101)
         true_B, true_alpha, true_beta = 0.4, 0.3, 2.0
         T, n_fish, n_trials = 20.0, 60, 5
@@ -186,7 +185,7 @@ class TestHawkesIndependentSimulatorRecovery:
 
 class TestRenewalIndependentSimulatorRecovery:
 
-    def test_homogeneous_baseline_exponential_excitation(self, rng_factory):
+    def test_homogeneous_baseline_exponential_excitation(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(103)
         true_B, true_A_exc, true_tau_exc = 0.5, 1.0, 0.3
         T, n_fish, n_trials = 20.0, 60, 5
@@ -219,7 +218,7 @@ class TestRenewalIndependentSimulatorRecovery:
 
 class TestSurvivalIndependentSimulatorRecovery:
 
-    def test_constant_hazard(self, rng_factory):
+    def test_constant_hazard(self, rng_factory: RngFactory) -> None:
         rng = rng_factory(105)
         true_B, T, n_fish, n_trials = 0.4, 5.0, 200, 6
 
