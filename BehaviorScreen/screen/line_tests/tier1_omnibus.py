@@ -28,6 +28,8 @@ from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.inference import newton_step_matrix, refit_from_fit
 from BehaviorScreen.point_process.parallel import parallel_map, report_failures
 from BehaviorScreen.point_process.io import save_fig, slugify
+from BehaviorScreen.point_process.side_diagnostics import plot_time_and_trial_calibration
+from BehaviorScreen.point_process.sided_process import CONTRA, IPSI, SIDE_NAMES, sided_base
 
 from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric, recording_days
 from .gain_structure import GainStructure, fish_groups
@@ -758,6 +760,66 @@ def plot_arm_surface_grid_with_marginals(
 
     return fig
 
+SIDE_COLORS = {IPSI: "#0F6E56", CONTRA: "#534AB7"}
+
+
+def plot_sided_arm_surface_grid(
+    ds_ref: PointProcessDataset, ds_test: PointProcessDataset, m_ref: PointProcess, m_test: PointProcess,
+    title: str = "", cmap: str = "plasma", figsize: Tuple[float, float] = (22, 17), vmax_percentile: float = 95.0,
+) -> plt.Figure:
+    """
+    plot_arm_surface_grid_with_marginals for a sided model, each side apart: per arm (reference, test), the
+    empirical and model rate surfaces of ipsi and of contra events, their time marginals above (empirical solid,
+    model dashed), both sides' trial marginals on the right, and below the side calibration by time and by trial.
+    """
+    arms = {"Reference": (ds_ref, m_ref), "Test": (ds_test, m_test)}
+    surfaces = {(arm, side): (ds.select(laterality=side).time_trial_histogram_hz, m.compute_expected_rate(ds, side=side))
+                for arm, (ds, m) in arms.items() for side in SIDE_NAMES}
+    marginals = {key: [_weighted_marginals(surface, arms[key[0]][0]) for surface in pair] for key, pair in surfaces.items()}
+    vmax = _robust_vmax([emp for emp, _ in surfaces.values()], percentile=vmax_percentile)
+    time_max = max(1e-9, *(np.nanmax(tm) for pair in marginals.values() for tm, _ in pair))
+    trial_max = max(1e-9, *(np.nanmax(trm) for pair in marginals.values() for _, trm in pair))
+
+    fig = plt.figure(figsize=figsize)
+    gs = fig.add_gridspec(6, 5, width_ratios=[4, 4, 4, 4, 1.6], height_ratios=[1, 4, 1.8] * 2,
+                          wspace=0.12, hspace=0.45, left=0.05, right=0.9, top=0.93, bottom=0.05)
+    for block, (arm, (ds, m)) in enumerate(arms.items()):
+        row = 3 * block
+        ax_trial = fig.add_subplot(gs[row + 1, 4])
+        for col, side in zip((0, 2), SIDE_NAMES):
+            (emp, model), ((tm_emp, trm_emp), (tm_model, trm_model)) = surfaces[arm, side], marginals[arm, side]
+            ax_time = fig.add_subplot(gs[row, col:col + 2])
+            ax_time.plot(ds.t_centers, tm_emp, color="black", lw=1.2, label="Empirical")
+            ax_time.plot(ds.t_centers, tm_model, color="crimson", ls="--", lw=1.2, label="Model")
+            ax_time.set(ylim=(0, time_max * 1.05), xlim=(ds.t_grid[0], ds.t_grid[-1]))
+            ax_time.set_title(f"{arm}: {SIDE_NAMES[side]}", fontsize=11, fontweight="bold", loc="left", color=SIDE_COLORS[side])
+            plt.setp(ax_time.get_xticklabels(), visible=False)
+            if block == 0 and col == 0:
+                ax_time.legend(loc="upper right", fontsize=7, frameon=False)
+            for offset, (surface, label) in enumerate(((emp, "Empirical"), (model, "Model"))):
+                ax = fig.add_subplot(gs[row + 1, col + offset])
+                mesh = ax.pcolormesh(ds.t_grid, ds.trial_edges, surface, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
+                ax.set_title(label, fontsize=9)
+                ax.set_xlabel("Time in trial (s)", fontsize=8)
+                if col + offset:
+                    plt.setp(ax.get_yticklabels(), visible=False)
+                else:
+                    ax.set_ylabel("Trial", fontsize=8)
+            trials = np.arange(ds.num_trials)
+            ax_trial.plot(trm_emp, trials, color=SIDE_COLORS[side], lw=1.2, label=f"{SIDE_NAMES[side]} empirical")
+            ax_trial.plot(trm_model, trials, color=SIDE_COLORS[side], ls="--", lw=1.2, label=f"{SIDE_NAMES[side]} model")
+        ax_trial.set(xlim=(0, trial_max * 1.05), ylim=(-0.5, ds.num_trials - 0.5), xlabel="Rate (Hz)")
+        plt.setp(ax_trial.get_yticklabels(), visible=False)
+        if block == 0:
+            ax_trial.legend(fontsize=6, frameon=False, loc="lower right")
+        plot_time_and_trial_calibration(fig.add_subplot(gs[row + 2, 0:2]), fig.add_subplot(gs[row + 2, 2:4]), ds, m)
+    for ax in fig.axes:
+        ax.tick_params(labelsize=7)
+    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.98)
+    fig.colorbar(mesh, cax=fig.add_axes([0.92, 0.4, 0.012, 0.3])).set_label("Rate (Hz)", fontsize=9)
+    return fig
+
+
 def generate_arm_surface_grids(cells: pd.DataFrame, arms: Arms, output_dir: Path) -> pd.DataFrame:
     """Returns a per-(line, behavior) status table -- 'plotted' / 'no_data' /
     'fit_failed' -- so missing plots are traceable without re-deriving them
@@ -780,7 +842,8 @@ def generate_arm_surface_grids(cells: pd.DataFrame, arms: Arms, output_dir: Path
 
         reason = row.get("plot_reason", "")
         title = f"{line_name(line)} / {behavior}" + (f"  [{reason}]" if reason else "")
-        fig = plot_arm_surface_grid_with_marginals(ds_ref, ds_test, m_ref, m_test, title=title)
+        plot = plot_arm_surface_grid_with_marginals if sided_base(m_ref) is None else plot_sided_arm_surface_grid
+        fig = plot(ds_ref, ds_test, m_ref, m_test, title=title)
         path = save_fig(fig, output_dir / (reason or "all"), f"{line}_{behavior}")
         plt.close(fig)
         results.append({"line": line, "behavior": behavior, "plot_status": "plotted", "path": str(path)})

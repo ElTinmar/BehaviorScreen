@@ -61,16 +61,23 @@ def _plot_calibration(ax: plt.Axes, x: np.ndarray, ev: Dict[str, np.ndarray], gr
     ax.legend(fontsize=8, frameon=False)
 
 
-def plot_side_diagnostics(dataset: PointProcessDataset, model: PointProcess, n_time_bins: int = 30) -> plt.Figure:
+def plot_time_and_trial_calibration(
+    ax_time: plt.Axes, ax_trial: plt.Axes, dataset: PointProcessDataset, model: PointProcess, n_time_bins: int = 30,
+) -> Dict[str, np.ndarray]:
+    """The observed ipsi fraction against the model's, by time in trial and by trial; the events used (side_events)."""
     ev = side_events(dataset, model)
-    fig, (ax_t, ax_m, ax_f) = plt.subplots(1, 3, figsize=(16, 4.6), layout="constrained")
-
     edges = np.linspace(0, dataset.duration_s, n_time_bins + 1)
-    _plot_calibration(ax_t, (edges[:-1] + edges[1:]) / 2, ev,
+    _plot_calibration(ax_time, (edges[:-1] + edges[1:]) / 2, ev,
                       np.clip(np.digitize(ev["time"], edges) - 1, 0, n_time_bins - 1), "Time in trial (s)")
-    ax_t.set_title("Side calibration by time")
-    _plot_calibration(ax_m, np.arange(dataset.num_trials), ev, ev["trial"], "Trial")
-    ax_m.set_title("Side calibration by trial")
+    ax_time.set_title("Side calibration by time")
+    _plot_calibration(ax_trial, np.arange(dataset.num_trials), ev, ev["trial"], "Trial")
+    ax_trial.set_title("Side calibration by trial")
+    return ev
+
+
+def plot_side_diagnostics(dataset: PointProcessDataset, model: PointProcess, n_time_bins: int = 30) -> plt.Figure:
+    fig, (ax_t, ax_m, ax_f) = plt.subplots(1, 3, figsize=(16, 4.6), layout="constrained")
+    ev = plot_time_and_trial_calibration(ax_t, ax_m, dataset, model, n_time_bins)
 
     n, observed, expected, _ = _binned(ev["fish"], dataset.num_fish, ev)
     var = fish_count_variance(ev, sided_base(model), dataset.num_fish)
