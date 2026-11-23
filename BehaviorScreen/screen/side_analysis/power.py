@@ -42,7 +42,7 @@ Run after run_screen, arm_absolute (optional: bootstrap SEs) and clutch_variabil
 (optional: mutant design):
     python -m BehaviorScreen.screen.side_analysis.power ./line_tests/best [fold changes, default 1.5 2 3]
 or, for the model-free readouts, after count_readouts:
-    python -m BehaviorScreen.screen.side_analysis.power ./count_results --counts [fold changes]
+    python -m BehaviorScreen.screen.side_analysis.power line_tests/model_free --counts [fold changes]
 """
 import sys
 from pathlib import Path

@@ -10,7 +10,7 @@ from BehaviorScreen.jobs import this_machine
 
 CONTROL_FITS = Path("control_fits")  # fit-controls: the control models
 LINE_TESTS = Path("line_tests")  # test-lines: Tier 1 and 2 of each line against the controls
-COUNT_RESULTS = Path("count_results")  # count_readouts: the model-free Tier 1
+COUNT_RESULTS = LINE_TESTS / "model_free"  # count_readouts: the model-free Tier 1
 PLATE_VARIANCE = Path("plate_variance")
 FISH_GAIN_VARIANCE = Path("fish_gain_variance")
 EXCLUSIONS = Path("exclusions.csv")

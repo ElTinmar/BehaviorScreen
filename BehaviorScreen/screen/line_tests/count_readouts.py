@@ -19,11 +19,11 @@ the days recorded in both and their fish are permuted within the day.
 Rates count each trial by what the control fish do on it (trial_weights): responses
 habituate over trials, so a fish missing late trials is not compared with the mean trial.
 
-    python -m BehaviorScreen.screen.line_tests.count_readouts [--data-root DIR] [--output ./count_results]
+    python -m BehaviorScreen.screen.line_tests.count_readouts [--data-root DIR] [--output line_tests/model_free]
 
 writes tier1_results.csv, tier1_parameters.csv, tier1_map.png, contrasts.csv,
 arm_bootstrap.csv and tier1_absolute/; then
-    python -m BehaviorScreen.screen.side_analysis.power ./count_results --counts
+    python -m BehaviorScreen.screen.side_analysis.power line_tests/model_free --counts
 """
 import argparse
 import math

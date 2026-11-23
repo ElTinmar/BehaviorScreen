@@ -330,7 +330,7 @@ flowchart TD
   clutch_out[("effect_sd_map, vehicle_map, clutch tables")]:::data
   power["side_analysis/power<br>power and fish needed per parameter"]:::step
   counts["line_tests/count_readouts<br>model-free Tier 1 on per-fish counts"]:::step
-  counts_out[("count_results/")]:::data
+  counts_out[("line_tests/model_free/")]:::data
   plate_var["line_tests/plate_variance<br>plate ICC of the count readouts"]:::step
   plate_out[("plate_variance/")]:::data
   sim_power["side_analysis/simulate_power<br>model test against count tests"]:::par
@@ -352,7 +352,7 @@ flowchart TD
   arm_out -.->|SEs| power
   merged --> counts
   counts --> counts_out
-  counts_out --> plate_var
+  merged --> plate_var
   plate_var --> plate_out
   control_fits --> sim_power
   merged --> sim_power
@@ -561,7 +561,7 @@ subgraph stage_6["Merged results and follow-ups"]
   clutch_out[("effect_sd_map, vehicle_map, clutch tables")]:::data
   power["side_analysis/power<br>power and fish needed per parameter"]:::step
   counts["line_tests/count_readouts<br>model-free Tier 1 on per-fish counts"]:::step
-  counts_out[("count_results/")]:::data
+  counts_out[("line_tests/model_free/")]:::data
   plate_var["line_tests/plate_variance<br>plate ICC of the count readouts"]:::step
   plate_out[("plate_variance/")]:::data
   sim_power["side_analysis/simulate_power<br>model test against count tests"]:::par
@@ -580,7 +580,6 @@ subgraph stage_6["Merged results and follow-ups"]
   line_results --> power
   arm_out -.->|SEs| power
   counts --> counts_out
-  counts_out --> plate_var
   plate_var --> plate_out
 end
 arm_tables --> merge_step
@@ -596,6 +595,7 @@ lines_csv -.-> setup
 behavior_tables --> combine
 behavior_tables --> status
 merged --> counts
+merged --> plate_var
 control_fits --> sim_power
 merged --> sim_power
 control_fits --> gain_var
