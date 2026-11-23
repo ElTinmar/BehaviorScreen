@@ -5,6 +5,7 @@ merge has it and what is left.
 "incomplete" is a behavior with work saved but not finished: its job is running or queued, or it stopped and needs
 resubmitting.
     python -m BehaviorScreen test-lines --status [--model best|best-poisson|base]
+Without --model, also when the model-free screen (count_readouts) last ran.
 A cell that failed (status unexpected_error) is saved like the others and not tried again: delete its file, listed with
 --failed, before resubmitting the behavior to retry it.
 """
@@ -16,7 +17,7 @@ import pandas as pd
 
 from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
 from BehaviorScreen.screen.line_tests.steps import STEPS, cells_in, finished, read_cell, running, saved
-from BehaviorScreen.screen.paths import LINE_TEST_TABLES, VARIANTS, line_tests_dir
+from BehaviorScreen.screen.paths import COUNT_RESULTS, LINE_TEST_TABLES, VARIANTS, line_tests_dir
 
 
 def progress(steps: List[str], current: Optional[Tuple[str, datetime]]) -> str:
@@ -65,3 +66,7 @@ def main(variant: Optional[str] = None, behaviors: Optional[List[str]] = None, f
                 for c in cells(line_tests_dir(name) / "cells" / behavior):
                     if str(c.get("status", "")).startswith("unexpected_error"):
                         print(f"  {c['file']}: {c['status'][:150]}")
+    if not variant:
+        results = COUNT_RESULTS / "tier1_results.csv"
+        when = f"last run {datetime.fromtimestamp(results.stat().st_mtime):%Y-%m-%d %H:%M}" if results.exists() else "not run (test-lines --model-free)"
+        print(f"\nmodel-free ({COUNT_RESULTS}/): {when}")

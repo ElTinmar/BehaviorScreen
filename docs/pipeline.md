@@ -306,8 +306,9 @@ separate two arms; the fish-label permutation does not see them.
 ## 6. Merge the behaviors, then the analyses that read the merged results
 
 `python -m BehaviorScreen test-lines --combine [--model VARIANT]` merges the behaviors whose steps are all saved
-and draws the maps. `--status` says, from the results folders alone, what is saved and what to do next;
-`--compare` sets the variants' hits side by side.
+and draws the maps. `--model-free` runs the same screen without a model (`count_readouts`: readouts counted per fish,
+one test per experiment, its readouts post hoc), one short job. `--status` says, from the results folders alone, what
+is saved and what to do next; `--compare` sets the hits of the variants and of the model-free screen side by side.
 
 ```mermaid
 %% stage: Merged results and follow-ups
@@ -316,6 +317,7 @@ flowchart TD
   combine_cmd(["test-lines --combine --model VARIANT"]):::cmd
   status_cmd(["test-lines --status"]):::cmd
   compare_cmd(["test-lines --compare"]):::cmd
+  model_free_cmd(["test-lines --model-free"]):::cmd
   behavior_tables[("line_tests/VARIANT/BEHAVIOR/<br>tier1_results, tier1_parameters, tier2_results, parameter_tests, bootstrap_parameter_deltas")]:::shared
   merged[("data_root/<br>bouts_all, saccades_augmented_all, qc_all, valid_trials_all .csv")]:::shared
   control_fits[("control_fits/EXPERIMENT/models/<br>best_model.json, fit_records.json")]:::shared
@@ -350,8 +352,10 @@ flowchart TD
   clutch --> clutch_out
   line_results --> power
   arm_out -.->|SEs| power
+  model_free_cmd --> counts
   merged --> counts
   counts --> counts_out
+  counts_out --> compare
   merged --> plate_var
   plate_var --> plate_out
   control_fits --> sim_power
@@ -550,6 +554,7 @@ subgraph stage_6["Merged results and follow-ups"]
   combine_cmd(["test-lines --combine --model VARIANT"]):::cmd
   status_cmd(["test-lines --status"]):::cmd
   compare_cmd(["test-lines --compare"]):::cmd
+  model_free_cmd(["test-lines --model-free"]):::cmd
   combine["combine<br>every behavior with all its steps saved"]:::step
   line_results[("line_tests/VARIANT/<br>merged tables, tier1_map, tier2_map, volcano, bad_fit_triage")]:::shared
   status["status<br>cells, failed, steps, next action per behavior"]:::step
@@ -579,7 +584,9 @@ subgraph stage_6["Merged results and follow-ups"]
   clutch --> clutch_out
   line_results --> power
   arm_out -.->|SEs| power
+  model_free_cmd --> counts
   counts --> counts_out
+  counts_out --> compare
   plate_var --> plate_out
 end
 arm_tables --> merge_step
