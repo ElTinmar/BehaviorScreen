@@ -437,8 +437,21 @@ class SideView:
         self.name = f"{model.name} ({SIDE_NAMES[side]})"
         self.latex_formula = model.latex_formula
 
+    @property
+    def uses_history(self) -> bool:
+        return self.model.uses_history
+
+    def _both_sides(self, dataset: PointProcessDataset) -> PointProcessDataset:
+        return dataset if self.template is None else self.template
+
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
-        return self.model.compute_expected_rate(dataset if self.template is None else self.template, side=self.side)
+        return self.model.compute_expected_rate(self._both_sides(dataset), side=self.side)
 
     def conditional_rate(self, dataset: PointProcessDataset) -> Optional[np.ndarray]:
-        return self.model.conditional_rate(dataset if self.template is None else self.template, side=self.side)
+        return self.model.conditional_rate(self._both_sides(dataset), side=self.side)
+
+    def simulated_rate(self, dataset: PointProcessDataset, gains: Optional[np.ndarray] = None) -> np.ndarray:
+        return self.model.simulated_rate(self._both_sides(dataset), side=self.side, gains=gains)
+
+    def own_gains(self, dataset: PointProcessDataset) -> Optional[np.ndarray]:
+        return self.model.own_gains(self._both_sides(dataset))

@@ -17,6 +17,7 @@ import numpy as np
 from .conftest import RngFactory, make_scaffold_dataset
 
 from BehaviorScreen.point_process.dataset import PointProcessDataset
+from BehaviorScreen.screen.control_models.model_config import flat, gamma, poisson
 from BehaviorScreen.point_process.poisson_process import (
     PoissonProcess,
     RateKernelFactory,
@@ -353,3 +354,15 @@ class TestSimulateDataset:
 
         assert len(streams) == (scaffold.num_fish * scaffold.num_trials)
         assert all(len(t_ev) == 0 for _, _, t_ev in streams)
+
+
+def test_simulation_takes_each_fish_s_own_gain() -> None:
+    model = gamma(poisson(flat()))
+    model.set_params(np.array([0.5, 2.0]))
+    template = make_scaffold_dataset(40, 6, 10.0)
+    gains = np.where(np.arange(40) < 20, 0.5, 2.0)
+    data = model.simulate_dataset(template, np.random.default_rng(0), gains=gains)
+    counts = np.bincount(data.event_fish_idx, minlength=40)
+    assert counts[20:].mean() / counts[:20].mean() > 3  # 4 expected; drawn gains would give about 1
+    estimated = model.own_gains(data)
+    assert estimated.shape == (40,) and estimated[20:].mean() > estimated[:20].mean()

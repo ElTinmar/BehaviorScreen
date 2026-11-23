@@ -320,7 +320,6 @@ class DiagnosticsMixin:
                      "parameter_covariance": covariance, "parameter_correlation": correlation}
 
 
-OWN_GAINS = "darkorange"  # model rate with each fish's own (posterior) gains, next to the simulated one
 
 
 class ModelPlotter:
@@ -354,127 +353,69 @@ class ModelPlotter:
     def plot_histogram(
         dataset: PointProcessDataset,
         model: PointProcess,
-        figsize: Tuple[float, float] = (22, 8),
+        figsize: Tuple[float, float] = (24, 10),
         cmap: str = "plasma",
     ) -> Tuple[plt.Figure, np.ndarray]:
         """
-        Empirical vs. model rate surface, each with overlaid empirical
-        (solid) / model (dashed) marginals: one time-marginal strip
-        spanning both heatmap columns, one shared trial-marginal column to
-        the right. Same layout convention as the line_tests arm-
-        surface-grid plots -- single shared GridSpec (not per-panel
-        independent ones) so heatmaps and marginals stay pixel-aligned,
-        and an explicit colorbar axis (not make_axes_locatable) so the
-        colorbar never overlaps a title.
+        The empirical rate surface next to the model's, a column each. Without bout history, the model's rate (exact).
+        With it, the model simulated with gains drawn from its distribution (all 1 without fish gains) and, with fish
+        gains too, simulated with each fish's own (posterior) gain, and predicted from each fish's own bouts and gains
+        (conditional_rate). Above each surface its time marginal, below it its trial marginal, the empirical one behind
+        the model's in grey. A gap that closes from drawn to own gains comes from the gain distribution; one that stays,
+        from the bout dynamics; the prediction restarts from the observed bouts at every moment and shows neither.
         """
-        surf_emp = dataset.time_trial_histogram_hz
-        surf_model = model.compute_expected_rate(dataset)
-        surf_own = model.conditional_rate(dataset)
-
-        tm_emp, trm_emp = ModelPlotter._weighted_marginals(surf_emp, dataset)
-        tm_model, trm_model = ModelPlotter._weighted_marginals(surf_model, dataset)
-        tm_own, trm_own = (None, None) if surf_own is None else ModelPlotter._weighted_marginals(surf_own, dataset)
-
-        vmax = max(np.nanmax(surf_emp), np.nanmax(surf_model))
-        vmax = max(vmax, 1e-9)
-        time_ymax = max(
-            np.nanmax(x) for x in [tm_emp, tm_model, tm_own] if x is not None and np.any(np.isfinite(x))
-        )
-        trial_xmax = max(
-            np.nanmax(x) for x in [trm_emp, trm_model, trm_own] if x is not None and np.any(np.isfinite(x))
-        )
-        time_ymax, trial_xmax = max(time_ymax, 1e-9), max(trial_xmax, 1e-9)
+        surfaces = {"Empirical": dataset.time_trial_histogram_hz}
+        if not model.uses_history:
+            surfaces["Model"] = model.compute_expected_rate(dataset)
+        else:
+            surfaces["Simulated, gains drawn" if model.own_gains(dataset) is not None else "Simulated"] = model.simulated_rate(dataset)
+            if (predicted := model.conditional_rate(dataset)) is not None:
+                surfaces["Simulated, each fish's own gain"] = model.simulated_rate(dataset, gains=model.own_gains(dataset))
+                surfaces["Predicted from each fish's bouts"] = predicted
+        marginals = {name: ModelPlotter._weighted_marginals(surface, dataset) for name, surface in surfaces.items()}
+        vmax = max(1e-9, *(np.nanmax(surface) for surface in surfaces.values()))
+        time_max = max(1e-9, *(np.nanmax(m[0]) for m in marginals.values()))
+        trial_max = max(1e-9, *(np.nanmax(m[1]) for m in marginals.values()))
 
         fig = plt.figure(figsize=figsize)
-        gs = fig.add_gridspec(
-            nrows=2,
-            ncols=3,
-            width_ratios=[4, 4, 1.3],
-            height_ratios=[1, 4],
-            wspace=0.12,
-            hspace=0.12,
-            left=0.07,
-            right=0.86,
-            top=0.90,
-            bottom=0.09,
-        )
-
-        ax_time = fig.add_subplot(gs[0, 0:2])
-        ax_emp = fig.add_subplot(gs[1, 0], sharex=ax_time)
-        ax_mod = fig.add_subplot(gs[1, 1], sharex=ax_time, sharey=ax_emp)
-        ax_trial = fig.add_subplot(gs[1, 2], sharey=ax_emp)
-
-        ax_time.plot(
-            dataset.t_centers,
-            tm_emp,
-            color="black",
-            linestyle="-",
-            linewidth=1.3,
-            label="Empirical",
-        )
-        ax_time.plot(
-            dataset.t_centers,
-            tm_model,
-            color="crimson",
-            linestyle="--",
-            linewidth=1.3,
-            label="Model" if surf_own is None else "Model (simulated)",
-        )
-        if surf_own is not None:
-            ax_time.plot(dataset.t_centers, tm_own, color=OWN_GAINS, linestyle=":", linewidth=1.5, label="Model, each fish's own gains")
-        ax_time.set_ylim(0, time_ymax * 1.05)
-        plt.setp(ax_time.get_xticklabels(), visible=False)
-        ax_time.tick_params(labelsize=7)
-        ax_time.legend(loc="upper right", fontsize=8, frameon=False)
-
-        mesh = ax_emp.pcolormesh(
-            dataset.t_grid,
-            dataset.trial_edges,
-            surf_emp,
-            shading="flat",
-            cmap=cmap,
-            vmin=0.0,
-            vmax=vmax,
-        )
-        ax_mod.pcolormesh(
-            dataset.t_grid,
-            dataset.trial_edges,
-            surf_model,
-            shading="flat",
-            cmap=cmap,
-            vmin=0.0,
-            vmax=vmax,
-        )
-        ax_emp.set_title("Empirical Surface", fontsize=11, fontweight="bold")
-        ax_mod.set_title(
-            f"Fitted Surface: {model.name}", fontsize=11, fontweight="bold"
-        )
-        ax_emp.set_xlabel("Time in Trial (s)", fontsize=10)
-        ax_mod.set_xlabel("Time in Trial (s)", fontsize=10)
-        ax_emp.set_ylabel("Trial Number", fontsize=10)
-        plt.setp(ax_mod.get_yticklabels(), visible=False)
-        ax_emp.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
-        ax_emp.tick_params(labelsize=8)
-        ax_mod.tick_params(labelsize=8)
-
-        trial_centers = np.arange(dataset.num_trials)
-        ax_trial.plot(
-            trm_emp, trial_centers, color="black", linestyle="-", linewidth=1.3
-        )
-        ax_trial.plot(
-            trm_model, trial_centers, color="crimson", linestyle="--", linewidth=1.3
-        )
-        if surf_own is not None:
-            ax_trial.plot(trm_own, trial_centers, color=OWN_GAINS, linestyle=":", linewidth=1.5)
-        ax_trial.set_xlim(0, trial_xmax * 1.05)
-        plt.setp(ax_trial.get_yticklabels(), visible=False)
-        ax_trial.tick_params(labelsize=7)
-
-        cax = fig.add_axes([0.89, 0.15, 0.02, 0.65])
-        cbar = fig.colorbar(mesh, cax=cax)
-        cbar.set_label("Event Rate [Hz]", fontsize=10)
-
-        return fig, np.array([ax_time, ax_emp, ax_mod, ax_trial])
+        gs = fig.add_gridspec(3, len(surfaces), height_ratios=[1, 4, 1.3], hspace=0.08, wspace=0.08, left=0.05, right=0.9, top=0.9, bottom=0.07)
+        trials = np.arange(dataset.num_trials)
+        axes = []
+        for col, (name, surface) in enumerate(surfaces.items()):
+            ax_time = fig.add_subplot(gs[0, col])
+            ax_surface = fig.add_subplot(gs[1, col], sharex=ax_time)
+            ax_trial = fig.add_subplot(gs[2, col])
+            (tm, trm), (tm_emp, trm_emp) = marginals[name], marginals["Empirical"]
+            empirical = col == 0
+            if not empirical:
+                ax_time.plot(dataset.t_centers, tm_emp, color="0.7", linewidth=1.2, label="empirical")
+                ax_trial.plot(trials, trm_emp, color="0.7", linewidth=1.2)
+            ax_time.plot(dataset.t_centers, tm, color="black" if empirical else "crimson", linewidth=1.2, label=None if empirical else "model")
+            ax_trial.plot(trials, trm, color="black" if empirical else "crimson", linewidth=1.2)
+            mesh = ax_surface.pcolormesh(dataset.t_grid, dataset.trial_edges, surface, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
+            ax_time.set_title(name, fontsize=11, fontweight="bold")
+            ax_time.set_ylim(0, time_max * 1.05)
+            ax_trial.set_ylim(0, trial_max * 1.05)
+            ax_trial.set_xlim(-0.5, dataset.num_trials - 0.5)
+            ax_surface.set_xlim(dataset.t_grid[0], dataset.t_grid[-1])
+            ax_surface.set_xlabel("Time in trial (s)", fontsize=9)
+            ax_trial.set_xlabel("Trial", fontsize=9)
+            plt.setp(ax_time.get_xticklabels(), visible=False)
+            if empirical:
+                ax_time.set_ylabel("Rate (Hz)", fontsize=9)
+                ax_surface.set_ylabel("Trial", fontsize=9)
+                ax_trial.set_ylabel("Rate (Hz)", fontsize=9)
+            else:
+                for ax in (ax_time, ax_surface, ax_trial):
+                    plt.setp(ax.get_yticklabels(), visible=False)
+            if col == 1:
+                ax_time.legend(loc="lower right", fontsize=8, frameon=False)
+            for ax in (ax_time, ax_surface, ax_trial):
+                ax.tick_params(labelsize=7)
+            axes.append([ax_time, ax_surface, ax_trial])
+        fig.suptitle(model.name, fontsize=10)
+        fig.colorbar(mesh, cax=fig.add_axes([0.92, 0.3, 0.012, 0.45])).set_label("Event rate (Hz)", fontsize=10)
+        return fig, np.array(axes)
 
     @staticmethod
     def plot_model_fits(

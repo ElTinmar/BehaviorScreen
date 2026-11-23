@@ -130,19 +130,21 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         """Rate given each fish's observed bouts and its own gains; None where not defined (Frailty)."""
         return None
 
-    def simulated_rate(self, dataset: PointProcessDataset, side: Optional[int] = None, n_fish: int = 3000, seed: int = 0) -> np.ndarray:
+    def simulated_rate(
+        self, dataset: PointProcessDataset, side: Optional[int] = None, n_fish: int = 3000, seed: int = 0, gains: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
         Event rate (Hz, trial x time bin) the model produces on dataset's design, the
         mean of enough simulations of it for about n_fish simulated fish (at least 3),
         of all events or of one side's (laterality mark).
         The rate of models whose intensity depends on each fish's own bouts: rates
         computed from the observed bouts at the mean gain overshoot, a quiet fish being
-        rested most of the time. Cached for the last dataset and parameters.
+        rested most of the time. gains: each fish's (own_gains), instead of drawn. Cached for the last call's arguments.
         """
-        key = (id(dataset), dataset.num_fish, len(dataset.event_times), tuple(self.params_), n_fish, seed)
+        key = (id(dataset), dataset.num_fish, len(dataset.event_times), tuple(self.params_), n_fish, seed, None if gains is None else tuple(gains))
         if getattr(self, "_simulated_rates", (None,))[0] != key:
             rng = np.random.default_rng(seed)
-            sims = [self.simulate_dataset(dataset, rng) for _ in range(max(3, -(-n_fish // dataset.num_fish)))]
+            sims = [self.simulate_dataset(dataset, rng, gains=gains) for _ in range(max(3, -(-n_fish // dataset.num_fish)))]
             sides = np.unique(sims[0].marks["laterality"]) if "laterality" in sims[0].marks else []
             rates = {s: np.mean([(x if s is None else x.select(laterality=int(s))).time_trial_histogram_hz for x in sims], axis=0)
                      for s in [None, *sides]}
@@ -158,6 +160,16 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
 
     def estimate_fish_gains(self, dataset: PointProcessDataset) -> pd.DataFrame:
         raise NotImplementedError
+
+    def own_gains(self, dataset: PointProcessDataset) -> Optional[np.ndarray]:
+        """Each fish's posterior mean gain (1 for a fish without trials); None for a model without fish gains."""
+        try:
+            table = self.estimate_fish_gains(dataset)
+        except NotImplementedError:
+            return None
+        gains = np.ones(dataset.num_fish)
+        gains[table["fish_idx"].to_numpy()] = table["estimated_gain"].to_numpy()
+        return gains
 
     def population_survival_curve(
         self, dataset: PointProcessDataset, trial: Optional[int] = None
@@ -190,24 +202,31 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         """No frailty: every gain is 1."""
         return np.ones((num_fish, n_sims))
 
-    def _fish_gains(self, num_fish: int, rng: np.random.Generator, latent: Optional[np.ndarray] = None) -> np.ndarray:
+    def _fish_gains(
+        self, num_fish: int, rng: np.random.Generator, latent: Optional[np.ndarray] = None, gains: Optional[np.ndarray] = None,
+    ) -> np.ndarray:
         """
         One gain per fish. latent (a standard normal value per fish, dependent between fish):
         each fish's gain is the quantile of the gain distribution its latent value has in the
         normal one, so the gains keep their distribution and take the dependence of latent.
+        gains: each fish's own, taken as they are instead of drawn.
         """
+        if gains is not None:
+            return np.asarray(gains, dtype=float)
         if latent is None:
             return self._draw_fish_gains(num_fish, 1, rng)[:, 0]
         return np.quantile(self._draw_fish_gains(4096, 1, rng)[:, 0], norm.cdf(latent))
 
     def _fish_draws(
         self, num_fish: int, rng: np.random.Generator, dataset: Optional[PointProcessDataset] = None, latent: Optional[np.ndarray] = None,
+        gains: Optional[np.ndarray] = None,
     ) -> list:
         """What simulate_stream gets per fish: its gain (pairs of gain and side shift for SideFrailty); dataset: the fish's covariates."""
-        return [float(g) for g in self._fish_gains(num_fish, rng, latent)]
+        return [float(g) for g in self._fish_gains(num_fish, rng, latent, gains)]
 
     def simulate_dataset(
         self, template: PointProcessDataset, rng: Optional[np.random.Generator] = None, latent: Optional[np.ndarray] = None,
+        gains: Optional[np.ndarray] = None,
     ) -> PointProcessDataset:
         """
         One dataset from the current parameters with the design of `template`
@@ -216,10 +235,11 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
         as (times, marks) and keep their marks. The template's other bouts (not
         events) are kept as they are, around the simulated events, as history.
         latent: dependence between the fish's gains (_fish_gains); None: independent.
+        gains: each fish's gain (own_gains), instead of drawn from the model's distribution.
         """
         self._require_fitted()
         rng = rng or np.random.default_rng()
-        draws = self._fish_draws(template.num_fish, rng, template, latent)
+        draws = self._fish_draws(template.num_fish, rng, template, latent, gains)
         others = lambda f_idx, t_idx: {"others": template.other_times(f_idx, t_idx)} if self.uses_history else {}
 
         streams = [

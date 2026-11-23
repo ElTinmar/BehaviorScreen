@@ -671,9 +671,10 @@ class Frailty(_GainWrapper):
 
     def _fish_draws(
         self, num_fish: int, rng: np.random.Generator, dataset: Optional[PointProcessDataset] = None, latent: Optional[np.ndarray] = None,
+        gains: Optional[np.ndarray] = None,
     ) -> list:
         """Each fish's gain, times mu_f (time_of_day: needs the dataset)."""
-        draws = PointProcess._fish_draws(self, num_fish, rng, latent=latent)
+        draws = PointProcess._fish_draws(self, num_fish, rng, latent=latent, gains=gains)
         return draws if not self.time_of_day else list(np.asarray(draws) * self._hour_factor(self.params_, dataset))
 
     def _stream_tau_values(self, dataset: PointProcessDataset) -> StreamTaus:
@@ -1054,9 +1055,10 @@ class SideFrailty(Frailty):
 
     def _fish_draws(
         self, num_fish: int, rng: np.random.Generator, dataset: Optional[PointProcessDataset] = None, latent: Optional[np.ndarray] = None,
+        gains: Optional[np.ndarray] = None,
     ) -> list:
         """(gain, side shift u) per fish; the gain times mu_f (time_of_day: needs the dataset)."""
-        gains = self._fish_gains(num_fish, rng, latent)
+        gains = self._fish_gains(num_fish, rng, latent, gains)
         gains = gains * self._hour_factor(self.params_, dataset) if self.time_of_day else gains
         return list(zip(gains, rng.normal(0.0, self.params_[-1], num_fish)))
 
