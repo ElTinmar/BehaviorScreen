@@ -54,6 +54,7 @@ def _plot_calibration(ax: plt.Axes, x: np.ndarray, ev: Dict[str, np.ndarray], gr
     shown = n > 0
     n, observed, expected, sd = n[shown], observed[shown], expected[shown], np.sqrt(var[shown])
     x = x[shown]
+    ax.axhline(0.5, color="0.6", lw=0.8, ls=":", zorder=0)
     ax.fill_between(x, (expected - 1.96 * sd) / n, (expected + 1.96 * sd) / n, color="crimson", alpha=0.15, lw=0)
     ax.plot(x, expected / n, color="crimson", ls="--", lw=1.3, label="model (95% band)")
     ax.plot(x, observed / n, "o", color="black", ms=3.5, label="observed")
