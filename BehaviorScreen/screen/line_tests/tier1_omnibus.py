@@ -12,7 +12,6 @@ dimensionality.
 import copy
 import json
 import math
-import pickle
 from functools import partial
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 from pathlib import Path
@@ -26,15 +25,16 @@ from matplotlib.colors import LinearSegmentedColormap
 
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.dataset import PointProcessDataset
-from BehaviorScreen.point_process.inference import load_replicates, newton_step_matrix, refit_from_fit
+from BehaviorScreen.point_process.inference import newton_step_matrix, refit_from_fit
 from BehaviorScreen.point_process.parallel import parallel_map, report_failures
-from BehaviorScreen.point_process.io import save_fig, save_pickle, slugify
+from BehaviorScreen.point_process.io import save_fig, slugify
 
 from .dataset_utils import Arms, Contrast, per_fish_summary, compare_fish_metric, recording_days
 from .gain_structure import GainStructure, fish_groups
 from .arm_contrast import output_metric
 from .fdr import ALPHA
 from .model_qc import MIN_FISH, assess_group_fit
+from .steps import cells_in, read_cell, write_cell
 from BehaviorScreen.screen.line_names import line_name
 
 # Behavior-specific minimum total-event floor. Fish count is the WRONG
@@ -309,11 +309,22 @@ def same_fish(record: Dict, ds_ref: Optional[PointProcessDataset], ds_test: Opti
 
 
 def cell_path(store: Path, line: str, behavior: str) -> Path:
-    return store / behavior / f"{slugify(line)}.pkl"
+    return store / behavior / f"{slugify(line)}.json"
 
 
 def save_cell(store: Path, record: Dict) -> None:
-    save_pickle(record, cell_path(store, record["line"], record["behavior"]))
+    write_cell(cell_path(store, record["line"], record["behavior"]), record)
+
+
+def saved_cells(folder: Path, key: Dict) -> List[Dict]:
+    """The cells in folder run with this key; any run with another (model or control fit) are deleted."""
+    folder.mkdir(parents=True, exist_ok=True)
+    key_path = folder / "key.json"
+    if key_path.exists() and json.loads(key_path.read_text()) != key:
+        for path in cells_in(folder):
+            path.unlink()
+    key_path.write_text(json.dumps(key))
+    return [read_cell(path) for path in cells_in(folder)]
 
 
 def refuse_other_settings(folder: Path, key: Dict) -> None:
@@ -348,7 +359,7 @@ def extend_permutations(tier1_df: pd.DataFrame, arms: Arms, n_perm_max: int, sto
         for column, value in update.items():
             df.loc[i, column] = value
         if store is not None:
-            save_cell(store, {**pickle.loads(cell_path(store, row["line"], row["behavior"]).read_bytes()), **update})
+            save_cell(store, {**read_cell(cell_path(store, row["line"], row["behavior"])), **update})
     return df
 
 
@@ -373,7 +384,7 @@ def run_tier1_screen(
                "permutation": "NTR arms: days recorded in both, fish shuffled within day",
                "structure": None if not structures else [structures[behavior].line, structures[behavior].day, structures[behavior].plate, n_sim]}
         refuse_other_settings(store / behavior, key)
-        saved = {(r["line"], behavior): r for r in load_replicates(store / behavior, key).values()}
+        saved = {(r["line"], behavior): r for r in saved_cells(store / behavior, key)}
         done.update({job: r for job, r in saved.items() if same_fish(r, *arms.datasets(*job))})
         if changed := len(saved) - len(done):
             print(f"[{behavior}] {changed} saved cells recomputed: their fish changed")

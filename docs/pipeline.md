@@ -256,10 +256,11 @@ flowchart TD
   tier1[("BEHAVIOR/tier1_results.csv")]:::data
   estimates["estimates<br>values and Hessian SEs, saved with the cells"]:::step
   tier2["Tier 2, hits<br>drug effect against WT's, 200 bootstrap fits"]:::par
+  posthoc["parameter tests, hits<br>each amplitude in common in turn, 200 simulated fits"]:::par
   grids["surface grids<br>figures"]:::step
   pboot["parameter bootstrap, hits<br>1000 fish-resampled refits"]:::par
   checks["forest plot, p-value histogram<br>negative control: WT halves"]:::step
-  behavior_tables[("line_tests/VARIANT/BEHAVIOR/<br>tier1_results, tier1_parameters, tier2_results, bootstrap_parameter_deltas")]:::shared
+  behavior_tables[("line_tests/VARIANT/BEHAVIOR/<br>tier1_results, tier1_parameters, tier2_results, parameter_tests, bootstrap_parameter_deltas")]:::shared
   test_cmd --> setup
   merged --> setup
   control_fits --> setup
@@ -279,12 +280,14 @@ flowchart TD
   fdr_again --> tier1
   tier1 --> estimates
   estimates --> tier2
-  tier2 --> grids
+  tier2 --> posthoc
+  posthoc --> grids
   grids --> pboot
   pboot --> checks
   tier1 --> behavior_tables
   estimates --> behavior_tables
   tier2 --> behavior_tables
+  posthoc --> behavior_tables
   pboot --> behavior_tables
   classDef cmd fill:#EEEDFE,stroke:#534AB7,color:#26215C
   classDef step fill:#F1EFE8,stroke:#5F5E5A,color:#2C2C2A
@@ -313,7 +316,7 @@ flowchart TD
   combine_cmd(["test-lines --combine --model VARIANT"]):::cmd
   status_cmd(["test-lines --status"]):::cmd
   compare_cmd(["test-lines --compare"]):::cmd
-  behavior_tables[("line_tests/VARIANT/BEHAVIOR/<br>tier1_results, tier1_parameters, tier2_results, bootstrap_parameter_deltas")]:::shared
+  behavior_tables[("line_tests/VARIANT/BEHAVIOR/<br>tier1_results, tier1_parameters, tier2_results, parameter_tests, bootstrap_parameter_deltas")]:::shared
   merged[("data_root/<br>bouts_all, saccades_augmented_all, qc_all, valid_trials_all .csv")]:::shared
   control_fits[("control_fits/EXPERIMENT/models/<br>best_model.json, fit_records.json")]:::shared
   combine["combine<br>every behavior with all its steps saved"]:::step
@@ -512,10 +515,11 @@ subgraph stage_5["Line tests"]
   tier1[("BEHAVIOR/tier1_results.csv")]:::data
   estimates["estimates<br>values and Hessian SEs, saved with the cells"]:::step
   tier2["Tier 2, hits<br>drug effect against WT's, 200 bootstrap fits"]:::par
+  posthoc["parameter tests, hits<br>each amplitude in common in turn, 200 simulated fits"]:::par
   grids["surface grids<br>figures"]:::step
   pboot["parameter bootstrap, hits<br>1000 fish-resampled refits"]:::par
   checks["forest plot, p-value histogram<br>negative control: WT halves"]:::step
-  behavior_tables[("line_tests/VARIANT/BEHAVIOR/<br>tier1_results, tier1_parameters, tier2_results, bootstrap_parameter_deltas")]:::shared
+  behavior_tables[("line_tests/VARIANT/BEHAVIOR/<br>tier1_results, tier1_parameters, tier2_results, parameter_tests, bootstrap_parameter_deltas")]:::shared
   test_cmd --> setup
   setup --> smoke
   smoke --> gain_structure
@@ -532,12 +536,14 @@ subgraph stage_5["Line tests"]
   fdr_again --> tier1
   tier1 --> estimates
   estimates --> tier2
-  tier2 --> grids
+  tier2 --> posthoc
+  posthoc --> grids
   grids --> pboot
   pboot --> checks
   tier1 --> behavior_tables
   estimates --> behavior_tables
   tier2 --> behavior_tables
+  posthoc --> behavior_tables
   pboot --> behavior_tables
 end
 subgraph stage_6["Merged results and follow-ups"]

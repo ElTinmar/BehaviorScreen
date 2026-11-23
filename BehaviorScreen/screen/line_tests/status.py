@@ -8,7 +8,6 @@ resubmitting.
 A cell that failed (status unexpected_error) is saved like the others and not tried again: delete its file, listed with
 --failed, before resubmitting the behavior to retry it.
 """
-import pickle
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -16,7 +15,7 @@ from typing import List, Optional, Tuple
 import pandas as pd
 
 from BehaviorScreen.screen.control_models.submit import EXPERIMENTS
-from BehaviorScreen.screen.line_tests.steps import STEPS, finished, running, saved
+from BehaviorScreen.screen.line_tests.steps import STEPS, cells_in, finished, read_cell, running, saved
 from BehaviorScreen.screen.paths import LINE_TEST_TABLES, VARIANTS, line_tests_dir
 
 
@@ -35,11 +34,7 @@ def contrasts() -> int:
 
 
 def cells(store: Path) -> List[dict]:
-    records = []
-    for path in sorted(store.glob("*.pkl")):
-        with open(path, "rb") as f:
-            records.append({**pickle.load(f), "file": path})
-    return records
+    return [{**read_cell(path), "file": path} for path in cells_in(store)]
 
 
 def variant_status(variant: str, behaviors: List[str]) -> pd.DataFrame:

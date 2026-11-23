@@ -9,6 +9,7 @@ import pytest
 matplotlib.use("Agg")
 
 from BehaviorScreen.screen.line_tests import run_screen
+from BehaviorScreen.screen.line_tests.steps import cell_files, read_cell
 from BehaviorScreen.screen.line_tests.tier1_config import Fresh
 from BehaviorScreen.screen.control_models.model_config import flat, poisson
 
@@ -36,10 +37,10 @@ def test_behavior_runs_and_combines(kept: float, tmp_path: Path, monkeypatch: py
     assert bool(tier1.set_index("line").loc["L1", "significant"]) == (kept < 1)
     assert tier1.set_index("line")["p_value_plate"].notna().to_dict() == {"WT": True, "L1": True, "mut": False}
     assert (tmp_path / "tier1_map.png").exists() and (tmp_path / "spont" / "gain_structure.json").exists()
-    cell = pd.read_pickle(next((tmp_path / "cells" / "spont").glob("*.pkl")))  # each arm's estimates kept with the cell
+    cell = read_cell(cell_files(tmp_path, "spont")[0])  # each arm's estimates kept with the cell
     assert set(cell["arm_estimates"]) == {"reference", "test"} and "arm_estimates" not in tier1.columns
     run = tier1["n_perm_success"] + tier1["n_perm_failed"]  # a cell few permutations reached unless significant: extended
     assert ((tier1["significant"] | (tier1["n_perm_exceeding"] >= 5)) == (run == 99)).all() and set(run) <= {99, 150}
     with pytest.raises(SystemExit, match="Delete the folder"):  # cells run with other settings: kept, the run refuses
         run_screen.run_behavior("spont", arms, {"spont": Fresh(poisson(flat()))}, tmp_path, n_perm=50, n_sim=30, n_perm_max=150)
-    assert len(list((tmp_path / "cells" / "spont").glob("*.pkl"))) == 3
+    assert len(cell_files(tmp_path, "spont")) == 3

@@ -25,7 +25,7 @@ from .multi_group_process import GroupSpec, MultiGroupProcess
 from .param_links import LogLink
 
 DESIGN = {"reference": {}, "test": {"test": 1.0}}
-COLUMNS = ["line", "behavior", "parameter", "deviance", "p_value", "p_holm", "significant", "n_boot_success"]
+COLUMNS = ["line", "behavior", "status", "parameter", "deviance", "p_value", "p_holm", "significant", "n_boot_success"]
 
 
 def fit_arms(
@@ -92,12 +92,19 @@ def parameter_tests(
 def run_parameter_tests(
     tier1_df: pd.DataFrame, arms: Arms, n_boot: int, structure: Optional[GainStructure] = None, n_jobs: int = -1
 ) -> pd.DataFrame:
-    """parameter_tests of every significant Tier 1 cell of an NTR line whose model has several free parameters."""
+    """
+    parameter_tests of every significant Tier 1 cell of an NTR line whose model has several free parameters;
+    a cell whose fits fail gets one row with its error as status.
+    """
     hits = tier1_df[(tier1_df["family"] == "ntr") & tier1_df["significant"]]
     tables = []
     for _, row in tqdm(hits.iterrows(), total=len(hits), desc="Parameter tests"):
-        factory = arms.process_factory(row["line"], row["behavior"])
-        if len(factory().param_names) > 1:
-            table = parameter_tests(factory, arms.datasets(row["line"], row["behavior"]), structure, n_boot=n_boot, n_jobs=n_jobs)
-            tables.append(table.assign(line=row["line"], behavior=row["behavior"]))
-    return pd.concat(tables, ignore_index=True)[COLUMNS] if tables else pd.DataFrame(columns=COLUMNS)
+        cell = {"line": row["line"], "behavior": row["behavior"]}
+        try:
+            factory = arms.process_factory(row["line"], row["behavior"])
+            if len(factory().param_names) > 1:
+                table = parameter_tests(factory, arms.datasets(row["line"], row["behavior"]), structure, n_boot=n_boot, n_jobs=n_jobs)
+                tables.append(table.assign(**cell, status="ok"))
+        except Exception as exc:
+            tables.append(pd.DataFrame([{**cell, "status": f"fit_failed: {type(exc).__name__}: {exc}"}]))
+    return pd.concat(tables, ignore_index=True).reindex(columns=COLUMNS) if tables else pd.DataFrame(columns=COLUMNS)

@@ -1,8 +1,8 @@
 """A step after the cells is reused while it is newer than the cells and the steps it reads."""
 import os
-import pickle
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from BehaviorScreen.screen.line_tests import steps
@@ -10,8 +10,9 @@ from BehaviorScreen.screen.line_tests import steps
 
 def test_steps_are_reused_until_their_inputs_change(tmp_path: Path) -> None:
     (tmp_path / "cells" / "okr").mkdir(parents=True)
-    cell = tmp_path / "cells" / "okr" / "atf5b.pkl"
-    cell.write_bytes(pickle.dumps({"status": "ok"}))
+    cell = tmp_path / "cells" / "okr" / "atf5b.json"
+    steps.write_cell(cell, {"status": "ok", "p_value": np.float64(0.5), "n_perm_exceeding": np.int64(3)})
+    assert steps.read_cell(cell) == {"status": "ok", "p_value": 0.5, "n_perm_exceeding": 3}
     os.utime(cell, (1, 1))
     computed = []
     run = lambda step: steps.run_step(tmp_path, "okr", step, lambda: computed.append(step) or pd.DataFrame({"line": ["1010"]}))

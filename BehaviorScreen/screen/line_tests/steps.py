@@ -2,12 +2,15 @@
 The steps of a line-test run after a behavior's cells, each saved as soon as it is done
 (<results folder>/<behavior>/<step>.csv): a resubmitted behavior reuses a step saved after its cells (and after the
 steps it uses), and recomputes it otherwise, as it reuses the cells themselves. The step being computed, and since
-when, is in <behavior>/running.txt.
+when, is in <behavior>/running.txt. The cells themselves are JSON files, <results folder>/cells/<behavior>/<contrast>.json,
+next to the key.json of the settings they were run with.
 """
+import json
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from BehaviorScreen.screen.paths import LINE_TEST_TABLES
@@ -22,8 +25,23 @@ STEPS = {  # in run order: step, short name
 USES: Dict[str, List[str]] = {"bootstrap_parameter_deltas": ["tier1_parameters"]}  # steps whose results another step reads
 
 
+def cells_in(folder: Path) -> List[Path]:
+    return sorted(path for path in folder.glob("*.json") if path.name != "key.json")
+
+
 def cell_files(output_dir: Path, behavior: str) -> List[Path]:
-    return list((output_dir / "cells" / behavior).glob("*.pkl"))
+    return cells_in(output_dir / "cells" / behavior)
+
+
+def read_cell(path: Path) -> Dict[str, Any]:
+    return json.loads(path.read_text())
+
+
+def write_cell(path: Path, record: Dict[str, Any]) -> None:
+    """Whole or absent, even when the job is stopped while writing; NumPy values as plain numbers."""
+    plain = lambda value: value.item() if isinstance(value, np.generic) else value.tolist()
+    path.with_suffix(".tmp").write_text(json.dumps(record, default=plain))
+    path.with_suffix(".tmp").replace(path)
 
 
 def step_path(output_dir: Path, behavior: str, step: str) -> Path:
