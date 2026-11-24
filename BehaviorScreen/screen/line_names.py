@@ -14,7 +14,8 @@ facility_lines.csv, one row per line kept in the fish facility:
 
 screen_lines.csv, one row per data folder:
     folder              the line's identifier everywhere in the code
-    short               plot label; ^ starts the allele superscript (atoh7^th241), & joins intersected drivers
+    short               plot label; ^ starts the allele superscript (atoh7^th241), & joins intersected drivers,
+                        a space starts an upright note (tbr1b (failed))
     parent_1, parent_2  the facility lines crossed to make the larvae (parent_2 empty for an in-cross)
     confocal            its folders of confocal stacks (python -m BehaviorScreen confocal-mip), separated by ' / '
     notes
@@ -60,8 +61,9 @@ def _italic(label: str) -> str:
     """'atoh7^th241' or 'mafaa & ebf1b:Cre' -> matplotlib text with the gene names (and alleles) in italics."""
     def piece(part: str) -> str:
         gene, colon, construct = part.strip().partition(":")
+        gene, space, note = gene.partition(" ")
         gene, caret, allele = gene.partition("^")
-        return rf"$\mathit{{{gene}}}" + (rf"^{{\mathit{{{allele}}}}}" if caret else "") + "$" + colon + construct
+        return rf"$\mathit{{{gene}}}" + (rf"^{{\mathit{{{allele}}}}}" if caret else "") + "$" + space + note + colon + construct
     return r" $\cap$ ".join(piece(part) for part in label.split("&"))
 
 

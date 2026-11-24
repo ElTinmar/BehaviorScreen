@@ -61,9 +61,10 @@ def label(folder: str) -> str:
 
     def piece(part: str) -> str:
         gene, colon, construct = html.escape(part.strip()).partition(":")
+        gene, space, note = gene.partition(" ")
         gene, caret, allele = gene.partition("^")
         gene = gene + (f"<sup>{allele}</sup>" if caret else "")
-        return (f"<i>{gene}</i>" if italic else gene) + colon + construct
+        return (f"<i>{gene}</i>" if italic else gene) + space + note + colon + construct
     return " ∩ ".join(piece(part) for part in SCREEN.at[folder, "short"].split("&"))
 
 

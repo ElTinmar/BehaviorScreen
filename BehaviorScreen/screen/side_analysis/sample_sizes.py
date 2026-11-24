@@ -121,8 +121,8 @@ def plot_sample_sizes(counts: pd.DataFrame, width: float = 0.36, gap: float = 0.
                  color=INK["primary"], fontsize=18, fontweight="bold", va="top")
         fig.text(0.06, 0.895, f"{days} days, {rest // 60} hours and {rest % 60} minutes of recording", color=INK["secondary"], fontsize=11, va="top")
         fig.legend([Rectangle((0, 0), 1, 1, color=COLORS[c]) for c in present],
-                   [f"{c} ({int(fish.xs(c, level='condition').sum())})" for c in present], loc="upper right", bbox_to_anchor=(0.985, 0.95),
-                   ncol=len(present), frameon=False, fontsize=10, labelcolor=INK["secondary"], handlelength=1.0, handleheight=0.8, columnspacing=1.4)
+                   [f"{c} ({int(fish.xs(c, level='condition').sum())})" for c in present], loc="upper right", bbox_to_anchor=(0.985, 0.895),
+                   ncol=len(present), frameon=False, borderpad=0, borderaxespad=0, fontsize=10, labelcolor=INK["secondary"], handlelength=1.0, handleheight=0.8, columnspacing=1.4)
     return fig
 
 

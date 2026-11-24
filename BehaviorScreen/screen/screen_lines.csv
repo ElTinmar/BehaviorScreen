@@ -38,7 +38,7 @@ pmch2;pmch2;pmch2:Gal4;81C;pmch2;
 pmchl;pmchl;pmchl:NTR;TLN;pmchl;
 pth2;pth2;pth2:NTR;TLN;pth2;
 rspo1;rspo1;rspo1:NTR;TLN;rspo1;
-tbr1b;tbr1b_failed;tbr1b:NTR;TLN;tbr1b / tbr1b_trial2;failed ablation
+tbr1b;tbr1b (failed);tbr1b:NTR;TLN;tbr1b / tbr1b_trial2;failed ablation
 tbr1b_run3;tbr1b;tbr1b:NTR;QUAS:NTR;tbr1b_trial3;
 th;th;th:Gal4 + m1233;vglut2a + UAS:NTR;th;
 wik;WIK;WIK;;;in-cross
