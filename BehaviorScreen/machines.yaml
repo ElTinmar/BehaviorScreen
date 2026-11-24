@@ -7,4 +7,4 @@ raven01:
   logs: /u/mapri/logs
 TheBeast:
   data_root: /media/martin/DATA_18TB/Screen
-  workers: 3
+  workers: 1
