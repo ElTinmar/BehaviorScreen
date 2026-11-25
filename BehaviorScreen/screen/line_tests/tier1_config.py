@@ -5,7 +5,7 @@ fit refitted without its own arms (Arms.architecture), which keeps the permutati
 """
 import copy
 from pathlib import Path
-from typing import Dict, Optional, Sequence
+from typing import Dict, List, Sequence
 
 import numpy as np
 
@@ -19,8 +19,8 @@ from BehaviorScreen.point_process.renewal_process import RenewalProcess
 from BehaviorScreen.point_process.sided_process import SidedRenewalProcess
 from BehaviorScreen.point_process.wrappers import PartiallyFixedProcess
 
-# Amplitudes also pinned to the control fit: these baselines are near zero (about
-# one event a minute), so their per-arm log ratios are noise.
+# Baselines also pinned to the control fit beside an escape hazard bump (H): they are near zero (about
+# one event a minute), so their per-arm log ratios are noise. Without a bump, B is the hazard itself and stays free.
 PINNED_AMPLITUDES = {name: ["B"] for name in ("looming", "looming_divergent_saccade", "dark_flash")}
 
 # Map column labels (stimulus · events): spontaneous activity first, then protocol order with responses to one stimulus side by side
@@ -97,20 +97,23 @@ def variant_model(config: dict, model_dir: Path, variant: str) -> PointProcess:
     return model
 
 
-def tier1_behaviors(fits_root: Path, pinned: Optional[Dict[str, Sequence[str]]] = None, variant: str = "best") -> Dict[str, dict]:
+def pinned_amplitudes(experiment: str, model: PointProcess) -> List[str]:
+    """The amplitudes of PINNED_AMPLITUDES[experiment] that model has, if it also has the hazard bump H."""
+    amplitudes = [p for p in model.param_names if p in AMPLITUDE_PARAMETERS]
+    return [p for p in PINNED_AMPLITUDES.get(experiment, ()) if p in amplitudes] if "H" in amplitudes else []
+
+
+def tier1_behaviors(fits_root: Path, variant: str = "best") -> Dict[str, dict]:
     """
     {experiment: {"events", "dataset", "architecture", "null", "model_name", "free"}}
     for each experiment of MAP_COLUMNS: its model of `variant`, pinned to the `fit` run of that
-    experiment (fits_root / experiment / models). `pinned` lists, per experiment, amplitudes to pin as well,
-    where the model has them free otherwise and another amplitude remains free.
+    experiment (fits_root / experiment / models), and its pinned_amplitudes too.
     """
     config = get_model_config()
     behaviors = {}
     for name in MAP_COLUMNS:
         model = variant_model(config[name], fits_root / name / "models", variant)
-        amplitudes = [p for p in model.param_names if p in AMPLITUDE_PARAMETERS]
-        pins = [p for p in (pinned or {}).get(name, ()) if p in amplitudes]
-        architecture = PinnedArchitecture(model, pins if len(pins) < len(amplitudes) else ())
+        architecture = PinnedArchitecture(model, pinned_amplitudes(name, model))
         behaviors[name] = {
             "events": config[name]["events"],
             "dataset": config[name]["dataset"],

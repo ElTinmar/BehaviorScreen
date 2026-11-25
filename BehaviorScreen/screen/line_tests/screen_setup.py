@@ -11,7 +11,7 @@ from BehaviorScreen.screen.loader import BehavioralDataLoader
 from BehaviorScreen.screen.control_models.model_config import EVENT_TABLES, MUTANT_REFERENCES, get_model_config
 from BehaviorScreen.screen.line_tests.dataset_utils import Arms, Contrast, mutant_contrast, ntr_contrast
 from BehaviorScreen.screen.line_names import warn_unnamed
-from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS, PINNED_AMPLITUDES, tier1_behaviors
+from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS, tier1_behaviors
 
 # Tables merged across screen folders with merge_screen (adds line/condition columns)
 EVENTS_CSV = {"bouts": "bouts_all.csv", "saccades": "saccades_augmented_all.csv"}
@@ -60,7 +60,7 @@ def load_screen(data_root: Path, fits_root: Path, variant: str = "best") -> Scre
     loaders = load_tables(data_root)
     if untested := set(get_model_config()) - set(MAP_COLUMNS):
         print(f"Experiments with control models but no Tier 1 model: {sorted(untested)}")
-    config = tier1_behaviors(fits_root, PINNED_AMPLITUDES, variant)
+    config = tier1_behaviors(fits_root, variant)
     print("Per-behavior model and free parameters (everything else pinned to the control fit):")
     for behavior, cfg in config.items():
         print(f"  {behavior}: {cfg['model_name']}, free={cfg['free']}")

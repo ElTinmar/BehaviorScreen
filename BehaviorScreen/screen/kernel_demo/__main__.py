@@ -18,7 +18,7 @@ import numpy as np
 from megabouts.utils import bouts_category_name, bouts_category_name_short
 
 from BehaviorScreen.core import Laterality, Stim
-from BehaviorScreen.screen.line_tests.tier1_config import AMPLITUDE_PARAMETERS, MAP_COLUMNS, PINNED_AMPLITUDES
+from BehaviorScreen.screen.line_tests.tier1_config import AMPLITUDE_PARAMETERS, MAP_COLUMNS, pinned_amplitudes
 from BehaviorScreen.screen.control_models.model_config import get_model_config
 from BehaviorScreen.screen.control_models.run_analysis import add_data_arguments, make_loaders
 from BehaviorScreen.screen.control_models.tasks import load_fit_records
@@ -258,7 +258,7 @@ def export(output_dir: Optional[Path], loader: Optional[Callable[[str], Behavior
         models = [config["null_model"]] + [m for m in config["models"] if m.name != config["null_model"].name]
         best = output_dir / name / "models" / "best_model.json" if output_dir else None
         tier1 = next(m for m in models if m.name == json.loads(best.read_text())["name"]) if best and best.exists() else None
-        free = [] if tier1 is None else [p for p in tier1.param_names if p in AMPLITUDE_PARAMETERS and p not in PINNED_AMPLITUDES.get(name, ())]
+        free = [] if tier1 is None else [p for p in tier1.param_names if p in AMPLITUDE_PARAMETERS and p not in pinned_amplitudes(name, tier1)]
         events, selected = selection(config)
         entries = [model_entry(m, fits.get(m.name), t_end) for m in models]
         experiments.append({

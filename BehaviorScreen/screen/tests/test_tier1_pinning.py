@@ -7,7 +7,8 @@ import pandas as pd
 import pytest
 
 from BehaviorScreen.screen.line_tests.dataset_utils import Arms, mutant_contrast, ntr_contrast
-from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
+from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture, pinned_amplitudes
+from BehaviorScreen.screen.control_models.model_config import get_model_config
 from BehaviorScreen.screen.control_models.model_config import gamma, poisson
 from BehaviorScreen.point_process.dataset import PointProcessDataset
 from BehaviorScreen.point_process.poisson_process import RateKernelFactory
@@ -96,3 +97,10 @@ def test_refits_are_saved_and_reused_while_the_control_fit_is_the_same(tmp_path:
     other, _ = screen(1)  # another control fit: the saved refit is not its own
     other.refit_store = tmp_path
     assert other.architecture("spont", other.contrast_arms("L1")).fixed != first
+
+
+@pytest.mark.parametrize("experiment", ["looming", "dark_flash", "looming_divergent_saccade"])
+def test_the_baseline_is_pinned_beside_a_hazard_bump_only(experiment: str) -> None:
+    """Without the bump, as in the constant hazard of each escape ladder's first rung, B is the hazard: tested."""
+    models = get_model_config()[experiment]["models"]
+    assert pinned_amplitudes(experiment, models[0]) == [] and pinned_amplitudes(experiment, models[-1]) == ["B"]
