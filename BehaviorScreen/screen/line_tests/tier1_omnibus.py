@@ -496,7 +496,7 @@ PARAMETER_LABELS = {"B": "sustained", "A": "transient", "A_peak": "transient", "
 MAP_COLORS = LinearSegmentedColormap.from_list("blue_grey_red", ["#2166ac", "#d9d9d9", "#b2182b"])
 MISSING = "#9e9e9e"
 POSTHOC_BACKGROUND = "#fbe7a1"  # off the colour scale, whose middle is grey
-EFFECT_VMAX = 2.5  # colour scale of the standardized Tier 1 map, in control fish SDs
+EFFECT_VMAX = 3.0  # colour scale of the standardized Tier 1 map, in control fish SDs
 EFFECT_LABEL = "effect size: Glass's Δ (SDs of control fish)"
 BOUND_LABEL = "an arm at a bound of its parameter (no standard error)"
 
