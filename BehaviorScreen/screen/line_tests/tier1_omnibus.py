@@ -477,18 +477,67 @@ def _dot_size(se: float, se_half_size: float) -> float:
     return 160.0 / (1.0 + (se / se_half_size) ** 2)
 
 
-def standardized_effects(param_df: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
+def reference_sds(param_df: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
     """
-    'delta' over its column's SD between control fish (Glass's delta, one SD per behavior and parameter): the median,
-    over the column's reference arms with a standard error, of that error times the square root of their fish, on
-    delta's scale. So a column shares one scale, and a cell with an arm at a bound (no standard error) has a value.
+    Per reference arm (each once) and parameter: its SD between fish, standard error times the square root of its fish,
+    on delta's scale (log2_scale); NaN for an arm at a bound (no standard error).
     """
     df = param_df.merge(tier1_df.drop_duplicates(["line", "behavior"])[["line", "behavior", "reference", "n_fish_ref"]],
                         on=["line", "behavior"], how="left")
     se = np.where(log2_scale(df), df["se_reference"] / df["value_reference"] / np.log(2), df["se_reference"])
-    arms = df.assign(sd=se * np.sqrt(df["n_fish_ref"])).dropna(subset=["sd"]).drop_duplicates(["reference", "behavior", "parameter"])
-    sd = df[["behavior", "parameter"]].merge(arms.groupby(["behavior", "parameter"], as_index=False)["sd"].median(), how="left")["sd"]
-    return param_df.assign(delta=param_df["delta"].to_numpy() / sd.to_numpy())
+    arms = df.assign(sd=se * np.sqrt(df["n_fish_ref"])).drop_duplicates(["reference", "behavior", "parameter"])
+    return arms[["behavior", "parameter", "reference", "sd"]].reset_index(drop=True)
+
+
+def control_sds(arms: pd.DataFrame) -> pd.DataFrame:
+    """Per column (behavior, parameter) of reference_sds: sigma, their median, the arms it rests on and those at a bound."""
+    keys = ["behavior", "parameter"]
+    bound = arms[arms["sd"].isna()].groupby(keys)["reference"].agg(", ".join).rename("at_bound")
+    table = arms.groupby(keys, sort=False)["sd"].agg(sigma="median", n_arms="count", q10=lambda v: v.quantile(0.1), q90=lambda v: v.quantile(0.9))
+    return table.join(bound).fillna({"at_bound": ""}).reset_index()
+
+
+def standardized_effects(param_df: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    'delta' over its column's SD between control fish (Glass's delta, one SD per behavior and parameter): control_sds'
+    sigma. So a column shares one scale, and a cell with an arm at a bound (no standard error) has a value.
+    """
+    sigma = param_df[["behavior", "parameter"]].merge(control_sds(reference_sds(param_df, tier1_df)), how="left")["sigma"]
+    return param_df.assign(delta=param_df["delta"].to_numpy() / sigma.to_numpy())
+
+
+def plot_control_sds(arms: pd.DataFrame, behaviors: List[str], column_labels: Dict[str, str]) -> plt.Figure:
+    """
+    Each column's reference arms (reference_sds) relative to its sigma, on a log scale: dots near 1 mean control fish
+    vary alike across lines, as Glass's delta assumes. Arms beyond twice or under half sigma are named; below each
+    column, its arms at a bound (left out).
+    """
+    sigma = control_sds(arms).set_index(["behavior", "parameter"])
+    columns = [(b, p) for b in behaviors for p in PARAMETER_LABELS if (b, p) in sigma.index]
+    fig, ax = plt.subplots(figsize=(max(6.0, 0.45 * len(columns) + 1.5), 4.5))
+    for x, (behavior, p) in enumerate(columns):
+        column = arms[(arms["behavior"] == behavior) & (arms["parameter"] == p)].dropna(subset=["sd"])
+        ratio = column["sd"].to_numpy() / sigma.loc[(behavior, p), "sigma"]
+        ax.scatter(x + np.random.default_rng(x).uniform(-0.15, 0.15, len(ratio)), ratio, s=12, color="#4d4d4d", alpha=0.7, linewidths=0)
+        for r, reference in zip(ratio, column["reference"]):
+            if not 0.5 <= r <= 2:
+                ax.annotate(line_name(reference.split("/")[0]), (x, r), xytext=(4, 0), textcoords="offset points", fontsize=5, va="center")
+        if n := len([a for a in sigma.loc[(behavior, p), "at_bound"].split(", ") if a]):
+            ax.text(x, 0.27, f"{n} at\nbound", ha="center", va="top", fontsize=5, color="#b2182b")
+    for level, style in ((1, "-"), (0.5, ":"), (2, ":")):
+        ax.axhline(level, color="#9e9e9e", linewidth=0.8, linestyle=style, zorder=0)
+    ax.set_yscale("log")
+    ax.set_ylim(0.2, 5)
+    ax.set_yticks([0.25, 0.5, 1, 2, 4], ["¼", "½", "1", "2", "4"])
+    ax.minorticks_off()
+    ax.set_xticks(range(len(columns)), [f"{column_labels.get(b, b)} · {PARAMETER_LABELS[p]}" for b, p in columns], rotation=90, fontsize=7)
+    ax.set_xlim(-0.6, len(columns) - 0.4)
+    ax.set_ylabel("reference arm's SD between fish / column sigma")
+    ax.set_title("Control spread behind Glass's delta: one dot per reference arm", fontsize=9)
+    for spine in ("top", "right"):
+        ax.spines[spine].set_visible(False)
+    fig.tight_layout()
+    return fig
 
 
 # Column label of each amplitude parameter in the map.
@@ -695,14 +744,18 @@ def save_tier1_maps(
 ) -> None:
     """
     tier1_map: log2 (or difference) with dots sized by standard error; tier1_map_d: Glass's delta (standardized_effects)
-    in squares. Mutant and reference are two clutches: their fish-label test is not framed (clutch_variability frames it).
+    in squares; tier1_sigma (.png, .csv): the control spread behind it. Mutant and reference are two clutches: their
+    fish-label test is not framed (clutch_variability frames it).
     """
+    arms = reference_sds(param_df, tier1_df)
+    control_sds(arms).to_csv(out / "tier1_sigma.csv", index=False)
     siblings = tier1_df.assign(significant=tier1_df["significant"] & (tier1_df["family"] == "ntr"))
     common = dict(column_labels=column_labels, frame_label=f"significant (q < {ALPHA:g}; NTR lines)", posthoc=posthoc)
     for name, fig in (
         ("tier1_map", plot_tier1_map(param_df, siblings, behaviors, rows, **common)[0]),
         ("tier1_map_d", plot_tier1_map(standardized_effects(param_df, tier1_df), siblings, behaviors, rows, vmax=EFFECT_VMAX,
                                        se_half_size=None, colorbar_label=EFFECT_LABEL, **common)[0]),
+        ("tier1_sigma", plot_control_sds(arms, behaviors, column_labels)),
     ):
         save_fig(fig, out, name)
         plt.close(fig)

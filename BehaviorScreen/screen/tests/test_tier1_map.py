@@ -4,7 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from BehaviorScreen.screen.line_tests.tier1_omnibus import at_bound, compute_parameter_deltas, plot_tier1_map, standardized_effects
+from BehaviorScreen.screen.line_tests.tier1_omnibus import (
+    at_bound, compute_parameter_deltas, control_sds, plot_tier1_map, reference_sds, standardized_effects,
+)
 
 matplotlib.use("Agg")
 
@@ -50,3 +52,12 @@ def test_an_arm_at_a_bound_is_marked_on_both_maps() -> None:
     _, dots = plot_tier1_map(params, tier1, ["b"], ["L1"])
     assert [t.get_text() for t in squares.texts] == ["0"]
     assert [len(c.get_paths()[0].vertices) for c in dots.collections][0] == 5  # H at the bound: a diamond, D a circle
+
+
+def test_sigma_is_the_median_arm_sd_and_names_the_arms_at_a_bound() -> None:
+    sds = np.array([0.4, 0.5, 0.9])
+    params = pd.DataFrame({"line": ["L1", "L2", "L3", "L4"], "behavior": "b", "parameter": "D", "value_reference": 0.0, "value_test": 0.1,
+                           "se_reference": [*sds / 3, np.nan], "se_test": 0.1})
+    tier1 = pd.DataFrame({"line": ["L1", "L2", "L3", "L4"], "behavior": "b", "reference": ["L1/v", "L2/v", "L3/v", "L4/v"], "n_fish_ref": 9})
+    table = control_sds(reference_sds(params, tier1)).iloc[0]
+    assert (table["sigma"], table["n_arms"], table["at_bound"]) == (pytest.approx(0.5), 3, "L4/v")
