@@ -1,7 +1,7 @@
 """
 Preprocess recordings, one job per <line>/<condition> folder, on Slurm or here (BehaviorScreen/machines.yaml):
     python -m BehaviorScreen preprocess PATH [--local] [pipeline options, e.g. --steps qc heatmaps]
-PATH: a <line>/<condition> folder (one with results/ in it), a line folder or a screen root.
+PATH: a <line>/<condition> folder (one with data/ or results/ in it), a line folder or a screen root.
 On Slurm: a GPU when the steps include pose, eye_pose or bouts (all steps by default); 12 GB of memory for qc and heatmaps alone.
 """
 import argparse
@@ -26,9 +26,9 @@ def main() -> None:
     path = args.path.resolve()
     if not path.is_dir():
         raise SystemExit(f"no folder {path}")
-    folders = [d for d in (path, *sorted(path.glob("*")), *sorted(path.glob("*/*"))) if (d / "results").is_dir()]
+    folders = [d for d in (path, *sorted(path.glob("*")), *sorted(path.glob("*/*"))) if (d / "data").is_dir() or (d / "results").is_dir()]
     if not folders:
-        raise SystemExit(f"no folder with results/ in it at or below {path}")
+        raise SystemExit(f"no folder with data/ or results/ in it at or below {path}")
     steps = build_parser().parse_args([str(path), *options]).steps
     jobs = Jobs(args.local)
     for folder in folders:
