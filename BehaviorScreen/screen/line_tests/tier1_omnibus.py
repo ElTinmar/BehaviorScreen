@@ -409,26 +409,33 @@ def run_tier1_screen(
     return pd.DataFrame([done[job] for job in jobs])
 
 
+def log2_scale(param_df: pd.DataFrame) -> pd.Series:
+    """Per row: whether its (behavior, parameter) column is compared as a log2 ratio, its values being all positive."""
+    values = param_df[["value_reference", "value_test"]]
+    df = param_df.assign(positive=(values.gt(0) | values.isna()).all(axis=1), any_value=values.notna().any(axis=1))
+    columns = df.groupby(["behavior", "parameter"])
+    return columns["positive"].transform("all") & columns["any_value"].transform("any")
+
+
+def at_bound(param_df: pd.DataFrame) -> pd.Series:
+    """Per row: an arm without a standard error, its parameter at a bound (estimate_hessian), or its Hessian singular."""
+    return param_df[["se_reference", "se_test"]].isna().any(axis=1) & param_df[["value_reference", "value_test"]].notna().all(axis=1)
+
+
 def compute_parameter_deltas(param_df: pd.DataFrame) -> pd.DataFrame:
     """
     'delta' (test vs reference) and its standard error 'delta_se'.
     log2-ratio for parameters positive across the whole screen (rate
     scales: B, A, H), raw difference otherwise; chosen per (behavior,
-    parameter) column.
+    parameter) column (log2_scale).
     """
-    df = param_df.copy()
-    df["delta"], df["delta_se"] = np.nan, np.nan
-    for _, group in df.groupby(["behavior", "parameter"]):
-        values = pd.concat([group["value_reference"], group["value_test"]]).dropna()
-        ref, test = group["value_reference"], group["value_test"]
-        se_ref, se_test = group["se_reference"], group["se_test"]
-        if len(values) > 0 and (values > 0).all():
-            df.loc[group.index, "delta"] = np.log2(test / ref)
-            df.loc[group.index, "delta_se"] = np.hypot(se_ref / ref, se_test / test) / np.log(2)
-        else:
-            df.loc[group.index, "delta"] = test - ref
-            df.loc[group.index, "delta_se"] = np.hypot(se_ref, se_test)
-    return df
+    log2, ref, test = log2_scale(param_df), param_df["value_reference"], param_df["value_test"]
+    se_ref, se_test = param_df["se_reference"], param_df["se_test"]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return param_df.assign(
+            delta=np.where(log2, np.log2(test / ref), test - ref),
+            delta_se=np.where(log2, np.hypot(se_ref / ref, se_test / test) / np.log(2), np.hypot(se_ref, se_test)),
+        )
 
 
 def standard_errors(model: PointProcess, hessian: Optional[np.ndarray]) -> Dict[str, float]:
@@ -472,13 +479,16 @@ def _dot_size(se: float, se_half_size: float) -> float:
 
 def standardized_effects(param_df: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
     """
-    'delta' as a Cohen's d: over the SD between fish that its standard error implies,
-    delta_se / sqrt(1 / n_fish_ref + 1 / n_fish_test). NaN without a standard error.
+    'delta' over its column's SD between control fish (Glass's delta, one SD per behavior and parameter): the median,
+    over the column's reference arms with a standard error, of that error times the square root of their fish, on
+    delta's scale. So a column shares one scale, and a cell with an arm at a bound (no standard error) has a value.
     """
-    n = param_df[["line", "behavior"]].merge(
-        tier1_df.drop_duplicates(["line", "behavior"])[["line", "behavior", "n_fish_ref", "n_fish_test"]], on=["line", "behavior"], how="left")
-    scale = np.sqrt(1 / n["n_fish_ref"].to_numpy(float) + 1 / n["n_fish_test"].to_numpy(float))
-    return param_df.assign(delta=param_df["delta"] / param_df["delta_se"] * scale)
+    df = param_df.merge(tier1_df.drop_duplicates(["line", "behavior"])[["line", "behavior", "reference", "n_fish_ref"]],
+                        on=["line", "behavior"], how="left")
+    se = np.where(log2_scale(df), df["se_reference"] / df["value_reference"] / np.log(2), df["se_reference"])
+    arms = df.assign(sd=se * np.sqrt(df["n_fish_ref"])).dropna(subset=["sd"]).drop_duplicates(["reference", "behavior", "parameter"])
+    sd = df[["behavior", "parameter"]].merge(arms.groupby(["behavior", "parameter"], as_index=False)["sd"].median(), how="left")["sd"]
+    return param_df.assign(delta=param_df["delta"].to_numpy() / sd.to_numpy())
 
 
 # Column label of each amplitude parameter in the map.
@@ -486,8 +496,9 @@ PARAMETER_LABELS = {"B": "sustained", "A": "transient", "A_peak": "transient", "
 MAP_COLORS = LinearSegmentedColormap.from_list("blue_grey_red", ["#2166ac", "#d9d9d9", "#b2182b"])
 MISSING = "#9e9e9e"
 POSTHOC_BACKGROUND = "#fbe7a1"  # off the colour scale, whose middle is grey
-EFFECT_VMAX = 1.5  # colour scale of the Tier 1 maps, in Cohen's d
-EFFECT_LABEL = "effect size: Cohen's d (test - reference)"
+EFFECT_VMAX = 1.5  # colour scale of the standardized Tier 1 map, in control fish SDs
+EFFECT_LABEL = "effect size: Glass's Δ (SDs of control fish)"
+BOUND_LABEL = "an arm at a bound of its parameter (no standard error)"
 
 
 def add_testability(tier1_df: pd.DataFrame, n_perm_max: Optional[int] = None) -> pd.DataFrame:
@@ -534,10 +545,11 @@ def plot_tier1_map(
     Colour: param_df's 'delta' on a fixed scale centred on 0 (grey: none).
     Dots whose area shrinks with 'delta_se' (half size at se_half_size), or,
     with se_half_size None, squares. Frame: behavior significant for that
-    contrast. Grey background (dots) or centre dot (squares): parameter
+    contrast. Pale background (dots) or centre dot (squares): parameter
     significant in posthoc (its 'significant' rows by line, behavior and
     parameter). Hollow dot or hatched square: the cell could not reach
-    significance with its fish ('testable' False). Grey x: no test.
+    significance with its fish ('testable' False). Diamond or "0": an arm at a
+    bound (at_bound), drawn at a fixed size. Grey x: no test.
     With n_fish_ref / n_fish_test columns, a matching panel shows both arms'
     fish counts per cell: reference in the upper-left triangle, test in the
     lower-right one, each shaded by its count.
@@ -586,24 +598,28 @@ def plot_tier1_map(
     tested = tier1_df[tier1_df["status"] == "ok"].set_index(["line", "behavior"])
     significant = set() if posthoc is None else set(posthoc.loc[posthoc["significant"] == True, ["line", "behavior", "parameter"]].itertuples(index=False, name=None))
     norm = plt.Normalize(-vmax, vmax)
+    bounded = at_bound(cells) if {"se_reference", "se_test"} <= set(cells) else pd.Series(dtype=bool)
     for name in rows:
         for behavior, p in columns:
             x, yy = x_of[(behavior, p)], positions[name]
             if (name, behavior) not in tested.index or (name, behavior, p) not in cells.index:
                 ax.plot(x, yy, marker="x", color=MISSING, markersize=4, linestyle="")
                 continue
-            cell, marked = cells.loc[(name, behavior, p)], (name, behavior, p) in significant
+            cell, marked, floor = cells.loc[(name, behavior, p)], (name, behavior, p) in significant, bounded.get((name, behavior, p), False)
             testable = bool(tested.loc[(name, behavior)].get("testable", True))
             color = MAP_COLORS(norm(cell["delta"])) if np.isfinite(cell["delta"]) else MISSING
             if se_half_size is None:
                 ax.add_patch(plt.Rectangle((x - 0.4, yy - 0.4), 0.8, 0.8, facecolor=color, hatch=None if testable else "////", edgecolor="white", linewidth=0))
                 if marked:
                     ax.plot(x, yy, marker="o", markersize=3.5, markerfacecolor="white", markeredgecolor="black", markeredgewidth=0.6, linestyle="")
+                if floor:
+                    ax.text(x + 0.38, yy + 0.38, "0", ha="right", va="bottom", fontsize=6, color="black")
                 continue
             if marked:
                 ax.add_patch(plt.Rectangle((x - 0.4, yy - 0.4), 0.8, 0.8, facecolor=POSTHOC_BACKGROUND, linewidth=0, zorder=0))
-            size = _dot_size(cell["delta_se"] if np.isfinite(cell["delta_se"]) else 4 * se_half_size, se_half_size)
-            ax.scatter(x, yy, s=size, facecolors=color if testable else "white", edgecolors=color, linewidths=0 if testable else 0.3 * np.sqrt(size))
+            size = _dot_size(se_half_size if floor else cell["delta_se"] if np.isfinite(cell["delta_se"]) else 4 * se_half_size, se_half_size)
+            ax.scatter(x, yy, s=size, marker="D" if floor else "o", facecolors=color if testable else "white", edgecolors=color,
+                       linewidths=0 if testable else 0.3 * np.sqrt(size))
 
     for (name, behavior), row in tested.iterrows():
         if name not in positions or not row.get("significant", False):
@@ -621,11 +637,13 @@ def plot_tier1_map(
                        plt.Line2D([], [], marker="o", markersize=3.5, markerfacecolor="white", markeredgecolor="black", markeredgewidth=0.6, linestyle="", label=posthoc_label))
     if se_half_size is None:
         handles += [plt.Rectangle((0, 0), 1, 1, facecolor=MISSING, hatch="////", edgecolor="white", linewidth=0, label=few_label),
-                    plt.Rectangle((0, 0), 1, 1, facecolor=MISSING, linewidth=0, label="no estimate")]
+                    plt.Rectangle((0, 0), 1, 1, facecolor=MISSING, linewidth=0, label="no estimate"),
+                    plt.Line2D([], [], marker="$0$", color="black", markersize=5, linestyle="", label=BOUND_LABEL)]
     else:
         handles += [plt.Line2D([], [], marker="o", markersize=np.sqrt(_dot_size(se, se_half_size)), color=MISSING, linestyle="", label=f"SE {se:g}")
                     for se in (0.1, se_half_size, 2 * se_half_size)]
         handles.append(plt.Line2D([], [], marker="o", markersize=8, markerfacecolor="white", markeredgecolor=MISSING, markeredgewidth=2.4, linestyle="", label=few_label))
+        handles.append(plt.Line2D([], [], marker="D", markersize=np.sqrt(_dot_size(se_half_size, se_half_size)), color=MISSING, linestyle="", label=BOUND_LABEL))
     handles.append(plt.Line2D([], [], marker="x", color=MISSING, linestyle="", label="not tested"))
     fig.legend(handles=handles, loc="lower left", bbox_to_anchor=(left / fig_w, 0.1 / fig_h), ncol=3, frameon=False, fontsize=7)
 
@@ -676,7 +694,7 @@ def save_tier1_maps(
     column_labels: Dict[str, str], posthoc: pd.DataFrame,
 ) -> None:
     """
-    tier1_map: log2 (or difference) with dots sized by standard error; tier1_map_d: Cohen's d (standardized_effects)
+    tier1_map: log2 (or difference) with dots sized by standard error; tier1_map_d: Glass's delta (standardized_effects)
     in squares. Mutant and reference are two clutches: their fish-label test is not framed (clutch_variability frames it).
     """
     siblings = tier1_df.assign(significant=tier1_df["significant"] & (tier1_df["family"] == "ntr"))
