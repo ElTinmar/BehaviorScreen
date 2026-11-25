@@ -470,10 +470,24 @@ def _dot_size(se: float, se_half_size: float) -> float:
     return 160.0 / (1.0 + (se / se_half_size) ** 2)
 
 
+def standardized_effects(param_df: pd.DataFrame, tier1_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    'delta' as a Cohen's d: over the SD between fish that its standard error implies,
+    delta_se / sqrt(1 / n_fish_ref + 1 / n_fish_test). NaN without a standard error.
+    """
+    n = param_df[["line", "behavior"]].merge(
+        tier1_df.drop_duplicates(["line", "behavior"])[["line", "behavior", "n_fish_ref", "n_fish_test"]], on=["line", "behavior"], how="left")
+    scale = np.sqrt(1 / n["n_fish_ref"].to_numpy(float) + 1 / n["n_fish_test"].to_numpy(float))
+    return param_df.assign(delta=param_df["delta"] / param_df["delta_se"] * scale)
+
+
 # Column label of each amplitude parameter in the map.
 PARAMETER_LABELS = {"B": "sustained", "A": "transient", "A_peak": "transient", "H": "escape", "D": "direction", "P": "direction", "E": "escape", "G": "transient gain", "R": "rate", "s_side": "side spread"}
 MAP_COLORS = LinearSegmentedColormap.from_list("blue_grey_red", ["#2166ac", "#d9d9d9", "#b2182b"])
 MISSING = "#9e9e9e"
+POSTHOC_BACKGROUND = "#fbe7a1"  # off the colour scale, whose middle is grey
+EFFECT_VMAX = 1.5  # colour scale of the Tier 1 maps, in Cohen's d
+EFFECT_LABEL = "effect size: Cohen's d (test - reference)"
 
 
 def add_testability(tier1_df: pd.DataFrame, n_perm_max: Optional[int] = None) -> pd.DataFrame:
@@ -507,19 +521,23 @@ def plot_tier1_map(
     behaviors: List[str],
     rows: List[str],
     vmax: float = 4.0,
-    se_half_size: float = 0.5,
+    se_half_size: Optional[float] = 0.5,
     row_labels: Optional[Dict[str, str]] = None,
     colorbar_label: str = "log2(test / reference)",
     column_labels: Optional[Dict[str, str]] = None,
     frame_label: str = f"significant (q < {ALPHA:g})",
+    posthoc: Optional[pd.DataFrame] = None,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
-    Dot matrix of the screen: rows are contrasts (in the given order, a gap
+    Matrix of the screen: rows are contrasts (in the given order, a gap
     between families), columns are each behavior's free parameters.
-    Colour: log2(test / reference) on a fixed scale centred on 0. Dot area
-    shrinks with the standard error (half size at se_half_size log2 units).
-    Frame: behavior significant for that contrast. Hollow dot: the cell could
-    not reach significance with its fish ('testable' False). Grey x: no test.
+    Colour: param_df's 'delta' on a fixed scale centred on 0 (grey: none).
+    Dots whose area shrinks with 'delta_se' (half size at se_half_size), or,
+    with se_half_size None, squares. Frame: behavior significant for that
+    contrast. Grey background (dots) or centre dot (squares): parameter
+    significant in posthoc (its 'significant' rows by line, behavior and
+    parameter). Hollow dot or hatched square: the cell could not reach
+    significance with its fish ('testable' False). Grey x: no test.
     With n_fish_ref / n_fish_test columns, a matching panel shows both arms'
     fish counts per cell: reference in the upper-left triangle, test in the
     lower-right one, each shaded by its count.
@@ -566,38 +584,49 @@ def plot_tier1_map(
     ax = axes[0, 0]
     cells = present.set_index(["line", "behavior", "parameter"])
     tested = tier1_df[tier1_df["status"] == "ok"].set_index(["line", "behavior"])
-    dots = {True: ([], [], [], []), False: ([], [], [], [])}
+    significant = set() if posthoc is None else set(posthoc.loc[posthoc["significant"] == True, ["line", "behavior", "parameter"]].itertuples(index=False, name=None))
+    norm = plt.Normalize(-vmax, vmax)
     for name in rows:
         for behavior, p in columns:
             x, yy = x_of[(behavior, p)], positions[name]
             if (name, behavior) not in tested.index or (name, behavior, p) not in cells.index:
                 ax.plot(x, yy, marker="x", color=MISSING, markersize=4, linestyle="")
                 continue
-            cell = cells.loc[(name, behavior, p)]
-            se = cell["delta_se"] if np.isfinite(cell["delta_se"]) else 4 * se_half_size
-            xs, ys, colors, sizes = dots[bool(tested.loc[(name, behavior)].get("testable", True))]
-            xs.append(x); ys.append(yy); colors.append(np.clip(cell["delta"], -vmax, vmax)); sizes.append(_dot_size(se, se_half_size))
-    norm = plt.Normalize(-vmax, vmax)
-    filled = ax.scatter(*dots[True][:2], c=dots[True][2], s=dots[True][3], cmap=MAP_COLORS, norm=norm)
-    ax.scatter(*dots[False][:2], s=dots[False][3], facecolors="white", edgecolors=MAP_COLORS(norm(dots[False][2])),
-               linewidths=0.3 * np.sqrt(dots[False][3]))
+            cell, marked = cells.loc[(name, behavior, p)], (name, behavior, p) in significant
+            testable = bool(tested.loc[(name, behavior)].get("testable", True))
+            color = MAP_COLORS(norm(cell["delta"])) if np.isfinite(cell["delta"]) else MISSING
+            if se_half_size is None:
+                ax.add_patch(plt.Rectangle((x - 0.4, yy - 0.4), 0.8, 0.8, facecolor=color, hatch=None if testable else "////", edgecolor="white", linewidth=0))
+                if marked:
+                    ax.plot(x, yy, marker="o", markersize=3.5, markerfacecolor="white", markeredgecolor="black", markeredgewidth=0.6, linestyle="")
+                continue
+            if marked:
+                ax.add_patch(plt.Rectangle((x - 0.4, yy - 0.4), 0.8, 0.8, facecolor=POSTHOC_BACKGROUND, linewidth=0, zorder=0))
+            size = _dot_size(cell["delta_se"] if np.isfinite(cell["delta_se"]) else 4 * se_half_size, se_half_size)
+            ax.scatter(x, yy, s=size, facecolors=color if testable else "white", edgecolors=color, linewidths=0 if testable else 0.3 * np.sqrt(size))
 
     for (name, behavior), row in tested.iterrows():
         if name not in positions or not row.get("significant", False):
             continue
         xs_b = [x_of[c] for c in columns if c[0] == behavior]
         if xs_b:
-            ax.add_patch(plt.Rectangle((min(xs_b) - 0.45, positions[name] - 0.45), max(xs_b) - min(xs_b) + 0.9, 0.9,
+            ax.add_patch(plt.Rectangle((min(xs_b) - 0.47, positions[name] - 0.47), max(xs_b) - min(xs_b) + 0.94, 0.94,
                                        fill=False, linewidth=1.2, edgecolor="black"))
 
-    handles = [plt.scatter([], [], s=_dot_size(se, se_half_size), color=MISSING, label=f"SE {se:g}")
-               for se in (0.1, se_half_size, 2 * se_half_size)]
-    handles += [
-        plt.Line2D([], [], marker="s", markersize=11, markerfacecolor="none", markeredgecolor="black", linestyle="", label=frame_label),
-        plt.Line2D([], [], marker="o", markersize=8, markerfacecolor="white", markeredgecolor=MISSING, markeredgewidth=2.4,
-                   linestyle="", label=f"too few fish to reach q < {ALPHA:g}"),
-        plt.Line2D([], [], marker="x", color=MISSING, linestyle="", label="not tested"),
-    ]
+    few_label = f"too few fish to reach q < {ALPHA:g}"
+    handles = [plt.Line2D([], [], marker="s", markersize=11, markerfacecolor="none", markeredgecolor="black", linestyle="", label=frame_label)]
+    if posthoc is not None:
+        posthoc_label = f"parameter significant (post hoc, adjusted p < {ALPHA:g})"
+        handles.append(plt.Rectangle((0, 0), 1, 1, facecolor=POSTHOC_BACKGROUND, linewidth=0, label=posthoc_label) if se_half_size else
+                       plt.Line2D([], [], marker="o", markersize=3.5, markerfacecolor="white", markeredgecolor="black", markeredgewidth=0.6, linestyle="", label=posthoc_label))
+    if se_half_size is None:
+        handles += [plt.Rectangle((0, 0), 1, 1, facecolor=MISSING, hatch="////", edgecolor="white", linewidth=0, label=few_label),
+                    plt.Rectangle((0, 0), 1, 1, facecolor=MISSING, linewidth=0, label="no estimate")]
+    else:
+        handles += [plt.Line2D([], [], marker="o", markersize=np.sqrt(_dot_size(se, se_half_size)), color=MISSING, linestyle="", label=f"SE {se:g}")
+                    for se in (0.1, se_half_size, 2 * se_half_size)]
+        handles.append(plt.Line2D([], [], marker="o", markersize=8, markerfacecolor="white", markeredgecolor=MISSING, markeredgewidth=2.4, linestyle="", label=few_label))
+    handles.append(plt.Line2D([], [], marker="x", color=MISSING, linestyle="", label="not tested"))
     fig.legend(handles=handles, loc="lower left", bbox_to_anchor=(left / fig_w, 0.1 / fig_h), ncol=3, frameon=False, fontsize=7)
 
     def decorate(axis: plt.Axes, cols: List[Tuple[str, str]]) -> None:
@@ -622,7 +651,7 @@ def plot_tier1_map(
     ax.set_yticks([positions[n] for n in rows], [label(n) for n in rows], fontsize=8)
     ax.set_ylim(y - 0.4, -0.6)
     cax = fig.add_axes([(left + content_w + 0.15) / fig_w, 1 - (top + bar_h) / fig_h, 0.12 / fig_w, bar_h / fig_h])
-    fig.colorbar(filled, cax=cax, label=colorbar_label)
+    fig.colorbar(plt.cm.ScalarMappable(norm, MAP_COLORS), cax=cax, label=colorbar_label)
 
     if show_n:
         ax_n = axes[0, 1]
@@ -641,6 +670,25 @@ def plot_tier1_map(
         decorate(ax_n, [(b, "") for b in shown])
         ax_n.set_xlabel("fish: ↖ reference, test ↘", fontsize=8)
     return fig, ax
+
+def save_tier1_maps(
+    param_df: pd.DataFrame, tier1_df: pd.DataFrame, behaviors: List[str], rows: List[str], out: Path,
+    column_labels: Dict[str, str], posthoc: pd.DataFrame,
+) -> None:
+    """
+    tier1_map: log2 (or difference) with dots sized by standard error; tier1_map_d: Cohen's d (standardized_effects)
+    in squares. Mutant and reference are two clutches: their fish-label test is not framed (clutch_variability frames it).
+    """
+    siblings = tier1_df.assign(significant=tier1_df["significant"] & (tier1_df["family"] == "ntr"))
+    common = dict(column_labels=column_labels, frame_label=f"significant (q < {ALPHA:g}; NTR lines)", posthoc=posthoc)
+    for name, fig in (
+        ("tier1_map", plot_tier1_map(param_df, siblings, behaviors, rows, **common)[0]),
+        ("tier1_map_d", plot_tier1_map(standardized_effects(param_df, tier1_df), siblings, behaviors, rows, vmax=EFFECT_VMAX,
+                                       se_half_size=None, colorbar_label=EFFECT_LABEL, **common)[0]),
+    ):
+        save_fig(fig, out, name)
+        plt.close(fig)
+
 
 def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
     """(unchanged from before)"""

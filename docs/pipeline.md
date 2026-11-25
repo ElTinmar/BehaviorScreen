@@ -331,7 +331,7 @@ flowchart TD
   clutch["line_tests/clutch_variability<br>between-clutch SD; mutants in clutch SDs"]:::step
   clutch_out[("effect_sd_map, vehicle_map, clutch tables")]:::data
   power["side_analysis/power<br>power and fish needed per parameter"]:::step
-  counts["line_tests/count_readouts<br>model-free Tier 1 on per-fish counts"]:::step
+  counts["line_tests/count_readouts<br>model-free Tier 1: one test per experiment, its readouts post hoc"]:::step
   counts_out[("line_tests/model_free/")]:::data
   plate_var["line_tests/plate_variance<br>plate ICC of the count readouts"]:::step
   plate_out[("plate_variance/")]:::data
@@ -565,7 +565,7 @@ subgraph stage_6["Merged results and follow-ups"]
   clutch["line_tests/clutch_variability<br>between-clutch SD; mutants in clutch SDs"]:::step
   clutch_out[("effect_sd_map, vehicle_map, clutch tables")]:::data
   power["side_analysis/power<br>power and fish needed per parameter"]:::step
-  counts["line_tests/count_readouts<br>model-free Tier 1 on per-fish counts"]:::step
+  counts["line_tests/count_readouts<br>model-free Tier 1: one test per experiment, its readouts post hoc"]:::step
   counts_out[("line_tests/model_free/")]:::data
   plate_var["line_tests/plate_variance<br>plate ICC of the count readouts"]:::step
   plate_out[("plate_variance/")]:::data

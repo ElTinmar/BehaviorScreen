@@ -28,7 +28,7 @@ from BehaviorScreen.screen.line_tests.tier1_omnibus import (
     fit_tier1,
     extract_fitted_parameters,
     compute_parameter_deltas,
-    plot_tier1_map,
+    save_tier1_maps,
     map_rows,
     add_testability,
     extend_permutations,
@@ -38,7 +38,7 @@ from BehaviorScreen.screen.line_tests.tier1_omnibus import (
     bootstrap_parameter_deltas,
     plot_parameter_forest
 )
-from BehaviorScreen.screen.line_tests.fdr import ALPHA, add_fdr_per_behavior
+from BehaviorScreen.screen.line_tests.fdr import add_fdr_per_behavior
 from BehaviorScreen.screen.line_tests.pvalue_diagnostics import plot_pvalue_histogram
 from BehaviorScreen.screen.line_tests.dataset_utils import Arms
 from BehaviorScreen.screen.line_tests.screen_setup import load_screen
@@ -165,10 +165,7 @@ def combine(behaviors: list, arms: Arms, map_order: list, output_dir: Path) -> N
     build_bad_fit_triage(tier1_df).to_csv(output_dir / "bad_fit_triage.csv", index=False)
 
     rows = map_rows(tier1_df, arms.contrasts.values())
-    # A mutant and its reference are two clutches: its fish-label test is not framed (clutch_variability frames it).
-    siblings = tier1_df.assign(significant=tier1_df["significant"] & (tier1_df["family"] == "ntr"))
-    fig, _ = plot_tier1_map(param_df, siblings, map_order, rows, column_labels=MAP_COLUMNS, frame_label=f"significant (q < {ALPHA:g}; NTR lines)")
-    save_fig(fig, output_dir, "tier1_map")
+    save_tier1_maps(param_df, tier1_df, map_order, rows, output_dir, MAP_COLUMNS, tables["parameter_tests"])
     if (tier2_df["status"] == "ok").any():
         fig, _ = plot_tier2_map(param_df, tier2_df, map_order)
         save_fig(fig, output_dir, "tier2_map")

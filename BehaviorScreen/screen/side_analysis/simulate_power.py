@@ -88,7 +88,7 @@ def run_job(job: Job) -> List[dict]:
     rows = [{**row, "test": "model", "p_value": p}]
     for name, r in COUNT_READOUTS.items():
         if r.experiment == job.behavior:
-            p = count_test(fish_counts(ref, r), fish_counts(test, r), r.parameter, job.count_perm, rng)["p_value"]
+            p = count_test({r.parameter: fish_counts(ref, r)}, {r.parameter: fish_counts(test, r)}, job.count_perm, rng)["p_value"]
             rows.append({**row, "test": name, "p_value": p})
     return rows
 
