@@ -766,6 +766,11 @@ def rate_label(model: PointProcess) -> str:
     return "first escapes (Hz per fish)" if model.is_survival else "events (Hz per fish)"
 
 
+def fish_label(arm: str, dataset: PointProcessDataset) -> str:
+    """An arm's title with the fish its surfaces rest on (those with a trial)."""
+    return f"{arm} ({int(dataset.fish_trial_mask.any(axis=1).sum())} fish)"
+
+
 def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
     """(unchanged from before)"""
     n_fish = dataset.n_fish_per_trial
@@ -891,9 +896,9 @@ def plot_arm_surface_grid_with_marginals(
         return mesh
 
     _draw_arm(0, ds_ref, t_ref, surf_ref_emp, surf_ref_model, tm_ref_emp, tm_ref_model, trm_ref_emp, trm_ref_model,
-              "Reference", show_legend=True)
+              fish_label("Reference", ds_ref), show_legend=True)
     mesh = _draw_arm(2, ds_test, t_test, surf_test_emp, surf_test_model, tm_test_emp, tm_test_model, trm_test_emp, trm_test_model,
-                      "Test", show_legend=False)
+                      fish_label("Test", ds_test), show_legend=False)
 
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.97)
     cax = fig.add_axes([0.89, 0.15, 0.02, 0.65])
@@ -935,7 +940,7 @@ def plot_sided_arm_surface_grid(
             ax_time.plot((t_edges[:-1] + t_edges[1:]) / 2, tm_emp, color="black", lw=1.2, label="Empirical")
             ax_time.plot((t_edges[:-1] + t_edges[1:]) / 2, tm_model, color="crimson", ls="--", lw=1.2, label="Model")
             ax_time.set(ylim=(0, time_max * 1.05), xlim=(ds.t_grid[0], ds.t_grid[-1]))
-            ax_time.set_title(f"{arm}: {SIDE_NAMES[side]}", fontsize=11, fontweight="bold", loc="left", color=SIDE_COLORS[side])
+            ax_time.set_title(f"{fish_label(arm, ds)}: {SIDE_NAMES[side]}", fontsize=11, fontweight="bold", loc="left", color=SIDE_COLORS[side])
             ax_time.tick_params(labelsize=6)  # its own time ticks: it spans both surfaces below
             if col == 0:
                 ax_time.set_ylabel(rate_label(m), fontsize=7)
