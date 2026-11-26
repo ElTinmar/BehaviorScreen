@@ -71,26 +71,22 @@ def smoke_test(arms: Arms, behavior: str) -> None:
     raise RuntimeError(f"No contrast has both arms with >=3 fish for {behavior}: check its dataset filters against the event tables.")
 
 
-def negative_control(arms: Arms, behavior: str, out: Path) -> None:
-    """WT split in random halves: p-values of a contrast without an effect."""
+def negative_control(arms: Arms, behavior: str) -> pd.DataFrame:
+    """WT split in random halves: per split, the p-value of a contrast without an effect (NaN: unreliable or failed)."""
     ds_wt = arms.dataset("WT", "danieau", behavior)
     if ds_wt is None or ds_wt.num_fish < 10:
-        return
-    null_ps = []
+        return pd.DataFrame(columns=["split", "p_value"])
+    rows = []
     for seed in tqdm(range(NEGATIVE_CONTROL_SPLITS), desc=f"Negative control {behavior}"):
         perm = np.random.default_rng(seed).permutation(ds_wt.num_fish)
         half = ds_wt.num_fish // 2
         try:
             result = tier1_permutation_test(arms.architecture(behavior, frozenset({("WT", "danieau")})), ds_wt.fish(perm[:half]), ds_wt.fish(perm[half:]), n_perm=NEGATIVE_CONTROL_PERM)
-            if not result["permutation_unreliable"]:
-                null_ps.append(result["p_value"])
+            p = np.nan if result["permutation_unreliable"] else result["p_value"]
         except Exception:
-            continue
-    if null_ps:
-        fig, ax = plt.subplots(figsize=(6, 4))
-        plot_pvalue_histogram(np.array(null_ps), ax=ax, title=f"Negative control (WT split-half): {behavior}")
-        save_fig(fig, out, f"negctrl_pvalue_hist_{behavior}")
-        plt.close(fig)
+            p = np.nan
+        rows.append({"split": seed, "p_value": p})
+    return pd.DataFrame(rows)
 
 
 def gain_structure(behavior: str, arms: Arms, out: Path) -> GainStructure:
@@ -149,7 +145,12 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
         plot_pvalue_histogram(ok, ax=ax, title=f"Tier 1 p-values: {behavior}")
         save_fig(fig, out, f"pvalue_hist_{behavior}")
         plt.close(fig)
-    negative_control(arms, behavior, out)
+    null_ps = step("negative_control", lambda: negative_control(arms, behavior))["p_value"].dropna()
+    if len(null_ps):
+        fig, ax = plt.subplots(figsize=(6, 4))
+        plot_pvalue_histogram(null_ps.to_numpy(), ax=ax, title=f"Negative control (WT split-half): {behavior}")
+        save_fig(fig, out, f"negctrl_pvalue_hist_{behavior}")
+        plt.close(fig)
 
 
 def combine(behaviors: list, arms: Arms, map_order: list, output_dir: Path) -> None:

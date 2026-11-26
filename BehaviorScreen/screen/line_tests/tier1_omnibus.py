@@ -561,7 +561,7 @@ def add_testability(tier1_df: pd.DataFrame, n_perm_max: Optional[int] = None) ->
     """
     df = tier1_df.copy()
     if n_perm_max is not None:
-        df["p_value_floor"] = 1.0 / (np.minimum(df["n_distinct_permutations"], n_perm_max) + 1)
+        df["p_value_floor"] = 1.0 / (df["n_distinct_permutations"].astype(float).clip(upper=n_perm_max) + 1)  # counts beyond int64: objects
     keys = ["family", "behavior"] if "family" in df.columns else ["behavior"]
     n_tests = df.groupby(keys)["p_value"].transform("count")
     df["testable"] = (df["p_value_floor"] * n_tests < ALPHA).fillna(False)

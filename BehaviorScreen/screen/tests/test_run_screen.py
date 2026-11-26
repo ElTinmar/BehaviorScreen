@@ -24,7 +24,7 @@ def test_behavior_runs_and_combines(kept: float, tmp_path: Path, monkeypatch: py
     drug = np.array([loader.arms[f] == ("L1", "ronidazole") for f in data.event_fish_idx])
     keep = ~drug | (rng.random(len(drug)) < kept)
     loader.dataset = data._with_events(keep, data.event_fish_idx[keep])
-    monkeypatch.setattr(run_screen, "negative_control", lambda *args: None)
+    monkeypatch.setattr(run_screen, "negative_control", lambda *args: pd.DataFrame(columns=["split", "p_value"]))
     tier2 = run_screen.run_tier2_screen
     monkeypatch.setattr(run_screen, "run_tier2_screen", lambda *args, **kwargs: tier2(*args, **{**kwargs, "n_boot": 20}))
     monkeypatch.setattr(run_screen, "bootstrap_parameter_deltas", lambda *args, n_boot: pd.DataFrame())
