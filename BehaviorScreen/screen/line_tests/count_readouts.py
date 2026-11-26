@@ -273,7 +273,7 @@ def main(args: argparse.Namespace) -> None:
     from .arm_absolute import plot_all, save_contrasts
     from .fdr import add_fdr_per_behavior
     from .screen_setup import load_tables, screen_contrasts
-    from .tier1_omnibus import add_testability, compute_parameter_deltas, map_rows, save_tier1_maps
+    from .tier1_omnibus import add_testability, compute_parameter_deltas, save_tier1_maps
 
     out = args.output
     out.mkdir(parents=True, exist_ok=True)
@@ -291,8 +291,7 @@ def main(args: argparse.Namespace) -> None:
     boot = arm_bootstrap(counts, args.n_boot, np.random.default_rng(1))
     boot.to_csv(out / "arm_bootstrap.csv", index=False)
 
-    rows = map_rows(tier1_df, contrasts)
-    save_tier1_maps(param_df, tier1_df, list(EXPERIMENTS), rows, out, COUNT_COLUMNS, posthoc)
+    save_tier1_maps(param_df, tier1_df, list(EXPERIMENTS), contrasts, out, COUNT_COLUMNS, posthoc)
     plot_all(boot, contrasts, tier1_df, out / "tier1_absolute", COUNT_COLUMNS)
     print(tier1_df.groupby("behavior", sort=False)["significant"].sum().to_string())
 

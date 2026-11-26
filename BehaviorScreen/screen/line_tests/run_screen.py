@@ -29,7 +29,6 @@ from BehaviorScreen.screen.line_tests.tier1_omnibus import (
     extract_fitted_parameters,
     compute_parameter_deltas,
     save_tier1_maps,
-    map_rows,
     add_testability,
     extend_permutations,
     generate_arm_surface_grids,
@@ -165,8 +164,7 @@ def combine(behaviors: list, arms: Arms, map_order: list, output_dir: Path) -> N
     tier1_df, param_df, tier2_df = tables["tier1_results"], tables["tier1_parameters"], tables["tier2_results"]
     build_bad_fit_triage(tier1_df).to_csv(output_dir / "bad_fit_triage.csv", index=False)
 
-    rows = map_rows(tier1_df, arms.contrasts.values())
-    save_tier1_maps(param_df, tier1_df, map_order, rows, output_dir, MAP_COLUMNS, tables["parameter_tests"])
+    save_tier1_maps(param_df, tier1_df, map_order, arms.contrasts.values(), output_dir, MAP_COLUMNS, tables["parameter_tests"])
     if (tier2_df["status"] == "ok").any():
         fig, _ = plot_tier2_map(param_df, tier2_df, map_order)
         save_fig(fig, output_dir, "tier2_map")

@@ -22,6 +22,7 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.collections import QuadMesh
 from matplotlib.colors import LinearSegmentedColormap
+from scipy.cluster.hierarchy import dendrogram as tree_layout, leaves_list, linkage
 
 from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.dataset import PointProcessDataset
@@ -39,6 +40,7 @@ from .model_qc import MIN_FISH, assess_group_fit
 from .steps import cells_in, read_cell, write_cell
 from .tier1_browser import write_browser
 from BehaviorScreen.screen.line_names import line_name
+from BehaviorScreen.screen.paths import line_tests_dir
 
 # Behavior-specific minimum total-event floor. Fish count is the WRONG
 # denominator for point-process/survival identifiability -- total events
@@ -576,6 +578,43 @@ def map_rows(tier1_df: pd.DataFrame, contrasts: Iterable[Contrast]) -> List[str]
     return ["WT"] + sorted(ntr, key=lambda line: -hits.get(line, 0)) + [c.name for c in contrasts if c.family == "mutant"]
 
 
+ROW_ORDER = "tier1_rows.json"  # a variant's map rows (save_tier1_maps), which the other variants' maps follow
+REFERENCE_VARIANTS = ("best", "best-poisson")  # whose row order every map follows: the first one combined
+
+
+def clustered_rows(effects: pd.DataFrame, tier1_df: pd.DataFrame, contrasts: Iterable[Contrast]) -> Dict:
+    """
+    {"rows", "clustered", "linkage"}: WT, the NTR lines with a tested cell clustered by their Glass's delta
+    (standardized_effects, clipped to the map's ±EFFECT_VMAX, untested cells 0; Euclidean distance, average linkage,
+    optimal leaf order), the other NTR lines, then the mutants; the clustered lines in order and their tree.
+    """
+    contrasts = list(contrasts)
+    ntr = [c.name for c in contrasts if c.family == "ntr" and c.name != "WT"]
+    tested = set(tier1_df.loc[tier1_df["status"] == "ok", "line"]) & set(ntr)
+    table = effects[effects["line"].isin(tested) & effects["parameter"].isin(PARAMETER_LABELS)]
+    X = table.pivot_table(index="line", columns=["behavior", "parameter"], values="delta").clip(-EFFECT_VMAX, EFFECT_VMAX).fillna(0)
+    Z = linkage(X.to_numpy(), "average", optimal_ordering=True) if len(X) >= 3 else None
+    clustered = list(X.index) if Z is None else [X.index[i] for i in leaves_list(Z)]
+    rows = ["WT"] + clustered + [line for line in ntr if line not in clustered] + [c.name for c in contrasts if c.family == "mutant"]
+    return {"rows": rows, "clustered": clustered, "linkage": None if Z is None else Z.tolist()}
+
+
+def shared_rows(order: Dict, out: Path) -> Dict:
+    """
+    order (clustered_rows) saved in out, a variant's folder of line_tests; the order of the first REFERENCE_VARIANTS
+    combined instead, if it is another folder's, so that every map lists the lines alike (lines it lacks: appended).
+    """
+    (out / ROW_ORDER).write_text(json.dumps(order))
+    for variant in REFERENCE_VARIANTS:
+        path = line_tests_dir(variant, out.parent) / ROW_ORDER
+        if path.exists():
+            if path.parent.resolve() == out.resolve():
+                return order
+            shared = json.loads(path.read_text())
+            return {**shared, "rows": [r for r in shared["rows"] if r in order["rows"]] + [r for r in order["rows"] if r not in shared["rows"]]}
+    return order
+
+
 def plot_tier1_map(
     param_df: pd.DataFrame,
     tier1_df: pd.DataFrame,
@@ -588,6 +627,7 @@ def plot_tier1_map(
     column_labels: Optional[Dict[str, str]] = None,
     frame_label: str = f"significant (q < {ALPHA:g})",
     posthoc: Optional[pd.DataFrame] = None,
+    tree: Optional[Dict] = None,
 ) -> Tuple[plt.Figure, plt.Axes]:
     """
     Matrix of the screen: rows are contrasts (in the given order, a gap
@@ -602,7 +642,8 @@ def plot_tier1_map(
     bound (at_bound), drawn at a fixed size. Grey x: no test.
     With n_fish_ref / n_fish_test columns, a matching panel shows both arms'
     fish counts per cell: reference in the upper-left triangle, test in the
-    lower-right one, each shaded by its count.
+    lower-right one, each shaded by its count. tree (clustered_rows): the dendrogram of its clustered lines, on the left,
+    where they are consecutive rows in that order.
     The returned axes' `cells` maps each (line, behavior, parameter) drawn to its centre in data coordinates (cell_boxes).
     """
     present = param_df[param_df["parameter"].isin(PARAMETER_LABELS)]
@@ -633,7 +674,10 @@ def plot_tier1_map(
     shown = [b for b in behaviors if any(c[0] == b for c in columns)]
     widths = [len(columns), len(shown)] if show_n else [len(columns)]
     unit, gap, right, bottom = 0.32, 0.4, 1.3, 1.3
-    left = 0.2 + 0.065 * max(len(label(n)) for n in rows)
+    clustered = (tree or {}).get("clustered", [])
+    drawn_tree = (tree or {}).get("linkage") is not None and all(positions.get(n) == positions.get(clustered[0], -1) + i for i, n in enumerate(clustered))
+    tree_w = 0.9 if drawn_tree else 0.0
+    left = tree_w + 0.2 + 0.065 * max(len(label(n)) for n in rows)
     title = lambda behavior: (column_labels or {}).get(behavior, behavior)
     top = 0.3 + 0.065 * max(len(title(b)) for b in shown)
     content_w, bar_h = unit * sum(widths) + gap * (len(widths) - 1), max(1.2, min(2.5, unit * y))
@@ -719,6 +763,16 @@ def plot_tier1_map(
     decorate(ax, columns)
     ax.set_yticks([positions[n] for n in rows], [label(n) for n in rows], fontsize=8)
     ax.set_ylim(y - 0.4, -0.6)
+    if drawn_tree:  # right of the tree: the row labels' left edge
+        fig.canvas.draw()
+        labels_x0 = min(t.get_window_extent().x0 for t in ax.get_yticklabels()) / fig.dpi / fig_w
+        box = ax.get_position()
+        ax_tree = fig.add_axes([labels_x0 - (tree_w - 0.1) / fig_w, box.y0, (tree_w - 0.15) / fig_w, box.height], sharey=ax)
+        layout = tree_layout(np.asarray(tree["linkage"]), no_plot=True)
+        for xs, heights in zip(layout["icoord"], layout["dcoord"]):
+            ax_tree.plot(heights, positions[clustered[0]] + (np.asarray(xs) - 5) / 10, color="0.45", linewidth=0.8)
+        ax_tree.invert_xaxis()
+        ax_tree.axis("off")
     cax = fig.add_axes([(left + content_w + 0.15) / fig_w, 1 - (top + bar_h) / fig_h, 0.12 / fig_w, bar_h / fig_h])
     fig.colorbar(plt.cm.ScalarMappable(norm, MAP_COLORS), cax=cax, label=colorbar_label)
 
@@ -743,22 +797,26 @@ def plot_tier1_map(
     return fig, ax
 
 def save_tier1_maps(
-    param_df: pd.DataFrame, tier1_df: pd.DataFrame, behaviors: List[str], rows: List[str], out: Path,
+    param_df: pd.DataFrame, tier1_df: pd.DataFrame, behaviors: List[str], contrasts: Iterable[Contrast], out: Path,
     column_labels: Dict[str, str], posthoc: pd.DataFrame,
 ) -> None:
     """
     tier1_map: log2 (or difference) with dots sized by standard error; tier1_map_d: Glass's delta (standardized_effects)
     in squares; tier1_sigma (.png, .csv): the control spread behind it. Mutant and reference are two clutches: their
-    fish-label test is not framed (clutch_variability frames it). Then the page of all variants' maps, in out's parent
+    fish-label test is not framed (clutch_variability frames it). Rows: clustered_rows, shared across variants
+    (shared_rows), with their dendrogram. Then the page of all variants' maps, in out's parent
     (tier1_browser: out is a variant's folder of line_tests).
     """
     arms = reference_sds(param_df, tier1_df)
     control_sds(arms).to_csv(out / "tier1_sigma.csv", index=False)
     siblings = tier1_df.assign(significant=tier1_df["significant"] & (tier1_df["family"] == "ntr"))
-    common = dict(column_labels=column_labels, frame_label=f"significant (q < {ALPHA:g}; NTR lines)", posthoc=posthoc)
+    effects = standardized_effects(param_df, tier1_df)
+    order = shared_rows(clustered_rows(effects, tier1_df, contrasts), out)
+    rows = order["rows"]
+    common = dict(column_labels=column_labels, frame_label=f"significant (q < {ALPHA:g}; NTR lines)", posthoc=posthoc, tree=order)
     for name, (fig, ax) in (
         ("tier1_map", plot_tier1_map(param_df, siblings, behaviors, rows, **common)),
-        ("tier1_map_d", plot_tier1_map(standardized_effects(param_df, tier1_df), siblings, behaviors, rows, vmax=EFFECT_VMAX,
+        ("tier1_map_d", plot_tier1_map(effects, siblings, behaviors, rows, vmax=EFFECT_VMAX,
                                        se_half_size=None, colorbar_label=EFFECT_LABEL, **common)),
     ):
         (out / f"{name}.json").write_text(json.dumps({"cells": cell_boxes(fig, ax)}))

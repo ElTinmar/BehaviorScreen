@@ -74,3 +74,22 @@ def test_cell_boxes_fall_on_their_cells_in_the_saved_image(tmp_path) -> None:
     centres = [image[int((b["box"][1] + b["box"][3]) / 2 * image.shape[0]), int((b["box"][0] + b["box"][2]) / 2 * image.shape[1]), :3] for b in boxes]
     assert [b["parameter"] for b in boxes] == ["H", "D"]
     assert centres[0][0] > centres[0][2] and centres[1][2] > centres[1][0]  # H red, D blue: each box on its own square
+
+
+def test_rows_cluster_alike_lines_and_every_variant_follows_the_reference(tmp_path) -> None:
+    import json
+    from BehaviorScreen.screen.line_tests.dataset_utils import mutant_contrast, ntr_contrast
+    from BehaviorScreen.screen.line_tests.tier1_omnibus import ROW_ORDER, clustered_rows, shared_rows
+    profiles = {"A": [2, 2], "B": [-2, -2], "C": [2.1, 1.9], "D": [-1.9, -2.1]}
+    effects = pd.DataFrame([{"line": line, "behavior": "b", "parameter": p, "delta": d}
+                            for line, ds in profiles.items() for p, d in zip(["B", "D"], ds)])
+    lines = [*profiles, "E"]  # E: nothing tested
+    tier1 = pd.DataFrame({"line": ["WT", *lines], "behavior": "b", "status": ["ok"] * 5 + ["skipped_insufficient_data"]})
+    contrasts = [ntr_contrast(line) for line in ["WT", *lines]] + [mutant_contrast("mut", ("WT", "danieau"))]
+    order = clustered_rows(effects, tier1, contrasts)
+    rows = order["rows"]
+    assert rows[0] == "WT" and rows[-2:] == ["E", "mut"] and abs(rows.index("A") - rows.index("C")) == 1 and abs(rows.index("B") - rows.index("D")) == 1
+    (tmp_path / "best").mkdir(), (tmp_path / "base").mkdir()
+    assert shared_rows(order, tmp_path / "best") == order
+    other = {**order, "rows": list(reversed(order["rows"]))}
+    assert shared_rows(other, tmp_path / "base")["rows"] == rows and json.loads((tmp_path / "base" / ROW_ORDER).read_text()) == other
