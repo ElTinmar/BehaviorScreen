@@ -1,6 +1,7 @@
 """
 Fit the control models, one job per experiment and mode, on Slurm or here (BehaviorScreen/machines.yaml):
-    python -m BehaviorScreen fit-controls [experiment ...] [--modes diagnostics fit] [--local]
+    python -m BehaviorScreen fit-controls [experiment ...] [--modes diagnostics fit plot] [--local]
+--modes plot redraws a finished fit's rung plots from its saved parameters and GOF replicates, without refitting.
 On Slurm, GPU nodes throughout (the GPUs stay idle: easier to get than CPU nodes), at most 18 cores per GPU: renewal
 rungs on long trials or large grids get a full node, the other renewal ladders half of one, ladders without renewal
 rungs a quarter. One fit worker per core; each holds the data and its renewal grid (2 GB or more for phototaxis).
@@ -21,7 +22,7 @@ MEMORY = {4: "500000", 2: "160G", 1: "32G"}  # by GPUs
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("experiments", nargs="*", metavar="experiment", help="of experiments.txt (default: all)")
-    parser.add_argument("--modes", nargs="+", choices=["diagnostics", "fit"], default=["fit"], help="run_analysis modes, in this order")
+    parser.add_argument("--modes", nargs="+", choices=["diagnostics", "fit", "plot"], default=["fit"], help="run_analysis modes, in this order")
     add_local_argument(parser)
     args = parser.parse_args()
     if unknown := sorted(set(args.experiments) - set(EXPERIMENTS)):
