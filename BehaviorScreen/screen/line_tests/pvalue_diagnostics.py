@@ -6,15 +6,17 @@ import matplotlib.pyplot as plt
 
 
 def plot_pvalue_histogram(
-    pvals: np.ndarray, bins: int = 20, title: str = "P-value distribution",
+    pvals: np.ndarray, bins: Optional[int] = None, title: str = "P-value distribution",
     ax: Optional[plt.Axes] = None,
 ) -> plt.Axes:
+    """Density of the p-values against the uniform, with its 95% band; bins: about 5 p-values each, 5 to 20 (default)."""
     if ax is None:
         _, ax = plt.subplots(figsize=(6, 4))
 
     pvals = np.asarray(pvals, dtype=float)
     pvals = pvals[~np.isnan(pvals)]
     n = len(pvals)
+    bins = bins or int(np.clip(n // 5, 5, 20))
 
     ax.hist(pvals, bins=bins, range=(0, 1), density=True,
             color="steelblue", edgecolor="white", alpha=0.85)
@@ -24,7 +26,8 @@ def plot_pvalue_histogram(
     expected_per_bin = n * bin_width
     se = np.sqrt(expected_per_bin * (1 - bin_width)) if expected_per_bin > 0 else 0
     band = 1.96 * se / (n * bin_width) if n > 0 else 0
-    ax.axhspan(1 - band, 1 + band, color="crimson", alpha=0.1)
+    ax.axhspan(max(0.0, 1 - band), 1 + band, color="crimson", alpha=0.1, label="95% band of the uniform")
+    ax.set_ylim(bottom=0)
 
     ax.set_xlim(0, 1)
     ax.set_xlabel("p-value")

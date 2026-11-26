@@ -1141,7 +1141,7 @@ def plot_volcano(
 
         q_line_p = _behavior_q_line(sub)
         if q_line_p is not None:
-            ax.axhline(-np.log10(q_line_p), color="black", linestyle=":", linewidth=0.8)
+            ax.axhline(-np.log10(q_line_p), color="black", linestyle=":", linewidth=0.8)  # the legend's FDR line
         ax.axvline(0, color="black", linewidth=0.5)
 
         local_xmax = sub[effect_col].abs().max() if len(sub) else 1.0
@@ -1162,6 +1162,7 @@ def plot_volcano(
 
     handles = [plt.Line2D([0], [0], linestyle="", marker=s["marker"], color=s["color"], label=s["label"])
                for s in cause_style.values()]
+    handles.append(plt.Line2D([0], [0], color="black", linestyle=":", linewidth=0.8, label=f"largest significant p (q < {ALPHA:g})"))
     fig.legend(handles=handles, loc="lower center", ncol=4, fontsize=7, bbox_to_anchor=(0.5, -0.02))
     fig.suptitle("Volcano: effect size vs. significance, by behavior", fontsize=13, fontweight="bold")
     plt.tight_layout(rect=[0, 0.05, 1, 0.97])
@@ -1344,7 +1345,7 @@ def plot_parameter_forest(
         transform = psub["transform"].iloc[0]
         xlabel = f"log2({pname}_test / {pname}_reference)" if transform == "log2_ratio" else f"Δ{pname} (test − reference)"
         ax.set_xlabel(xlabel, fontsize=8)
-        ax.set_title(pname, fontsize=9, fontweight="bold")
+        ax.set_title(f"{PARAMETER_LABELS.get(pname, pname)} ({pname})", fontsize=9, fontweight="bold")
         ax.tick_params(labelsize=7)
         ax.grid(axis="x", linestyle=":", alpha=0.4)
 
