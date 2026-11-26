@@ -761,6 +761,11 @@ def save_tier1_maps(
         plt.close(fig)
 
 
+def rate_label(model: PointProcess) -> str:
+    """What the grids' surfaces and marginals count: a survival model's first events, else all."""
+    return "first escapes (Hz per fish)" if model.is_survival else "events (Hz per fish)"
+
+
 def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tuple[np.ndarray, np.ndarray]:
     """(unchanged from before)"""
     n_fish = dataset.n_fish_per_trial
@@ -841,8 +846,8 @@ def plot_arm_surface_grid_with_marginals(
         ax_time.plot(ds.t_centers, tm_model, color="crimson", linestyle="--", linewidth=1.3, label="Model")
         ax_time.set_ylim(0, time_ymax * 1.05)
         ax_time.set_title(row_label, fontsize=11, fontweight="bold", loc="left")
-        plt.setp(ax_time.get_xticklabels(), visible=False)
-        ax_time.tick_params(labelsize=6)
+        ax_time.set_ylabel(rate_label(m_ref), fontsize=7)
+        ax_time.tick_params(labelsize=6)  # its own time ticks: it spans both surfaces below
         if show_legend:
             ax_time.legend(loc="upper right", fontsize=7, frameon=False)
 
@@ -862,6 +867,7 @@ def plot_arm_surface_grid_with_marginals(
         ax_trial.plot(trm_emp, trial_centers, color="black", linestyle="-", linewidth=1.3)
         ax_trial.plot(trm_model, trial_centers, color="crimson", linestyle="--", linewidth=1.3)
         ax_trial.set_xlim(0, trial_xmax * 1.05)
+        ax_trial.set_xlabel(f"{rate_label(m_ref)},\nmean over the trial", fontsize=7)
         plt.setp(ax_trial.get_yticklabels(), visible=False)
         ax_trial.tick_params(labelsize=6)
 
@@ -875,7 +881,7 @@ def plot_arm_surface_grid_with_marginals(
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.97)
     cax = fig.add_axes([0.89, 0.15, 0.02, 0.65])
     cbar = fig.colorbar(mesh, cax=cax)
-    cbar.set_label("Rate (Hz)", fontsize=9)
+    cbar.set_label(rate_label(m_ref), fontsize=9)
 
     return fig
 
@@ -912,7 +918,9 @@ def plot_sided_arm_surface_grid(
             ax_time.plot(ds.t_centers, tm_model, color="crimson", ls="--", lw=1.2, label="Model")
             ax_time.set(ylim=(0, time_max * 1.05), xlim=(ds.t_grid[0], ds.t_grid[-1]))
             ax_time.set_title(f"{arm}: {SIDE_NAMES[side]}", fontsize=11, fontweight="bold", loc="left", color=SIDE_COLORS[side])
-            plt.setp(ax_time.get_xticklabels(), visible=False)
+            ax_time.tick_params(labelsize=6)  # its own time ticks: it spans both surfaces below
+            if col == 0:
+                ax_time.set_ylabel(rate_label(m), fontsize=7)
             if block == 0 and col == 0:
                 ax_time.legend(loc="upper right", fontsize=7, frameon=False)
             for offset, (surface, label) in enumerate(((emp, "Empirical"), (model, "Model"))):
@@ -927,7 +935,7 @@ def plot_sided_arm_surface_grid(
             trials = np.arange(ds.num_trials)
             ax_trial.plot(trm_emp, trials, color=SIDE_COLORS[side], lw=1.2, label=f"{SIDE_NAMES[side]} empirical")
             ax_trial.plot(trm_model, trials, color=SIDE_COLORS[side], ls="--", lw=1.2, label=f"{SIDE_NAMES[side]} model")
-        ax_trial.set(xlim=(0, trial_max * 1.05), ylim=(-0.5, ds.num_trials - 0.5), xlabel="Rate (Hz)")
+        ax_trial.set(xlim=(0, trial_max * 1.05), ylim=(-0.5, ds.num_trials - 0.5), xlabel=f"{rate_label(m)},\nmean over the trial")
         plt.setp(ax_trial.get_yticklabels(), visible=False)
         if block == 0:
             ax_trial.legend(fontsize=6, frameon=False, loc="lower right")
@@ -935,7 +943,7 @@ def plot_sided_arm_surface_grid(
     for ax in fig.axes:
         ax.tick_params(labelsize=7)
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.98)
-    fig.colorbar(mesh, cax=fig.add_axes([0.92, 0.4, 0.012, 0.3])).set_label("Rate (Hz)", fontsize=9)
+    fig.colorbar(mesh, cax=fig.add_axes([0.92, 0.4, 0.012, 0.3])).set_label(rate_label(m_ref), fontsize=9)
     return fig
 
 

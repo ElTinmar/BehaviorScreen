@@ -70,9 +70,9 @@ def plot_time_and_trial_calibration(
     edges = np.linspace(0, dataset.duration_s, n_time_bins + 1)
     _plot_calibration(ax_time, (edges[:-1] + edges[1:]) / 2, ev,
                       np.clip(np.digitize(ev["time"], edges) - 1, 0, n_time_bins - 1), "Time in trial (s)")
-    ax_time.set_title("Side calibration by time")
+    ax_time.set(title="Side calibration by time", xlim=(0, dataset.duration_s))
     _plot_calibration(ax_trial, np.arange(dataset.num_trials), ev, ev["trial"], "Trial")
-    ax_trial.set_title("Side calibration by trial")
+    ax_trial.set(title="Side calibration by trial", xlim=(-0.5, dataset.num_trials - 0.5), ylabel="")  # beside ax_time: same y
     return ev
 
 
