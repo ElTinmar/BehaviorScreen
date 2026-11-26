@@ -810,21 +810,11 @@ def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tu
 
     return time_marginal, trial_marginal
 
-DISPLAY_BIN_S = {"rate": 0.25, "escape": 0.1}  # the grids' time bins: rates change slower than escape peaks
-
-
 def display_surfaces(model: PointProcess, dataset: PointProcessDataset, **side: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """
-    (time edges, empirical, model) surfaces of the events model describes, in DISPLAY_BIN_S bins (Hz per fish): the
-    dataset's bins merged, so that a single event is not a rate of 1 / (fish x a short bin).
-    """
+    """(time edges, empirical, model) surfaces of the events model describes (Hz per fish), in the dataset's bins."""
     emp = model.described(dataset)
-    emp = (emp.select(laterality=side["side"]) if side else emp).time_trial_histogram_hz
-    surfaces = [emp, model.compute_expected_rate(dataset, **side)]
-    k = max(1, round(DISPLAY_BIN_S["escape" if model.is_survival else "rate"] / dataset.binning_dt))
-    starts, widths = np.arange(0, surfaces[0].shape[1], k), np.diff(dataset.t_grid)
-    merged = [np.add.reduceat(x * widths, starts, axis=1) / np.add.reduceat(widths, starts) for x in surfaces]
-    return np.r_[dataset.t_grid[starts], dataset.t_grid[-1]], *merged
+    emp = emp.select(laterality=side["side"]) if side else emp
+    return dataset.t_grid, emp.time_trial_histogram_hz, model.compute_expected_rate(dataset, **side)
 
 
 def _model_vmax(models: List[np.ndarray], empirical: List[np.ndarray]) -> float:
