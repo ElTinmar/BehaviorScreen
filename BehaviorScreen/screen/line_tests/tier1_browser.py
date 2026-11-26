@@ -1,6 +1,6 @@
 """
 line_tests/tier1.html: the Tier 1 maps of every model variant merged (test-lines --combine) and of the model-free
-screen (--model-free), rewritten by both. Buttons (or ↑ and ↓) switch variant, others the map; clicking a cell shows its
+screen (--model-free), rewritten by both. Buttons (or ↑ and ↓) switch variant; clicking a cell shows its
 line's arm surface grid for that behavior in that variant (← map or Escape: back); the wheel zooms, dragging pans.
 It links to the maps and grids below it: the line_tests folder can be copied whole.
 """
@@ -18,11 +18,8 @@ from BehaviorScreen.screen.zoom import ZOOM_CSS, ZOOM_JS
 
 from .tier1_config import MAP_COLUMNS
 
-MAPS = {"tier1_map": "log2 ratio", "tier1_map_d": "Glass's Δ"}  # save_tier1_maps' maps, a button each
-
-
 def variants(root: Path) -> List[dict]:
-    """Each variant under root with a map, its maps' cells (cell_boxes) and each cell's arm surface grid (or None)."""
+    """Each variant under root with a map (save_tier1_maps), its cells (cell_boxes) and each cell's arm surface grid (or None)."""
     folders = {v: line_tests_dir(v, root) for v in VARIANTS} | {"model-free": root / COUNT_RESULTS.relative_to(LINE_TESTS)}
     link = lambda path: Path(os.path.relpath(path, root)).as_posix()
     result = []
@@ -32,16 +29,15 @@ def variants(root: Path) -> List[dict]:
         cell = lambda c: {**c, "caption": f"{line_html(c['line'])} · {column(c)}",
                           "tip": html.escape(f"{c['line']} · {MAP_COLUMNS.get(c['behavior'], c['behavior'])} · {c['parameter']}"),
                           "grid": grids.get(slugify(f"{c['line']}_{c['behavior']}"))}
-        maps = {view: {"src": link(folder / f"{view}.png"), "cells": [cell(c) for c in json.loads((folder / f"{view}.json").read_text())["cells"]]}
-                for view in MAPS if (folder / f"{view}.png").exists() and (folder / f"{view}.json").exists()}
-        if maps:
-            result.append({"name": name, "maps": maps})
+        png, boxes = folder / "tier1_map.png", folder / "tier1_map.json"
+        if png.exists() and boxes.exists():
+            result.append({"name": name, "src": link(png), "cells": [cell(c) for c in json.loads(boxes.read_text())["cells"]]})
     return result
 
 
 def write_browser(root: Path) -> Path:
     page = root / "tier1.html"
-    page.write_text(PAGE.replace("__VARIANTS__", json.dumps(variants(root))).replace("__MAPS__", json.dumps(MAPS))
+    page.write_text(PAGE.replace("__VARIANTS__", json.dumps(variants(root)))
                     .replace("__ZOOM_CSS__", ZOOM_CSS).replace("__ZOOM_JS__", ZOOM_JS)
                     .replace("__GENERATED__", f"{datetime.now():%Y-%m-%d %H:%M}"), encoding="utf-8")
     return page
@@ -81,15 +77,15 @@ __ZOOM_CSS__
 <header>
   <h1>Tier 1</h1><span id="caption"></span>
   <span class="spacer"></span>
-  <span id="variants" class="group" role="group" aria-label="Model"></span><span id="maps" class="group" role="group" aria-label="Map"></span>
+  <span id="variants" class="group" role="group" aria-label="Model"></span>
   <span class="muted">generated __GENERATED__</span>
 </header>
 <main id="panel"></main>
 <script>
 __ZOOM_JS__
-const VARIANTS = __VARIANTS__, MAPS = __MAPS__;
+const VARIANTS = __VARIANTS__;
 const $ = id => document.getElementById(id), zoom = Zoom($("panel"));
-let variant = 0, map = 0, cell = null, shown = null;
+let variant = 0, cell = null, shown = null;
 function buttons(group, names, active, pick) {
   $(group).replaceChildren(...names.map((name, j) => {
     const b = document.createElement("button");
@@ -100,10 +96,8 @@ function buttons(group, names, active, pick) {
 function show() {
   if (!VARIANTS.length) { $("panel").innerHTML = `<div class="missing">no Tier 1 map yet: test-lines --combine</div>`; return; }
   variant = (variant + VARIANTS.length) % VARIANTS.length;
-  const v = VARIANTS[variant], names = Object.keys(v.maps), m = names[Math.min(map, names.length - 1)];
+  shown = VARIANTS[variant];
   buttons("variants", VARIANTS.map(w => w.name), variant, j => { [variant, cell] = [j, null]; show(); });
-  buttons("maps", names.map(n => MAPS[n]), names.indexOf(m), j => { [map, cell] = [j, null]; show(); });
-  shown = v.maps[m];
   zoom.reset();
   if (cell) {
     $("caption").innerHTML = `<button id="back">← map</button> ${cell.caption}`;
@@ -117,7 +111,7 @@ function show() {
       `</div></div>`;
     $("panel").querySelector("img").onload = fitCells;
   }
-  history.replaceState(null, "", "#" + encodeURIComponent(v.name) + "/" + m);
+  history.replaceState(null, "", "#" + encodeURIComponent(shown.name));
 }
 function fitCells() {
   const box = $("panel").querySelector(".view"), cells = box && box.querySelector(".cells"), img = box && box.querySelector("img");
@@ -136,9 +130,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") { if (cell) { cell = null; show(); } else zoom.reset(); }
   if (e.key === "ArrowUp" || e.key === "ArrowDown") { e.preventDefault(); [variant, cell] = [variant + (e.key === "ArrowUp" ? -1 : 1), null]; show(); }
 });
-const [hashVariant, hashMap] = decodeURIComponent(location.hash.slice(1)).split("/");
-variant = Math.max(0, VARIANTS.findIndex(v => v.name === hashVariant));
-map = Math.max(0, Object.keys(MAPS).indexOf(hashMap));
+variant = Math.max(0, VARIANTS.findIndex(v => v.name === decodeURIComponent(location.hash.slice(1))));
 show();
 </script>
 </body>

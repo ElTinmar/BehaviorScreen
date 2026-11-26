@@ -801,8 +801,7 @@ def save_tier1_maps(
     column_labels: Dict[str, str], posthoc: pd.DataFrame,
 ) -> None:
     """
-    tier1_map: log2 (or difference) with dots sized by standard error; tier1_map_d: Glass's delta (standardized_effects)
-    in squares; tier1_sigma (.png, .csv): the control spread behind it. Mutant and reference are two clutches: their
+    tier1_map: Glass's delta (standardized_effects); tier1_sigma (.png, .csv): the control spread behind it. Mutant and reference are two clutches: their
     fish-label test is not framed (clutch_variability frames it). Rows: clustered_rows, shared across variants
     (shared_rows), with their dendrogram. Then the page of all variants' maps, in out's parent
     (tier1_browser: out is a variant's folder of line_tests).
@@ -814,14 +813,10 @@ def save_tier1_maps(
     order = shared_rows(clustered_rows(effects, tier1_df, contrasts), out)
     rows = order["rows"]
     common = dict(column_labels=column_labels, frame_label=f"significant (q < {ALPHA:g}; NTR lines)", posthoc=posthoc, tree=order)
-    for name, (fig, ax) in (
-        ("tier1_map", plot_tier1_map(param_df, siblings, behaviors, rows, **common)),
-        ("tier1_map_d", plot_tier1_map(effects, siblings, behaviors, rows, vmax=EFFECT_VMAX,
-                                       se_half_size=None, colorbar_label=EFFECT_LABEL, **common)),
-    ):
-        (out / f"{name}.json").write_text(json.dumps({"cells": cell_boxes(fig, ax)}))
-        save_fig(fig, out, name)
-        plt.close(fig)
+    fig, ax = plot_tier1_map(effects, siblings, behaviors, rows, vmax=EFFECT_VMAX, se_half_size=None, colorbar_label=EFFECT_LABEL, **common)
+    (out / "tier1_map.json").write_text(json.dumps({"cells": cell_boxes(fig, ax)}))
+    save_fig(fig, out, "tier1_map")
+    plt.close(fig)
     save_fig(fig := plot_control_sds(arms, behaviors, column_labels), out, "tier1_sigma")
     plt.close(fig)
     print(f"Tier 1 maps of every variant: {write_browser(out.parent)}")

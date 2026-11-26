@@ -14,7 +14,7 @@ def test_cells_link_their_grids_below_the_page(tmp_path: Path) -> None:
     (best / "tier1_map.json").write_text(json.dumps({"cells": boxes}))
     (tmp_path / "model_free").mkdir()
     found = variants(tmp_path)
-    assert [v["name"] for v in found] == ["best"] and list(found[0]["maps"]) == ["tier1_map"]
-    cells = found[0]["maps"]["tier1_map"]["cells"]
+    assert [v["name"] for v in found] == ["best"]
+    cells = found[0]["cells"]
     assert [c["grid"] for c in cells] == ["best/arm_surface_grids/all/L1_spont.png", None]
     assert "best/tier1_map.png" in write_browser(tmp_path).read_text()
