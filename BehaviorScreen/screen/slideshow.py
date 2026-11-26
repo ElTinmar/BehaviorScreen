@@ -32,6 +32,7 @@ from BehaviorScreen.filters import load_yaml_config
 from BehaviorScreen.jobs import this_machine
 from BehaviorScreen.screen.control_models.model_config import MUTANT_REFERENCES
 from BehaviorScreen.screen.line_names import PARENTS, SCREEN, is_italic
+from BehaviorScreen.screen.zoom import ZOOM_CSS, ZOOM_JS
 
 CONDITION_ORDER = ["vehicle", "ronidazole"]
 PLOTS = ["bouts_classic.png", "bouts.png", "saccades_classic.png", "saccades.png"]
@@ -160,10 +161,7 @@ PAGE = """<!DOCTYPE html>
              border-radius: 6px; padding: .3rem .6rem; border-spacing: 1rem 0; white-space: nowrap; color: var(--fg); }
   .n td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
   .n details { display: inline; }
-  .view { flex: 1; min-height: 0; overflow: hidden; touch-action: none; user-select: none; }
-  .view img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: left top; transform-origin: 0 0;
-              pointer-events: none; }
-  main.zoomed .view { cursor: grab; }
+__ZOOM_CSS__
   .missing { flex: 1; display: grid; place-items: center; border: 1px dashed var(--line); color: var(--muted); }
 </style>
 </head>
@@ -177,16 +175,18 @@ PAGE = """<!DOCTYPE html>
 </header>
 <main id="panels"></main>
 <script>
+__ZOOM_JS__
 const PAGES = __PAGES__, VIEWS = __VIEWS__, STACKED = __STACKED__, LABELS = __LABELS__, CONFOCAL = __CONFOCAL__;
 const label = v => LABELS[v] || v;
 const $ = id => document.getElementById(id);
 PAGES.forEach((p, i) => $("jump").add(new Option(p.folder, i)));
 VIEWS.forEach((v, k) => { const b = document.createElement("button"); b.textContent = label(v); b.onclick = () => current = show(current, k); $("views").append(b); });
-let view = 0, scale = 1, x = 0, y = 0, drag = null;
+let view = 0;
+const zoom = Zoom($("panels"));
 function show(i, k = view) {
   i = (i + PAGES.length) % PAGES.length;
   k = (k + VIEWS.length) % VIEWS.length;
-  if (k !== view) [scale, x, y] = [1, 0, 0];
+  if (k !== view) zoom.reset();
   view = k;
   [...$("views").children].forEach((b, j) => b.setAttribute("aria-pressed", j === view));
   const p = PAGES[i];
@@ -202,7 +202,7 @@ function show(i, k = view) {
   $("panels").classList.toggle("side", !STACKED.includes(VIEWS[view]));
   $("panels").innerHTML = (VIEWS[view] !== CONFOCAL ? p.panels.map(c => figure(c.caption + counts(c.n), c.src[VIEWS[view]]))
     : p.confocal.length ? p.confocal.map(c => figure(c.caption, c.src)) : [figure("", null)]).join("");
-  place();
+  zoom.place();
   history.replaceState(null, "", "#" + encodeURIComponent(p.folder) + "/" + VIEWS[view]);
   return i;
 }
@@ -211,35 +211,9 @@ let current = show(Math.max(0, PAGES.findIndex(p => p.folder === hashLine)), Mat
 $("prev").onclick = () => current = show(current - 1);
 $("next").onclick = () => current = show(current + 1);
 $("jump").onchange = e => current = show(+e.target.value);
-function place() {
-  $("panels").classList.toggle("zoomed", scale > 1);
-  for (const img of $("panels").querySelectorAll(".view img")) {
-    img.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-    img.style.imageRendering = scale > 1.5 ? "pixelated" : "auto";
-  }
-}
-$("panels").addEventListener("wheel", e => {
-  const box = e.target.closest(".view");
-  if (!box) return;
-  e.preventDefault();
-  const r = box.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top;
-  const next = Math.max(1, scale * Math.exp(-e.deltaY / 600)), f = next / scale;
-  [scale, x, y] = next === 1 ? [1, 0, 0] : [next, cx - (cx - x) * f, cy - (cy - y) * f];
-  place();
-}, { passive: false });
-$("panels").addEventListener("pointerdown", e => {
-  const box = e.target.closest(".view");
-  if (!box || scale === 1) return;
-  drag = [e.clientX - x, e.clientY - y];
-  box.setPointerCapture(e.pointerId);
-});
-$("panels").addEventListener("pointermove", e => { if (drag) { [x, y] = [e.clientX - drag[0], e.clientY - drag[1]]; place(); } });
-for (const end of ["pointerup", "pointercancel"]) $("panels").addEventListener(end, () => drag = null);
-const reset = () => { [scale, x, y] = [1, 0, 0]; place(); };
-$("panels").addEventListener("dblclick", e => { if (e.target.closest(".view")) reset(); });
 document.addEventListener("keydown", e => {
   if (e.target.tagName === "SELECT") return;
-  if (e.key === "Escape") reset();
+  if (e.key === "Escape") zoom.reset();
   if (e.key === "ArrowLeft") current = show(current - 1);
   if (e.key === "ArrowRight") current = show(current + 1);
   if (e.key === "ArrowUp") { e.preventDefault(); current = show(current, view - 1); }
@@ -262,7 +236,7 @@ def main() -> None:
     page = screen / ("slideshow_embedded.html" if args.embed else "slideshow.html")
     content = pages(screen, args.plots, page, args.embed)
     views = [Path(plot).stem for plot in args.plots] + [CONFOCAL]
-    page.write_text(PAGE.replace("__PAGES__", json.dumps(content)).replace("__VIEWS__", json.dumps(views)).replace("__LABELS__", json.dumps(LABELS)).replace("__CONFOCAL__", json.dumps(CONFOCAL))
+    page.write_text(PAGE.replace("__PAGES__", json.dumps(content)).replace("__VIEWS__", json.dumps(views)).replace("__LABELS__", json.dumps(LABELS)).replace("__CONFOCAL__", json.dumps(CONFOCAL)).replace("__ZOOM_CSS__", ZOOM_CSS).replace("__ZOOM_JS__", ZOOM_JS)
                     .replace("__STACKED__", json.dumps(sorted(STACKED))).replace("__GENERATED__", f"{datetime.now():%Y-%m-%d %H:%M}"), encoding="utf-8")
     print(f"{len(content)} lines, views {', '.join(views)} -> {page}")
 

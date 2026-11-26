@@ -61,3 +61,16 @@ def test_sigma_is_the_median_arm_sd_and_names_the_arms_at_a_bound() -> None:
     tier1 = pd.DataFrame({"line": ["L1", "L2", "L3", "L4"], "behavior": "b", "reference": ["L1/v", "L2/v", "L3/v", "L4/v"], "n_fish_ref": 9})
     table = control_sds(reference_sds(params, tier1)).iloc[0]
     assert (table["sigma"], table["n_arms"], table["at_bound"]) == (pytest.approx(0.5), 3, "L4/v")
+
+
+def test_cell_boxes_fall_on_their_cells_in_the_saved_image(tmp_path) -> None:
+    import matplotlib.image
+    from BehaviorScreen.point_process.io import save_fig
+    from BehaviorScreen.screen.line_tests.tier1_omnibus import cell_boxes
+    params, tier1, _ = map_inputs()
+    fig, ax = plot_tier1_map(params.assign(delta=[0.9, -0.9]), tier1, ["b"], ["L1"], se_half_size=None)
+    boxes = cell_boxes(fig, ax)
+    image = matplotlib.image.imread(save_fig(fig, tmp_path, "map"))
+    centres = [image[int((b["box"][1] + b["box"][3]) / 2 * image.shape[0]), int((b["box"][0] + b["box"][2]) / 2 * image.shape[1]), :3] for b in boxes]
+    assert [b["parameter"] for b in boxes] == ["H", "D"]
+    assert centres[0][0] > centres[0][2] and centres[1][2] > centres[1][0]  # H red, D blue: each box on its own square

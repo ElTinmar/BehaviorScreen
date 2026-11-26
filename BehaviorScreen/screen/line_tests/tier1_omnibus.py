@@ -37,6 +37,7 @@ from .arm_contrast import output_metric
 from .fdr import ALPHA
 from .model_qc import MIN_FISH, assess_group_fit
 from .steps import cells_in, read_cell, write_cell
+from .tier1_browser import write_browser
 from BehaviorScreen.screen.line_names import line_name
 
 # Behavior-specific minimum total-event floor. Fish count is the WRONG
@@ -602,6 +603,7 @@ def plot_tier1_map(
     With n_fish_ref / n_fish_test columns, a matching panel shows both arms'
     fish counts per cell: reference in the upper-left triangle, test in the
     lower-right one, each shaded by its count.
+    The returned axes' `cells` maps each (line, behavior, parameter) drawn to its centre in data coordinates (cell_boxes).
     """
     present = param_df[param_df["parameter"].isin(PARAMETER_LABELS)]
     columns = [
@@ -736,6 +738,8 @@ def plot_tier1_map(
                               fontsize=5.5, color="white" if shade < 0.55 else "black")
         decorate(ax_n, [(b, "") for b in shown])
         ax_n.set_xlabel("fish: ↖ reference, test ↘", fontsize=8)
+    ax.cells = {(name, b, p): (x_of[(b, p)], positions[name]) for name in rows for b, p in columns
+                if (name, b, p) in cells.index and (name, b) in tested.index}
     return fig, ax
 
 def save_tier1_maps(
@@ -745,20 +749,41 @@ def save_tier1_maps(
     """
     tier1_map: log2 (or difference) with dots sized by standard error; tier1_map_d: Glass's delta (standardized_effects)
     in squares; tier1_sigma (.png, .csv): the control spread behind it. Mutant and reference are two clutches: their
-    fish-label test is not framed (clutch_variability frames it).
+    fish-label test is not framed (clutch_variability frames it). Then the page of all variants' maps, in out's parent
+    (tier1_browser: out is a variant's folder of line_tests).
     """
     arms = reference_sds(param_df, tier1_df)
     control_sds(arms).to_csv(out / "tier1_sigma.csv", index=False)
     siblings = tier1_df.assign(significant=tier1_df["significant"] & (tier1_df["family"] == "ntr"))
     common = dict(column_labels=column_labels, frame_label=f"significant (q < {ALPHA:g}; NTR lines)", posthoc=posthoc)
-    for name, fig in (
-        ("tier1_map", plot_tier1_map(param_df, siblings, behaviors, rows, **common)[0]),
+    for name, (fig, ax) in (
+        ("tier1_map", plot_tier1_map(param_df, siblings, behaviors, rows, **common)),
         ("tier1_map_d", plot_tier1_map(standardized_effects(param_df, tier1_df), siblings, behaviors, rows, vmax=EFFECT_VMAX,
-                                       se_half_size=None, colorbar_label=EFFECT_LABEL, **common)[0]),
-        ("tier1_sigma", plot_control_sds(arms, behaviors, column_labels)),
+                                       se_half_size=None, colorbar_label=EFFECT_LABEL, **common)),
     ):
+        (out / f"{name}.json").write_text(json.dumps({"cells": cell_boxes(fig, ax)}))
         save_fig(fig, out, name)
         plt.close(fig)
+    save_fig(fig := plot_control_sds(arms, behaviors, column_labels), out, "tier1_sigma")
+    plt.close(fig)
+    print(f"Tier 1 maps of every variant: {write_browser(out.parent)}")
+
+
+def cell_boxes(fig: plt.Figure, ax: plt.Axes) -> List[Dict]:
+    """
+    Each cell of a plot_tier1_map (ax.cells) as its line, behavior, parameter and box in the saved PNG (save_fig's tight
+    bounding box): [left, top, right, bottom], fractions of the image's width and height from its top-left corner.
+    """
+    fig.canvas.draw()
+    image = fig.get_tightbbox(fig.canvas.get_renderer()).padded(plt.rcParams["savefig.pad_inches"])
+    to_inches = ax.transData + fig.dpi_scale_trans.inverted()
+    boxes = []
+    for (line, behavior, parameter), (x, y) in ax.cells.items():
+        (x0, y0), (x1, y1) = to_inches.transform([(x - 0.5, y - 0.5), (x + 0.5, y + 0.5)])
+        box = [(min(x0, x1) - image.x0) / image.width, (image.y1 - max(y0, y1)) / image.height,
+               (max(x0, x1) - image.x0) / image.width, (image.y1 - min(y0, y1)) / image.height]
+        boxes.append({"line": line, "behavior": behavior, "parameter": parameter, "box": [round(float(v), 5) for v in box]})
+    return boxes
 
 
 def rate_label(model: PointProcess) -> str:
