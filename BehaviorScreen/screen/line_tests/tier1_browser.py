@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import List
 
 from BehaviorScreen.point_process.io import slugify
-from BehaviorScreen.screen.line_names import line_name
+from BehaviorScreen.screen.line_names import line_html
 from BehaviorScreen.screen.paths import COUNT_RESULTS, LINE_TESTS, VARIANTS, line_tests_dir
 from BehaviorScreen.screen.zoom import ZOOM_CSS, ZOOM_JS
 
@@ -28,8 +28,9 @@ def variants(root: Path) -> List[dict]:
     result = []
     for name, folder in folders.items():
         grids = {g.stem: link(g) for g in folder.glob("arm_surface_grids/*/*.png")}
-        cell = lambda c: {**c, "caption": html.escape(f"{line_name(c['line'])} · {MAP_COLUMNS.get(c['behavior'], c['behavior'])}"),
-                          "tip": html.escape(f"{line_name(c['line'])} · {MAP_COLUMNS.get(c['behavior'], c['behavior'])} · {c['parameter']}"),
+        column = lambda c: html.escape(MAP_COLUMNS.get(c["behavior"], c["behavior"]))
+        cell = lambda c: {**c, "caption": f"{line_html(c['line'])} · {column(c)}",
+                          "tip": html.escape(f"{c['line']} · {MAP_COLUMNS.get(c['behavior'], c['behavior'])} · {c['parameter']}"),
                           "grid": grids.get(slugify(f"{c['line']}_{c['behavior']}"))}
         maps = {view: {"src": link(folder / f"{view}.png"), "cells": [cell(c) for c in json.loads((folder / f"{view}.json").read_text())["cells"]]}
                 for view in MAPS if (folder / f"{view}.png").exists() and (folder / f"{view}.json").exists()}
@@ -71,7 +72,7 @@ PAGE = """<!DOCTYPE html>
   main { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: .4rem; padding: .5rem 1rem 1rem; }
   .cells { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .cell { position: absolute; cursor: pointer; }
-  .cell:hover { outline: 2px solid var(--fg); }
+  .cell:hover { outline: 2px solid #808080; background: rgba(128, 128, 128, 0.35); }
   .missing { flex: 1; display: grid; place-items: center; border: 1px dashed var(--line); color: var(--muted); }
 __ZOOM_CSS__
 </style>

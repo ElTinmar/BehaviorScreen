@@ -31,7 +31,7 @@ import pandas as pd
 from BehaviorScreen.filters import load_yaml_config
 from BehaviorScreen.jobs import this_machine
 from BehaviorScreen.screen.control_models.model_config import MUTANT_REFERENCES
-from BehaviorScreen.screen.line_names import PARENTS, SCREEN, is_italic
+from BehaviorScreen.screen.line_names import PARENTS, SCREEN, line_html as label
 from BehaviorScreen.screen.zoom import ZOOM_CSS, ZOOM_JS
 
 CONDITION_ORDER = ["vehicle", "ronidazole"]
@@ -52,21 +52,6 @@ def plotted_epochs() -> tuple:
             rule = rules.get("epoch_name", {})
             epochs += [rule["=="]] if "==" in rule else rule.get("in", [])
     return tuple(epochs)
-
-
-def label(folder: str) -> str:
-    """The line's plot label as HTML: gene names italic where its plots set them so, ^ an allele, & an intersection."""
-    if folder not in SCREEN.index or not SCREEN.at[folder, "short"]:
-        return html.escape(folder)
-    italic = is_italic(folder)
-
-    def piece(part: str) -> str:
-        gene, colon, construct = html.escape(part.strip()).partition(":")
-        gene, space, note = gene.partition(" ")
-        gene, caret, allele = gene.partition("^")
-        gene = gene + (f"<sup>{allele}</sup>" if caret else "")
-        return (f"<i>{gene}</i>" if italic else gene) + space + note + colon + construct
-    return " ∩ ".join(piece(part) for part in SCREEN.at[folder, "short"].split("&"))
 
 
 def source(image: Path, page: Path, embed: bool) -> str:

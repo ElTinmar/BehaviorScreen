@@ -24,6 +24,7 @@ A label is italic when its parents, effector and wild-type lines aside, all
 have gene-named types; then the gene part of each &-joined piece is italic
 (atf5b:QF2 -> italic atf5b, upright :QF2).
 """
+import html
 import warnings
 from pathlib import Path
 from typing import Iterable, List
@@ -88,6 +89,21 @@ def line_name(folder: str, column: str = "short") -> str:
         short = SCREEN.at[folder, "short"] or folder
         return _italic(short) if is_italic(folder) else short
     return " x ".join(FACILITY.at[p, column] or p for p in _parents(folder))
+
+
+def line_html(folder: str) -> str:
+    """line_name's label as HTML: gene names italic where its plots set them so, ^ an allele, & an intersection."""
+    if folder not in SCREEN.index or not SCREEN.at[folder, "short"]:
+        return html.escape(folder)
+    italic = is_italic(folder)
+
+    def piece(part: str) -> str:
+        gene, colon, construct = html.escape(part.strip()).partition(":")
+        gene, space, note = gene.partition(" ")
+        gene, caret, allele = gene.partition("^")
+        gene = gene + (f"<sup>{allele}</sup>" if caret else "")
+        return (f"<i>{gene}</i>" if italic else gene) + space + note + colon + construct
+    return " ∩ ".join(piece(part) for part in SCREEN.at[folder, "short"].split("&"))
 
 
 def warn_unnamed(folders: Iterable[str]) -> None:
