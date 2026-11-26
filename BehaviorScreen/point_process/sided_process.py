@@ -257,12 +257,12 @@ class SidedSurvivalProcess(SurvivalProcess):
         return log_hazards + self._side_log_likelihood(dataset, params), N, S
 
     def compute_expected_rate(self, dataset: PointProcessDataset, side: Optional[int] = None) -> np.ndarray:
-        """Hazard of an escape to either side (None) or to one side: its share of it."""
-        hazard = super().compute_expected_rate(dataset)
+        """Rate of first escapes to either side (None) or to one side: its share of it."""
+        rate = super().compute_expected_rate(dataset)
         if side is None:
-            return hazard
+            return rate
         d = self.params_[-1]
-        return hazard * (d if side == self.preferred else 1.0) / (1.0 + d)
+        return rate * (d if side == self.preferred else 1.0) / (1.0 + d)
 
     def ipsi_probability(self, t: np.ndarray, trial: np.ndarray) -> np.ndarray:
         """Probability that an escape is ipsi: the same at every time and trial."""

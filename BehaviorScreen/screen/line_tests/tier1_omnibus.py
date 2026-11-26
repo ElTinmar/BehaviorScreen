@@ -804,9 +804,9 @@ def plot_arm_surface_grid_with_marginals(
     GridSpecs) -- guarantees pixel alignment across rows/columns. Colorbar
     is an explicit, manually-positioned axis, not matplotlib-placed.
     """
-    surf_ref_emp = ds_ref.time_trial_histogram_hz
+    surf_ref_emp = m_ref.described(ds_ref).time_trial_histogram_hz
     surf_ref_model = m_ref.compute_expected_rate(ds_ref)
-    surf_test_emp = ds_test.time_trial_histogram_hz
+    surf_test_emp = m_test.described(ds_test).time_trial_histogram_hz
     surf_test_model = m_test.compute_expected_rate(ds_test)
 
     tm_ref_emp, trm_ref_emp = _weighted_marginals(surf_ref_emp, ds_ref)
@@ -892,7 +892,7 @@ def plot_sided_arm_surface_grid(
     model dashed), both sides' trial marginals on the right, and below the side calibration by time and by trial.
     """
     arms = {"Reference": (ds_ref, m_ref), "Test": (ds_test, m_test)}
-    surfaces = {(arm, side): (ds.select(laterality=side).time_trial_histogram_hz, m.compute_expected_rate(ds, side=side))
+    surfaces = {(arm, side): (m.described(ds).select(laterality=side).time_trial_histogram_hz, m.compute_expected_rate(ds, side=side))
                 for arm, (ds, m) in arms.items() for side in SIDE_NAMES}
     marginals = {key: [_weighted_marginals(surface, arms[key[0]][0]) for surface in pair] for key, pair in surfaces.items()}
     vmax = _robust_vmax([emp for emp, _ in surfaces.values()], percentile=vmax_percentile)

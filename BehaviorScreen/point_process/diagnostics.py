@@ -364,7 +364,7 @@ class ModelPlotter:
         the model's in grey. A gap that closes from drawn to own gains comes from the gain distribution; one that stays,
         from the bout dynamics; the prediction restarts from the observed bouts at every moment and shows neither.
         """
-        surfaces = {"Empirical": dataset.time_trial_histogram_hz}
+        surfaces = {"Empirical": model.described(dataset).time_trial_histogram_hz}
         if not model.uses_history:
             surfaces["Model"] = model.compute_expected_rate(dataset)
         else:
@@ -429,7 +429,7 @@ class ModelPlotter:
         # 1. Empirical PSTH
         ax.plot(
             dataset.t_centers,
-            dataset.time_histogram_hz,
+            models[0].described(dataset).time_histogram_hz,
             color="black",
             linewidth=2.0,
             label="Empirical PSTH",
@@ -516,7 +516,7 @@ class ModelPlotter:
             # Empirical Data (Markers Only, Semi-Transparent, Plotted Underneath)
             ax.scatter(
                 dataset.t_centers,
-                dataset.time_trial_histogram_hz[idx, :],
+                model.described(dataset).time_trial_histogram_hz[idx, :],
                 color=color,
                 s=marker_size,
                 alpha=data_alpha,

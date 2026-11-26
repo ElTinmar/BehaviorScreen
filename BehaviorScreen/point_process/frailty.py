@@ -467,6 +467,24 @@ class Frailty(_GainWrapper):
             self.initial_guesses = self.initial_guesses + [0.0]
             self.bounds = self.bounds + [(-0.2, 0.2)]
 
+    def compute_expected_rate(self, dataset: PointProcessDataset, **side: Optional[int]) -> np.ndarray:
+        """
+        The population's rate on dataset's design. Simulated with bout history, and for a survival base (its first
+        events: gains change who is still at risk); else the base's (E[g] = 1) times each trial's mean of mu_f over
+        its fish (time_of_day).
+        """
+        if self.uses_history or self.is_survival:
+            return self.simulated_rate(dataset, **side)
+        return self.base_process.compute_expected_rate(dataset, **side) * self._trial_hour_factor(dataset)[:, None]
+
+    def _trial_hour_factor(self, dataset: PointProcessDataset) -> np.ndarray:
+        """Per trial, the mean of mu_f over the fish observed in it (ones without time_of_day)."""
+        if not self.time_of_day:
+            return np.ones(dataset.num_trials)
+        mask, mu = dataset.fish_trial_mask, self._hour_factor(list(self.params_), dataset)
+        n = mask.sum(axis=0)
+        return np.where(n > 0, (mu[:, None] * mask).sum(axis=0) / np.maximum(n, 1), 1.0)
+
     @property
     def starts_from(self) -> Optional[str]:
         """With time_of_day: the same model without it, whose fit a ladder starts this one from (beta_hour = 0)."""
@@ -768,14 +786,17 @@ class Frailty(_GainWrapper):
         self, dataset: PointProcessDataset, trial: Optional[int] = None
     ) -> Tuple[np.ndarray, np.ndarray]:
         """
-        Marginal first-event survival E_g[exp(-g Lambda(t))]. Only meaningful
-        for bases without self-history (Poisson, survival).
+        Marginal first-event survival E_g[exp(-g mu_f Lambda(t))], mu_f averaged over the trial's fish
+        (time_of_day). Only meaningful for bases without self-history (Poisson, survival).
         """
         gain = self._gain()
         t_grid = dataset.t_centers
+        mu = self._hour_factor(list(self.params_), dataset)
 
         def survival(tr: int) -> np.ndarray:
-            return gain.survival(self.base_process.cumulative_integrated_intensity(t_grid, tr))
+            Lambda = self.base_process.cumulative_integrated_intensity(t_grid, tr)
+            fish = np.flatnonzero(dataset.fish_trial_mask[:, tr]) if self.time_of_day else []
+            return np.mean([gain.survival(m * Lambda) for m in mu[fish]], axis=0) if len(fish) else gain.survival(Lambda)
 
         if trial is not None:
             return t_grid, survival(int(trial))
@@ -1045,9 +1066,9 @@ class SideFrailty(Frailty):
 
     def compute_expected_rate(self, dataset: PointProcessDataset, side: Optional[int] = None) -> np.ndarray:
         """Rate to either side (None) or to one, averaged over fish side preferences."""
-        if self.uses_history:
+        if self.uses_history or self.is_survival:
             return self.simulated_rate(dataset, side)
-        total = self.base_process.compute_expected_rate(dataset)
+        total = super().compute_expected_rate(dataset)
         if side is None:
             return total
         p_ipsi = self.ipsi_probability(dataset.t_centers[None, :], np.arange(dataset.num_trials)[:, None])

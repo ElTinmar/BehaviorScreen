@@ -366,3 +366,15 @@ def test_simulation_takes_each_fish_s_own_gain() -> None:
     assert counts[20:].mean() / counts[:20].mean() > 3  # 4 expected; drawn gains would give about 1
     estimated = model.own_gains(data)
     assert estimated.shape == (40,) and estimated[20:].mean() > estimated[:20].mean()
+
+
+def test_a_survival_model_s_expected_rate_is_that_of_its_first_events() -> None:
+    from BehaviorScreen.point_process.survival_process import SurvivalKernelFactory, SurvivalProcess
+    from .conftest import DummyFitResult, make_scaffold_dataset
+    model = SurvivalProcess(SurvivalKernelFactory.gaussian_bump_baseline(t_init=2, t_bounds=(1, 3)))
+    model.set_params(np.asarray(model.initial_guesses, float))
+    model.fit_result = DummyFitResult()
+    design = make_scaffold_dataset(num_fish=3000, num_trials=3, duration_s=5.0, binning_dt=0.25)
+    simulated = model.simulate_dataset(design, np.random.default_rng(0))
+    observed = model.described(simulated).time_trial_histogram_hz
+    np.testing.assert_allclose(model.compute_expected_rate(design), observed, atol=0.04)  # about 4 SD of a bin

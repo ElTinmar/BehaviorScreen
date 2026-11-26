@@ -311,6 +311,10 @@ class PointProcess(InferenceMixin, GOFMixin, DiagnosticsMixin):
     def is_survival(self) -> bool:
         return False
 
+    def described(self, dataset: PointProcessDataset) -> PointProcessDataset:
+        """The events the model describes, what compute_expected_rate is compared with: a survival model's first ones."""
+        return dataset.first_events() if self.is_survival else dataset
+
     @property
     def uses_history(self) -> bool:
         """Whether the intensity depends on the stream's bouts outside the events (dataset.history)."""

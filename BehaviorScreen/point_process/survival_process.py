@@ -416,12 +416,13 @@ class SurvivalProcess(PointProcess):
         return self.kernel.evaluate(t, trial, self.params_)
 
     def compute_expected_rate(self, dataset: PointProcessDataset) -> np.ndarray:
-        """Raw fitted hazard surface, matching PoissonProcess's convention
-        exactly so ModelPlotter/ModelComparator work unmodified."""
+        """
+        Rate of first events per fish (Hz, trial x time bin): the chance S(start) - S(end) that the first event
+        falls in the bin, over its width; what dataset.first_events() histograms (not the hazard, predict).
+        """
         self._require_fitted()
-        t_2d = dataset.t_centers[None, :]
-        trials_2d = np.arange(dataset.num_trials)[:, None]
-        return self.predict(t_2d, trials_2d)
+        survival = np.exp(-np.array([self.cumulative_integrated_intensity(dataset.t_grid, m) for m in range(dataset.num_trials)]))
+        return -np.diff(survival, axis=1) / np.diff(dataset.t_grid)
 
     def cumulative_integrated_intensity(
         self, t_events: np.ndarray, trial: float
@@ -447,8 +448,7 @@ class SurvivalProcess(PointProcess):
         first-event hazard regardless of what points you probe it at.
         trial=None averages across trials, weighted by n_fish_per_trial.
         Compare against DatasetPlotter.plot_kaplan_meier's empirical
-        estimate for a real goodness-of-fit check -- NOT
-        compute_expected_rate()'s raw hazard.
+        estimate for a real goodness-of-fit check.
         """
         self._require_fitted()
 

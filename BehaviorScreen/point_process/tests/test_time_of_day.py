@@ -172,3 +172,26 @@ def test_ladder_starts_it_from_the_model_without_it() -> None:
     assert hour.initial_guesses == pytest.approx([expected[n] for n in hour.param_names])
     assert hour.log_likelihood >= plain.log_likelihood - 1e-6
     assert hour.bounds[hour._hour_idx] == (-0.2, 0.2)
+
+
+def fitted(model: PointProcess, params: np.ndarray) -> PointProcess:
+    model.set_params(params)
+    model.fit_result = DummyFitResult()
+    return model
+
+
+def test_the_expected_rate_carries_the_fish_hour_factors(data: PointProcessDataset) -> None:
+    """Fish recorded mostly before HOUR_REFERENCE with beta_hour < 0: a rate above the base's, as simulated."""
+    early = replace(data, fish_hours=np.full(data.num_fish, 9.0))
+    model = fitted(FACTORIES["whole"](time_of_day=True), with_beta(FACTORIES["whole"](time_of_day=True), -0.1))
+    expected = model.compute_expected_rate(early)
+    np.testing.assert_allclose(expected, model.base_process.compute_expected_rate(early) * np.exp(-0.1 * (9.0 - HOUR_REFERENCE)))
+    assert expected.mean() == pytest.approx(model.simulated_rate(early, n_fish=6000).mean(), rel=0.05)
+
+
+def test_the_marginal_survival_carries_the_fish_hour_factors(data: PointProcessDataset) -> None:
+    early = replace(data, fish_hours=np.full(data.num_fish, 9.0))
+    model = fitted(FACTORIES["survival"](time_of_day=True), with_beta(FACTORIES["survival"](time_of_day=True), -0.1))
+    responded = model.simulated_rate(early, n_fish=6000).sum(axis=1) * early.binning_dt
+    survival = np.array([model.population_survival_curve(early, trial=m)[1][-1] for m in range(early.num_trials)])
+    np.testing.assert_allclose(1 - survival, responded, atol=0.02)
