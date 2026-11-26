@@ -16,15 +16,12 @@ import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
-from tqdm import tqdm
-import numpy as np
 import pandas as pd
 
 from BehaviorScreen.point_process.io import save_fig
 from BehaviorScreen.point_process.parallel import limit_workers
 from BehaviorScreen.screen.line_tests.tier1_omnibus import (
     run_tier1_screen,
-    tier1_permutation_test,
     fit_tier1,
     extract_fitted_parameters,
     compute_parameter_deltas,
@@ -55,7 +52,6 @@ N_SIM = 1000  # simulated datasets per NTR cell (p_value_plate)
 N_BOOT_TIER2 = 200  # parametric bootstrap of each hit's interaction test
 N_BOOT_PARAMETERS = 200  # parametric bootstrap of each of a hit's parameter tests
 N_BOOT_DELTAS = 1000  # fish bootstrap of each hit's parameter deltas
-NEGATIVE_CONTROL_SPLITS, NEGATIVE_CONTROL_PERM = 20, 200  # random halves of the WT fish, permutations of each
 
 
 def smoke_test(arms: Arms, behavior: str) -> None:
@@ -68,24 +64,6 @@ def smoke_test(arms: Arms, behavior: str) -> None:
                   f"LL_ref={m_ref.log_likelihood:.2f}, LL_test={m_test.log_likelihood:.2f}, free_params={m_ref.param_names}")
             return
     raise RuntimeError(f"No contrast has both arms with >=3 fish for {behavior}: check its dataset filters against the event tables.")
-
-
-def negative_control(arms: Arms, behavior: str) -> pd.DataFrame:
-    """WT split in random halves: per split, the p-value of a contrast without an effect (NaN: unreliable or failed)."""
-    ds_wt = arms.dataset("WT", "danieau", behavior)
-    if ds_wt is None or ds_wt.num_fish < 10:
-        return pd.DataFrame(columns=["split", "p_value"])
-    rows = []
-    for seed in tqdm(range(NEGATIVE_CONTROL_SPLITS), desc=f"Negative control {behavior}"):
-        perm = np.random.default_rng(seed).permutation(ds_wt.num_fish)
-        half = ds_wt.num_fish // 2
-        try:
-            result = tier1_permutation_test(arms.architecture(behavior, frozenset({("WT", "danieau")})), ds_wt.fish(perm[:half]), ds_wt.fish(perm[half:]), n_perm=NEGATIVE_CONTROL_PERM)
-            p = np.nan if result["permutation_unreliable"] else result["p_value"]
-        except Exception:
-            p = np.nan
-        rows.append({"split": seed, "p_value": p})
-    return pd.DataFrame(rows)
 
 
 def gain_structure(behavior: str, arms: Arms, out: Path) -> GainStructure:
@@ -144,12 +122,6 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
         plot_pvalue_histogram(ok, ax=ax, title=f"Tier 1 p-values: {behavior}")
         save_fig(fig, out, f"pvalue_hist_{behavior}")
         plt.close(fig)
-    null_ps = step("negative_control", lambda: negative_control(arms, behavior))["p_value"].dropna()
-    if len(null_ps):
-        fig, ax = plt.subplots(figsize=(6, 4))
-        plot_pvalue_histogram(null_ps.to_numpy(), ax=ax, title=f"Negative control (WT split-half): {behavior}")
-        save_fig(fig, out, f"negctrl_pvalue_hist_{behavior}")
-        plt.close(fig)
 
 
 def combine(behaviors: list, arms: Arms, map_order: list, output_dir: Path) -> None:
@@ -201,7 +173,7 @@ def main() -> None:
             run_behavior(behavior, screen.arms, screen.null_process_factory, args.output_dir, args.n_perm, args.n_sim, args.n_perm_max)
     if args.combine or args.behavior is None:
         combine(screen.behaviors, screen.arms, screen.map_order, args.output_dir)
-    print(f"\nDone. Inspect {args.output_dir}: tier1_results.csv, the p-value histograms and the negative controls.")
+    print(f"\nDone. Inspect {args.output_dir}: tier1_results.csv and the p-value histograms.")
 
 
 if __name__ == "__main__":

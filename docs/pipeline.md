@@ -259,7 +259,7 @@ flowchart TD
   posthoc["parameter tests, hits<br>each amplitude in common in turn, 200 simulated fits"]:::par
   grids["surface grids<br>figures"]:::step
   pboot["parameter bootstrap, hits<br>1000 fish-resampled refits"]:::par
-  checks["forest plot, p-value histogram<br>negative control: WT halves"]:::step
+  checks["forest plot, p-value histogram"]:::step
   behavior_tables[("line_tests/VARIANT/BEHAVIOR/<br>tier1_results, tier1_parameters, tier2_results, parameter_tests, bootstrap_parameter_deltas")]:::shared
   test_cmd --> setup
   merged --> setup
@@ -522,7 +522,7 @@ subgraph stage_5["Line tests"]
   posthoc["parameter tests, hits<br>each amplitude in common in turn, 200 simulated fits"]:::par
   grids["surface grids<br>figures"]:::step
   pboot["parameter bootstrap, hits<br>1000 fish-resampled refits"]:::par
-  checks["forest plot, p-value histogram<br>negative control: WT halves"]:::step
+  checks["forest plot, p-value histogram"]:::step
   behavior_tables[("line_tests/VARIANT/BEHAVIOR/<br>tier1_results, tier1_parameters, tier2_results, parameter_tests, bootstrap_parameter_deltas")]:::shared
   test_cmd --> setup
   setup --> smoke

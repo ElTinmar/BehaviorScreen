@@ -1,5 +1,4 @@
-"""Calibration diagnostics -- run on Tier 1's real output AND on the
-negative-control (WT split-half) output before trusting any p-value."""
+"""Calibration diagnostics: the distribution of Tier 1's p-values against the uniform."""
 from typing import Optional
 import numpy as np
 import matplotlib.pyplot as plt

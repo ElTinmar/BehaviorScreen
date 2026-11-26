@@ -21,7 +21,6 @@ STEPS = {  # in run order: step, short name
     "parameter_tests": "posthoc",
     "arm_surface_grids": "grids",
     "bootstrap_parameter_deltas": "bootstrap",
-    "negative_control": "negctrl",
 }
 USES: Dict[str, List[str]] = {"bootstrap_parameter_deltas": ["tier1_parameters"]}  # steps whose results another step reads
 
