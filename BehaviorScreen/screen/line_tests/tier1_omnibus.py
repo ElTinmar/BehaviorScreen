@@ -780,11 +780,30 @@ def _weighted_marginals(surface: np.ndarray, dataset: PointProcessDataset) -> Tu
 
     return time_marginal, trial_marginal
 
-def _robust_vmax(surfaces: List[np.ndarray], percentile: float = 95.0) -> float:
-    pooled = np.concatenate([s[np.isfinite(s) & (s > 0)].ravel() for s in surfaces])
-    if len(pooled) == 0:
-        return 1e-9
-    return float(np.percentile(pooled, percentile))
+DISPLAY_BIN_S = {"rate": 0.25, "escape": 0.1}  # the grids' time bins: rates change slower than escape peaks
+
+
+def display_surfaces(model: PointProcess, dataset: PointProcessDataset, **side: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    (time edges, empirical, model) surfaces of the events model describes, in DISPLAY_BIN_S bins (Hz per fish): the
+    dataset's bins merged, so that a single event is not a rate of 1 / (fish x a short bin).
+    """
+    emp = model.described(dataset)
+    emp = (emp.select(laterality=side["side"]) if side else emp).time_trial_histogram_hz
+    surfaces = [emp, model.compute_expected_rate(dataset, **side)]
+    k = max(1, round(DISPLAY_BIN_S["escape" if model.is_survival else "rate"] / dataset.binning_dt))
+    starts, widths = np.arange(0, surfaces[0].shape[1], k), np.diff(dataset.t_grid)
+    merged = [np.add.reduceat(x * widths, starts, axis=1) / np.add.reduceat(widths, starts) for x in surfaces]
+    return np.r_[dataset.t_grid[starts], dataset.t_grid[-1]], *merged
+
+
+def _model_vmax(models: List[np.ndarray], empirical: List[np.ndarray]) -> float:
+    """
+    Top of the grids' colour scale: 1.5 times the model's 99th percentile (its expected rates), so the model sits
+    below the top with room for the data's noise, and sparse empirical single events saturate.
+    """
+    top = 1.5 * float(np.nanpercentile(np.concatenate([m.ravel() for m in models]), 99))
+    return top if top > 0 else max(1e-9, float(max(np.nanmax(e) for e in empirical)))
 
 def plot_arm_surface_grid_with_marginals(
     ds_ref: PointProcessDataset, ds_test: PointProcessDataset,
@@ -792,7 +811,6 @@ def plot_arm_surface_grid_with_marginals(
     title: str = "",
     cmap: str = "plasma",
     figsize: Tuple[float, float] = (12, 10),
-    vmax_percentile: float = 95.0,
 ) -> plt.Figure:
     """
     Per arm (reference, test): empirical heatmap | model heatmap, with ONE
@@ -809,17 +827,15 @@ def plot_arm_surface_grid_with_marginals(
     GridSpecs) -- guarantees pixel alignment across rows/columns. Colorbar
     is an explicit, manually-positioned axis, not matplotlib-placed.
     """
-    surf_ref_emp = m_ref.described(ds_ref).time_trial_histogram_hz
-    surf_ref_model = m_ref.compute_expected_rate(ds_ref)
-    surf_test_emp = m_test.described(ds_test).time_trial_histogram_hz
-    surf_test_model = m_test.compute_expected_rate(ds_test)
+    t_ref, surf_ref_emp, surf_ref_model = display_surfaces(m_ref, ds_ref)
+    t_test, surf_test_emp, surf_test_model = display_surfaces(m_test, ds_test)
 
     tm_ref_emp, trm_ref_emp = _weighted_marginals(surf_ref_emp, ds_ref)
     tm_ref_model, trm_ref_model = _weighted_marginals(surf_ref_model, ds_ref)
     tm_test_emp, trm_test_emp = _weighted_marginals(surf_test_emp, ds_test)
     tm_test_model, trm_test_model = _weighted_marginals(surf_test_model, ds_test)
 
-    vmax = _robust_vmax([surf_ref_emp, surf_test_emp], percentile=vmax_percentile)
+    vmax = _model_vmax([surf_ref_model, surf_test_model], [surf_ref_emp, surf_test_emp])
     time_ymax = max(np.nanmax(x) for x in [tm_ref_emp, tm_ref_model, tm_test_emp, tm_test_model]
                      if np.any(np.isfinite(x)))
     trial_xmax = max(np.nanmax(x) for x in [trm_ref_emp, trm_ref_model, trm_test_emp, trm_test_model]
@@ -835,15 +851,16 @@ def plot_arm_surface_grid_with_marginals(
         left=0.07, right=0.86, top=0.90, bottom=0.07,
     )
 
-    def _draw_arm(row0: int, ds: PointProcessDataset, surf_emp: np.ndarray, surf_model: np.ndarray, tm_emp: np.ndarray, tm_model: np.ndarray,
+    def _draw_arm(row0: int, ds: PointProcessDataset, t_edges: np.ndarray, surf_emp: np.ndarray, surf_model: np.ndarray, tm_emp: np.ndarray, tm_model: np.ndarray,
                   trm_emp: np.ndarray, trm_model: np.ndarray, row_label: str, show_legend: bool) -> QuadMesh:
         ax_time = fig.add_subplot(gs[row0, 0:2])
         ax_emp = fig.add_subplot(gs[row0 + 1, 0], sharex=ax_time)
         ax_model = fig.add_subplot(gs[row0 + 1, 1], sharex=ax_time, sharey=ax_emp)
         ax_trial = fig.add_subplot(gs[row0 + 1, 2], sharey=ax_emp)
 
-        ax_time.plot(ds.t_centers, tm_emp, color="black", linestyle="-", linewidth=1.3, label="Empirical")
-        ax_time.plot(ds.t_centers, tm_model, color="crimson", linestyle="--", linewidth=1.3, label="Model")
+        t_centers = (t_edges[:-1] + t_edges[1:]) / 2
+        ax_time.plot(t_centers, tm_emp, color="black", linestyle="-", linewidth=1.3, label="Empirical")
+        ax_time.plot(t_centers, tm_model, color="crimson", linestyle="--", linewidth=1.3, label="Model")
         ax_time.set_ylim(0, time_ymax * 1.05)
         ax_time.set_title(row_label, fontsize=11, fontweight="bold", loc="left")
         ax_time.set_ylabel(rate_label(m_ref), fontsize=7)
@@ -851,8 +868,8 @@ def plot_arm_surface_grid_with_marginals(
         if show_legend:
             ax_time.legend(loc="upper right", fontsize=7, frameon=False)
 
-        mesh = ax_emp.pcolormesh(ds.t_grid, ds.trial_edges, surf_emp, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
-        ax_model.pcolormesh(ds.t_grid, ds.trial_edges, surf_model, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
+        mesh = ax_emp.pcolormesh(t_edges, ds.trial_edges, surf_emp, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
+        ax_model.pcolormesh(t_edges, ds.trial_edges, surf_model, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
         if row0 == 0:
             ax_emp.set_title("Empirical", fontsize=9)
             ax_model.set_title("Model", fontsize=9)
@@ -873,9 +890,9 @@ def plot_arm_surface_grid_with_marginals(
 
         return mesh
 
-    _draw_arm(0, ds_ref, surf_ref_emp, surf_ref_model, tm_ref_emp, tm_ref_model, trm_ref_emp, trm_ref_model,
+    _draw_arm(0, ds_ref, t_ref, surf_ref_emp, surf_ref_model, tm_ref_emp, tm_ref_model, trm_ref_emp, trm_ref_model,
               "Reference", show_legend=True)
-    mesh = _draw_arm(2, ds_test, surf_test_emp, surf_test_model, tm_test_emp, tm_test_model, trm_test_emp, trm_test_model,
+    mesh = _draw_arm(2, ds_test, t_test, surf_test_emp, surf_test_model, tm_test_emp, tm_test_model, trm_test_emp, trm_test_model,
                       "Test", show_legend=False)
 
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.97)
@@ -890,7 +907,7 @@ SIDE_COLORS = {IPSI: "#0F6E56", CONTRA: "#534AB7"}
 
 def plot_sided_arm_surface_grid(
     ds_ref: PointProcessDataset, ds_test: PointProcessDataset, m_ref: PointProcess, m_test: PointProcess,
-    title: str = "", cmap: str = "plasma", figsize: Tuple[float, float] = (22, 17), vmax_percentile: float = 95.0,
+    title: str = "", cmap: str = "plasma", figsize: Tuple[float, float] = (22, 17),
 ) -> plt.Figure:
     """
     plot_arm_surface_grid_with_marginals for a sided model, each side apart: per arm (reference, test), the
@@ -898,10 +915,10 @@ def plot_sided_arm_surface_grid(
     model dashed), both sides' trial marginals on the right, and below the side calibration by time and by trial.
     """
     arms = {"Reference": (ds_ref, m_ref), "Test": (ds_test, m_test)}
-    surfaces = {(arm, side): (m.described(ds).select(laterality=side).time_trial_histogram_hz, m.compute_expected_rate(ds, side=side))
-                for arm, (ds, m) in arms.items() for side in SIDE_NAMES}
+    binned = {(arm, side): display_surfaces(m, ds, side=side) for arm, (ds, m) in arms.items() for side in SIDE_NAMES}
+    edges, surfaces = {key: b[0] for key, b in binned.items()}, {key: b[1:] for key, b in binned.items()}
     marginals = {key: [_weighted_marginals(surface, arms[key[0]][0]) for surface in pair] for key, pair in surfaces.items()}
-    vmax = _robust_vmax([emp for emp, _ in surfaces.values()], percentile=vmax_percentile)
+    vmax = _model_vmax([model for _, model in surfaces.values()], [emp for emp, _ in surfaces.values()])
     time_max = max(1e-9, *(np.nanmax(tm) for pair in marginals.values() for tm, _ in pair))
     trial_max = max(1e-9, *(np.nanmax(trm) for pair in marginals.values() for _, trm in pair))
 
@@ -914,8 +931,9 @@ def plot_sided_arm_surface_grid(
         for col, side in zip((0, 2), SIDE_NAMES):
             (emp, model), ((tm_emp, trm_emp), (tm_model, trm_model)) = surfaces[arm, side], marginals[arm, side]
             ax_time = fig.add_subplot(gs[row, col:col + 2])
-            ax_time.plot(ds.t_centers, tm_emp, color="black", lw=1.2, label="Empirical")
-            ax_time.plot(ds.t_centers, tm_model, color="crimson", ls="--", lw=1.2, label="Model")
+            t_edges = edges[arm, side]
+            ax_time.plot((t_edges[:-1] + t_edges[1:]) / 2, tm_emp, color="black", lw=1.2, label="Empirical")
+            ax_time.plot((t_edges[:-1] + t_edges[1:]) / 2, tm_model, color="crimson", ls="--", lw=1.2, label="Model")
             ax_time.set(ylim=(0, time_max * 1.05), xlim=(ds.t_grid[0], ds.t_grid[-1]))
             ax_time.set_title(f"{arm}: {SIDE_NAMES[side]}", fontsize=11, fontweight="bold", loc="left", color=SIDE_COLORS[side])
             ax_time.tick_params(labelsize=6)  # its own time ticks: it spans both surfaces below
@@ -925,7 +943,7 @@ def plot_sided_arm_surface_grid(
                 ax_time.legend(loc="upper right", fontsize=7, frameon=False)
             for offset, (surface, label) in enumerate(((emp, "Empirical"), (model, "Model"))):
                 ax = fig.add_subplot(gs[row + 1, col + offset])
-                mesh = ax.pcolormesh(ds.t_grid, ds.trial_edges, surface, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
+                mesh = ax.pcolormesh(t_edges, ds.trial_edges, surface, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
                 ax.set_title(label, fontsize=9)
                 ax.set_xlabel("Time in trial (s)", fontsize=8)
                 if col + offset:
