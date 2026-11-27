@@ -920,7 +920,7 @@ def plot_side_check(ax: plt.Axes, dataset: PointProcessDataset, model: PointProc
     ax.plot(ranks, fractions, "o", color="black", ms=3, label="observed")
     ax.set(xlabel=f"fish with {what}, sorted", ylabel=f"share of ipsi {what}", ylim=(0, 1))
     ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.set_title("Side preference per fish", fontsize=9)
+    ax.set_title("Side preference per fish")
 
 
 def cell_summary(row: pd.Series, params: pd.DataFrame, posthoc: pd.DataFrame) -> str:
@@ -964,14 +964,25 @@ def plot_count_checks(ax_fish: plt.Axes, ax_counts: plt.Axes, dataset: PointProc
     ax_fish.plot(ranks, fish, "o", color="black", ms=3, label="observed")
     ax_fish.set(xlabel="fish, sorted", ylabel=f"{what} per trial", ylim=(0, None))
     ax_fish.xaxis.set_major_locator(MaxNLocator(integer=True))
-    ax_fish.set_title(f"{what.capitalize()} per fish", fontsize=9)
-    ax_fish.legend(fontsize=6, frameon=False, loc="upper left")
+    ax_fish.set_title(f"{what.capitalize()} per fish")
+    ax_fish.legend(frameon=False, loc="upper left")
     x = np.arange(pred["bins"][1] + 1)
     ax_counts.vlines(x, *pred["counts"], color="crimson", alpha=0.35, lw=8)
     ax_counts.plot(x, count_shares(events, *pred["bins"]), "o", color="black", ms=4)
     ax_counts.set_xticks(x, count_labels(*pred["bins"]), rotation=45 if pred["bins"][0] > 1 else 0)
     ax_counts.set(xlabel=f"{what} in a trial", ylabel="share of trials", ylim=(0, 1), xlim=(-0.6, x[-1] + 0.6))
-    ax_counts.set_title(f"{what.capitalize()} per trial", fontsize=9)
+    ax_counts.set_title(f"{what.capitalize()} per trial")
+
+
+def uniform_fonts(fig: plt.Figure) -> None:
+    """One size for the grid's tick labels (7), axis labels (8), panel titles (9) and legends (7); arm titles keep theirs."""
+    for ax in fig.axes:
+        ax.tick_params(labelsize=7)
+        ax.xaxis.label.set_size(8)
+        ax.yaxis.label.set_size(8)
+        ax.title.set_size(9)
+        if ax.get_legend():
+            plt.setp(ax.get_legend().get_texts(), fontsize=7)
 
 
 def plot_arm_surface_grid_with_marginals(
@@ -1005,20 +1016,20 @@ def plot_arm_surface_grid_with_marginals(
         ax_time.plot(t_centers, tm_model, color="crimson", ls="--", lw=1.3, label="Model")
         ax_time.set(ylim=(0, time_max * 1.05), xlim=(t_edges[0], t_edges[-1]))
         ax_time.set_title(label, fontsize=11, fontweight="bold", loc="left")
-        ax_time.set_ylabel(rate_label(m), fontsize=7)
+        ax_time.set_ylabel(rate_label(m))
         if block == 0:
-            ax_time.legend(loc="lower right", bbox_to_anchor=(1, 1), ncol=3, fontsize=7, frameon=False)
+            ax_time.legend(loc="lower right", bbox_to_anchor=(1, 1), ncol=3, frameon=False)
         for col, (surface, name) in enumerate(((emp, "Empirical"), (model, "Model"))):
             ax = fig.add_subplot(gs[row + 1, col])
             mesh = ax.pcolormesh(t_edges, ds.trial_edges, surface, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
-            ax.set_xlabel("Time in trial (s)", fontsize=8)
+            ax.set_xlabel("Time in trial (s)")
             ax.yaxis.set_major_locator(MaxNLocator(integer=True))
             if block == 0:
-                ax.set_title(name, fontsize=9)
+                ax.set_title(name)
             if col:
                 plt.setp(ax.get_yticklabels(), visible=False)
             else:
-                ax.set_ylabel("Trial", fontsize=8)
+                ax.set_ylabel("Trial")
         ax_trial = fig.add_subplot(gs[row + 1, 2])
         trials = np.arange(ds.num_trials)
         ax_trial.fill_betweenx(trials, *pred["trial"], color="crimson", alpha=0.15, lw=0)
@@ -1027,11 +1038,10 @@ def plot_arm_surface_grid_with_marginals(
         ax_trial.set(xlim=(0, trial_max * 1.05), ylim=(-0.5, ds.num_trials - 0.5), xlabel=f"{rate_label(m)},\nmean over the trial")
         plt.setp(ax_trial.get_yticklabels(), visible=False)
         plot_count_checks(fig.add_subplot(gs[row + 2, 0]), fig.add_subplot(gs[row + 2, 1]), ds, m, preds[label])
-    for ax in fig.axes:
-        ax.tick_params(labelsize=7)
+    uniform_fonts(fig)
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.975)
-    fig.text(0.5, 0.952, subtitle, ha="center", va="center", fontsize=7, wrap=True)
-    fig.colorbar(mesh, cax=fig.add_axes([0.89, 0.4, 0.02, 0.4])).set_label(rate_label(m_ref), fontsize=9)
+    fig.text(0.5, 0.952, subtitle, ha="center", va="center", fontsize=8, wrap=True)
+    fig.colorbar(mesh, cax=fig.add_axes([0.89, 0.4, 0.02, 0.4])).set_label(rate_label(m_ref))
     return fig
 
 SIDE_COLORS = {IPSI: "#0F6E56", CONTRA: "#534AB7"}
@@ -1072,21 +1082,20 @@ def plot_sided_arm_surface_grid(
             ax_time.plot((t_edges[:-1] + t_edges[1:]) / 2, tm_model, color="crimson", ls="--", lw=1.2, label="Model")
             ax_time.set(ylim=(0, time_max * 1.05), xlim=(ds.t_grid[0], ds.t_grid[-1]))
             ax_time.set_title(f"{fish_label(arm, ds)}: {SIDE_NAMES[side]}", fontsize=11, fontweight="bold", loc="left", color=SIDE_COLORS[side])
-            ax_time.tick_params(labelsize=6)  # its own time ticks: it spans both surfaces below
             if col == 0:
-                ax_time.set_ylabel(rate_label(m), fontsize=7)
+                ax_time.set_ylabel(rate_label(m))
             if block == 0 and col == 0:
-                ax_time.legend(loc="lower right", bbox_to_anchor=(1, 1), ncol=3, fontsize=7, frameon=False)
+                ax_time.legend(loc="lower right", bbox_to_anchor=(1, 1), ncol=3, frameon=False)
             for offset, (surface, label) in enumerate(((emp, "Empirical"), (model, "Model"))):
                 ax = fig.add_subplot(gs[row + 1, col + offset])
                 mesh = ax.pcolormesh(t_edges, ds.trial_edges, surface, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
-                ax.set_title(label, fontsize=9)
-                ax.set_xlabel("Time in trial (s)", fontsize=8)
+                ax.set_title(label)
+                ax.set_xlabel("Time in trial (s)")
                 ax.yaxis.set_major_locator(MaxNLocator(integer=True))
                 if col + offset:
                     plt.setp(ax.get_yticklabels(), visible=False)
                 else:
-                    ax.set_ylabel("Trial", fontsize=8)
+                    ax.set_ylabel("Trial")
             trials = np.arange(ds.num_trials)
             ax_trial.fill_betweenx(trials, *preds[arm][side]["trial"], color=SIDE_COLORS[side], alpha=0.12, lw=0)
             ax_trial.plot(trm_emp, trials, color=SIDE_COLORS[side], lw=1.2, label=f"{SIDE_NAMES[side]} empirical")
@@ -1094,17 +1103,16 @@ def plot_sided_arm_surface_grid(
         ax_trial.set(xlim=(0, trial_max * 1.05), ylim=(-0.5, ds.num_trials - 0.5), xlabel=f"{rate_label(m)},\nmean over the trial")
         plt.setp(ax_trial.get_yticklabels(), visible=False)
         if block == 0:
-            ax_trial.legend(fontsize=7, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.02))
+            ax_trial.legend(frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.02))
         ax_by_trial = fig.add_subplot(gs[row + 2, 2:4])
         plot_time_and_trial_calibration(fig.add_subplot(gs[row + 2, 0:2]), ax_by_trial, ds, m)
         ax_by_trial.xaxis.set_major_locator(MaxNLocator(integer=True))
         plot_count_checks(fig.add_subplot(gs[row + 3, 0:2]), fig.add_subplot(gs[row + 3, 2]), ds, m, preds[arm])
         plot_side_check(fig.add_subplot(gs[row + 3, 3:5]), ds, m, preds[arm])
-    for ax in fig.axes:
-        ax.tick_params(labelsize=7)
+    uniform_fonts(fig)
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.985)
     fig.text(0.5, 0.965, subtitle, ha="center", va="center", fontsize=8)
-    fig.colorbar(mesh, cax=fig.add_axes([0.92, 0.4, 0.012, 0.3])).set_label(rate_label(m_ref), fontsize=9)
+    fig.colorbar(mesh, cax=fig.add_axes([0.92, 0.4, 0.012, 0.3])).set_label(rate_label(m_ref))
     return fig
 
 
