@@ -970,14 +970,12 @@ def plot_count_checks(ax_fish: plt.Axes, ax_counts: plt.Axes, dataset: PointProc
     ax_fish.plot(ranks, fish, "o", color="black", ms=3, label="observed")
     ax_fish.set(xlabel="fish, sorted", ylabel=f"{what} per trial", ylim=(0, None))
     ax_fish.xaxis.set_major_locator(MaxNLocator(integer=True))
-    ax_fish.set_title(f"{what.capitalize()} per fish")
     ax_fish.legend(frameon=False, loc="upper left")
     x = np.arange(pred["bins"][1] + 1)
     ax_counts.vlines(x, *pred["counts"], color="crimson", alpha=0.35, lw=8)
     ax_counts.plot(x, count_shares(events, *pred["bins"]), "o", color="black", ms=4)
     ax_counts.set_xticks(x, count_labels(*pred["bins"]), rotation=45 if pred["bins"][0] > 1 else 0)
     ax_counts.set(xlabel=f"{what} in a trial", ylabel="share of trials", ylim=(0, 1), xlim=(-0.6, x[-1] + 0.6))
-    ax_counts.set_title(f"{what.capitalize()} per trial")
 
 
 def uniform_fonts(fig: plt.Figure) -> None:
