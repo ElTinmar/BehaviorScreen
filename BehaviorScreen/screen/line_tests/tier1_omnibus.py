@@ -13,14 +13,13 @@ import copy
 import json
 import math
 from functools import partial
-from typing import Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
-from matplotlib.collections import QuadMesh
 from matplotlib.colors import LinearSegmentedColormap
 from scipy.cluster.hierarchy import dendrogram as tree_layout, leaves_list, linkage
 
@@ -878,101 +877,113 @@ def _model_vmax(models: List[np.ndarray], empirical: List[np.ndarray]) -> float:
     top = 1.5 * float(np.nanpercentile(np.concatenate([m.ravel() for m in models]), 99))
     return top if top > 0 else max(1e-9, float(max(np.nanmax(e) for e in empirical)))
 
+PREDICTIVE_SIMS = 100  # datasets simulated per arm for the grids' predictive ranges
+
+
+def fish_rates(events: PointProcessDataset) -> np.ndarray:
+    """Each fish's (with a trial) events per trial."""
+    trials = events.fish_trial_mask.sum(axis=1)
+    counts = np.bincount(events.event_fish_idx, minlength=events.num_fish)
+    return counts[trials > 0] / trials[trials > 0]
+
+
+def count_shares(events: PointProcessDataset, k: int) -> np.ndarray:
+    """Share of the (fish, trial) streams with 0, 1, ..., k - 1 and k or more events."""
+    counts = events.stream_event_counts
+    return np.r_[[np.mean(counts == j) for j in range(k)], np.mean(counts >= k)]
+
+
+def predictive(model: PointProcess, dataset: PointProcessDataset, sides: Sequence[Optional[int]] = (None,)) -> Dict:
+    """
+    The model's predictive 95% ranges on dataset's design (its fish, trials and hours), from PREDICTIVE_SIMS simulated
+    datasets, of what the grids show of the events it describes: per side (None: all events) the time and trial marginals;
+    each fish's events per trial, sorted; the share of trials with 0, 1, ... k or more events ("k": the data's 99th
+    percentile, 1 to 10).
+    """
+    rng = np.random.default_rng(0)
+    sims = [model.described(model.simulate_dataset(dataset, rng)) for _ in range(PREDICTIVE_SIMS)]
+    band = lambda values: np.nanpercentile(np.array(values), [2.5, 97.5], axis=0)
+    k = int(np.clip(np.quantile(model.described(dataset).stream_event_counts, 0.99), 1, 10))
+    result = {"k": k, "fish": band([np.sort(fish_rates(s)) for s in sims]), "counts": band([count_shares(s, k) for s in sims])}
+    for side in sides:
+        marginals = [_weighted_marginals((s if side is None else s.select(laterality=side)).time_trial_histogram_hz, dataset) for s in sims]
+        result[side] = {"time": band([m[0] for m in marginals]), "trial": band([m[1] for m in marginals])}
+    return result
+
+
+def plot_count_checks(ax_fish: plt.Axes, ax_counts: plt.Axes, dataset: PointProcessDataset, model: PointProcess, pred: Dict) -> None:
+    """Each fish's events per trial, sorted, and the share of trials with 0, 1, ... events: the data in the model's predictive range."""
+    events, what = model.described(dataset), "escapes" if model.is_survival else "events"
+    fish = np.sort(fish_rates(events))
+    ranks = np.arange(1, len(fish) + 1)
+    ax_fish.fill_between(ranks, *pred["fish"], color="crimson", alpha=0.15, lw=0, label="model, 95% range")
+    ax_fish.plot(ranks, fish, "o", color="black", ms=3, label="observed")
+    ax_fish.set(xlabel="fish, sorted", ylabel=f"{what} per trial", ylim=(0, None))
+    ax_fish.set_title(f"{what.capitalize()} per fish", fontsize=9)
+    ax_fish.legend(fontsize=6, frameon=False, loc="upper left")
+    bins = np.arange(pred["k"] + 1)
+    ax_counts.vlines(bins, *pred["counts"], color="crimson", alpha=0.35, lw=8)
+    ax_counts.plot(bins, count_shares(events, pred["k"]), "o", color="black", ms=4)
+    ax_counts.set_xticks(bins, [str(b) for b in bins[:-1]] + [f"{bins[-1]}+"])
+    ax_counts.set(xlabel=f"{what} in a trial", ylabel="share of trials", ylim=(0, 1), xlim=(-0.6, pred["k"] + 0.6))
+    ax_counts.set_title(f"{what.capitalize()} per trial", fontsize=9)
+
+
 def plot_arm_surface_grid_with_marginals(
-    ds_ref: PointProcessDataset, ds_test: PointProcessDataset,
-    m_ref: PointProcess, m_test: PointProcess,
-    title: str = "",
-    cmap: str = "plasma",
-    figsize: Tuple[float, float] = (12, 10),
+    ds_ref: PointProcessDataset, ds_test: PointProcessDataset, m_ref: PointProcess, m_test: PointProcess,
+    title: str = "", cmap: str = "plasma", figsize: Tuple[float, float] = (12, 13),
 ) -> plt.Figure:
     """
-    Per arm (reference, test): empirical heatmap | model heatmap, with ONE
-    shared time-marginal strip above (spanning both heatmap columns) and
-    ONE shared trial-marginal column to the right -- each marginal overlays
-    empirical (solid) vs model (dashed) on the same axis, rather than
-    living in 4 separate locations. This directly shows fit calibration
-    (the actual point of a marginal) without making the eye hop between
-    two physically separate line plots, and removes the redundancy of the
-    previous version (where the "reference" time marginal was effectively
-    shown twice, once framed under each heatmap).
-
-    Single shared GridSpec for the whole figure (not nested per-panel
-    GridSpecs) -- guarantees pixel alignment across rows/columns. Colorbar
-    is an explicit, manually-positioned axis, not matplotlib-placed.
+    Per arm (reference, test): the empirical and model surfaces of the events the model describes, their time marginal
+    above (one strip spanning both: empirical solid, model dashed) and trial marginal on the right, each with the model's
+    predictive 95% range (predictive); below, the events per fish and per trial against it (plot_count_checks).
     """
-    t_ref, surf_ref_emp, surf_ref_model = display_surfaces(m_ref, ds_ref)
-    t_test, surf_test_emp, surf_test_model = display_surfaces(m_test, ds_test)
-
-    tm_ref_emp, trm_ref_emp = _weighted_marginals(surf_ref_emp, ds_ref)
-    tm_ref_model, trm_ref_model = _weighted_marginals(surf_ref_model, ds_ref)
-    tm_test_emp, trm_test_emp = _weighted_marginals(surf_test_emp, ds_test)
-    tm_test_model, trm_test_model = _weighted_marginals(surf_test_model, ds_test)
-
-    vmax = _model_vmax([surf_ref_model, surf_test_model], [surf_ref_emp, surf_test_emp])
-    time_ymax = max(np.nanmax(x) for x in [tm_ref_emp, tm_ref_model, tm_test_emp, tm_test_model]
-                     if np.any(np.isfinite(x)))
-    trial_xmax = max(np.nanmax(x) for x in [trm_ref_emp, trm_ref_model, trm_test_emp, trm_test_model]
-                      if np.any(np.isfinite(x)))
-    time_ymax, trial_xmax = max(time_ymax, 1e-9), max(trial_xmax, 1e-9)
+    arms = {fish_label("Reference", ds_ref): (ds_ref, m_ref), fish_label("Test", ds_test): (ds_test, m_test)}
+    shown = {label: display_surfaces(m, ds) for label, (ds, m) in arms.items()}
+    preds = {label: predictive(m, ds) for label, (ds, m) in arms.items()}
+    marginals = {label: [_weighted_marginals(x, arms[label][0]) for x in shown[label][1:]] for label in arms}
+    vmax = _model_vmax([x[2] for x in shown.values()], [x[1] for x in shown.values()])
+    time_max = max(1e-9, *(np.nanmax(np.r_[tm, preds[label][None]["time"][1]]) for label, pair in marginals.items() for tm, _ in pair))
+    trial_max = max(1e-9, *(np.nanmax(np.r_[trm, preds[label][None]["trial"][1]]) for label, pair in marginals.items() for _, trm in pair))
 
     fig = plt.figure(figsize=figsize)
-    gs = fig.add_gridspec(
-        nrows=4, ncols=3,
-        width_ratios=[4, 4, 1.3],
-        height_ratios=[1, 4, 1, 4],
-        wspace=0.12, hspace=0.35,
-        left=0.07, right=0.86, top=0.90, bottom=0.07,
-    )
-
-    def _draw_arm(row0: int, ds: PointProcessDataset, t_edges: np.ndarray, surf_emp: np.ndarray, surf_model: np.ndarray, tm_emp: np.ndarray, tm_model: np.ndarray,
-                  trm_emp: np.ndarray, trm_model: np.ndarray, row_label: str, show_legend: bool) -> QuadMesh:
-        ax_time = fig.add_subplot(gs[row0, 0:2])
-        ax_emp = fig.add_subplot(gs[row0 + 1, 0], sharex=ax_time)
-        ax_model = fig.add_subplot(gs[row0 + 1, 1], sharex=ax_time, sharey=ax_emp)
-        ax_trial = fig.add_subplot(gs[row0 + 1, 2], sharey=ax_emp)
-
+    gs = fig.add_gridspec(6, 3, width_ratios=[4, 4, 1.3], height_ratios=[1, 4, 1.8] * 2, wspace=0.15, hspace=0.5,
+                          left=0.07, right=0.86, top=0.92, bottom=0.05)
+    for block, (label, (ds, m)) in enumerate(arms.items()):
+        row, (t_edges, emp, model), pred = 3 * block, shown[label], preds[label][None]
+        (tm_emp, trm_emp), (tm_model, trm_model) = marginals[label]
+        ax_time = fig.add_subplot(gs[row, 0:2])
         t_centers = (t_edges[:-1] + t_edges[1:]) / 2
-        ax_time.plot(t_centers, tm_emp, color="black", linestyle="-", linewidth=1.3, label="Empirical")
-        ax_time.plot(t_centers, tm_model, color="crimson", linestyle="--", linewidth=1.3, label="Model")
-        ax_time.set_ylim(0, time_ymax * 1.05)
-        ax_time.set_title(row_label, fontsize=11, fontweight="bold", loc="left")
-        ax_time.set_ylabel(rate_label(m_ref), fontsize=7)
-        ax_time.tick_params(labelsize=6)  # its own time ticks: it spans both surfaces below
-        if show_legend:
+        ax_time.fill_between(t_centers, *pred["time"], color="crimson", alpha=0.15, lw=0, label="model, 95% range")
+        ax_time.plot(t_centers, tm_emp, color="black", lw=1.3, label="Empirical")
+        ax_time.plot(t_centers, tm_model, color="crimson", ls="--", lw=1.3, label="Model")
+        ax_time.set(ylim=(0, time_max * 1.05), xlim=(t_edges[0], t_edges[-1]))
+        ax_time.set_title(label, fontsize=11, fontweight="bold", loc="left")
+        ax_time.set_ylabel(rate_label(m), fontsize=7)
+        if block == 0:
             ax_time.legend(loc="upper right", fontsize=7, frameon=False)
-
-        mesh = ax_emp.pcolormesh(t_edges, ds.trial_edges, surf_emp, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
-        ax_model.pcolormesh(t_edges, ds.trial_edges, surf_model, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
-        if row0 == 0:
-            ax_emp.set_title("Empirical", fontsize=9)
-            ax_model.set_title("Model", fontsize=9)
-        ax_emp.set_xlabel("Time in trial (s)", fontsize=8)
-        ax_model.set_xlabel("Time in trial (s)", fontsize=8)
-        ax_emp.set_ylabel("Trial", fontsize=8)
-        plt.setp(ax_model.get_yticklabels(), visible=False)
-        ax_emp.tick_params(labelsize=7)
-        ax_model.tick_params(labelsize=7)
-
-        trial_centers = np.arange(ds.num_trials)
-        ax_trial.plot(trm_emp, trial_centers, color="black", linestyle="-", linewidth=1.3)
-        ax_trial.plot(trm_model, trial_centers, color="crimson", linestyle="--", linewidth=1.3)
-        ax_trial.set_xlim(0, trial_xmax * 1.05)
-        ax_trial.set_xlabel(f"{rate_label(m_ref)},\nmean over the trial", fontsize=7)
+        for col, (surface, name) in enumerate(((emp, "Empirical"), (model, "Model"))):
+            ax = fig.add_subplot(gs[row + 1, col])
+            mesh = ax.pcolormesh(t_edges, ds.trial_edges, surface, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
+            ax.set_xlabel("Time in trial (s)", fontsize=8)
+            if block == 0:
+                ax.set_title(name, fontsize=9)
+            if col:
+                plt.setp(ax.get_yticklabels(), visible=False)
+            else:
+                ax.set_ylabel("Trial", fontsize=8)
+        ax_trial = fig.add_subplot(gs[row + 1, 2])
+        trials = np.arange(ds.num_trials)
+        ax_trial.fill_betweenx(trials, *pred["trial"], color="crimson", alpha=0.15, lw=0)
+        ax_trial.plot(trm_emp, trials, color="black", lw=1.3)
+        ax_trial.plot(trm_model, trials, color="crimson", ls="--", lw=1.3)
+        ax_trial.set(xlim=(0, trial_max * 1.05), ylim=(-0.5, ds.num_trials - 0.5), xlabel=f"{rate_label(m)},\nmean over the trial")
         plt.setp(ax_trial.get_yticklabels(), visible=False)
-        ax_trial.tick_params(labelsize=6)
-
-        return mesh
-
-    _draw_arm(0, ds_ref, t_ref, surf_ref_emp, surf_ref_model, tm_ref_emp, tm_ref_model, trm_ref_emp, trm_ref_model,
-              fish_label("Reference", ds_ref), show_legend=True)
-    mesh = _draw_arm(2, ds_test, t_test, surf_test_emp, surf_test_model, tm_test_emp, tm_test_model, trm_test_emp, trm_test_model,
-                      fish_label("Test", ds_test), show_legend=False)
-
+        plot_count_checks(fig.add_subplot(gs[row + 2, 0]), fig.add_subplot(gs[row + 2, 1]), ds, m, preds[label])
+    for ax in fig.axes:
+        ax.tick_params(labelsize=7)
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.97)
-    cax = fig.add_axes([0.89, 0.15, 0.02, 0.65])
-    cbar = fig.colorbar(mesh, cax=cax)
-    cbar.set_label(rate_label(m_ref), fontsize=9)
-
+    fig.colorbar(mesh, cax=fig.add_axes([0.89, 0.4, 0.02, 0.4])).set_label(rate_label(m_ref), fontsize=9)
     return fig
 
 SIDE_COLORS = {IPSI: "#0F6E56", CONTRA: "#534AB7"}
@@ -980,31 +991,34 @@ SIDE_COLORS = {IPSI: "#0F6E56", CONTRA: "#534AB7"}
 
 def plot_sided_arm_surface_grid(
     ds_ref: PointProcessDataset, ds_test: PointProcessDataset, m_ref: PointProcess, m_test: PointProcess,
-    title: str = "", cmap: str = "plasma", figsize: Tuple[float, float] = (22, 17),
+    title: str = "", cmap: str = "plasma", figsize: Tuple[float, float] = (22, 20),
 ) -> plt.Figure:
     """
     plot_arm_surface_grid_with_marginals for a sided model, each side apart: per arm (reference, test), the
     empirical and model rate surfaces of ipsi and of contra events, their time marginals above (empirical solid,
-    model dashed), both sides' trial marginals on the right, and below the side calibration by time and by trial.
+    model dashed), both sides' trial marginals on the right, each with the model's predictive 95% range; below, the
+    side calibration by time and by trial, and the events per fish and per trial (plot_count_checks).
     """
     arms = {"Reference": (ds_ref, m_ref), "Test": (ds_test, m_test)}
     binned = {(arm, side): display_surfaces(m, ds, side=side) for arm, (ds, m) in arms.items() for side in SIDE_NAMES}
     edges, surfaces = {key: b[0] for key, b in binned.items()}, {key: b[1:] for key, b in binned.items()}
     marginals = {key: [_weighted_marginals(surface, arms[key[0]][0]) for surface in pair] for key, pair in surfaces.items()}
+    preds = {arm: predictive(m, ds, sides=list(SIDE_NAMES)) for arm, (ds, m) in arms.items()}
     vmax = _model_vmax([model for _, model in surfaces.values()], [emp for emp, _ in surfaces.values()])
-    time_max = max(1e-9, *(np.nanmax(tm) for pair in marginals.values() for tm, _ in pair))
-    trial_max = max(1e-9, *(np.nanmax(trm) for pair in marginals.values() for _, trm in pair))
+    time_max = max(1e-9, *(np.nanmax(np.r_[tm, preds[arm][side]["time"][1]]) for (arm, side), pair in marginals.items() for tm, _ in pair))
+    trial_max = max(1e-9, *(np.nanmax(np.r_[trm, preds[arm][side]["trial"][1]]) for (arm, side), pair in marginals.items() for _, trm in pair))
 
     fig = plt.figure(figsize=figsize)
-    gs = fig.add_gridspec(6, 5, width_ratios=[4, 4, 4, 4, 1.6], height_ratios=[1, 4, 1.8] * 2,
-                          wspace=0.12, hspace=0.45, left=0.05, right=0.9, top=0.93, bottom=0.05)
+    gs = fig.add_gridspec(8, 5, width_ratios=[4, 4, 4, 4, 1.6], height_ratios=[1, 4, 1.8, 1.8] * 2,
+                          wspace=0.12, hspace=0.5, left=0.05, right=0.9, top=0.94, bottom=0.04)
     for block, (arm, (ds, m)) in enumerate(arms.items()):
-        row = 3 * block
+        row = 4 * block
         ax_trial = fig.add_subplot(gs[row + 1, 4])
         for col, side in zip((0, 2), SIDE_NAMES):
             (emp, model), ((tm_emp, trm_emp), (tm_model, trm_model)) = surfaces[arm, side], marginals[arm, side]
             ax_time = fig.add_subplot(gs[row, col:col + 2])
             t_edges = edges[arm, side]
+            ax_time.fill_between((t_edges[:-1] + t_edges[1:]) / 2, *preds[arm][side]["time"], color="crimson", alpha=0.15, lw=0, label="model, 95% range")
             ax_time.plot((t_edges[:-1] + t_edges[1:]) / 2, tm_emp, color="black", lw=1.2, label="Empirical")
             ax_time.plot((t_edges[:-1] + t_edges[1:]) / 2, tm_model, color="crimson", ls="--", lw=1.2, label="Model")
             ax_time.set(ylim=(0, time_max * 1.05), xlim=(ds.t_grid[0], ds.t_grid[-1]))
@@ -1024,6 +1038,7 @@ def plot_sided_arm_surface_grid(
                 else:
                     ax.set_ylabel("Trial", fontsize=8)
             trials = np.arange(ds.num_trials)
+            ax_trial.fill_betweenx(trials, *preds[arm][side]["trial"], color=SIDE_COLORS[side], alpha=0.12, lw=0)
             ax_trial.plot(trm_emp, trials, color=SIDE_COLORS[side], lw=1.2, label=f"{SIDE_NAMES[side]} empirical")
             ax_trial.plot(trm_model, trials, color=SIDE_COLORS[side], ls="--", lw=1.2, label=f"{SIDE_NAMES[side]} model")
         ax_trial.set(xlim=(0, trial_max * 1.05), ylim=(-0.5, ds.num_trials - 0.5), xlabel=f"{rate_label(m)},\nmean over the trial")
@@ -1031,6 +1046,7 @@ def plot_sided_arm_surface_grid(
         if block == 0:
             ax_trial.legend(fontsize=6, frameon=False, loc="lower right")
         plot_time_and_trial_calibration(fig.add_subplot(gs[row + 2, 0:2]), fig.add_subplot(gs[row + 2, 2:4]), ds, m)
+        plot_count_checks(fig.add_subplot(gs[row + 3, 0:2]), fig.add_subplot(gs[row + 3, 2:4]), ds, m, preds[arm])
     for ax in fig.axes:
         ax.tick_params(labelsize=7)
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.98)
