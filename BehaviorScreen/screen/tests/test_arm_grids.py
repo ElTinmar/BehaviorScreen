@@ -33,3 +33,14 @@ def test_the_predictive_range_holds_data_simulated_from_the_model() -> None:
     inside = lambda value, band: np.mean((band[0] <= value) & (value <= band[1]))
     assert inside(np.sort(fish_rates(data)), pred["fish"]) > 0.8 and inside(count_shares(data, pred["k"]), pred["counts"]) > 0.8
     assert inside(np.mean(data.time_trial_histogram_hz, axis=1), pred[None]["trial"]) > 0.6
+
+
+def test_a_cell_summary_gives_the_test_and_each_parameter() -> None:
+    import pandas as pd
+    from BehaviorScreen.screen.line_tests.tier1_omnibus import cell_summary
+    params = pd.DataFrame({"parameter": ["H", "D"], "value_reference": [1.6, 0.8], "value_test": [0.001, 0.9],
+                           "se_reference": [0.3, 0.1], "se_test": [np.nan, 0.12], "delta": [-3.0, 0.4]})
+    text = cell_summary(pd.Series({"p_value": 0.002, "q_value": 0.013, "significant": True}), params,
+                        pd.DataFrame({"parameter": ["H", "D"], "significant": [True, False]}))
+    assert text.startswith("p = 0.002, q = 0.013 (significant)")
+    assert "escape (H *): 1.6 ± 0.3 → 0.001, Δ = -3.00 SD" in text and "direction (D): 0.8 ± 0.1 → 0.9 ± 0.12" in text

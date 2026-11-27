@@ -893,6 +893,35 @@ def count_shares(events: PointProcessDataset, k: int) -> np.ndarray:
     return np.r_[[np.mean(counts == j) for j in range(k)], np.mean(counts >= k)]
 
 
+def ipsi_fractions(events: PointProcessDataset) -> np.ndarray:
+    """Each fish's (with an event) share of ipsi events, sorted."""
+    n = np.bincount(events.event_fish_idx, minlength=events.num_fish)
+    ipsi = np.bincount(events.event_fish_idx, weights=np.asarray(events.marks["laterality"]) == IPSI, minlength=events.num_fish)
+    return np.sort(ipsi[n > 0] / n[n > 0])
+
+
+def plot_side_check(ax: plt.Axes, dataset: PointProcessDataset, model: PointProcess, pred: Dict) -> None:
+    """Each fish's share of ipsi events, sorted, in the model's predictive range at the same quantiles (the pinned s_side)."""
+    fractions, what = ipsi_fractions(model.described(dataset)), "escapes" if model.is_survival else "events"
+    ranks = np.arange(1, len(fractions) + 1)
+    ax.axhline(0.5, color="0.6", lw=0.8, ls=":", zorder=0)
+    ax.fill_between(ranks, *pred["ipsi"], color="crimson", alpha=0.15, lw=0, label="model, 95% range")
+    ax.plot(ranks, fractions, "o", color="black", ms=3, label="observed")
+    ax.set(xlabel=f"fish with {what}, sorted", ylabel=f"share of ipsi {what}", ylim=(0, 1))
+    ax.set_title("Side preference per fish", fontsize=9)
+
+
+def cell_summary(row: pd.Series, params: pd.DataFrame, posthoc: pd.DataFrame) -> str:
+    """A cell's test and, per free parameter, its reference -> test value (± SE), Glass's delta and post hoc mark (*)."""
+    se = lambda v: "" if not np.isfinite(v) else f" ± {v:.2g}"
+    test = f"p = {row['p_value']:.3g}, q = {row['q_value']:.3g}" + (" (significant)" if row.get("significant") else "")
+    marked = set(posthoc.loc[posthoc["significant"] == True, "parameter"]) if len(posthoc) else set()
+    parts = [f"{PARAMETER_LABELS.get(r['parameter'], r['parameter'])} ({r['parameter']}{' *' if r['parameter'] in marked else ''}): "
+             f"{r['value_reference']:.3g}{se(r['se_reference'])} → {r['value_test']:.3g}{se(r['se_test'])}, Δ = {r['delta']:+.2f} SD"
+             for _, r in params.iterrows()]
+    return "    ·    ".join([test, *parts]) + ("    (* post hoc, adjusted p < 0.05)" if marked else "")
+
+
 def predictive(model: PointProcess, dataset: PointProcessDataset, sides: Sequence[Optional[int]] = (None,)) -> Dict:
     """
     The model's predictive 95% ranges on dataset's design (its fish, trials and hours), from PREDICTIVE_SIMS simulated
@@ -905,6 +934,10 @@ def predictive(model: PointProcess, dataset: PointProcessDataset, sides: Sequenc
     band = lambda values: np.nanpercentile(np.array(values), [2.5, 97.5], axis=0)
     k = int(np.clip(np.quantile(model.described(dataset).stream_event_counts, 0.99), 1, 10))
     result = {"k": k, "fish": band([np.sort(fish_rates(s)) for s in sims]), "counts": band([count_shares(s, k) for s in sims])}
+    if sided_base(model) is not None:
+        observed = ipsi_fractions(model.described(dataset))
+        positions = (np.arange(len(observed)) + 0.5) / max(len(observed), 1)
+        result["ipsi"] = band([np.quantile(f, positions) if len(f) else np.full(len(positions), np.nan) for f in map(ipsi_fractions, sims)])
     for side in sides:
         marginals = [_weighted_marginals((s if side is None else s.select(laterality=side)).time_trial_histogram_hz, dataset) for s in sims]
         result[side] = {"time": band([m[0] for m in marginals]), "trial": band([m[1] for m in marginals])}
@@ -931,12 +964,13 @@ def plot_count_checks(ax_fish: plt.Axes, ax_counts: plt.Axes, dataset: PointProc
 
 def plot_arm_surface_grid_with_marginals(
     ds_ref: PointProcessDataset, ds_test: PointProcessDataset, m_ref: PointProcess, m_test: PointProcess,
-    title: str = "", cmap: str = "plasma", figsize: Tuple[float, float] = (12, 13),
+    title: str = "", cmap: str = "plasma", figsize: Tuple[float, float] = (12, 13), subtitle: str = "",
 ) -> plt.Figure:
     """
     Per arm (reference, test): the empirical and model surfaces of the events the model describes, their time marginal
     above (one strip spanning both: empirical solid, model dashed) and trial marginal on the right, each with the model's
     predictive 95% range (predictive); below, the events per fish and per trial against it (plot_count_checks).
+    subtitle: under the title (cell_summary).
     """
     arms = {fish_label("Reference", ds_ref): (ds_ref, m_ref), fish_label("Test", ds_test): (ds_test, m_test)}
     shown = {label: display_surfaces(m, ds) for label, (ds, m) in arms.items()}
@@ -982,7 +1016,8 @@ def plot_arm_surface_grid_with_marginals(
         plot_count_checks(fig.add_subplot(gs[row + 2, 0]), fig.add_subplot(gs[row + 2, 1]), ds, m, preds[label])
     for ax in fig.axes:
         ax.tick_params(labelsize=7)
-    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.97)
+    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.975)
+    fig.text(0.5, 0.952, subtitle, ha="center", va="center", fontsize=7, wrap=True)
     fig.colorbar(mesh, cax=fig.add_axes([0.89, 0.4, 0.02, 0.4])).set_label(rate_label(m_ref), fontsize=9)
     return fig
 
@@ -991,13 +1026,14 @@ SIDE_COLORS = {IPSI: "#0F6E56", CONTRA: "#534AB7"}
 
 def plot_sided_arm_surface_grid(
     ds_ref: PointProcessDataset, ds_test: PointProcessDataset, m_ref: PointProcess, m_test: PointProcess,
-    title: str = "", cmap: str = "plasma", figsize: Tuple[float, float] = (22, 20),
+    title: str = "", cmap: str = "plasma", figsize: Tuple[float, float] = (22, 20), subtitle: str = "",
 ) -> plt.Figure:
     """
     plot_arm_surface_grid_with_marginals for a sided model, each side apart: per arm (reference, test), the
     empirical and model rate surfaces of ipsi and of contra events, their time marginals above (empirical solid,
     model dashed), both sides' trial marginals on the right, each with the model's predictive 95% range; below, the
-    side calibration by time and by trial, and the events per fish and per trial (plot_count_checks).
+    side calibration by time and by trial, the events per fish and per trial (plot_count_checks) and the side
+    preference per fish (plot_side_check). subtitle: under the title (cell_summary).
     """
     arms = {"Reference": (ds_ref, m_ref), "Test": (ds_test, m_test)}
     binned = {(arm, side): display_surfaces(m, ds, side=side) for arm, (ds, m) in arms.items() for side in SIDE_NAMES}
@@ -1010,7 +1046,7 @@ def plot_sided_arm_surface_grid(
 
     fig = plt.figure(figsize=figsize)
     gs = fig.add_gridspec(8, 5, width_ratios=[4, 4, 4, 4, 1.6], height_ratios=[1, 4, 1.8, 1.8] * 2,
-                          wspace=0.12, hspace=0.5, left=0.05, right=0.9, top=0.94, bottom=0.04)
+                          wspace=0.2, hspace=0.5, left=0.05, right=0.9, top=0.94, bottom=0.04)
     for block, (arm, (ds, m)) in enumerate(arms.items()):
         row = 4 * block
         ax_trial = fig.add_subplot(gs[row + 1, 4])
@@ -1046,19 +1082,27 @@ def plot_sided_arm_surface_grid(
         if block == 0:
             ax_trial.legend(fontsize=6, frameon=False, loc="lower right")
         plot_time_and_trial_calibration(fig.add_subplot(gs[row + 2, 0:2]), fig.add_subplot(gs[row + 2, 2:4]), ds, m)
-        plot_count_checks(fig.add_subplot(gs[row + 3, 0:2]), fig.add_subplot(gs[row + 3, 2:4]), ds, m, preds[arm])
+        plot_count_checks(fig.add_subplot(gs[row + 3, 0:2]), fig.add_subplot(gs[row + 3, 2]), ds, m, preds[arm])
+        plot_side_check(fig.add_subplot(gs[row + 3, 3:5]), ds, m, preds[arm])
     for ax in fig.axes:
         ax.tick_params(labelsize=7)
-    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.98)
+    fig.suptitle(title, fontsize=13, fontweight="bold", y=0.985)
+    fig.text(0.5, 0.965, subtitle, ha="center", va="center", fontsize=8)
     fig.colorbar(mesh, cax=fig.add_axes([0.92, 0.4, 0.012, 0.3])).set_label(rate_label(m_ref), fontsize=9)
     return fig
 
 
-def generate_arm_surface_grids(cells: pd.DataFrame, arms: Arms, output_dir: Path) -> pd.DataFrame:
-    """Returns a per-(line, behavior) status table -- 'plotted' / 'no_data' /
-    'fit_failed' -- so missing plots are traceable without re-deriving them
-    from the output directory after the fact."""
+def generate_arm_surface_grids(
+    cells: pd.DataFrame, arms: Arms, output_dir: Path, param_df: Optional[pd.DataFrame] = None, posthoc: Optional[pd.DataFrame] = None,
+) -> pd.DataFrame:
+    """
+    Each cell's arm surface grid, its test and parameters under the title (cell_summary, from param_df: the cells'
+    compute_parameter_deltas, and posthoc: their parameter_tests); a per-(line, behavior) status table, 'plotted',
+    'no_data' or 'fit_failed', so missing plots are traceable.
+    """
     results = []
+    effects = standardized_effects(param_df, cells) if param_df is not None and len(param_df) else pd.DataFrame(columns=["line", "behavior"])
+    posthoc = posthoc if posthoc is not None and len(posthoc) else pd.DataFrame(columns=["line", "behavior", "parameter", "significant"])
 
     for _, row in tqdm(cells.iterrows(), total=len(cells), desc="Arm surface grids"):
         line, behavior = row["line"], row["behavior"]
@@ -1077,7 +1121,9 @@ def generate_arm_surface_grids(cells: pd.DataFrame, arms: Arms, output_dir: Path
         reason = row.get("plot_reason", "")
         title = f"{line_name(line)} / {behavior}" + (f"  [{reason}]" if reason else "")
         plot = plot_arm_surface_grid_with_marginals if sided_base(m_ref) is None else plot_sided_arm_surface_grid
-        fig = plot(ds_ref, ds_test, m_ref, m_test, title=title)
+        of_cell = lambda df: df[(df["line"] == line) & (df["behavior"] == behavior)]
+        subtitle = cell_summary(row, of_cell(effects), of_cell(posthoc)) if row.get("status") == "ok" else ""
+        fig = plot(ds_ref, ds_test, m_ref, m_test, title=title, subtitle=subtitle)
         path = save_fig(fig, output_dir / (reason or "all"), f"{line}_{behavior}")
         plt.close(fig)
         results.append({"line": line, "behavior": behavior, "plot_status": "plotted", "path": str(path)})

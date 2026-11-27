@@ -106,8 +106,8 @@ def run_behavior(behavior: str, arms: Arms, null_process_factories: dict, output
     # Tier 2: is a hit's drug effect different from the drug's effect on WT?
     step("tier2_results", lambda: add_fdr_per_behavior(run_tier2_screen(tier1_df, arms, n_boot=N_BOOT_TIER2, reference="WT")))
     # Post hoc: which of a hit's amplitudes differ between its arms?
-    step("parameter_tests", lambda: run_parameter_tests(tier1_df, arms, N_BOOT_PARAMETERS, (structures or {}).get(behavior)))
-    step("arm_surface_grids", lambda: generate_arm_surface_grids(tier1_df, arms, output_dir=output_dir / "arm_surface_grids"))
+    posthoc = step("parameter_tests", lambda: run_parameter_tests(tier1_df, arms, N_BOOT_PARAMETERS, (structures or {}).get(behavior)))
+    step("arm_surface_grids", lambda: generate_arm_surface_grids(tier1_df, arms, output_dir / "arm_surface_grids", param_df, posthoc))
     boot_delta_df = step("bootstrap_parameter_deltas", lambda: bootstrap_parameter_deltas(tier1_df, param_df, arms, n_boot=N_BOOT_DELTAS))
 
     fig = plot_parameter_forest(boot_delta_df, behavior) if len(boot_delta_df) else None
