@@ -198,15 +198,13 @@ def tab_status(tab: str, root: Path, v: Dict[str, str]) -> Tuple[pd.DataFrame, p
 
 
 def summary(tab: str, root: Path, v: Dict[str, str]) -> str:
-    """'10/12 (2 waiting)': recordings done of a tab's recordings; for a tab without (heatmaps), its output files present."""
+    """'4 done, 6 ready, 2 waiting': a tab's recordings per state (those with some); for heatmaps, its output files present."""
     table, files = tab_status(tab, root, v)
     if tab == "Heatmaps":
         outputs = files[files["role"] == "output"]
         return f"{outputs['present'].sum()}/{len(outputs)} files"
-    if table.empty:
-        return "-"
-    waiting = (table["state"] == "waiting").sum()
-    return f"{(table['state'] == 'done').sum()}/{len(table)}" + (f" ({waiting} waiting)" if waiting else "")
+    counts = table["state"].value_counts()
+    return ", ".join(f"{counts[s]} {s}" for s in ("done", "ready", "waiting") if s in counts) or "-"
 
 
 def folders_status(folders: List[Path], v: Dict[str, str], top: Path) -> pd.DataFrame:

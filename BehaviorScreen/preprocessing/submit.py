@@ -1,7 +1,7 @@
 """
 Preprocess recordings, one job per <line>/<condition> folder, on Slurm or here (BehaviorScreen/machines.yaml):
     python -m BehaviorScreen preprocess PATH [--local] [pipeline options, e.g. --steps qc heatmaps]
-    python -m BehaviorScreen preprocess PATH --status   (per folder and step: recordings done, those waiting for an input)
+    python -m BehaviorScreen preprocess PATH --status   (per folder and step, recordings: done; ready, every input there; waiting, some input missing)
 PATH: a <line>/<condition> folder (one with data/ or results/ in it), a line folder or a screen root.
 On Slurm: a GPU when the steps include pose, eye_pose or bouts (all steps by default); 12 GB of memory for qc and heatmaps alone.
 """
