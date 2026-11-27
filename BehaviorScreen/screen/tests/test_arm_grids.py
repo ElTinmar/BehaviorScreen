@@ -24,12 +24,12 @@ def test_sided_grid_has_both_sides_and_their_calibration_per_arm() -> None:
 
 
 def test_the_predictive_range_holds_data_simulated_from_the_model() -> None:
-    from BehaviorScreen.screen.line_tests.tier1_omnibus import count_shares, fish_rates, predictive
+    from BehaviorScreen.screen.line_tests.tier1_omnibus import count_bins, count_shares, fish_rates, predictive
     model = sided_models(flat, flat)[2]
     model.set_params(np.array(model.initial_guesses, float))
     data = model.simulate_dataset(make_scaffold_dataset(30, 6, 6.0), np.random.default_rng(1))
     model.fit_result = object()
-    pred = predictive(model, data, sides=[None])
+    pred = predictive(model, data, count_bins(data), sides=[None])
     inside = lambda value, band: np.mean((band[0] <= value) & (value <= band[1]))
     assert inside(np.sort(fish_rates(data)), pred["fish"]) > 0.8 and inside(count_shares(data, *pred["bins"]), pred["counts"]) > 0.8
     assert inside(np.mean(data.time_trial_histogram_hz, axis=1), pred[None]["trial"]) > 0.6

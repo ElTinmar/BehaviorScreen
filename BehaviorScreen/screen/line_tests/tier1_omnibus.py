@@ -888,9 +888,9 @@ def fish_rates(events: PointProcessDataset) -> np.ndarray:
     return counts[trials > 0] / trials[trials > 0]
 
 
-def count_bins(events: PointProcessDataset) -> Tuple[int, int]:
-    """(width, k): at most 10 bins of `width` events up to the data's 99th percentile, then a bin of k * width or more."""
-    top = max(1.0, float(np.quantile(events.stream_event_counts, 0.99)))
+def count_bins(*events: PointProcessDataset) -> Tuple[int, int]:
+    """(width, k): at most 10 bins of `width` events up to the datasets' pooled 99th percentile, then a bin of k * width or more."""
+    top = max(1.0, float(np.quantile(np.concatenate([e.stream_event_counts for e in events]), 0.99)))
     width = math.ceil(top / 10)
     return width, math.ceil(top / width)
 
@@ -934,16 +934,15 @@ def cell_summary(row: pd.Series, params: pd.DataFrame, posthoc: pd.DataFrame) ->
     return "    ·    ".join([test, *parts]) + ("    (* post hoc, adjusted p < 0.05)" if marked else "")
 
 
-def predictive(model: PointProcess, dataset: PointProcessDataset, sides: Sequence[Optional[int]] = (None,)) -> Dict:
+def predictive(model: PointProcess, dataset: PointProcessDataset, bins: Tuple[int, int], sides: Sequence[Optional[int]] = (None,)) -> Dict:
     """
     The model's predictive 95% ranges on dataset's design (its fish, trials and hours), from PREDICTIVE_SIMS simulated
     datasets, of what the grids show of the events it describes: per side (None: all events) the time and trial marginals;
-    each fish's events per trial, sorted; the share of trials in each count bin (count_bins, from the data).
+    each fish's events per trial, sorted; the share of trials in each count bin (bins: count_bins).
     """
     rng = np.random.default_rng(0)
     sims = [model.described(model.simulate_dataset(dataset, rng)) for _ in range(PREDICTIVE_SIMS)]
     band = lambda values: np.nanpercentile(np.array(values), [2.5, 97.5], axis=0)
-    bins = count_bins(model.described(dataset))
     result = {"bins": bins, "fish": band([np.sort(fish_rates(s)) for s in sims]), "counts": band([count_shares(s, *bins) for s in sims])}
     if sided_base(model) is not None:
         observed = ipsi_fractions(model.described(dataset))
@@ -953,6 +952,13 @@ def predictive(model: PointProcess, dataset: PointProcessDataset, sides: Sequenc
         marginals = [_weighted_marginals((s if side is None else s.select(laterality=side)).time_trial_histogram_hz, dataset) for s in sims]
         result[side] = {"time": band([m[0] for m in marginals]), "trial": band([m[1] for m in marginals])}
     return result
+
+
+def same_top(axes: List[plt.Axes]) -> None:
+    """The arms' panels on one y scale, from 0 to the highest top."""
+    top = max(ax.get_ylim()[1] for ax in axes)
+    for ax in axes:
+        ax.set_ylim(0, top)
 
 
 def plot_count_checks(ax_fish: plt.Axes, ax_counts: plt.Axes, dataset: PointProcessDataset, model: PointProcess, pred: Dict) -> None:
@@ -997,7 +1003,8 @@ def plot_arm_surface_grid_with_marginals(
     """
     arms = {fish_label("Reference", ds_ref): (ds_ref, m_ref), fish_label("Test", ds_test): (ds_test, m_test)}
     shown = {label: display_surfaces(m, ds) for label, (ds, m) in arms.items()}
-    preds = {label: predictive(m, ds) for label, (ds, m) in arms.items()}
+    bins = count_bins(*(m.described(ds) for ds, m in arms.values()))
+    preds = {label: predictive(m, ds, bins) for label, (ds, m) in arms.items()}
     marginals = {label: [_weighted_marginals(x, arms[label][0]) for x in shown[label][1:]] for label in arms}
     vmax = _model_vmax([x[2] for x in shown.values()], [x[1] for x in shown.values()])
     time_max = max(1e-9, *(np.nanmax(np.r_[tm, preds[label][None]["time"][1]]) for label, pair in marginals.items() for tm, _ in pair))
@@ -1006,6 +1013,7 @@ def plot_arm_surface_grid_with_marginals(
     fig = plt.figure(figsize=figsize)
     gs = fig.add_gridspec(6, 3, width_ratios=[4, 4, 1.3], height_ratios=[1, 4, 1.8] * 2, wspace=0.25, hspace=0.5,
                           left=0.07, right=0.86, top=0.92, bottom=0.05)
+    fish_axes: List[plt.Axes] = []
     for block, (label, (ds, m)) in enumerate(arms.items()):
         row, (t_edges, emp, model), pred = 3 * block, shown[label], preds[label][None]
         (tm_emp, trm_emp), (tm_model, trm_model) = marginals[label]
@@ -1037,7 +1045,9 @@ def plot_arm_surface_grid_with_marginals(
         ax_trial.plot(trm_model, trials, color="crimson", ls="--", lw=1.3)
         ax_trial.set(xlim=(0, trial_max * 1.05), ylim=(-0.5, ds.num_trials - 0.5), xlabel=f"{rate_label(m)},\nmean over the trial")
         plt.setp(ax_trial.get_yticklabels(), visible=False)
-        plot_count_checks(fig.add_subplot(gs[row + 2, 0]), fig.add_subplot(gs[row + 2, 1]), ds, m, preds[label])
+        fish_axes.append(fig.add_subplot(gs[row + 2, 0]))
+        plot_count_checks(fish_axes[-1], fig.add_subplot(gs[row + 2, 1]), ds, m, preds[label])
+    same_top(fish_axes)
     uniform_fonts(fig)
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.975)
     fig.text(0.5, 0.952, subtitle, ha="center", va="center", fontsize=8, wrap=True)
@@ -1062,7 +1072,8 @@ def plot_sided_arm_surface_grid(
     binned = {(arm, side): display_surfaces(m, ds, side=side) for arm, (ds, m) in arms.items() for side in SIDE_NAMES}
     edges, surfaces = {key: b[0] for key, b in binned.items()}, {key: b[1:] for key, b in binned.items()}
     marginals = {key: [_weighted_marginals(surface, arms[key[0]][0]) for surface in pair] for key, pair in surfaces.items()}
-    preds = {arm: predictive(m, ds, sides=list(SIDE_NAMES)) for arm, (ds, m) in arms.items()}
+    bins = count_bins(*(m.described(ds) for ds, m in arms.values()))
+    preds = {arm: predictive(m, ds, bins, sides=list(SIDE_NAMES)) for arm, (ds, m) in arms.items()}
     vmax = _model_vmax([model for _, model in surfaces.values()], [emp for emp, _ in surfaces.values()])
     time_max = max(1e-9, *(np.nanmax(np.r_[tm, preds[arm][side]["time"][1]]) for (arm, side), pair in marginals.items() for tm, _ in pair))
     trial_max = max(1e-9, *(np.nanmax(np.r_[trm, preds[arm][side]["trial"][1]]) for (arm, side), pair in marginals.items() for _, trm in pair))
@@ -1070,6 +1081,7 @@ def plot_sided_arm_surface_grid(
     fig = plt.figure(figsize=figsize)
     gs = fig.add_gridspec(8, 5, width_ratios=[4, 4, 4, 4, 1.6], height_ratios=[1, 4, 1.8, 1.8] * 2,
                           wspace=0.2, hspace=0.5, left=0.05, right=0.9, top=0.94, bottom=0.04)
+    fish_axes: List[plt.Axes] = []
     for block, (arm, (ds, m)) in enumerate(arms.items()):
         row = 4 * block
         ax_trial = fig.add_subplot(gs[row + 1, 4])
@@ -1107,8 +1119,10 @@ def plot_sided_arm_surface_grid(
         ax_by_trial = fig.add_subplot(gs[row + 2, 2:4])
         plot_time_and_trial_calibration(fig.add_subplot(gs[row + 2, 0:2]), ax_by_trial, ds, m)
         ax_by_trial.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plot_count_checks(fig.add_subplot(gs[row + 3, 0:2]), fig.add_subplot(gs[row + 3, 2]), ds, m, preds[arm])
+        fish_axes.append(fig.add_subplot(gs[row + 3, 0:2]))
+        plot_count_checks(fish_axes[-1], fig.add_subplot(gs[row + 3, 2]), ds, m, preds[arm])
         plot_side_check(fig.add_subplot(gs[row + 3, 3:5]), ds, m, preds[arm])
+    same_top(fish_axes)
     uniform_fonts(fig)
     fig.suptitle(title, fontsize=13, fontweight="bold", y=0.985)
     fig.text(0.5, 0.965, subtitle, ha="center", va="center", fontsize=8)
