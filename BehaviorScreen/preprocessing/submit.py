@@ -11,7 +11,7 @@ from typing import List
 
 from BehaviorScreen.jobs import GPU, Jobs, add_local_argument
 from BehaviorScreen.preprocessing.__main__ import build_parser
-from BehaviorScreen.preprocessing.status import folders_status
+from BehaviorScreen.preprocessing.status import folders_status, render
 
 
 def resources(steps: List[str]) -> List[str]:
@@ -34,7 +34,7 @@ def main() -> None:
         raise SystemExit(f"no folder with data/ or results/ in it at or below {path}")
     pipeline = build_parser().parse_args([str(path), *options])
     if args.status:
-        print(folders_status(folders, vars(pipeline), path).to_string())
+        print(render(folders_status(folders, vars(pipeline), path)))
         return
     steps = pipeline.steps
     jobs = Jobs(args.local)

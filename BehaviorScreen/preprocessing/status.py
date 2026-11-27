@@ -215,3 +215,16 @@ def folders_status(folders: List[Path], v: Dict[str, str], top: Path) -> pd.Data
     rows = {str(f.relative_to(top)) if f != top else f.name: {(name, k): n for name, tab in zip(names, TABS) for k, n in counts(tab, f, v).items()} for f in folders}
     table = pd.DataFrame.from_dict(rows, orient="index").reindex(columns=pd.MultiIndex.from_product([names, [*STATES, "total"]]))
     return table.dropna(axis=1, how="all").astype("Int64").rename_axis("folder")
+
+
+def render(table: pd.DataFrame) -> str:
+    """The table as text, each step's columns a block under its centered name, blocks separated by bars."""
+    folders = ["", table.index.name, *table.index]
+    width = max(map(len, folders))
+    blocks = [[f.ljust(width) for f in folders]]
+    for step in table.columns.unique(0):
+        columns = [[name, *map(str, table[step][name])] for name in table[step]]
+        lines = [" ".join(cell.rjust(max(map(len, column))) for cell, column in zip(row, columns)) for row in zip(*columns)]
+        block = max(len(lines[0]), len(step))
+        blocks.append([step.center(block)] + [line.rjust(block) for line in lines])
+    return "\n".join(" │ ".join(parts) for parts in zip(*blocks))
