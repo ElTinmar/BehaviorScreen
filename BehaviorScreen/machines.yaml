@@ -1,7 +1,7 @@
 # Where things are on each machine (the key matches the start of the host name: `hostname`).
 # data_root: folder of the merged tables (bouts_all.csv, ...). slurm: submit jobs to Slurm (logs: their log folder);
 # otherwise they run one after another here, with `workers` processes each (default: every core).
-raven01:
+raven:
   data_root: /ptmp/mapri
   slurm: true
   logs: /u/mapri/logs
