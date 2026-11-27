@@ -51,5 +51,6 @@ def test_count_bins_widen_for_busy_behaviors() -> None:
     from BehaviorScreen.screen.line_tests.tier1_omnibus import count_bins, count_labels, count_shares
     busy = SimpleNamespace(stream_event_counts=np.arange(60))
     width, k = count_bins(busy)
-    assert width == 6 and k == 10 and count_labels(width, k)[:2] == ["0–5", "6–11"] and count_labels(width, k)[-1] == "60+"
+    assert width == 6 and k == 10 and count_labels(width, k)[:3] == ["0", "1–6", "7–12"] and count_labels(width, k)[-1] == "55+"
+    assert count_shares(busy, width, k)[:2].tolist() == [1 / 60, 6 / 60] and count_labels(1, 4) == ["0", "1", "2", "3", "4+"]
     assert np.isclose(count_shares(busy, width, k).sum(), 1) and count_bins(SimpleNamespace(stream_event_counts=np.array([0, 1, 3])))[0] == 1

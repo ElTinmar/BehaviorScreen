@@ -889,7 +889,7 @@ def fish_rates(events: PointProcessDataset) -> np.ndarray:
 
 
 def count_bins(*events: PointProcessDataset) -> Tuple[int, int]:
-    """(width, k): at most 10 bins of `width` events up to the datasets' pooled 99th percentile, then a bin of k * width or more."""
+    """(width, k): 0 events, then bins of `width` events up to the datasets' pooled 99th percentile, the k-th open-ended."""
     top = max(1.0, float(np.quantile(np.concatenate([e.stream_event_counts for e in events]), 0.99)))
     width = math.ceil(top / 10)
     return width, math.ceil(top / width)
@@ -897,11 +897,12 @@ def count_bins(*events: PointProcessDataset) -> Tuple[int, int]:
 
 def count_shares(events: PointProcessDataset, width: int, k: int) -> np.ndarray:
     """Share of the (fish, trial) streams in each count bin (count_bins)."""
-    return np.bincount(np.minimum(events.stream_event_counts // width, k), minlength=k + 1) / len(events.stream_event_counts)
+    bins = np.minimum(-(-events.stream_event_counts // width), k)
+    return np.bincount(bins, minlength=k + 1) / len(bins)
 
 
 def count_labels(width: int, k: int) -> List[str]:
-    return [str(j * width) if width == 1 else f"{j * width}–{(j + 1) * width - 1}" for j in range(k)] + [f"{k * width}+"]
+    return ["0", *(str(j) if width == 1 else f"{(j - 1) * width + 1}–{j * width}" for j in range(1, k)), f"{(k - 1) * width + 1}+"]
 
 
 def ipsi_fractions(events: PointProcessDataset) -> np.ndarray:
