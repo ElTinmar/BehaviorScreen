@@ -7,7 +7,7 @@ import pandas as pd
 import pytest
 
 from BehaviorScreen.screen.line_tests.dataset_utils import Arms, mutant_contrast, ntr_contrast
-from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture, pinned_amplitudes
+from BehaviorScreen.screen.line_tests.tier1_config import PinnedArchitecture
 from BehaviorScreen.screen.control_models.model_config import get_model_config
 from BehaviorScreen.screen.control_models.model_config import gamma, poisson
 from BehaviorScreen.point_process.dataset import PointProcessDataset
@@ -100,7 +100,8 @@ def test_refits_are_saved_and_reused_while_the_control_fit_is_the_same(tmp_path:
 
 
 @pytest.mark.parametrize("experiment", ["looming", "dark_flash", "looming_divergent_saccade"])
-def test_the_baseline_is_pinned_beside_a_hazard_bump_only(experiment: str) -> None:
-    """Without the bump, as in the constant hazard of each escape ladder's first rung, B is the hazard: tested."""
-    models = get_model_config()[experiment]["models"]
-    assert pinned_amplitudes(experiment, models[0]) == [] and pinned_amplitudes(experiment, models[-1]) == ["B"]
+def test_an_escape_arm_fits_its_own_baseline_beside_the_hazard_bump(experiment: str) -> None:
+    """A pinned baseline would make the arm's escape probability, and H, follow the controls' baseline instead of its own."""
+    model = get_model_config()[experiment]["models"][-1]
+    model.set_params(np.array(model.initial_guesses, float))
+    assert {"B", "H"} <= set(PinnedArchitecture(model)().param_names)

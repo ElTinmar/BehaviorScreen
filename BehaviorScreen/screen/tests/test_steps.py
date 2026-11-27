@@ -1,11 +1,14 @@
 """A step after the cells is reused while it is newer than the cells and the steps it reads."""
+import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
 
 from BehaviorScreen.screen.line_tests import steps
+from BehaviorScreen.screen.line_tests.tier1_omnibus import cells_current
 
 
 def test_steps_are_reused_until_their_inputs_change(tmp_path: Path) -> None:
@@ -29,3 +32,13 @@ def test_steps_are_reused_until_their_inputs_change(tmp_path: Path) -> None:
     assert not steps.saved(tmp_path, "okr", "bootstrap_parameter_deltas") and steps.saved(tmp_path, "okr", "tier2_results")
     os.utime(cell, (4, 4))  # a cell recomputed after every step
     assert not any(steps.saved(tmp_path, "okr", step) for step in steps.STEPS)
+
+
+def test_cells_run_with_other_pins_are_not_current(tmp_path: Path) -> None:
+    """A behavior whose pinned values changed is rerun, even with every step saved after its cells."""
+    architecture = SimpleNamespace(template=SimpleNamespace(name="m"), fixed={"mu": 5.0})
+    assert not cells_current(tmp_path, architecture)
+    (tmp_path / "key.json").write_text(json.dumps({"model": "m", "fixed": {"mu": 5.0, "B": 0.02}, "n_perm": 999}))
+    assert not cells_current(tmp_path, architecture)
+    (tmp_path / "key.json").write_text(json.dumps({"model": "m", "fixed": {"mu": 5.0}, "n_perm": 999}))
+    assert cells_current(tmp_path, architecture)

@@ -5,7 +5,7 @@ fit refitted without its own arms (Arms.architecture), which keeps the permutati
 """
 import copy
 from pathlib import Path
-from typing import Dict, List, Sequence
+from typing import Dict
 
 import numpy as np
 
@@ -18,10 +18,6 @@ from BehaviorScreen.point_process.point_process import PointProcess
 from BehaviorScreen.point_process.renewal_process import RenewalProcess
 from BehaviorScreen.point_process.sided_process import SidedRenewalProcess
 from BehaviorScreen.point_process.wrappers import PartiallyFixedProcess
-
-# Baselines also pinned to the control fit beside an escape hazard bump (H): they are near zero (about
-# one event a minute), so their per-arm log ratios are noise. Without a bump, B is the hazard itself and stays free.
-PINNED_AMPLITUDES = {name: ["B"] for name in ("looming", "looming_divergent_saccade", "dark_flash")}
 
 # Map column labels (stimulus · events): spontaneous activity first, then protocol order with responses to one stimulus side by side
 cats = "+".join
@@ -42,20 +38,19 @@ MAP_COLUMNS = {
     "after_looming": "looming break · all bouts",
 }
 
-# Fitted per arm: sustained rate, transient amplitude, escape hazard bump and the directionality
-# of sided models; PINNED_AMPLITUDES pins some of them per experiment.
+# Fitted per arm: sustained rate, transient amplitude, escape hazard bump and the directionality of sided models.
 AMPLITUDE_PARAMETERS = ("B", "A", "A_peak", "H", "D")
 
 
 class PinnedArchitecture:
-    """Factory of fresh, unfitted copies of a fitted model with every non-amplitude parameter, and `pinned`, fixed."""
+    """Factory of fresh, unfitted copies of a fitted model with every non-amplitude parameter fixed."""
 
-    def __init__(self, fitted: PointProcess, pinned: Sequence[str] = ()) -> None:
-        self.fitted, self.pinned = copy.deepcopy(fitted), tuple(pinned)
+    def __init__(self, fitted: PointProcess) -> None:
+        self.fitted = copy.deepcopy(fitted)
         self.template = copy.deepcopy(fitted)
         self.template.initial_guesses = [float(v) for v in fitted.params_]  # free amplitudes start at the control fit
         self.template.params_, self.template.param_dict_, self.template.fit_result = None, {}, None
-        self.fixed = {n: float(v) for n, v in zip(fitted.param_names, fitted.params_) if n not in AMPLITUDE_PARAMETERS or n in pinned}
+        self.fixed = {n: float(v) for n, v in zip(fitted.param_names, fitted.params_) if n not in AMPLITUDE_PARAMETERS}
 
     def __call__(self) -> PartiallyFixedProcess:
         return PartiallyFixedProcess(copy.deepcopy(self.template), self.fixed)
@@ -97,23 +92,17 @@ def variant_model(config: dict, model_dir: Path, variant: str) -> PointProcess:
     return model
 
 
-def pinned_amplitudes(experiment: str, model: PointProcess) -> List[str]:
-    """The amplitudes of PINNED_AMPLITUDES[experiment] that model has, if it also has the hazard bump H."""
-    amplitudes = [p for p in model.param_names if p in AMPLITUDE_PARAMETERS]
-    return [p for p in PINNED_AMPLITUDES.get(experiment, ()) if p in amplitudes] if "H" in amplitudes else []
-
-
 def tier1_behaviors(fits_root: Path, variant: str = "best") -> Dict[str, dict]:
     """
     {experiment: {"events", "dataset", "architecture", "null", "model_name", "free"}}
     for each experiment of MAP_COLUMNS: its model of `variant`, pinned to the `fit` run of that
-    experiment (fits_root / experiment / models), and its pinned_amplitudes too.
+    experiment (fits_root / experiment / models).
     """
     config = get_model_config()
     behaviors = {}
     for name in MAP_COLUMNS:
         model = variant_model(config[name], fits_root / name / "models", variant)
-        architecture = PinnedArchitecture(model, pinned_amplitudes(name, model))
+        architecture = PinnedArchitecture(model)
         behaviors[name] = {
             "events": config[name]["events"],
             "dataset": config[name]["dataset"],

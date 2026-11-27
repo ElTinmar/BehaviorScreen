@@ -22,6 +22,7 @@ from BehaviorScreen.point_process.io import save_fig
 from BehaviorScreen.point_process.parallel import limit_workers
 from BehaviorScreen.screen.line_tests.tier1_omnibus import (
     run_tier1_screen,
+    cells_current,
     fit_tier1,
     extract_fitted_parameters,
     compute_parameter_deltas,
@@ -42,7 +43,7 @@ from BehaviorScreen.screen.line_tests.steps import finished, read_table, run_ste
 from BehaviorScreen.screen.line_tests.gain_structure import GainStructure, calibrate, fish_groups
 from BehaviorScreen.screen.line_tests.parameter_tests import run_parameter_tests
 # Model-free counterpart of this run (map, absolute values per arm): python -m BehaviorScreen.screen.line_tests.count_readouts
-from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS
+from BehaviorScreen.screen.line_tests.tier1_config import MAP_COLUMNS, tier1_behaviors
 from BehaviorScreen.screen.line_tests.tier2_interaction import plot_tier2_map, run_tier2_screen
 from BehaviorScreen.screen.paths import CONTROL_FITS, LINE_TEST_TABLES, VARIANTS, add_data_root, data_root, line_tests_dir
 
@@ -160,7 +161,8 @@ def main() -> None:
     if args.n_jobs:
         limit_workers(args.n_jobs)
     args.output_dir = args.output_dir or line_tests_dir(args.model)
-    if args.behavior and not args.combine and finished(args.output_dir, args.behavior, merged_only=False):
+    if args.behavior and not args.combine and finished(args.output_dir, args.behavior, merged_only=False) and cells_current(
+            args.output_dir / "cells" / args.behavior, tier1_behaviors(args.fits_root, args.model)[args.behavior]["architecture"]):
         print(f"{args.behavior}: every step already saved in {args.output_dir}, nothing to run.")
         return
     screen = load_screen(data_root(args.data_root), args.fits_root, args.model)

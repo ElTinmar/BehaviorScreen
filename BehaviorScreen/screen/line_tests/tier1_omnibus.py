@@ -38,6 +38,7 @@ from .arm_contrast import output_metric
 from .fdr import ALPHA
 from .model_qc import MIN_FISH, assess_group_fit
 from .steps import cells_in, read_cell, write_cell
+from .tier1_config import PinnedArchitecture
 from .tier1_browser import write_browser
 from BehaviorScreen.screen.line_names import line_name
 from BehaviorScreen.screen.paths import line_tests_dir
@@ -321,6 +322,17 @@ def save_cell(store: Path, record: Dict) -> None:
     write_cell(cell_path(store, record["line"], record["behavior"]), record)
 
 
+def cell_key(architecture: PinnedArchitecture) -> Dict:
+    """What a behavior's saved cells depend on besides their settings: its model and the values pinned."""
+    return {"model": architecture.template.name, "fixed": architecture.fixed}
+
+
+def cells_current(folder: Path, architecture: PinnedArchitecture) -> bool:
+    """Whether the cells in folder were run with architecture (key.json): else the next run replaces them."""
+    path = folder / "key.json"
+    return path.exists() and {k: json.loads(path.read_text()).get(k) for k in ("model", "fixed")} == cell_key(architecture)
+
+
 def saved_cells(folder: Path, key: Dict) -> List[Dict]:
     """The cells in folder run with this key; any run with another (model or control fit) are deleted."""
     folder.mkdir(parents=True, exist_ok=True)
@@ -385,7 +397,7 @@ def run_tier1_screen(
     done = {}
     for behavior in behaviors if store is not None else []:
         architecture = arms.process_factories[behavior]
-        key = {"model": architecture.template.name, "fixed": architecture.fixed, "n_perm": n_perm, "pinning": "control without the contrast's arms",
+        key = {**cell_key(architecture), "n_perm": n_perm, "pinning": "control without the contrast's arms",
                "permutation": "NTR arms: days recorded in both, fish shuffled within day",
                "structure": None if not structures else [structures[behavior].line, structures[behavior].day, structures[behavior].plate, n_sim]}
         refuse_other_settings(store / behavior, key)

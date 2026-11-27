@@ -139,7 +139,7 @@ class Arms:
                 if path is not None:
                     path.parent.mkdir(parents=True, exist_ok=True)
                     path.write_text(json.dumps({"key": key, "params": [float(v) for v in refit.params_]}))
-            self._architectures[behavior, exclude] = PinnedArchitecture(refit, control.pinned)
+            self._architectures[behavior, exclude] = PinnedArchitecture(refit)
         return self._architectures[behavior, exclude]
 
     def contrast_arms(self, contrast: str) -> FrozenSet[Arm]:
