@@ -197,16 +197,21 @@ def tab_status(tab: str, root: Path, v: Dict[str, str]) -> Tuple[pd.DataFrame, p
     return table, files
 
 
-def summary(tab: str, root: Path, v: Dict[str, str]) -> str:
-    """'4 done, 6 ready, 2 waiting': a tab's recordings per state (those with some); for heatmaps, its output files present."""
+STATES = ["ready", "waiting", "done"]
+
+
+def counts(tab: str, root: Path, v: Dict[str, str]) -> Dict[str, int]:
+    """A tab's recordings per state and in total; for heatmaps, its output files (done: present)."""
     table, files = tab_status(tab, root, v)
     if tab == "Heatmaps":
         outputs = files[files["role"] == "output"]
-        return f"{outputs['present'].sum()}/{len(outputs)} files"
-    counts = table["state"].value_counts()
-    return ", ".join(f"{counts[s]} {s}" for s in ("done", "ready", "waiting") if s in counts) or "-"
+        return {"done": outputs["present"].sum(), "total": len(outputs)}
+    return {**table["state"].value_counts().reindex(STATES, fill_value=0).to_dict(), "total": len(table)}
 
 
 def folders_status(folders: List[Path], v: Dict[str, str], top: Path) -> pd.DataFrame:
-    """One row per <line>/<condition> folder (named relative to `top`), one column per tab."""
-    return pd.DataFrame([{"folder": str(f.relative_to(top)) if f != top else f.name, **{tab: summary(tab, f, v) for tab in TABS}} for f in folders])
+    """One row per <line>/<condition> folder (named relative to `top`); columns (tab, state or total)."""
+    names = [{"Pose estimation": "Pose", "Quality control": "QC"}.get(tab, tab) for tab in TABS]
+    rows = {str(f.relative_to(top)) if f != top else f.name: {(name, k): n for name, tab in zip(names, TABS) for k, n in counts(tab, f, v).items()} for f in folders}
+    table = pd.DataFrame.from_dict(rows, orient="index").reindex(columns=pd.MultiIndex.from_product([names, [*STATES, "total"]]))
+    return table.dropna(axis=1, how="all").astype("Int64").rename_axis("folder")

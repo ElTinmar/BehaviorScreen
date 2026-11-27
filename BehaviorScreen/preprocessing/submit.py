@@ -34,7 +34,7 @@ def main() -> None:
         raise SystemExit(f"no folder with data/ or results/ in it at or below {path}")
     pipeline = build_parser().parse_args([str(path), *options])
     if args.status:
-        print(folders_status(folders, vars(pipeline), path).to_string(index=False))
+        print(folders_status(folders, vars(pipeline), path).to_string())
         return
     steps = pipeline.steps
     jobs = Jobs(args.local)
