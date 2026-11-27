@@ -31,7 +31,7 @@ def test_the_predictive_range_holds_data_simulated_from_the_model() -> None:
     model.fit_result = object()
     pred = predictive(model, data, sides=[None])
     inside = lambda value, band: np.mean((band[0] <= value) & (value <= band[1]))
-    assert inside(np.sort(fish_rates(data)), pred["fish"]) > 0.8 and inside(count_shares(data, pred["k"]), pred["counts"]) > 0.8
+    assert inside(np.sort(fish_rates(data)), pred["fish"]) > 0.8 and inside(count_shares(data, *pred["bins"]), pred["counts"]) > 0.8
     assert inside(np.mean(data.time_trial_histogram_hz, axis=1), pred[None]["trial"]) > 0.6
 
 
@@ -44,3 +44,12 @@ def test_a_cell_summary_gives_the_test_and_each_parameter() -> None:
                         pd.DataFrame({"parameter": ["H", "D"], "significant": [True, False]}))
     assert text.startswith("p = 0.002, q = 0.013 (significant)")
     assert "escape (H *): 1.6 ± 0.3 → 0.001, Δ = -3.00 SD" in text and "direction (D): 0.8 ± 0.1 → 0.9 ± 0.12" in text
+
+
+def test_count_bins_widen_for_busy_behaviors() -> None:
+    from types import SimpleNamespace
+    from BehaviorScreen.screen.line_tests.tier1_omnibus import count_bins, count_labels, count_shares
+    busy = SimpleNamespace(stream_event_counts=np.arange(60))
+    width, k = count_bins(busy)
+    assert width == 6 and k == 10 and count_labels(width, k)[:2] == ["0–5", "6–11"] and count_labels(width, k)[-1] == "60+"
+    assert np.isclose(count_shares(busy, width, k).sum(), 1) and count_bins(SimpleNamespace(stream_event_counts=np.array([0, 1, 3])))[0] == 1

@@ -21,6 +21,7 @@ import pandas as pd
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.ticker import MaxNLocator
 from scipy.cluster.hierarchy import dendrogram as tree_layout, leaves_list, linkage
 
 from BehaviorScreen.point_process.point_process import PointProcess
@@ -887,10 +888,20 @@ def fish_rates(events: PointProcessDataset) -> np.ndarray:
     return counts[trials > 0] / trials[trials > 0]
 
 
-def count_shares(events: PointProcessDataset, k: int) -> np.ndarray:
-    """Share of the (fish, trial) streams with 0, 1, ..., k - 1 and k or more events."""
-    counts = events.stream_event_counts
-    return np.r_[[np.mean(counts == j) for j in range(k)], np.mean(counts >= k)]
+def count_bins(events: PointProcessDataset) -> Tuple[int, int]:
+    """(width, k): at most 10 bins of `width` events up to the data's 99th percentile, then a bin of k * width or more."""
+    top = max(1.0, float(np.quantile(events.stream_event_counts, 0.99)))
+    width = math.ceil(top / 10)
+    return width, math.ceil(top / width)
+
+
+def count_shares(events: PointProcessDataset, width: int, k: int) -> np.ndarray:
+    """Share of the (fish, trial) streams in each count bin (count_bins)."""
+    return np.bincount(np.minimum(events.stream_event_counts // width, k), minlength=k + 1) / len(events.stream_event_counts)
+
+
+def count_labels(width: int, k: int) -> List[str]:
+    return [str(j * width) if width == 1 else f"{j * width}–{(j + 1) * width - 1}" for j in range(k)] + [f"{k * width}+"]
 
 
 def ipsi_fractions(events: PointProcessDataset) -> np.ndarray:
@@ -908,6 +919,7 @@ def plot_side_check(ax: plt.Axes, dataset: PointProcessDataset, model: PointProc
     ax.fill_between(ranks, *pred["ipsi"], color="crimson", alpha=0.15, lw=0, label="model, 95% range")
     ax.plot(ranks, fractions, "o", color="black", ms=3, label="observed")
     ax.set(xlabel=f"fish with {what}, sorted", ylabel=f"share of ipsi {what}", ylim=(0, 1))
+    ax.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax.set_title("Side preference per fish", fontsize=9)
 
 
@@ -926,14 +938,13 @@ def predictive(model: PointProcess, dataset: PointProcessDataset, sides: Sequenc
     """
     The model's predictive 95% ranges on dataset's design (its fish, trials and hours), from PREDICTIVE_SIMS simulated
     datasets, of what the grids show of the events it describes: per side (None: all events) the time and trial marginals;
-    each fish's events per trial, sorted; the share of trials with 0, 1, ... k or more events ("k": the data's 99th
-    percentile, 1 to 10).
+    each fish's events per trial, sorted; the share of trials in each count bin (count_bins, from the data).
     """
     rng = np.random.default_rng(0)
     sims = [model.described(model.simulate_dataset(dataset, rng)) for _ in range(PREDICTIVE_SIMS)]
     band = lambda values: np.nanpercentile(np.array(values), [2.5, 97.5], axis=0)
-    k = int(np.clip(np.quantile(model.described(dataset).stream_event_counts, 0.99), 1, 10))
-    result = {"k": k, "fish": band([np.sort(fish_rates(s)) for s in sims]), "counts": band([count_shares(s, k) for s in sims])}
+    bins = count_bins(model.described(dataset))
+    result = {"bins": bins, "fish": band([np.sort(fish_rates(s)) for s in sims]), "counts": band([count_shares(s, *bins) for s in sims])}
     if sided_base(model) is not None:
         observed = ipsi_fractions(model.described(dataset))
         positions = (np.arange(len(observed)) + 0.5) / max(len(observed), 1)
@@ -952,13 +963,14 @@ def plot_count_checks(ax_fish: plt.Axes, ax_counts: plt.Axes, dataset: PointProc
     ax_fish.fill_between(ranks, *pred["fish"], color="crimson", alpha=0.15, lw=0, label="model, 95% range")
     ax_fish.plot(ranks, fish, "o", color="black", ms=3, label="observed")
     ax_fish.set(xlabel="fish, sorted", ylabel=f"{what} per trial", ylim=(0, None))
+    ax_fish.xaxis.set_major_locator(MaxNLocator(integer=True))
     ax_fish.set_title(f"{what.capitalize()} per fish", fontsize=9)
     ax_fish.legend(fontsize=6, frameon=False, loc="upper left")
-    bins = np.arange(pred["k"] + 1)
-    ax_counts.vlines(bins, *pred["counts"], color="crimson", alpha=0.35, lw=8)
-    ax_counts.plot(bins, count_shares(events, pred["k"]), "o", color="black", ms=4)
-    ax_counts.set_xticks(bins, [str(b) for b in bins[:-1]] + [f"{bins[-1]}+"])
-    ax_counts.set(xlabel=f"{what} in a trial", ylabel="share of trials", ylim=(0, 1), xlim=(-0.6, pred["k"] + 0.6))
+    x = np.arange(pred["bins"][1] + 1)
+    ax_counts.vlines(x, *pred["counts"], color="crimson", alpha=0.35, lw=8)
+    ax_counts.plot(x, count_shares(events, *pred["bins"]), "o", color="black", ms=4)
+    ax_counts.set_xticks(x, count_labels(*pred["bins"]), rotation=45 if pred["bins"][0] > 1 else 0)
+    ax_counts.set(xlabel=f"{what} in a trial", ylabel="share of trials", ylim=(0, 1), xlim=(-0.6, x[-1] + 0.6))
     ax_counts.set_title(f"{what.capitalize()} per trial", fontsize=9)
 
 
@@ -981,7 +993,7 @@ def plot_arm_surface_grid_with_marginals(
     trial_max = max(1e-9, *(np.nanmax(np.r_[trm, preds[label][None]["trial"][1]]) for label, pair in marginals.items() for _, trm in pair))
 
     fig = plt.figure(figsize=figsize)
-    gs = fig.add_gridspec(6, 3, width_ratios=[4, 4, 1.3], height_ratios=[1, 4, 1.8] * 2, wspace=0.15, hspace=0.5,
+    gs = fig.add_gridspec(6, 3, width_ratios=[4, 4, 1.3], height_ratios=[1, 4, 1.8] * 2, wspace=0.25, hspace=0.5,
                           left=0.07, right=0.86, top=0.92, bottom=0.05)
     for block, (label, (ds, m)) in enumerate(arms.items()):
         row, (t_edges, emp, model), pred = 3 * block, shown[label], preds[label][None]
@@ -995,11 +1007,12 @@ def plot_arm_surface_grid_with_marginals(
         ax_time.set_title(label, fontsize=11, fontweight="bold", loc="left")
         ax_time.set_ylabel(rate_label(m), fontsize=7)
         if block == 0:
-            ax_time.legend(loc="upper right", fontsize=7, frameon=False)
+            ax_time.legend(loc="lower right", bbox_to_anchor=(1, 1), ncol=3, fontsize=7, frameon=False)
         for col, (surface, name) in enumerate(((emp, "Empirical"), (model, "Model"))):
             ax = fig.add_subplot(gs[row + 1, col])
             mesh = ax.pcolormesh(t_edges, ds.trial_edges, surface, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
             ax.set_xlabel("Time in trial (s)", fontsize=8)
+            ax.yaxis.set_major_locator(MaxNLocator(integer=True))
             if block == 0:
                 ax.set_title(name, fontsize=9)
             if col:
@@ -1063,12 +1076,13 @@ def plot_sided_arm_surface_grid(
             if col == 0:
                 ax_time.set_ylabel(rate_label(m), fontsize=7)
             if block == 0 and col == 0:
-                ax_time.legend(loc="upper right", fontsize=7, frameon=False)
+                ax_time.legend(loc="lower right", bbox_to_anchor=(1, 1), ncol=3, fontsize=7, frameon=False)
             for offset, (surface, label) in enumerate(((emp, "Empirical"), (model, "Model"))):
                 ax = fig.add_subplot(gs[row + 1, col + offset])
                 mesh = ax.pcolormesh(t_edges, ds.trial_edges, surface, shading="flat", cmap=cmap, vmin=0.0, vmax=vmax)
                 ax.set_title(label, fontsize=9)
                 ax.set_xlabel("Time in trial (s)", fontsize=8)
+                ax.yaxis.set_major_locator(MaxNLocator(integer=True))
                 if col + offset:
                     plt.setp(ax.get_yticklabels(), visible=False)
                 else:
@@ -1080,8 +1094,10 @@ def plot_sided_arm_surface_grid(
         ax_trial.set(xlim=(0, trial_max * 1.05), ylim=(-0.5, ds.num_trials - 0.5), xlabel=f"{rate_label(m)},\nmean over the trial")
         plt.setp(ax_trial.get_yticklabels(), visible=False)
         if block == 0:
-            ax_trial.legend(fontsize=6, frameon=False, loc="lower right")
-        plot_time_and_trial_calibration(fig.add_subplot(gs[row + 2, 0:2]), fig.add_subplot(gs[row + 2, 2:4]), ds, m)
+            ax_trial.legend(fontsize=7, frameon=False, loc="lower center", bbox_to_anchor=(0.5, 1.02))
+        ax_by_trial = fig.add_subplot(gs[row + 2, 2:4])
+        plot_time_and_trial_calibration(fig.add_subplot(gs[row + 2, 0:2]), ax_by_trial, ds, m)
+        ax_by_trial.xaxis.set_major_locator(MaxNLocator(integer=True))
         plot_count_checks(fig.add_subplot(gs[row + 3, 0:2]), fig.add_subplot(gs[row + 3, 2]), ds, m, preds[arm])
         plot_side_check(fig.add_subplot(gs[row + 3, 3:5]), ds, m, preds[arm])
     for ax in fig.axes:
