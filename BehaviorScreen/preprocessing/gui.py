@@ -30,13 +30,9 @@ from qtpy.QtWidgets import (
 from BehaviorScreen.preprocessing.__main__ import STEPS
 from BehaviorScreen.preprocessing.__main__ import build_parser as pipeline_parser
 from BehaviorScreen.preprocessing.overlay import build_parser as overlay_parser
-from BehaviorScreen.preprocessing.status import tab_status
+from BehaviorScreen.preprocessing.status import TABS, tab_status
 
 Value = Union[str, bool]
-TABS = {
-    "Export": ["export"], "Pose estimation": ["pose", "eye_crop", "eye_pose"], "Quality control": ["qc"],
-    "Bouts": ["bouts"], "Saccades": ["saccades"], "Heatmaps": ["heatmaps"],
-}
 DOWNLOADS = {"full_model_dir": "full", "eyes_model_dir": "eyes", "saccade_model": "saccades"}  # model folders and their download_model name; unpacked here
 # What each tab writes; its other paths are inputs, its flags and numbers options.
 OUTPUTS = {

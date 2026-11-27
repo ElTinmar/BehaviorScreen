@@ -25,6 +25,10 @@ from BehaviorScreen.preprocessing.load import (
     video_filename_regexp, video_timestamps_filename_regexp,
 )
 
+TABS = {
+    "Export": ["export"], "Pose estimation": ["pose", "eye_crop", "eye_pose"], "Quality control": ["qc"],
+    "Bouts": ["bouts"], "Saccades": ["saccades"], "Heatmaps": ["heatmaps"],
+}
 SACCADES_CSV = "saccades_augmented.csv"  # written by the saccade step (saccades.run_analysis)
 Check = Callable[[str], object]
 # Raw files of a recording, exported per animal: option of their folder, file name pattern, exported suffix, --no-* flag
@@ -191,3 +195,20 @@ def tab_status(tab: str, root: Path, v: Dict[str, str]) -> Tuple[pd.DataFrame, p
         columns=["role", "file", "present", "modified"],
     )
     return table, files
+
+
+def summary(tab: str, root: Path, v: Dict[str, str]) -> str:
+    """'10/12 (2 waiting)': recordings done of a tab's recordings; for a tab without (heatmaps), its output files present."""
+    table, files = tab_status(tab, root, v)
+    if tab == "Heatmaps":
+        outputs = files[files["role"] == "output"]
+        return f"{outputs['present'].sum()}/{len(outputs)} files"
+    if table.empty:
+        return "-"
+    waiting = (table["state"] == "waiting").sum()
+    return f"{(table['state'] == 'done').sum()}/{len(table)}" + (f" ({waiting} waiting)" if waiting else "")
+
+
+def folders_status(folders: List[Path], v: Dict[str, str], top: Path) -> pd.DataFrame:
+    """One row per <line>/<condition> folder (named relative to `top`), one column per tab."""
+    return pd.DataFrame([{"folder": str(f.relative_to(top)) if f != top else f.name, **{tab: summary(tab, f, v) for tab in TABS}} for f in folders])
