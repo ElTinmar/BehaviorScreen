@@ -25,6 +25,8 @@ mafaa:NTR,gene driver,7834,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:NTR?,ath5:Cre[mpn
 mafaa:switchNTR,gene driver,7684,mpn408,,,,mafaa:QF2 (mpn408) + QUAS:switchNTR - carries ath5:Cre?,ath5:Cre[mpn221] / QUAS:switchNTR[mpn168] / mafaa:QF2[mpn408],
 Huc:Cre,gene driver,,mpn403,,,,elavl3:Cre,,?
 meis2b:Cre,gene driver,8164,,,,,,WT-TLN / QUAS:switchNTR[mpn168] / meis2b:Cre_CH,
+sox6:Cre,gene driver,,,,,,stock ID to add,,
+mafaa:QF2 + QUAS:switchNTR,gene driver,8047,mpn408 + mpn168,,,,crossed to meis2b:Cre (8164) on 29.10.2026,mafaa:QF2[mpn408] / QUAS:switchNTR[mpn168],
 mpn206 + UAS:NTR-mCherry,MPN line,8153,mpn206,,,,sperm,WT-TLN / UAS:Ntr-mCherry[c264Tg] / cxcr4b:Gal4[mpn206],
 mpn302 + Dendra,MPN line,8151,mpn302,,,,sperm,Gal4mpn302[mpn302] / WT-TLN / UAS:Kaede[s1999t] / UAS-E1b:NTR-mCherry c264Tg,
 mpn304,MPN line,8197,mpn304,,,,,Gal4mpn304[mpn304] / UAS:Kaede[s1999t] / UAS:Ntr-mCherry[c264Tg],

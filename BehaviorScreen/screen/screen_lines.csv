@@ -6,6 +6,7 @@ folder;short;parent_1;parent_2;confocal;notes
 242A;nk242AGt;gSAIzGFFM242A;81C;242A;
 AB;AB;AB;;;in-cross
 atf5b;atf5b:QF2;atf5b:NTR;TLN;atf5b / atf5b_trial2;
+bhlhe23;bhlhe23;;;bhlhe23;parents to add
 blu;blu^tc257z;blu;;;in-cross
 cart2;cart2:QF2;cart2:QF2;;cart2;cross not in the log
 ccka;ccka:QF2;ccka:NTR;TLN;cckaqf2;
@@ -13,10 +14,12 @@ chata;chata:Gal4;chata:Gal4;81C;chat;
 cort;cort:QF2;cort:NTR;TLN;cortqf2;
 drd2a;drd2a:Gal4;drd2a:Gal4;vglut2a + UAS:NTR;drd2a;
 gbx;gbx:QF2;gbx:QF2 + mpn1;QUAS:epNTR;gbx2;
+gbx2_y384_cre;gbx2b & y384:Cre;;;gbx2b x y384Cre;parents to add
 gfra;gfra;gfra:QF2;;gfra;no NTR in this cross: which was recorded?
 gr;gr;gr;;;in-cross
 id2b;id2b:Gal4;id2b:NTR;TLN;id2b;
 insm2;insm2 & ebf1b:Cre;mpn168 + insm2:QF2;mpn169 + mpn408 + ebf1b:Cre;insm2xebf1b;
+insm_y384_cre;insm2b & y384:Cre;;;insm2b x y384Cre;parents to add
 isl1;isl1;isl1:Gal4 + m1230;vglut2a + UAS:NTR;isl1b;
 itpr1b;itpr1b;itpr1b:NTR;TLN;itpr1b;
 lak;atoh7^th241;lak;;;in-cross
@@ -25,9 +28,11 @@ lhx9;lhx9;lhx9:NTR;TLN;lhx9;also Lhx9:NTR (7576) x TLN: pooled?
 mafaa;mafaa;mafaa:NTR;TLN;mafaaqf2;
 mafaa-switchNTR-ath5-Cre;mafaa & atoh7;mafaa:switchNTR;TLN;mafaa-switchNTR-ath5cre;ath5:Cre in 7684?
 mafaa-switchNTR-Huc-Cre;mafaa & elavl3;mafaa:switchNTR;Huc:Cre;mafaa-switchNTR-HuCcre;
+mafaa-meis2b-Cre;mafaa & meis2b;meis2b:Cre;mafaa:QF2 + QUAS:switchNTR;mafaa-meis2bcre;
+mafaa-sox6-Cre;mafaa & sox6;mafaa:switchNTR;sox6:Cre;mafaa-sox6cre;
 mecp2;mecp2^Q63*;mecp2;;;in-cross
 meis2b-cre-mafaa-switchNTR;mafaa & meis2b;mafaa:switchNTR;meis2b:Cre;;cross not in the log
-mpn206;mpn206;mpn206 + UAS:NTR-mCherry;TLN;mpn206;
+mpn206;mpn206;mpn206 + UAS:NTR-mCherry;TLN;mpn206 / cxcr;
 mpn302;mpn302;mpn302 + Dendra;vglut2a + UAS:NTR;mpn302;
 mpn304;mpn304;mpn304;;mpn304;partner not in the log
 mpn310;mpn310;mpn310 + Dendra;vglut2a + UAS:NTR;mpn310;
